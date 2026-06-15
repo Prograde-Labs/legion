@@ -150,7 +150,7 @@ export function compactRange(
     content: summaryContent,
     type: 'summary',
   });
-  (summary as MessageData & { compacts: string[] }).compacts = [...compactedIds];
+  summary.compacts = [...compactedIds];
 
   const messages: Record<string, MessageData> = { ...conversation.messages };
   messages[summary.id] = summary;
