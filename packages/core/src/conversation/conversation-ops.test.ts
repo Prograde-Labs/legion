@@ -1,4 +1,12 @@
-import { createConversation, appendMessage, getActiveChain, editMessage, pruneMessage, compactRange, validateConversation } from './conversation-ops.js';
+import {
+  createConversation,
+  appendMessage,
+  getActiveChain,
+  editMessage,
+  pruneMessage,
+  compactRange,
+  validateConversation,
+} from './conversation-ops.js';
 
 describe('conversation-ops: creation and active chain', () => {
   it('createConversation seeds an empty thread with no head', () => {
