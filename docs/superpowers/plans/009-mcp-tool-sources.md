@@ -14,29 +14,30 @@
 
 **New files — all under `packages/core/src/tools/`:**
 
-| File | Responsibility |
-|------|----------------|
-| `ToolSource.ts` | `ToolSource` interface |
-| `ToolSource.test.ts` | Type-shape tests |
-| `MCPToolSource.ts` | `MCPToolSource` implementation (both transports) |
-| `MCPToolSource.test.ts` | Unit tests (mock SDK) |
-| `loadMCPSources.ts` | `loadMCPSources()` utility |
-| `loadMCPSources.test.ts` | Unit tests |
+| File                                | Responsibility                                                 |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `ToolSource.ts`                     | `ToolSource` interface                                         |
+| `ToolSource.test.ts`                | Type-shape tests                                               |
+| `MCPToolSource.ts`                  | `MCPToolSource` implementation (both transports)               |
+| `MCPToolSource.test.ts`             | Unit tests (mock SDK)                                          |
+| `loadMCPSources.ts`                 | `loadMCPSources()` utility                                     |
+| `loadMCPSources.test.ts`            | Unit tests                                                     |
 | `MCPToolSource.integration.test.ts` | Integration test (real subprocess, `LEGION_MCP_INTEGRATION=1`) |
-| `fixtures/echo-mcp-server.mjs` | Minimal MCP stdio server fixture used by the integration test |
+| `fixtures/echo-mcp-server.mjs`      | Minimal MCP stdio server fixture used by the integration test  |
 
 **Amended files:**
 
-| File | Change |
-|------|--------|
+| File                           | Change                                                                |
+| ------------------------------ | --------------------------------------------------------------------- |
 | `packages/types/src/config.ts` | `MCPServerConfig`: make `command` optional, add `url?` and `headers?` |
-| `packages/core/src/index.ts` | Add `ToolSource`, `MCPToolSource`, `loadMCPSources` barrel exports |
+| `packages/core/src/index.ts`   | Add `ToolSource`, `MCPToolSource`, `loadMCPSources` barrel exports    |
 
 ---
 
 ## Task 1: Amend `MCPServerConfig` in `@legion/types`
 
 **Files:**
+
 - Amend: `packages/types/src/config.ts`
 
 > Spec §9 + §11. The original spec defines `command` as required. Adding `url?` and `headers?` for HTTP/SSE transport; making `command` optional so either transport can be used. Invariant: at least one of `command` or `url` must be provided — enforced at runtime by `MCPToolSource`, not at the type level.
@@ -96,6 +97,7 @@ git commit -m "types: extend MCPServerConfig with url/headers for HTTP/SSE trans
 ## Task 2: `ToolSource` interface
 
 **Files:**
+
 - Create: `packages/core/src/tools/ToolSource.ts`
 - Create: `packages/core/src/tools/ToolSource.test.ts`
 
@@ -217,6 +219,7 @@ git commit -m "core: add ToolSource interface (spec §9)"
 ## Task 3: `MCPToolSource` — transport, `load()`, and unit tests
 
 **Files:**
+
 - Create: `packages/core/src/tools/MCPToolSource.ts`
 - Create: `packages/core/src/tools/MCPToolSource.test.ts`
 
@@ -225,6 +228,7 @@ git commit -m "core: add ToolSource interface (spec §9)"
 ### Design notes
 
 **Transport selection:**
+
 - `config.url` present → `SSEClientTransport`
 - `config.command` present → `StdioClientTransport`
 - Neither → throw `ConfigError`
@@ -234,6 +238,7 @@ git commit -m "core: add ToolSource interface (spec §9)"
 **`env` interpolation:** Values matching `${VAR}` are replaced with `process.env.VAR ?? ''`. Applied only to `MCPServerConfig.env`; never to `headers` (those are already resolved values).
 
 **`execute()` result mapping:**
+
 - `callTool` response has `content` (array of content blocks) and optional `isError: true`.
 - If `isError` is truthy → `{ status: 'error', error: first text block or 'MCP tool error' }`.
 - Otherwise → `{ status: 'success', data: content }`.
@@ -484,9 +489,9 @@ describe('MCPToolSource — load() tool mapping', () => {
     };
     MockClient.mockImplementationOnce(() => ({
       connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi
-        .fn()
-        .mockResolvedValue({ tools: [{ name: 'search', description: 'web search', inputSchema: schema }] }),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{ name: 'search', description: 'web search', inputSchema: schema }],
+      }),
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
     }));
@@ -499,9 +504,9 @@ describe('MCPToolSource — load() tool mapping', () => {
   it('maps MCP tool description to Tool.description', async () => {
     MockClient.mockImplementationOnce(() => ({
       connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi
-        .fn()
-        .mockResolvedValue({ tools: [{ name: 'go', description: 'Fetch a URL', inputSchema: { type: 'object' } }] }),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{ name: 'go', description: 'Fetch a URL', inputSchema: { type: 'object' } }],
+      }),
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
     }));
@@ -533,9 +538,9 @@ describe('MCPToolSource — execute() result mapping', () => {
     mockCallTool = vi.fn();
     MockClient.mockImplementation(() => ({
       connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi
-        .fn()
-        .mockResolvedValue({ tools: [{ name: 'search', description: 'search', inputSchema: { type: 'object' } }] }),
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{ name: 'search', description: 'search', inputSchema: { type: 'object' } }],
+      }),
       callTool: mockCallTool,
       close: vi.fn().mockResolvedValue(undefined),
     }));
@@ -699,10 +704,7 @@ export class MCPToolSource implements ToolSource {
 
   async load(): Promise<Tool[]> {
     const transport = this.createTransport();
-    const client = new Client(
-      { name: 'legion', version: '2.0.0' },
-      { capabilities: {} },
-    );
+    const client = new Client({ name: 'legion', version: '2.0.0' }, { capabilities: {} });
     await client.connect(transport);
     this.client = client;
 
@@ -716,7 +718,9 @@ export class MCPToolSource implements ToolSource {
       const tool: Tool = {
         name: namespacedName,
         description: mcpTool.description ?? namespacedName,
-        parameters: (mcpTool.inputSchema ?? { type: 'object' }) as import('@legion/types').JSONSchema,
+        parameters: (mcpTool.inputSchema ?? {
+          type: 'object',
+        }) as import('@legion/types').JSONSchema,
         async execute(args: unknown, _context: ToolContext): Promise<ToolResult> {
           try {
             const response = (await client.callTool({
@@ -725,7 +729,8 @@ export class MCPToolSource implements ToolSource {
             })) as MCPCallToolResult;
 
             if (response.isError) {
-              const errorText = response.content.find((c) => c.type === 'text')?.text ?? 'MCP tool error';
+              const errorText =
+                response.content.find((c) => c.type === 'text')?.text ?? 'MCP tool error';
               return { status: 'error', error: errorText };
             }
 
@@ -758,7 +763,10 @@ export class MCPToolSource implements ToolSource {
 
     // Prefer HTTP/SSE when a URL is present (even if command is also set).
     if (config.url) {
-      return new SSEClientTransport(new URL(config.url), config.headers ? { headers: config.headers } : undefined);
+      return new SSEClientTransport(
+        new URL(config.url),
+        config.headers ? { headers: config.headers } : undefined,
+      );
     }
 
     // Stdio transport.
@@ -792,6 +800,7 @@ git commit -m "core: add MCPToolSource with stdio + HTTP/SSE transport (spec §9
 ## Task 4: `loadMCPSources()` utility
 
 **Files:**
+
 - Create: `packages/core/src/tools/loadMCPSources.ts`
 - Create: `packages/core/src/tools/loadMCPSources.test.ts`
 
@@ -857,10 +866,7 @@ function makeFakeTool(name: string): Tool {
   };
 }
 
-function makeServerConfig(
-  name: string,
-  tools: Tool[] = [],
-): MCPServerConfig & { _tools: Tool[] } {
+function makeServerConfig(name: string, tools: Tool[] = []): MCPServerConfig & { _tools: Tool[] } {
   return { name, command: `${name}-server`, _tools: tools } as MCPServerConfig & { _tools: Tool[] };
 }
 
@@ -929,7 +935,10 @@ describe('loadMCPSources', () => {
 
   it('throws ConflictError if two MCP servers expose a tool with the same namespaced name', async () => {
     const duplicateTool = makeFakeTool('mcp__clash__tool');
-    const configs = [makeServerConfig('server-a', [duplicateTool]), makeServerConfig('server-b', [duplicateTool])];
+    const configs = [
+      makeServerConfig('server-a', [duplicateTool]),
+      makeServerConfig('server-b', [duplicateTool]),
+    ];
     await expect(loadMCPSources(configs, registry)).rejects.toThrow(ConflictError);
   });
 });
@@ -1003,6 +1012,7 @@ git commit -m "core: add loadMCPSources() utility (spec §9)"
 ## Task 5: Integration test with fixture MCP server
 
 **Files:**
+
 - Create: `packages/core/src/tools/fixtures/echo-mcp-server.mjs`
 - Create: `packages/core/src/tools/MCPToolSource.integration.test.ts`
 
@@ -1012,10 +1022,10 @@ git commit -m "core: add loadMCPSources() utility (spec §9)"
 
 `echo-mcp-server.mjs` exposes two tools:
 
-| Tool | Input schema | Behaviour |
-|------|--------------|-----------|
-| `echo` | `{ message: string }` | Returns `{ type: 'text', text: <message> }` |
-| `add` | `{ a: number, b: number }` | Returns `{ type: 'text', text: String(a + b) }` |
+| Tool   | Input schema               | Behaviour                                       |
+| ------ | -------------------------- | ----------------------------------------------- |
+| `echo` | `{ message: string }`      | Returns `{ type: 'text', text: <message> }`     |
+| `add`  | `{ a: number, b: number }` | Returns `{ type: 'text', text: String(a + b) }` |
 
 - [ ] **Step 1: Write the fixture MCP server**
 
@@ -1039,55 +1049,49 @@ const server = new Server(
   },
 );
 
-server.setRequestHandler(
-  { method: 'tools/list' },
-  async () => ({
-    tools: [
-      {
-        name: 'echo',
-        description: 'Echoes the input message back.',
-        inputSchema: {
-          type: 'object',
-          properties: { message: { type: 'string', description: 'Message to echo' } },
-          required: ['message'],
-        },
+server.setRequestHandler({ method: 'tools/list' }, async () => ({
+  tools: [
+    {
+      name: 'echo',
+      description: 'Echoes the input message back.',
+      inputSchema: {
+        type: 'object',
+        properties: { message: { type: 'string', description: 'Message to echo' } },
+        required: ['message'],
       },
-      {
-        name: 'add',
-        description: 'Adds two numbers.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            a: { type: 'number', description: 'First operand' },
-            b: { type: 'number', description: 'Second operand' },
-          },
-          required: ['a', 'b'],
+    },
+    {
+      name: 'add',
+      description: 'Adds two numbers.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          a: { type: 'number', description: 'First operand' },
+          b: { type: 'number', description: 'Second operand' },
         },
+        required: ['a', 'b'],
       },
-    ],
-  }),
-);
+    },
+  ],
+}));
 
-server.setRequestHandler(
-  { method: 'tools/call' },
-  async (request) => {
-    const { name, arguments: args } = request.params;
+server.setRequestHandler({ method: 'tools/call' }, async (request) => {
+  const { name, arguments: args } = request.params;
 
-    if (name === 'echo') {
-      return { content: [{ type: 'text', text: String(args?.message ?? '') }], isError: false };
-    }
+  if (name === 'echo') {
+    return { content: [{ type: 'text', text: String(args?.message ?? '') }], isError: false };
+  }
 
-    if (name === 'add') {
-      const result = Number(args?.a ?? 0) + Number(args?.b ?? 0);
-      return { content: [{ type: 'text', text: String(result) }], isError: false };
-    }
+  if (name === 'add') {
+    const result = Number(args?.a ?? 0) + Number(args?.b ?? 0);
+    return { content: [{ type: 'text', text: String(result) }], isError: false };
+  }
 
-    return {
-      content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-      isError: true,
-    };
-  },
-);
+  return {
+    content: [{ type: 'text', text: `Unknown tool: ${name}` }],
+    isError: true,
+  };
+});
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
@@ -1243,6 +1247,7 @@ git commit -m "core: add MCPToolSource integration test with fixture stdio serve
 ## Task 6: Barrel exports + final checks
 
 **Files:**
+
 - Amend: `packages/core/src/index.ts`
 
 > Surface `ToolSource`, `MCPToolSource`, and `loadMCPSources` from the core package barrel so Plan 10 can import them without deep path references.
@@ -1312,10 +1317,7 @@ In Plan 10 (`LegionProcess`), startup step 7 from spec §8 is implemented as:
 
 ```typescript
 // After global tools are registered (step 6):
-const mcpSources = await loadMCPSources(
-  workspaceConfig.mcpServers ?? [],
-  toolRegistry,
-);
+const mcpSources = await loadMCPSources(workspaceConfig.mcpServers ?? [], toolRegistry);
 // Store mcpSources for graceful shutdown:
 // process.on('SIGTERM', async () => { for (const s of mcpSources) await s.unload?.(); })
 ```

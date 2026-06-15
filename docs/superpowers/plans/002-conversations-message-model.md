@@ -30,17 +30,14 @@ All exported from `packages/core/src/index.ts`.
 ## Task 1: getActiveChain + createConversation/createMessage
 
 **Files:**
+
 - Create: `packages/core/src/conversation/conversation-ops.ts`
 - Test: `packages/core/src/conversation/conversation-ops.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-import {
-  createConversation,
-  appendMessage,
-  getActiveChain,
-} from './conversation-ops.js';
+import { createConversation, appendMessage, getActiveChain } from './conversation-ops.js';
 
 describe('conversation-ops: creation and active chain', () => {
   it('createConversation seeds an empty thread with no head', () => {
@@ -75,7 +72,12 @@ describe('conversation-ops: creation and active chain', () => {
   it('getActiveChain returns messages root-first', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
-    conv = appendMessage(conv, { senderId: 'a', recipientId: 'u', role: 'assistant', content: 'two' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
     const chain = getActiveChain(conv);
     expect(chain.map((m) => m.content)).toEqual(['one', 'two']);
   });
@@ -107,9 +109,7 @@ export function createConversation(title?: string): ConversationData {
 }
 
 export type NewMessageInput = Pick<MessageData, 'senderId' | 'recipientId' | 'role' | 'content'> &
-  Partial<
-    Pick<MessageData, 'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id'>
-  >;
+  Partial<Pick<MessageData, 'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id'>>;
 
 export function createMessage(
   conversationId: string,
@@ -176,6 +176,7 @@ git commit -m "feat(core): add conversation creation and active-chain reconstruc
 ## Task 2: Edit + re-run operation
 
 **Files:**
+
 - Modify: `packages/core/src/conversation/conversation-ops.ts`
 - Test: `packages/core/src/conversation/conversation-ops.test.ts` (add cases)
 
@@ -275,6 +276,7 @@ git commit -m "feat(core): add edit + re-run conversation operation"
 ## Task 3: Manual prune operation
 
 **Files:**
+
 - Modify: `packages/core/src/conversation/conversation-ops.ts`
 - Test: `packages/core/src/conversation/conversation-ops.test.ts` (add cases)
 
@@ -288,7 +290,12 @@ describe('conversation-ops: prune', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
     const firstId = conv.activeBranchHead;
-    conv = appendMessage(conv, { senderId: 'a', recipientId: 'u', role: 'assistant', content: 'two' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
     const headId = conv.activeBranchHead;
 
     conv = pruneMessage(conv, headId, 'operator-1');
@@ -304,7 +311,12 @@ describe('conversation-ops: prune', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
     const midId = conv.activeBranchHead;
-    conv = appendMessage(conv, { senderId: 'a', recipientId: 'u', role: 'assistant', content: 'two' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
     // Prune the middle node; head stays at 'two' but chain cannot route through pruned parent.
     conv = pruneMessage(conv, midId, 'op');
     expect(getActiveChain(conv).map((m) => m.content)).toEqual([]);
@@ -376,7 +388,7 @@ export function getActiveChain(conversation: ConversationData): MessageData[] {
 }
 ```
 
-> The edit test from Task 2 still passes: after an edit the head points at the *active*
+> The edit test from Task 2 still passes: after an edit the head points at the _active_
 > edit node whose ancestors are all active; the superseded node is never an ancestor of
 > the head.
 
@@ -397,6 +409,7 @@ git commit -m "feat(core): add manual prune and pruned-ancestor chain handling"
 ## Task 4: Compaction operation
 
 **Files:**
+
 - Modify: `packages/core/src/conversation/conversation-ops.ts`
 - Test: `packages/core/src/conversation/conversation-ops.test.ts` (add cases)
 
@@ -410,7 +423,12 @@ describe('conversation-ops: compaction', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'm1' });
     const id1 = conv.activeBranchHead;
-    conv = appendMessage(conv, { senderId: 'a', recipientId: 'u', role: 'assistant', content: 'm2' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'm2',
+    });
     const id2 = conv.activeBranchHead;
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'm3' });
     const id3 = conv.activeBranchHead;
@@ -507,6 +525,7 @@ git commit -m "feat(core): add compaction operation"
 ## Task 5: Invariant validation
 
 **Files:**
+
 - Modify: `packages/core/src/conversation/conversation-ops.ts`
 - Test: `packages/core/src/conversation/conversation-ops.test.ts` (add cases)
 
@@ -522,7 +541,12 @@ describe('conversation-ops: invariants', () => {
   it('passes for a well-formed conversation', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
-    conv = appendMessage(conv, { senderId: 'a', recipientId: 'u', role: 'assistant', content: 'two' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
     expect(validateConversation(conv)).toEqual([]);
   });
 
@@ -638,6 +662,7 @@ git commit -m "feat(core): add conversation invariant validation"
 ## Task 6: ConversationStore interface + FileConversationStore
 
 **Files:**
+
 - Create: `packages/core/src/conversation/ConversationStore.ts`
 - Create: `packages/core/src/conversation/FileConversationStore.ts`
 - Test: `packages/core/src/conversation/FileConversationStore.test.ts`
@@ -655,9 +680,7 @@ import type {
 } from '@legion/types';
 
 export interface ConversationStore {
-  create(
-    data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>,
-  ): Promise<ConversationData>;
+  create(data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>): Promise<ConversationData>;
   load(conversationId: string): Promise<ConversationData | null>;
   save(data: ConversationData): Promise<void>;
   appendMessage(conversationId: string, message: MessageData): Promise<void>;
@@ -714,7 +737,11 @@ describe('FileConversationStore', () => {
   });
 
   it('appends a message and updates the head', async () => {
-    const created = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const created = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
     await store.appendMessage(created.id, {
       id: 'm1',
       parentId: null,
@@ -733,10 +760,21 @@ describe('FileConversationStore', () => {
   });
 
   it('patches a message in place', async () => {
-    const created = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const created = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
     await store.appendMessage(created.id, {
-      id: 'm1', parentId: null, conversationId: created.id, senderId: 'u', recipientId: 'a',
-      role: 'user', content: 'hi', status: 'active', timestamp: new Date().toISOString(),
+      id: 'm1',
+      parentId: null,
+      conversationId: created.id,
+      senderId: 'u',
+      recipientId: 'a',
+      role: 'user',
+      content: 'hi',
+      status: 'active',
+      timestamp: new Date().toISOString(),
     });
     await store.updateMessage(created.id, 'm1', { status: 'pruned', prunedBy: 'op' });
     const loaded = await store.load(created.id);
@@ -745,7 +783,12 @@ describe('FileConversationStore', () => {
   });
 
   it('lists conversation metadata', async () => {
-    const a = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, title: 'A' });
+    const a = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'A',
+    });
     await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, title: 'B' });
     const metas = await store.list();
     expect(metas.length).toBe(2);
@@ -885,6 +928,7 @@ git commit -m "feat(core): add ConversationStore interface and file backend"
 ## Task 7: ConversationThread wrapper
 
 **Files:**
+
 - Create: `packages/core/src/conversation/ConversationThread.ts`
 - Test: `packages/core/src/conversation/ConversationThread.test.ts`
 
@@ -935,7 +979,12 @@ describe('ConversationThread', () => {
     const data = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     const thread = new ConversationThread(data, store);
     expect(thread.id).toBe(data.id);
-    const msg = await thread.append({ senderId: 'u', recipientId: 'a', role: 'user', content: 'x' });
+    const msg = await thread.append({
+      senderId: 'u',
+      recipientId: 'a',
+      role: 'user',
+      content: 'x',
+    });
     expect(thread.latest?.id).toBe(msg.id);
   });
 });
@@ -970,9 +1019,7 @@ export class ConversationThread {
   }
 
   get latest(): MessageData | undefined {
-    return this.data.activeBranchHead
-      ? this.data.messages[this.data.activeBranchHead]
-      : undefined;
+    return this.data.activeBranchHead ? this.data.messages[this.data.activeBranchHead] : undefined;
   }
 
   async append(input: NewMessageInput): Promise<MessageData> {

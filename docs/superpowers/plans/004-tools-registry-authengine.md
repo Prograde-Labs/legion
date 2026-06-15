@@ -37,6 +37,7 @@ All exported from `packages/core/src/index.ts`.
 ## Task 1: Tool type, ToolContext, ToolRegistry
 
 **Files:**
+
 - Create: `packages/core/src/tools/Tool.ts`
 - Create: `packages/core/src/tools/ToolRegistry.ts`
 - Test: `packages/core/src/tools/ToolRegistry.test.ts`
@@ -127,7 +128,9 @@ const echoTool: Tool = {
 };
 
 function fakeContext(): ToolContext {
-  return { participant: { id: 'p', name: 'P', type: 'mock', tools: {}, responses: [] } } as unknown as ToolContext;
+  return {
+    participant: { id: 'p', name: 'P', type: 'mock', tools: {}, responses: [] },
+  } as unknown as ToolContext;
 }
 
 describe('ToolRegistry', () => {
@@ -247,6 +250,7 @@ git commit -m "feat(core): add Tool type, ToolContext, and ToolRegistry"
 ## Task 2: AuthEngine
 
 **Files:**
+
 - Create: `packages/core/src/auth/AuthEngine.ts`
 - Test: `packages/core/src/auth/AuthEngine.test.ts`
 
@@ -360,7 +364,10 @@ export class AuthEngine {
     this.defaultPolicy = options.defaultPolicy;
   }
 
-  private resolvePolicy(tool: string, participantPolicies?: Record<string, ToolPolicy>): ToolPolicy {
+  private resolvePolicy(
+    tool: string,
+    participantPolicies?: Record<string, ToolPolicy>,
+  ): ToolPolicy {
     if (participantPolicies && tool in participantPolicies) return participantPolicies[tool];
     if (tool in this.toolPolicies) return this.toolPolicies[tool];
     if (this.defaultPolicy) return this.defaultPolicy;
@@ -424,6 +431,7 @@ git commit -m "feat(core): add AuthEngine predicate"
 ## Task 3: ApprovalLog
 
 **Files:**
+
 - Create: `packages/core/src/auth/ApprovalLog.ts`
 - Test: `packages/core/src/auth/ApprovalLog.test.ts`
 
@@ -454,8 +462,26 @@ describe('ApprovalLog', () => {
 
   it('filters by conversation', () => {
     const log = new ApprovalLog();
-    log.record({ requestId: 'r1', conversationId: 'c1', requesterId: 'a', tool: 't', args: {}, approved: true, decidedByParticipantId: 'op', decidedAt: '2026-01-01T00:00:00.000Z' });
-    log.record({ requestId: 'r2', conversationId: 'c2', requesterId: 'a', tool: 't', args: {}, approved: false, decidedByParticipantId: 'op', decidedAt: '2026-01-01T00:00:00.000Z' });
+    log.record({
+      requestId: 'r1',
+      conversationId: 'c1',
+      requesterId: 'a',
+      tool: 't',
+      args: {},
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    log.record({
+      requestId: 'r2',
+      conversationId: 'c2',
+      requesterId: 'a',
+      tool: 't',
+      args: {},
+      approved: false,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
     expect(log.list({ conversationId: 'c2' }).map((e) => e.requestId)).toEqual(['r2']);
   });
 });
@@ -521,6 +547,7 @@ git commit -m "feat(core): add ApprovalLog"
 ## Task 4: PendingApprovalRegistry
 
 **Files:**
+
 - Create: `packages/core/src/auth/PendingApprovalRegistry.ts`
 - Test: `packages/core/src/auth/PendingApprovalRegistry.test.ts`
 
@@ -551,7 +578,9 @@ describe('PendingApprovalRegistry', () => {
 
   it('rejects resolving an unknown request', () => {
     const reg = new PendingApprovalRegistry();
-    expect(() => reg.resolve('appr-ghost', { approved: false, decidedByParticipantId: 'x' })).toThrow();
+    expect(() =>
+      reg.resolve('appr-ghost', { approved: false, decidedByParticipantId: 'x' }),
+    ).toThrow();
   });
 
   it('lists pending requests', () => {
@@ -628,7 +657,8 @@ export class PendingApprovalRegistry {
 
   resolve(requestId: string, decision: ApprovalDecision): void {
     const entry = this.pending.get(requestId);
-    if (!entry) throw new LegionError(`Unknown approval request: ${requestId}`, 'APPROVAL_NOT_FOUND');
+    if (!entry)
+      throw new LegionError(`Unknown approval request: ${requestId}`, 'APPROVAL_NOT_FOUND');
     this.pending.delete(requestId);
     entry.resolveFn(decision);
   }
@@ -652,6 +682,7 @@ git commit -m "feat(core): add PendingApprovalRegistry"
 ## Task 5: File tools
 
 **Files:**
+
 - Create: `packages/core/src/tools/file-tools.ts`
 - Test: `packages/core/src/tools/file-tools.test.ts`
 
@@ -668,7 +699,10 @@ import { fileReadTool, fileWriteTool, fileListTool } from './file-tools.js';
 import type { ToolContext } from './Tool.js';
 
 function ctx(workspaceRoot: string): ToolContext {
-  return { workspaceRoot, participant: { id: 'p', name: 'P', type: 'mock', tools: {}, responses: [] } } as unknown as ToolContext;
+  return {
+    workspaceRoot,
+    participant: { id: 'p', name: 'P', type: 'mock', tools: {}, responses: [] },
+  } as unknown as ToolContext;
 }
 
 describe('file tools', () => {
@@ -815,6 +849,7 @@ git commit -m "feat(core): add file tools with workspace path guard"
 ## Task 6: Management tools
 
 **Files:**
+
 - Create: `packages/core/src/tools/management-tools.ts`
 - Test: `packages/core/src/tools/management-tools.test.ts`
 
@@ -881,7 +916,13 @@ describe('management tools', () => {
   it('retire_agent retires an agent', async () => {
     const { context, collective } = await makeContext();
     await createAgentTool.execute(
-      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { provider: 'openai-compatible', model: 'm' }, tools: {} },
+      {
+        id: 'agent-x',
+        name: 'X',
+        systemPrompt: 's',
+        model: { provider: 'openai-compatible', model: 'm' },
+        tools: {},
+      },
       context,
     );
     const result = await retireAgentTool.execute({ id: 'agent-x' }, context);
@@ -892,7 +933,13 @@ describe('management tools', () => {
   it('set_tool_policy updates a participant policy', async () => {
     const { context, collective } = await makeContext();
     await createAgentTool.execute(
-      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { provider: 'openai-compatible', model: 'm' }, tools: {} },
+      {
+        id: 'agent-x',
+        name: 'X',
+        systemPrompt: 's',
+        model: { provider: 'openai-compatible', model: 'm' },
+        tools: {},
+      },
       context,
     );
     const result = await setToolPolicyTool.execute(
@@ -905,10 +952,21 @@ describe('management tools', () => {
 
   it('get_conversation returns the active chain of a conversation', async () => {
     const { context, conversationStore } = await makeContext();
-    const conv = await conversationStore.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
     await conversationStore.appendMessage(conv.id, {
-      id: 'm1', parentId: null, conversationId: conv.id, senderId: 'operator', recipientId: 'agent-x',
-      role: 'user', content: 'hi', status: 'active', timestamp: new Date().toISOString(),
+      id: 'm1',
+      parentId: null,
+      conversationId: conv.id,
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'hi',
+      status: 'active',
+      timestamp: new Date().toISOString(),
     });
     await conversationStore.updateHead(conv.id, 'm1');
     const result = await getConversationTool.execute({ conversationId: conv.id }, context);
@@ -918,7 +976,13 @@ describe('management tools', () => {
 
   it('create_agent rejects a duplicate id with a tool error', async () => {
     const { context } = await makeContext();
-    const args = { id: 'operator', name: 'dup', systemPrompt: 's', model: { provider: 'p', model: 'm' }, tools: {} };
+    const args = {
+      id: 'operator',
+      name: 'dup',
+      systemPrompt: 's',
+      model: { provider: 'p', model: 'm' },
+      tools: {},
+    };
     const result = await createAgentTool.execute(args, context);
     expect(result.status).toBe('error');
   });
@@ -1098,10 +1162,15 @@ export const getConversationTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     const conversation = await context.conversationStore.load(conversationId);
-    if (!conversation) return { status: 'error', error: `Conversation not found: ${conversationId}` };
+    if (!conversation)
+      return { status: 'error', error: `Conversation not found: ${conversationId}` };
     return {
       status: 'success',
-      data: { id: conversation.id, title: conversation.title, messages: getActiveChain(conversation) },
+      data: {
+        id: conversation.id,
+        title: conversation.title,
+        messages: getActiveChain(conversation),
+      },
     };
   },
 };

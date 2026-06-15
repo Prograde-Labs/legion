@@ -22,20 +22,20 @@ Depends on Plans 1–6.
 
 ## Amendments to earlier plans
 
-| Plan | File | Change |
-|------|------|--------|
-| 1 | `packages/types/src/tool.ts` | `ToolResultStatus` + optional `approvalId`, `message` on `ToolResult` |
-| 1 | `packages/types/src/events.ts` | Rename `requestId` → `approvalId` in `approval:requested` + `approval:resolved` payloads |
-| 4 | `packages/core/src/auth/PendingApprovalRegistry.ts` | Rename `requestId` → `approvalId`; drop Promise API; add durability; add `getDecision()` |
-| 4 | `packages/core/src/auth/PendingApprovalRegistry.test.ts` | Update to new async API |
-| 5 | `packages/core/src/runtime/Runtime.ts` | Add `RuntimeResult` union; change `handle()` return type |
-| 5 | `packages/core/src/runtime/MockRuntime.ts` + test | Return `RuntimeResult` |
-| 5 | `packages/core/src/runtime/UserDeliveryRuntime.ts` | Return `RuntimeResult` |
-| 5 | `packages/core/src/runtime/MessageRouter.ts` | Handle `RuntimeResult`; add `resume()` |
-| 4 | `packages/core/src/tools/Tool.ts` | `MessageRouterResult` adds `pending_approval`; `MessageRouterPort` adds `resume()` |
-| 5 | `packages/core/src/tools/communicate-tool.ts` + test | Handle `pending_approval` result |
-| 5 | `packages/core/src/runtime/Runtime.ts` | Add `approvalLog?: ApprovalLog` to `RuntimeContext` |
-| 6 | `packages/core/src/runtime/AgentRuntime.ts` + test | Auth check + approval flow + resumption |
+| Plan | File                                                     | Change                                                                                   |
+| ---- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1    | `packages/types/src/tool.ts`                             | `ToolResultStatus` + optional `approvalId`, `message` on `ToolResult`                    |
+| 1    | `packages/types/src/events.ts`                           | Rename `requestId` → `approvalId` in `approval:requested` + `approval:resolved` payloads |
+| 4    | `packages/core/src/auth/PendingApprovalRegistry.ts`      | Rename `requestId` → `approvalId`; drop Promise API; add durability; add `getDecision()` |
+| 4    | `packages/core/src/auth/PendingApprovalRegistry.test.ts` | Update to new async API                                                                  |
+| 5    | `packages/core/src/runtime/Runtime.ts`                   | Add `RuntimeResult` union; change `handle()` return type                                 |
+| 5    | `packages/core/src/runtime/MockRuntime.ts` + test        | Return `RuntimeResult`                                                                   |
+| 5    | `packages/core/src/runtime/UserDeliveryRuntime.ts`       | Return `RuntimeResult`                                                                   |
+| 5    | `packages/core/src/runtime/MessageRouter.ts`             | Handle `RuntimeResult`; add `resume()`                                                   |
+| 4    | `packages/core/src/tools/Tool.ts`                        | `MessageRouterResult` adds `pending_approval`; `MessageRouterPort` adds `resume()`       |
+| 5    | `packages/core/src/tools/communicate-tool.ts` + test     | Handle `pending_approval` result                                                         |
+| 5    | `packages/core/src/runtime/Runtime.ts`                   | Add `approvalLog?: ApprovalLog` to `RuntimeContext`                                      |
+| 6    | `packages/core/src/runtime/AgentRuntime.ts` + test       | Auth check + approval flow + resumption                                                  |
 
 ---
 
@@ -76,6 +76,7 @@ All new exports added to `packages/core/src/index.ts`.
 ## Task 1: Type foundations
 
 **Files:**
+
 - Amend: `packages/types/src/tool.ts`
 - Amend: `packages/types/src/events.ts`
 - Amend: `packages/core/src/runtime/Runtime.ts`
@@ -242,6 +243,7 @@ git commit -m "feat(types,core): RuntimeResult union, extended ToolResultStatus,
 ## Task 2: PendingApprovalRegistry durable + adapt simple runtimes
 
 **Files:**
+
 - Amend: `packages/core/src/auth/PendingApprovalRegistry.ts`
 - Amend: `packages/core/src/auth/PendingApprovalRegistry.test.ts`
 - Amend: `packages/core/src/runtime/MockRuntime.ts`
@@ -321,8 +323,12 @@ describe('PendingApprovalRegistry (in-memory)', () => {
 
 describe('PendingApprovalRegistry (durable)', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-par-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-par-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('persists and reloads pending approvals across instances', async () => {
     const storage = new FileStorage(dir);
@@ -344,7 +350,10 @@ describe('PendingApprovalRegistry (durable)', () => {
     const storage = new FileStorage(dir);
     const reg = new PendingApprovalRegistry(storage);
     const { approvalId } = await reg.create({
-      conversationId: 'c1', requesterId: 'agent-b', tool: 'file_write', args: {},
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
     });
     await reg.resolve(approvalId, {
       approved: false,
@@ -563,6 +572,7 @@ git commit -m "feat(core): durable PendingApprovalRegistry; adapt MockRuntime/Us
 ## Task 3: ConversationThread.updateToolResults()
 
 **Files:**
+
 - Amend: `packages/core/src/conversation/ConversationThread.ts`
 
 > `AgentRuntime` needs to patch `pending_approval` tool results with their actual outcomes
@@ -609,6 +619,7 @@ git commit -m "feat(core): ConversationThread.updateToolResults for approval res
 ## Task 4: AgentRuntime — auth check, approval flow, resumption
 
 **Files:**
+
 - Amend: `packages/core/src/runtime/AgentRuntime.ts`
 - Amend: `packages/core/src/runtime/AgentRuntime.test.ts`
 
@@ -617,7 +628,6 @@ git commit -m "feat(core): ConversationThread.updateToolResults for approval res
 > 1. **Tool filter fix (Plan 6 deviation resolved):** Present all non-`'deny'` tools to the
 >    LLM. `'requires_approval'` tools are now shown; the LLM can call them. Auth runs at
 >    execution time, not at tool-list time.
->
 > 2. **Auth check at execution:** Before executing each tool call in the loop, call
 >    `context.authEngine.authorize(agent.id, toolName, args, agent.tools)`:
 >    - `'auto'` → execute normally
@@ -625,7 +635,6 @@ git commit -m "feat(core): ConversationThread.updateToolResults for approval res
 >    - `'requires_approval'` → register pending approval, store `pending_approval` tool result;
 >      after the full batch, if any are pending, persist the turn and return
 >      `{ kind: 'pending_approval', ... }`
->
 > 3. **Resumption on entry:** If the active chain's last assistant message contains
 >    `pending_approval` tool results, this is a re-trigger from `approval_response`. For each
 >    pending result: if a decision exists in the registry, execute approved tools / record
@@ -643,14 +652,21 @@ Append these four `describe` blocks to `packages/core/src/runtime/AgentRuntime.t
 // ---------------------------------------------------------------------------
 describe('AgentRuntime: auth – deny policy', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-ar-deny-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-ar-deny-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('returns error tool result for a denied tool; LLM continues', async () => {
     const storage = new MemoryStorage();
     await storage.writeJson('collective/participants/agent-1.json', {
-      id: 'agent-1', name: 'A', type: 'agent', status: 'active',
-      tools: { echo: 'deny' },          // echo is denied
+      id: 'agent-1',
+      name: 'A',
+      type: 'agent',
+      status: 'active',
+      tools: { echo: 'deny' }, // echo is denied
       systemPrompt: 'You are an assistant.',
       model: { provider: 'scripted', model: 'test' },
     });
@@ -682,8 +698,14 @@ describe('AgentRuntime: auth – deny policy', () => {
     const echoTool: Tool = {
       name: 'echo',
       description: 'echo',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } as JSONSchema,
-      async execute(args) { return { status: 'success', data: (args as { text: string }).text }; },
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      } as JSONSchema,
+      async execute(args) {
+        return { status: 'success', data: (args as { text: string }).text };
+      },
     };
     const toolRegistry = new ToolRegistry();
     toolRegistry.register(echoTool);
@@ -699,15 +721,20 @@ describe('AgentRuntime: auth – deny policy', () => {
       workspaceRoot: dir,
       communicationDepth: 0,
       toolRegistry,
-      authEngine: new AuthEngine(),  // default fail-safe; we rely on agent's own tools policy
+      authEngine: new AuthEngine(), // default fail-safe; we rely on agent's own tools policy
       pendingApprovalRegistry: new PendingApprovalRegistry(),
       messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
     } as unknown as RuntimeContext;
 
     const incoming: MessageData = {
-      id: 'msg-1', parentId: null, conversationId: thread.id,
-      senderId: 'op', recipientId: 'agent-1',
-      role: 'user', content: 'use echo', status: 'active',
+      id: 'msg-1',
+      parentId: null,
+      conversationId: thread.id,
+      senderId: 'op',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'use echo',
+      status: 'active',
       timestamp: new Date().toISOString(),
     };
 
@@ -729,13 +756,20 @@ describe('AgentRuntime: auth – deny policy', () => {
 // ---------------------------------------------------------------------------
 describe('AgentRuntime: auth – requires_approval policy', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-ar-appr-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-ar-appr-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   async function setupApprovalScenario(tmpDir: string) {
     const storage = new MemoryStorage();
     await storage.writeJson('collective/participants/agent-1.json', {
-      id: 'agent-1', name: 'A', type: 'agent', status: 'active',
+      id: 'agent-1',
+      name: 'A',
+      type: 'agent',
+      status: 'active',
       tools: { echo: 'requires_approval' },
       systemPrompt: 'You are an assistant.',
       model: { provider: 'scripted', model: 'test' },
@@ -773,8 +807,14 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     toolRegistry.register({
       name: 'echo',
       description: 'echo',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } as JSONSchema,
-      async execute(args) { return { status: 'success', data: (args as { text: string }).text }; },
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      } as JSONSchema,
+      async execute(args) {
+        return { status: 'success', data: (args as { text: string }).text };
+      },
     });
 
     const pendingApprovalRegistry = new PendingApprovalRegistry();
@@ -796,13 +836,24 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     } as unknown as RuntimeContext;
 
     const incoming: MessageData = {
-      id: 'msg-1', parentId: null, conversationId: thread.id,
-      senderId: 'op', recipientId: 'agent-1',
-      role: 'user', content: 'use echo', status: 'active',
+      id: 'msg-1',
+      parentId: null,
+      conversationId: thread.id,
+      senderId: 'op',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'use echo',
+      status: 'active',
       timestamp: new Date().toISOString(),
     };
 
-    return { runtime: new AgentRuntime('agent-1', providerRegistry), incoming, context, thread, pendingApprovalRegistry };
+    return {
+      runtime: new AgentRuntime('agent-1', providerRegistry),
+      incoming,
+      context,
+      thread,
+      pendingApprovalRegistry,
+    };
   }
 
   it('returns pending_approval when a tool requires approval', async () => {
@@ -817,13 +868,16 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     const { runtime, incoming, context, thread } = await setupApprovalScenario(dir);
     await runtime.handle(incoming, context);
     const chain = thread.activeChain;
-    const toolTurn = chain.find((m) => m.toolResults?.some((tr) => tr.result.status === 'pending_approval'));
+    const toolTurn = chain.find((m) =>
+      m.toolResults?.some((tr) => tr.result.status === 'pending_approval'),
+    );
     expect(toolTurn).toBeDefined();
     expect(toolTurn?.toolResults?.[0].result.approvalId).toMatch(/^appr-/);
   });
 
   it('resumes and completes after approval is granted', async () => {
-    const { runtime, incoming, context, thread, pendingApprovalRegistry } = await setupApprovalScenario(dir);
+    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
     const result = await runtime.handle(incoming, context);
     expect(result.kind).toBe('pending_approval');
 
@@ -849,7 +903,8 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
   });
 
   it('resumes with rejection message in context', async () => {
-    const { runtime, incoming, context, pendingApprovalRegistry } = await setupApprovalScenario(dir);
+    const { runtime, incoming, context, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
     const result = await runtime.handle(incoming, context);
     const r = result as { kind: string; approvalRequests: { approvalId: string }[] };
 
@@ -866,7 +921,9 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     expect(resumeResult.kind).toBe('response');
     // The conversation should have a 'rejected' tool result
     const chain = (context.conversation as ConversationThread).activeChain;
-    const rejectedTurn = chain.find((m) => m.toolResults?.some((tr) => tr.result.status === 'rejected'));
+    const rejectedTurn = chain.find((m) =>
+      m.toolResults?.some((tr) => tr.result.status === 'rejected'),
+    );
     expect(rejectedTurn?.toolResults?.[0].result.message).toBe('Not permitted on prod');
   });
 });
@@ -903,6 +960,7 @@ expect(result).toEqual({ kind: 'response', content: 'The weather is sunny today.
 ```
 
 And for the max-iteration test:
+
 ```typescript
 // Before:
 expect(result).toMatch(/maximum iteration/i);
@@ -916,12 +974,7 @@ Apply this pattern to all 5 existing tests.
 - [ ] **Step 4: Replace `packages/core/src/runtime/AgentRuntime.ts`**
 
 ```typescript
-import type {
-  AgentConfig,
-  MessageData,
-  ToolCallData,
-  ToolCallResult,
-} from '@legion/types';
+import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
@@ -1263,6 +1316,7 @@ git commit -m "feat(core): AgentRuntime auth check, approval flow, and resumptio
 ## Task 5: MessageRouter — RuntimeResult handling + resume()
 
 **Files:**
+
 - Amend: `packages/core/src/runtime/MessageRouter.ts`
 - Amend: `packages/core/src/runtime/MessageRouter.test.ts`
 
@@ -1277,13 +1331,22 @@ Append to `packages/core/src/runtime/MessageRouter.test.ts`:
 ```typescript
 describe('MessageRouter: pending_approval result', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-router-pa-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-pa-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('returns pending_approval status and approvalRequests when runtime returns pending_approval', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/mock-1.json', {
-      id: 'mock-1', name: 'M', type: 'mock', tools: {}, responses: [], status: 'active',
+      id: 'mock-1',
+      name: 'M',
+      type: 'mock',
+      tools: {},
+      responses: [],
+      status: 'active',
     });
     const collective = await Collective.load(storage);
     const store = new FileConversationStore(storage);
@@ -1325,7 +1388,10 @@ describe('MessageRouter: pending_approval result', () => {
     } as unknown as ToolContext;
 
     const result = await router.send({
-      senderId: 'op', recipientId: 'mock-1', message: 'hi', context: baseContext,
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hi',
+      context: baseContext,
     });
 
     expect(result.status).toBe('pending_approval');
@@ -1339,13 +1405,22 @@ describe('MessageRouter: pending_approval result', () => {
 
 describe('MessageRouter: resume()', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-router-resume-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-resume-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('re-triggers the paused runtime and persists the final response', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/mock-1.json', {
-      id: 'mock-1', name: 'M', type: 'mock', tools: {}, responses: ['resumed response'], status: 'active',
+      id: 'mock-1',
+      name: 'M',
+      type: 'mock',
+      tools: {},
+      responses: ['resumed response'],
+      status: 'active',
     });
     const collective = await Collective.load(storage);
     const store = new FileConversationStore(storage);
@@ -1369,7 +1444,10 @@ describe('MessageRouter: resume()', () => {
 
     // Send a message to establish the conversation
     const sent = await router.send({
-      senderId: 'op', recipientId: 'mock-1', message: 'original', context: baseContext,
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'original',
+      context: baseContext,
     });
     const { conversationId } = sent;
 
@@ -1678,6 +1756,7 @@ git commit -m "feat(core): MessageRouter handles RuntimeResult; adds resume()"
 ## Task 6: communicate tool amendment + approval_response tool
 
 **Files:**
+
 - Amend: `packages/core/src/tools/communicate-tool.ts`
 - Amend: `packages/core/src/tools/communicate-tool.test.ts`
 - Create: `packages/core/src/tools/approval-response-tool.ts`
@@ -1699,10 +1778,20 @@ Append to `packages/core/src/tools/communicate-tool.test.ts`:
 it('surfaces pending_approval result when the recipient runtime returns one', async () => {
   const storage = new FileStorage(dir);
   await storage.writeJson('collective/participants/agent-a.json', {
-    id: 'agent-a', name: 'A', type: 'mock', tools: { communicate: 'auto' }, responses: [], status: 'active',
+    id: 'agent-a',
+    name: 'A',
+    type: 'mock',
+    tools: { communicate: 'auto' },
+    responses: [],
+    status: 'active',
   });
   await storage.writeJson('collective/participants/agent-b.json', {
-    id: 'agent-b', name: 'B', type: 'mock', tools: {}, responses: [], status: 'active',
+    id: 'agent-b',
+    name: 'B',
+    type: 'mock',
+    tools: {},
+    responses: [],
+    status: 'active',
   });
   const collective = await Collective.load(storage);
   const storeB = new FileConversationStore(storage);
@@ -1714,11 +1803,16 @@ it('surfaces pending_approval result when the recipient runtime returns one', as
     async handle(): Promise<RuntimeResult> {
       return {
         kind: 'pending_approval',
-        approvalRequests: [{
-          approvalId: 'appr-1', conversationId: 'c1',
-          requesterId: 'agent-b', tool: 'write_file', args: {},
-          createdAt: new Date().toISOString(),
-        }],
+        approvalRequests: [
+          {
+            approvalId: 'appr-1',
+            conversationId: 'c1',
+            requesterId: 'agent-b',
+            tool: 'write_file',
+            args: {},
+            createdAt: new Date().toISOString(),
+          },
+        ],
       };
     },
   };
@@ -1824,7 +1918,12 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
       approvalAuthority: { tools: '*', participants: '*' },
     },
     conversationId: 'c1',
-    collective: { get: () => undefined, getOrThrow: () => { throw new Error(); } },
+    collective: {
+      get: () => undefined,
+      getOrThrow: () => {
+        throw new Error();
+      },
+    },
     config: { version: '2' },
     eventBus: { emit: () => {} },
     storage: {} as unknown,
@@ -1834,7 +1933,10 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
     authEngine: new AuthEngine(),
     pendingApprovalRegistry: new PendingApprovalRegistry(),
     approvalLog: new ApprovalLog(),
-    messageRouter: { send: async () => ({ conversationId: 'c1', status: 'success' }), resume: async () => ({ conversationId: 'c1', status: 'success' }) },
+    messageRouter: {
+      send: async () => ({ conversationId: 'c1', status: 'success' }),
+      resume: async () => ({ conversationId: 'c1', status: 'success' }),
+    },
     ...overrides,
   } as unknown as ToolContext;
 }
@@ -1843,7 +1945,10 @@ describe('approval_response tool', () => {
   it('approves a pending request and triggers resume', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
-      conversationId: 'c1', requesterId: 'agent-b', tool: 'file_write', args: {},
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
     });
     const resumeSpy = vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'success' });
     const context = makeContext({
@@ -1869,7 +1974,10 @@ describe('approval_response tool', () => {
   it('rejects a request with a message', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
-      conversationId: 'c2', requesterId: 'agent-b', tool: 'delete_file', args: {},
+      conversationId: 'c2',
+      requesterId: 'agent-b',
+      tool: 'delete_file',
+      args: {},
     });
     const context = makeContext({ pendingApprovalRegistry: reg });
 
@@ -1886,12 +1994,27 @@ describe('approval_response tool', () => {
 
   it('batches multiple decisions in one call', async () => {
     const reg = new PendingApprovalRegistry();
-    const { approvalId: id1 } = await reg.create({ conversationId: 'c3', requesterId: 'b', tool: 'a', args: {} });
-    const { approvalId: id2 } = await reg.create({ conversationId: 'c3', requesterId: 'b', tool: 'x', args: {} });
+    const { approvalId: id1 } = await reg.create({
+      conversationId: 'c3',
+      requesterId: 'b',
+      tool: 'a',
+      args: {},
+    });
+    const { approvalId: id2 } = await reg.create({
+      conversationId: 'c3',
+      requesterId: 'b',
+      tool: 'x',
+      args: {},
+    });
     const context = makeContext({ pendingApprovalRegistry: reg });
 
     const result = await approvalResponseTool.execute(
-      { decisions: [{ approvalId: id1, decision: 'approve' }, { approvalId: id2, decision: 'reject', message: 'no' }] },
+      {
+        decisions: [
+          { approvalId: id1, decision: 'approve' },
+          { approvalId: id2, decision: 'reject', message: 'no' },
+        ],
+      },
       context,
     );
 
@@ -1914,12 +2037,20 @@ describe('approval_response tool', () => {
   it('returns unauthorized when the caller lacks authority', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
-      conversationId: 'c4', requesterId: 'agent-b', tool: 'danger', args: {},
+      conversationId: 'c4',
+      requesterId: 'agent-b',
+      tool: 'danger',
+      args: {},
     });
     // Participant has no approvalAuthority
     const context = makeContext({
       pendingApprovalRegistry: reg,
-      participant: { id: 'agent-c', name: 'C', type: 'agent', tools: {} } as ToolContext['participant'],
+      participant: {
+        id: 'agent-c',
+        name: 'C',
+        type: 'agent',
+        tools: {},
+      } as ToolContext['participant'],
     });
 
     const result = await approvalResponseTool.execute(
@@ -1936,7 +2067,10 @@ describe('approval_response tool', () => {
     const reg = new PendingApprovalRegistry();
     const log = new ApprovalLog();
     const { approvalId } = await reg.create({
-      conversationId: 'c5', requesterId: 'agent-b', tool: 'file_write', args: {},
+      conversationId: 'c5',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
     });
     const context = makeContext({ pendingApprovalRegistry: reg, approvalLog: log });
 
@@ -2103,6 +2237,7 @@ git commit -m "feat(core): communicate surfaces pending_approval; add approval_r
 ## Task 7: Approval flow integration test + barrel exports + self-review
 
 **Files:**
+
 - Create: `packages/core/src/runtime/approval-flow.integration.test.ts`
 - Amend: `packages/core/src/index.ts`
 
@@ -2205,7 +2340,9 @@ async function setup(dir: string) {
   runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
   // operator is a user type — use UserDeliveryRuntime placeholder
   runtimeRegistry.registerFactory('user', (_id) => ({
-    async handle() { return { kind: 'void' as const }; },
+    async handle() {
+      return { kind: 'void' as const };
+    },
   }));
 
   function makeContext(participantId: string, thread?: ConversationThread): RuntimeContext {
@@ -2227,16 +2364,32 @@ async function setup(dir: string) {
     } as unknown as RuntimeContext;
   }
 
-  return { collective, store, eventBus, toolRegistry, pendingApprovalRegistry, approvalLog, authEngine, providerRegistry, router, makeContext };
+  return {
+    collective,
+    store,
+    eventBus,
+    toolRegistry,
+    pendingApprovalRegistry,
+    approvalLog,
+    authEngine,
+    providerRegistry,
+    router,
+    makeContext,
+  };
 }
 
 describe('Approval flow integration', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-approval-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-approval-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('approve path: operator approves → B resumes and completes', async () => {
-    const { providerRegistry, router, makeContext, store, pendingApprovalRegistry } = await setup(dir);
+    const { providerRegistry, router, makeContext, store, pendingApprovalRegistry } =
+      await setup(dir);
 
     // B's scripted LLM: first call → request echo tool; second call (after approval) → respond
     providerRegistry.register(
@@ -2297,7 +2450,9 @@ describe('Approval flow integration', () => {
     expect(finalResponse).toBeDefined();
 
     // The echo tool result should be status:'success' in the conversation
-    const toolTurn = messages.find((m) => m.toolResults?.some((tr) => tr.result.status === 'success' && tr.name === 'echo'));
+    const toolTurn = messages.find((m) =>
+      m.toolResults?.some((tr) => tr.result.status === 'success' && tr.name === 'echo'),
+    );
     expect(toolTurn).toBeDefined();
   });
 
@@ -2319,7 +2474,11 @@ describe('Approval flow integration', () => {
         }
         // Second call (after rejection): acknowledge
         secondCallSeen = true;
-        return { content: 'Understood, I will not echo.', toolCalls: [], stopReason: 'stop' as const };
+        return {
+          content: 'Understood, I will not echo.',
+          toolCalls: [],
+          stopReason: 'stop' as const,
+        };
       },
     });
 
@@ -2386,7 +2545,7 @@ Append to the core barrel:
 
 ```typescript
 export * from './tools/approval-response-tool.js';
-export * from './runtime/AgentRuntime.js';   // already present from Plan 6 — skip if duplicate
+export * from './runtime/AgentRuntime.js'; // already present from Plan 6 — skip if duplicate
 ```
 
 - [ ] **Step 6: Update the roadmap**

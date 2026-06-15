@@ -71,6 +71,7 @@ legion-v2/
 ## Task 1: Root workspace scaffolding
 
 **Files:**
+
 - Create: `package.json`
 - Create: `.gitignore`
 - Create: `.prettierrc.json`
@@ -88,12 +89,7 @@ legion-v2/
   "engines": {
     "node": ">=20"
   },
-  "workspaces": [
-    "packages/types",
-    "packages/core",
-    "packages/runtime",
-    "packages/web"
-  ],
+  "workspaces": ["packages/types", "packages/core", "packages/runtime", "packages/web"],
   "scripts": {
     "build": "tsc --build",
     "clean": "tsc --build --clean",
@@ -192,6 +188,7 @@ git commit -m "chore: scaffold npm workspace root tooling"
 ## Task 2: types + core + runtime + web package skeletons
 
 **Files:**
+
 - Create: `packages/types/package.json`
 - Create: `packages/types/tsconfig.json`
 - Create: `packages/types/src/index.ts`
@@ -374,6 +371,7 @@ git commit -m "chore: scaffold types, core, runtime, web package skeletons"
 ## Task 3: LegionError hierarchy
 
 **Files:**
+
 - Create: `packages/core/src/errors/LegionError.ts`
 - Test: `packages/core/src/errors/LegionError.test.ts`
 
@@ -499,6 +497,7 @@ git commit -m "feat(core): add LegionError hierarchy"
 ## Task 4: Domain types — `@legion/types` (conversations, tools, participants, config)
 
 **Files:**
+
 - Create: `packages/types/src/tool.ts`
 - Create: `packages/types/src/conversation.ts`
 - Create: `packages/types/src/participant.ts`
@@ -815,6 +814,7 @@ git commit -m "feat(types): add shared domain type declarations"
 ## Task 5: Typed EventBus
 
 **Files:**
+
 - Create: `packages/types/src/events.ts` (event payload map — browser-safe, shared with web)
 - Modify: `packages/types/src/index.ts` (export the event map)
 - Create: `packages/core/src/events/EventBus.ts` (the class — stays in core)
@@ -822,7 +822,7 @@ git commit -m "feat(types): add shared domain type declarations"
 
 > The `LegionEventMap` payload shapes live in `@legion/types` so the web connector's
 > `/ws` event stream (Plan 11) can type events without importing the engine. The `EventBus`
-> *class* stays in `@legion/core`.
+> _class_ stays in `@legion/core`.
 
 - [ ] **Step 1: Create the event map** (spec §12)
 
@@ -832,12 +832,33 @@ git commit -m "feat(types): add shared domain type declarations"
 export interface LegionEventMap {
   'process:ready': { workspaceRoot: string };
   'conversation:created': { conversationId: string };
-  'message:sent': { conversationId: string; senderId: string; recipientId: string; messageId: string };
+  'message:sent': {
+    conversationId: string;
+    senderId: string;
+    recipientId: string;
+    messageId: string;
+  };
   'message:delivered': { conversationId: string; recipientId: string; messageId: string };
   'tool:call': { conversationId: string; participantId: string; tool: string; callId: string };
-  'tool:result': { conversationId: string; participantId: string; tool: string; callId: string; status: 'success' | 'error' };
-  'approval:requested': { conversationId: string; requesterId: string; tool: string; requestId: string };
-  'approval:resolved': { conversationId: string; requestId: string; approved: boolean; decidedByParticipantId: string };
+  'tool:result': {
+    conversationId: string;
+    participantId: string;
+    tool: string;
+    callId: string;
+    status: 'success' | 'error';
+  };
+  'approval:requested': {
+    conversationId: string;
+    requesterId: string;
+    tool: string;
+    requestId: string;
+  };
+  'approval:resolved': {
+    conversationId: string;
+    requestId: string;
+    approved: boolean;
+    decidedByParticipantId: string;
+  };
   iteration: { conversationId: string; participantId: string; iteration: number };
   error: { conversationId?: string; error: { name: string; message: string } };
 }
@@ -984,6 +1005,7 @@ git commit -m "feat(core): add typed EventBus over @legion/types event map"
 ## Task 6: Storage interface + MemoryStorage
 
 **Files:**
+
 - Create: `packages/core/src/storage/Storage.ts`
 - Create: `packages/core/src/storage/MemoryStorage.ts`
 - Test: `packages/core/src/storage/MemoryStorage.test.ts`
@@ -1157,6 +1179,7 @@ git commit -m "feat(core): add Storage interface and MemoryStorage"
 ## Task 7: FileStorage
 
 **Files:**
+
 - Create: `packages/core/src/storage/FileStorage.ts`
 - Test: `packages/core/src/storage/FileStorage.test.ts`
 
@@ -1317,6 +1340,7 @@ git commit -m "feat(core): add FileStorage"
 ## Task 8: id + timestamp utilities
 
 **Files:**
+
 - Create: `packages/core/src/util/ids.ts`
 - Test: `packages/core/src/util/ids.test.ts`
 
@@ -1404,6 +1428,7 @@ git commit -m "feat(core): add id and timestamp utilities"
 ## Task 9: Full build + test gate
 
 **Files:**
+
 - Modify: none (verification task)
 
 > **Note on the type gate:** each package `tsconfig.json` excludes `src/**/*.test.ts`, so

@@ -35,6 +35,7 @@ All exported from `packages/core/src/index.ts`.
 ## Task 1: Runtime interface + RuntimeContext + RuntimeRegistry
 
 **Files:**
+
 - Create: `packages/core/src/runtime/Runtime.ts`
 - Create: `packages/core/src/runtime/RuntimeRegistry.ts`
 - Test: `packages/core/src/runtime/RuntimeRegistry.test.ts`
@@ -163,6 +164,7 @@ git commit -m "feat(core): add Runtime interface and RuntimeRegistry"
 ## Task 2: MockRuntime
 
 **Files:**
+
 - Create: `packages/core/src/runtime/MockRuntime.ts`
 - Test: `packages/core/src/runtime/MockRuntime.test.ts`
 
@@ -183,7 +185,12 @@ import type { MessageData } from '@legion/types';
 async function ctxFor(responses: string[]): Promise<RuntimeContext> {
   const storage = new MemoryStorage();
   await storage.writeJson('collective/participants/mock-1.json', {
-    id: 'mock-1', name: 'Mock', type: 'mock', tools: {}, responses, status: 'active',
+    id: 'mock-1',
+    name: 'Mock',
+    type: 'mock',
+    tools: {},
+    responses,
+    status: 'active',
   });
   const collective = await Collective.load(storage);
   return {
@@ -194,8 +201,15 @@ async function ctxFor(responses: string[]): Promise<RuntimeContext> {
 }
 
 const inbound: MessageData = {
-  id: 'm1', parentId: null, conversationId: 'c1', senderId: 'op', recipientId: 'mock-1',
-  role: 'user', content: 'hi', status: 'active', timestamp: '2026-01-01T00:00:00.000Z',
+  id: 'm1',
+  parentId: null,
+  conversationId: 'c1',
+  senderId: 'op',
+  recipientId: 'mock-1',
+  role: 'user',
+  content: 'hi',
+  status: 'active',
+  timestamp: '2026-01-01T00:00:00.000Z',
 };
 
 describe('MockRuntime', () => {
@@ -263,6 +277,7 @@ git commit -m "feat(core): add MockRuntime"
 ## Task 3: UserDeliveryRuntime
 
 **Files:**
+
 - Create: `packages/core/src/runtime/UserDeliveryRuntime.ts`
 
 > Spec §8 step 4: `user` → delivery runtime (routes to connector). Connector wiring is
@@ -303,6 +318,7 @@ git commit -m "feat(core): add UserDeliveryRuntime placeholder"
 ## Task 4: MessageRouter — synchronous send
 
 **Files:**
+
 - Create: `packages/core/src/runtime/MessageRouter.ts`
 - Test: `packages/core/src/runtime/MessageRouter.test.ts`
 
@@ -333,10 +349,19 @@ import type { ToolContext } from '../tools/Tool.js';
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
   await storage.writeJson('collective/participants/op.json', {
-    id: 'op', name: 'Op', type: 'user', tools: {}, status: 'active',
+    id: 'op',
+    name: 'Op',
+    type: 'user',
+    tools: {},
+    status: 'active',
   });
   await storage.writeJson('collective/participants/mock-1.json', {
-    id: 'mock-1', name: 'Mock', type: 'mock', tools: {}, responses: ['hello back'], status: 'active',
+    id: 'mock-1',
+    name: 'Mock',
+    type: 'mock',
+    tools: {},
+    responses: ['hello back'],
+    status: 'active',
   });
   const collective = await Collective.load(storage);
   const store = new FileConversationStore(storage);
@@ -362,8 +387,12 @@ async function setup(dir: string) {
 
 describe('MessageRouter: synchronous send', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-router-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('routes a message to a mock and returns its response', async () => {
     const { router, baseContext, store } = await setup(dir);
@@ -378,13 +407,20 @@ describe('MessageRouter: synchronous send', () => {
     expect(result.conversationId).toMatch(/^conv-/);
 
     const conv = await store.load(result.conversationId);
-    const contents = Object.values(conv!.messages).map((m) => m.content).sort();
+    const contents = Object.values(conv!.messages)
+      .map((m) => m.content)
+      .sort();
     expect(contents).toEqual(['hello', 'hello back']);
   });
 
   it('continues an existing conversation when conversationId is supplied', async () => {
     const { router, baseContext } = await setup(dir);
-    const first = await router.send({ senderId: 'op', recipientId: 'mock-1', message: 'one', context: baseContext });
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'one',
+      context: baseContext,
+    });
     const second = await router.send({
       senderId: 'op',
       recipientId: 'mock-1',
@@ -397,7 +433,12 @@ describe('MessageRouter: synchronous send', () => {
 
   it('returns an error result for an unknown recipient', async () => {
     const { router, baseContext } = await setup(dir);
-    const result = await router.send({ senderId: 'op', recipientId: 'ghost', message: 'x', context: baseContext });
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'ghost',
+      message: 'x',
+      context: baseContext,
+    });
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/ghost/);
   });
@@ -406,7 +447,12 @@ describe('MessageRouter: synchronous send', () => {
     const { router, baseContext, eventBus } = await setup(dir);
     let sent = 0;
     eventBus.on('message:sent', () => (sent += 1));
-    await router.send({ senderId: 'op', recipientId: 'mock-1', message: 'hello', context: baseContext });
+    await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
     expect(sent).toBe(2);
   });
 });
@@ -481,7 +527,7 @@ export class MessageRouter implements MessageRouterPort {
       };
     }
 
-    const depth = (opts.context.communicationDepth ?? 0);
+    const depth = opts.context.communicationDepth ?? 0;
     if (depth > DEFAULT_DEPTH_LIMIT) {
       return {
         conversationId: opts.conversationId ?? '',
@@ -585,6 +631,7 @@ git commit -m "feat(core): add MessageRouter synchronous send"
 ## Task 5: MessageRouter — fire-and-forget
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/MessageRouter.test.ts` (add cases)
 
 > The fire-and-forget code path was implemented in Task 4 (`replyTo` branch + `dispatchAsync`).
@@ -597,8 +644,12 @@ Append to `MessageRouter.test.ts`:
 ```typescript
 describe('MessageRouter: fire-and-forget', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-router-faf-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-faf-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('returns dispatched immediately and routes the response to replyTo', async () => {
     const { router, baseContext, store, eventBus } = await setup(dir);
@@ -619,7 +670,9 @@ describe('MessageRouter: fire-and-forget', () => {
 
     expect(delivered).toEqual({ recipientId: 'op' });
     const conv = await store.load(result.conversationId);
-    const toOp = Object.values(conv!.messages).find((m) => m.recipientId === 'op' && m.role === 'assistant');
+    const toOp = Object.values(conv!.messages).find(
+      (m) => m.recipientId === 'op' && m.role === 'assistant',
+    );
     expect(toOp?.content).toBe('hello back');
   });
 });
@@ -642,6 +695,7 @@ git commit -m "test(core): cover MessageRouter fire-and-forget"
 ## Task 6: communicate tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/communicate-tool.ts`
 - Test: `packages/core/src/tools/communicate-tool.test.ts`
 
@@ -671,10 +725,20 @@ import type { ToolContext } from './Tool.js';
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
   await storage.writeJson('collective/participants/agent-a.json', {
-    id: 'agent-a', name: 'A', type: 'mock', tools: { communicate: 'auto' }, responses: [], status: 'active',
+    id: 'agent-a',
+    name: 'A',
+    type: 'mock',
+    tools: { communicate: 'auto' },
+    responses: [],
+    status: 'active',
   });
   await storage.writeJson('collective/participants/agent-b.json', {
-    id: 'agent-b', name: 'B', type: 'mock', tools: {}, responses: ['B replies'], status: 'active',
+    id: 'agent-b',
+    name: 'B',
+    type: 'mock',
+    tools: {},
+    responses: ['B replies'],
+    status: 'active',
   });
   const collective = await Collective.load(storage);
   const store = new FileConversationStore(storage);
@@ -703,8 +767,12 @@ async function setup(dir: string) {
 
 describe('communicate tool', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-comm-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-comm-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('sends a synchronous message and returns the recipient response', async () => {
     const { context } = await setup(dir);
@@ -823,6 +891,7 @@ git commit -m "feat(core): add communicate tool over MessageRouter"
 ## Task 7: End-to-end mock loop integration test
 
 **Files:**
+
 - Create: `packages/core/src/runtime/mock-loop.integration.test.ts`
 
 > The capstone of this batch: a full collective loop where a participant sends a message
@@ -855,18 +924,31 @@ import type { ToolContext } from '../tools/Tool.js';
 
 describe('integration: end-to-end mock loop', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-loop-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-loop-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('routes an operator message through a mock agent and persists the full thread', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/operator.json', {
-      id: 'operator', name: 'Operator', type: 'user', tools: { communicate: 'auto' },
-      operator: true, protected: true, status: 'active',
+      id: 'operator',
+      name: 'Operator',
+      type: 'user',
+      tools: { communicate: 'auto' },
+      operator: true,
+      protected: true,
+      status: 'active',
     });
     await storage.writeJson('collective/participants/assistant.json', {
-      id: 'assistant', name: 'Assistant', type: 'mock', tools: {},
-      responses: ['Hello, operator!'], status: 'active',
+      id: 'assistant',
+      name: 'Assistant',
+      type: 'mock',
+      tools: {},
+      responses: ['Hello, operator!'],
+      status: 'active',
     });
 
     const collective = await Collective.load(storage);

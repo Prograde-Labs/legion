@@ -1,281 +1,727 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Legion — Nested conversations + custom renderers</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  theme: { extend: { colors: { navy: { 950:'#060d1a',900:'#0a1220',800:'#0d1a30',700:'#162035',600:'#1e3a5f',500:'#2d4a6a',400:'#4b6a8a' } } } }
-}
-</script>
-<style>
-  *{box-sizing:border-box;}
-  body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:#090e1a;color:#e2e8f0;height:100vh;overflow:hidden;}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;font-size:12px;color:#4b6a8a;}
-  .nav-item.active{background:rgba(34,211,238,.08);color:#67e8f9;border-left:2px solid #22d3ee;margin-left:-2px;}
-  .conv-item{padding:12px 14px;border-bottom:1px solid #0d1a30;cursor:pointer;}
-  .conv-item.active{background:#0f1e33;border-left:2px solid #22d3ee;margin-left:-1px;}
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Legion — Nested conversations + custom renderers</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              navy: {
+                950: '#060d1a',
+                900: '#0a1220',
+                800: '#0d1a30',
+                700: '#162035',
+                600: '#1e3a5f',
+                500: '#2d4a6a',
+                400: '#4b6a8a',
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: #090e1a;
+        color: #e2e8f0;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #4b6a8a;
+      }
+      .nav-item.active {
+        background: rgba(34, 211, 238, 0.08);
+        color: #67e8f9;
+        border-left: 2px solid #22d3ee;
+        margin-left: -2px;
+      }
+      .conv-item {
+        padding: 12px 14px;
+        border-bottom: 1px solid #0d1a30;
+        cursor: pointer;
+      }
+      .conv-item.active {
+        background: #0f1e33;
+        border-left: 2px solid #22d3ee;
+        margin-left: -1px;
+      }
 
-  .msg{margin-bottom:18px;}
-  .msg-header{display:flex;align-items:baseline;gap:8px;margin-bottom:5px;}
-  .msg-author{font-size:11px;font-weight:700;letter-spacing:.01em;}
-  .msg-author.orchestrator{color:#22d3ee;}
-  .msg-author.researcher{color:#f59e0b;}
-  .msg-author.writer{color:#a78bfa;}
-  .msg-time{font-size:10px;color:#2d4a6a;}
-  .msg-body{font-size:12px;color:#cbd5e1;line-height:1.65;padding-left:2px;}
+      .msg {
+        margin-bottom: 18px;
+      }
+      .msg-header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 5px;
+      }
+      .msg-author {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+      .msg-author.orchestrator {
+        color: #22d3ee;
+      }
+      .msg-author.researcher {
+        color: #f59e0b;
+      }
+      .msg-author.writer {
+        color: #a78bfa;
+      }
+      .msg-time {
+        font-size: 10px;
+        color: #2d4a6a;
+      }
+      .msg-body {
+        font-size: 12px;
+        color: #cbd5e1;
+        line-height: 1.65;
+        padding-left: 2px;
+      }
 
-  /* Tool block */
-  .tool-block{border-radius:6px;margin:8px 0;overflow:hidden;border:1px solid #1e3a5f;}
-  .tool-block.delegation{border-color:#f59e0b44;background:#0a1220;}
-  .tool-block.regular{background:#0a1220;}
-  .tool-block-header{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;user-select:none;}
-  .tool-block-header:hover{background:rgba(255,255,255,.02);}
-  .tool-block-body{padding:0;display:none;}
-  .tool-block-body.open{display:block;}
-  .tool-badge{font-size:9px;padding:2px 7px;border-radius:3px;font-weight:600;font-family:ui-monospace,monospace;white-space:nowrap;}
-  .badge-call{background:rgba(34,211,238,.1);color:#22d3ee;border:1px solid rgba(34,211,238,.2);}
-  .badge-result{background:rgba(74,222,128,.1);color:#4ade80;border:1px solid rgba(74,222,128,.2);}
-  .badge-delegate{background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.25);}
-  .badge-error{background:rgba(248,113,113,.1);color:#f87171;border:1px solid rgba(248,113,113,.2);}
-  .chevron{font-size:10px;color:#2d4a6a;transition:transform .15s;flex-shrink:0;}
-  .chevron.open{transform:rotate(90deg);}
+      /* Tool block */
+      .tool-block {
+        border-radius: 6px;
+        margin: 8px 0;
+        overflow: hidden;
+        border: 1px solid #1e3a5f;
+      }
+      .tool-block.delegation {
+        border-color: #f59e0b44;
+        background: #0a1220;
+      }
+      .tool-block.regular {
+        background: #0a1220;
+      }
+      .tool-block-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .tool-block-header:hover {
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .tool-block-body {
+        padding: 0;
+        display: none;
+      }
+      .tool-block-body.open {
+        display: block;
+      }
+      .tool-badge {
+        font-size: 9px;
+        padding: 2px 7px;
+        border-radius: 3px;
+        font-weight: 600;
+        font-family: ui-monospace, monospace;
+        white-space: nowrap;
+      }
+      .badge-call {
+        background: rgba(34, 211, 238, 0.1);
+        color: #22d3ee;
+        border: 1px solid rgba(34, 211, 238, 0.2);
+      }
+      .badge-result {
+        background: rgba(74, 222, 128, 0.1);
+        color: #4ade80;
+        border: 1px solid rgba(74, 222, 128, 0.2);
+      }
+      .badge-delegate {
+        background: rgba(245, 158, 11, 0.12);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.25);
+      }
+      .badge-error {
+        background: rgba(248, 113, 113, 0.1);
+        color: #f87171;
+        border: 1px solid rgba(248, 113, 113, 0.2);
+      }
+      .chevron {
+        font-size: 10px;
+        color: #2d4a6a;
+        transition: transform 0.15s;
+        flex-shrink: 0;
+      }
+      .chevron.open {
+        transform: rotate(90deg);
+      }
 
-  /* Nested sub-thread */
-  .sub-thread{border-left:2px solid #f59e0b44;margin:0;padding:14px 16px;background:#080d18;}
-  .sub-thread .msg-body{font-size:11px;}
-  .sub-thread .tool-block{border-color:#1a2535;}
+      /* Nested sub-thread */
+      .sub-thread {
+        border-left: 2px solid #f59e0b44;
+        margin: 0;
+        padding: 14px 16px;
+        background: #080d18;
+      }
+      .sub-thread .msg-body {
+        font-size: 11px;
+      }
+      .sub-thread .tool-block {
+        border-color: #1a2535;
+      }
 
-  /* Custom renderers */
-  .renderer-file{font-family:ui-monospace,monospace;font-size:10px;color:#94a3b8;line-height:1.7;padding:10px 12px;}
-  .renderer-file .file-line{display:flex;align-items:center;gap:6px;padding:1px 0;}
-  .renderer-file .file-line:hover{color:#e2e8f0;}
-  .renderer-file .dir{color:#22d3ee;}
-  .renderer-file .file{color:#94a3b8;}
-  .renderer-file .icon{width:14px;flex-shrink:0;text-align:center;font-size:11px;}
+      /* Custom renderers */
+      .renderer-file {
+        font-family: ui-monospace, monospace;
+        font-size: 10px;
+        color: #94a3b8;
+        line-height: 1.7;
+        padding: 10px 12px;
+      }
+      .renderer-file .file-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 1px 0;
+      }
+      .renderer-file .file-line:hover {
+        color: #e2e8f0;
+      }
+      .renderer-file .dir {
+        color: #22d3ee;
+      }
+      .renderer-file .file {
+        color: #94a3b8;
+      }
+      .renderer-file .icon {
+        width: 14px;
+        flex-shrink: 0;
+        text-align: center;
+        font-size: 11px;
+      }
 
-  .renderer-search{padding:10px 12px;}
-  .search-result{padding:8px 10px;border:1px solid #1e3a5f;border-radius:5px;margin-bottom:6px;background:#090e1a;}
-  .search-result-title{font-size:11px;font-weight:500;color:#67e8f9;margin-bottom:2px;}
-  .search-result-url{font-size:9px;color:#2d4a6a;margin-bottom:4px;font-family:ui-monospace,monospace;}
-  .search-result-snippet{font-size:10px;color:#64748b;line-height:1.5;}
+      .renderer-search {
+        padding: 10px 12px;
+      }
+      .search-result {
+        padding: 8px 10px;
+        border: 1px solid #1e3a5f;
+        border-radius: 5px;
+        margin-bottom: 6px;
+        background: #090e1a;
+      }
+      .search-result-title {
+        font-size: 11px;
+        font-weight: 500;
+        color: #67e8f9;
+        margin-bottom: 2px;
+      }
+      .search-result-url {
+        font-size: 9px;
+        color: #2d4a6a;
+        margin-bottom: 4px;
+        font-family: ui-monospace, monospace;
+      }
+      .search-result-snippet {
+        font-size: 10px;
+        color: #64748b;
+        line-height: 1.5;
+      }
 
-  .renderer-json{font-family:ui-monospace,monospace;font-size:10px;color:#4b6a8a;padding:10px 12px;line-height:1.6;overflow-x:auto;}
-  .json-key{color:#67e8f9;}
-  .json-str{color:#4ade80;}
-  .json-num{color:#f59e0b;}
+      .renderer-json {
+        font-family: ui-monospace, monospace;
+        font-size: 10px;
+        color: #4b6a8a;
+        padding: 10px 12px;
+        line-height: 1.6;
+        overflow-x: auto;
+      }
+      .json-key {
+        color: #67e8f9;
+      }
+      .json-str {
+        color: #4ade80;
+      }
+      .json-num {
+        color: #f59e0b;
+      }
 
-  .renderer-label{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#2d4a6a;padding:6px 12px;border-bottom:1px solid #0d1a30;display:flex;align-items:center;gap:6px;}
+      .renderer-label {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #2d4a6a;
+        padding: 6px 12px;
+        border-bottom: 1px solid #0d1a30;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
 
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-</style>
-</head>
-<body>
-<div style="display:flex;height:100vh;">
-
-  <!-- Sidebar nav -->
-  <div style="width:200px;flex-shrink:0;background:#0a1220;border-right:1px solid #1e3a5f;display:flex;flex-direction:column;">
-    <div style="padding:14px 16px;border-bottom:1px solid #1e3a5f;display:flex;align-items:center;gap:8px;">
-      <div style="width:22px;height:22px;background:#22d3ee;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#060d1a;">L</div>
-      <span style="font-size:13px;font-weight:700;">Legion</span>
-    </div>
-    <nav style="padding:10px 8px;flex:1;">
-      <div class="nav-item">👤 Participants</div>
-      <div class="nav-item active">💬 Conversations</div>
-      <div class="nav-item">⚡ Events</div>
-      <div class="nav-item">⚙️ Config</div>
-    </nav>
-    <div style="padding:10px 8px;border-top:1px solid #1e3a5f;">
-      <div class="nav-item"><div style="width:22px;height:22px;background:#1e3a5f;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#4b6a8a;">A</div><span style="font-size:11px;">admin</span></div>
-    </div>
-  </div>
-
-  <!-- Conversation list -->
-  <div style="width:240px;flex-shrink:0;background:#0a1525;border-right:1px solid #1e3a5f;display:flex;flex-direction:column;">
-    <div style="padding:12px 14px;border-bottom:1px solid #1e3a5f;font-size:13px;font-weight:600;">Conversations</div>
-    <div style="flex:1;overflow-y:auto;">
-      <div class="conv-item active">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
-          <div style="width:6px;height:6px;background:#22d3ee;border-radius:50%;"></div>
-          <span style="font-size:11px;font-weight:500;color:#e2e8f0;">conv_a3f9b2</span>
-          <span style="margin-left:auto;font-size:9px;color:#2d4a6a;">now</span>
-        </div>
-        <div style="font-size:10px;color:#4b6a8a;padding-left:12px;">orchestrator-1 · researcher-2</div>
-      </div>
-      <div class="conv-item" style="opacity:.5;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
-          <div style="width:6px;height:6px;background:#2d4a6a;border-radius:50%;"></div>
-          <span style="font-size:11px;font-weight:500;color:#4b6a8a;">conv_c71d44</span>
-          <span style="margin-left:auto;font-size:9px;color:#2d4a6a;">1h ago</span>
-        </div>
-        <div style="font-size:10px;color:#2d4a6a;padding-left:12px;">orchestrator-1 · writer-3</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Thread -->
-  <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
-    <div style="padding:12px 20px;border-bottom:1px solid #1e3a5f;background:#0a1220;display:flex;align-items:center;gap:10px;">
-      <span style="font-size:12px;font-weight:600;font-family:ui-monospace,monospace;color:#e2e8f0;">conv_a3f9b2</span>
-      <span style="font-size:10px;color:#2d4a6a;">orchestrator-1 → researcher-2 · active</span>
-      <div style="margin-left:auto;display:flex;align-items:center;gap:5px;">
-        <div style="width:5px;height:5px;background:#22d3ee;border-radius:50%;animation:pulse 1.5s infinite;"></div>
-        <span style="font-size:10px;color:#22d3ee;">Live</span>
-      </div>
-    </div>
-
-    <div style="flex:1;overflow-y:auto;padding:20px 24px;">
-
-      <!-- Message 1: orchestrator delegates -->
-      <div class="msg">
-        <div class="msg-header">
-          <span class="msg-author orchestrator">orchestrator-1</span>
-          <span class="msg-time">14:32:01</span>
-        </div>
-        <div class="msg-body">Research the latest papers on retrieval-augmented generation published in 2025, then draft a two-page summary.</div>
-
-        <!-- Delegation tool call -->
-        <div class="tool-block delegation" style="margin-top:10px;">
-          <div class="tool-block-header" onclick="toggle(this)">
-            <span class="chevron open">▶</span>
-            <span class="tool-badge badge-delegate">delegate</span>
-            <span style="font-family:ui-monospace,monospace;font-size:11px;color:#f59e0b;">send_message → researcher-2</span>
-            <span style="font-size:10px;color:#2d4a6a;margin-left:auto;">14:32:02</span>
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.3;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div style="display: flex; height: 100vh">
+      <!-- Sidebar nav -->
+      <div
+        style="
+          width: 200px;
+          flex-shrink: 0;
+          background: #0a1220;
+          border-right: 1px solid #1e3a5f;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <div
+          style="
+            padding: 14px 16px;
+            border-bottom: 1px solid #1e3a5f;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          "
+        >
+          <div
+            style="
+              width: 22px;
+              height: 22px;
+              background: #22d3ee;
+              border-radius: 5px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 11px;
+              font-weight: 800;
+              color: #060d1a;
+            "
+          >
+            L
           </div>
-          <div class="tool-block-body open">
-            <!-- Sub-thread from researcher-2 -->
-            <div class="sub-thread">
-              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#f59e0b88;margin-bottom:12px;">researcher-2 sub-thread</div>
+          <span style="font-size: 13px; font-weight: 700">Legion</span>
+        </div>
+        <nav style="padding: 10px 8px; flex: 1">
+          <div class="nav-item">👤 Participants</div>
+          <div class="nav-item active">💬 Conversations</div>
+          <div class="nav-item">⚡ Events</div>
+          <div class="nav-item">⚙️ Config</div>
+        </nav>
+        <div style="padding: 10px 8px; border-top: 1px solid #1e3a5f">
+          <div class="nav-item">
+            <div
+              style="
+                width: 22px;
+                height: 22px;
+                background: #1e3a5f;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 10px;
+                color: #4b6a8a;
+              "
+            >
+              A
+            </div>
+            <span style="font-size: 11px">admin</span>
+          </div>
+        </div>
+      </div>
 
-              <div class="msg">
-                <div class="msg-header">
-                  <span class="msg-author researcher">researcher-2</span>
-                  <span class="msg-time">14:32:03</span>
-                </div>
-                <div class="msg-body">I'll search for recent RAG papers and compile a summary.</div>
+      <!-- Conversation list -->
+      <div
+        style="
+          width: 240px;
+          flex-shrink: 0;
+          background: #0a1525;
+          border-right: 1px solid #1e3a5f;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <div
+          style="
+            padding: 12px 14px;
+            border-bottom: 1px solid #1e3a5f;
+            font-size: 13px;
+            font-weight: 600;
+          "
+        >
+          Conversations
+        </div>
+        <div style="flex: 1; overflow-y: auto">
+          <div class="conv-item active">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px">
+              <div style="width: 6px; height: 6px; background: #22d3ee; border-radius: 50%"></div>
+              <span style="font-size: 11px; font-weight: 500; color: #e2e8f0">conv_a3f9b2</span>
+              <span style="margin-left: auto; font-size: 9px; color: #2d4a6a">now</span>
+            </div>
+            <div style="font-size: 10px; color: #4b6a8a; padding-left: 12px">
+              orchestrator-1 · researcher-2
+            </div>
+          </div>
+          <div class="conv-item" style="opacity: 0.5">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 3px">
+              <div style="width: 6px; height: 6px; background: #2d4a6a; border-radius: 50%"></div>
+              <span style="font-size: 11px; font-weight: 500; color: #4b6a8a">conv_c71d44</span>
+              <span style="margin-left: auto; font-size: 9px; color: #2d4a6a">1h ago</span>
+            </div>
+            <div style="font-size: 10px; color: #2d4a6a; padding-left: 12px">
+              orchestrator-1 · writer-3
+            </div>
+          </div>
+        </div>
+      </div>
 
-                <!-- Tool: web search with custom renderer -->
-                <div class="tool-block regular" style="margin-top:8px;border-color:#1e3a5f;">
-                  <div class="tool-block-header" onclick="toggle(this)">
-                    <span class="chevron open">▶</span>
-                    <span class="tool-badge badge-call">tool call</span>
-                    <span style="font-family:ui-monospace,monospace;font-size:11px;color:#e2e8f0;">mcp__web-search__search</span>
-                    <span style="font-size:10px;color:#2d4a6a;margin-left:auto;">14:32:04</span>
-                  </div>
-                  <div class="tool-block-body open">
-                    <div class="renderer-label">
-                      <span>📄</span> arguments
-                    </div>
-                    <div class="renderer-json">{"<span class="json-key">query</span>": "<span class="json-str">retrieval-augmented generation 2025 papers</span>", "<span class="json-key">limit</span>": <span class="json-num">5</span>}</div>
-                  </div>
-                </div>
+      <!-- Thread -->
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+        <div
+          style="
+            padding: 12px 20px;
+            border-bottom: 1px solid #1e3a5f;
+            background: #0a1220;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          "
+        >
+          <span
+            style="
+              font-size: 12px;
+              font-weight: 600;
+              font-family: ui-monospace, monospace;
+              color: #e2e8f0;
+            "
+            >conv_a3f9b2</span
+          >
+          <span style="font-size: 10px; color: #2d4a6a"
+            >orchestrator-1 → researcher-2 · active</span
+          >
+          <div style="margin-left: auto; display: flex; align-items: center; gap: 5px">
+            <div
+              style="
+                width: 5px;
+                height: 5px;
+                background: #22d3ee;
+                border-radius: 50%;
+                animation: pulse 1.5s infinite;
+              "
+            ></div>
+            <span style="font-size: 10px; color: #22d3ee">Live</span>
+          </div>
+        </div>
 
-                <!-- Tool result: custom search renderer -->
-                <div class="tool-block regular" style="border-color:#4ade8022;">
-                  <div class="tool-block-header" onclick="toggle(this)">
-                    <span class="chevron open">▶</span>
-                    <span class="tool-badge badge-result">result</span>
-                    <span style="font-family:ui-monospace,monospace;font-size:11px;color:#e2e8f0;">mcp__web-search__search</span>
-                    <span style="font-size:10px;background:rgba(34,211,238,.08);color:#22d3ee;padding:1px 6px;border-radius:3px;margin-left:auto;border:1px solid rgba(34,211,238,.2);">search renderer</span>
-                    <span style="font-size:10px;color:#2d4a6a;margin-left:8px;">14:32:07</span>
-                  </div>
-                  <div class="tool-block-body open">
-                    <div class="renderer-label"><span>🔍</span> 4 results · custom renderer</div>
-                    <div class="renderer-search">
-                      <div class="search-result">
-                        <div class="search-result-title">RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval (2025)</div>
-                        <div class="search-result-url">arxiv.org/abs/2501.04219</div>
-                        <div class="search-result-snippet">A novel approach to RAG that builds hierarchical tree structures over documents, enabling retrieval at multiple levels of abstraction...</div>
-                      </div>
-                      <div class="search-result">
-                        <div class="search-result-title">HyDE+: Improved Hypothetical Document Embeddings for Zero-Shot RAG</div>
-                        <div class="search-result-url">arxiv.org/abs/2502.11803</div>
-                        <div class="search-result-snippet">Extends the HyDE technique with multi-step hypothesis generation, achieving state-of-the-art on BEIR benchmarks...</div>
-                      </div>
-                      <div class="search-result">
-                        <div class="search-result-title">GraphRAG: Knowledge Graph-Augmented Retrieval at Scale (2025)</div>
-                        <div class="search-result-url">arxiv.org/abs/2503.09142</div>
-                        <div class="search-result-snippet">Integrates knowledge graphs with vector retrieval to handle multi-hop reasoning queries that traditional RAG fails on...</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Tool: read_file with custom renderer -->
-                <div class="tool-block regular" style="border-color:#4ade8022;margin-top:8px;">
-                  <div class="tool-block-header" onclick="toggle(this)">
-                    <span class="chevron">▶</span>
-                    <span class="tool-badge badge-result">result</span>
-                    <span style="font-family:ui-monospace,monospace;font-size:11px;color:#e2e8f0;">mcp__filesystem__list_directory</span>
-                    <span style="font-size:10px;background:rgba(34,211,238,.08);color:#22d3ee;padding:1px 6px;border-radius:3px;margin-left:auto;border:1px solid rgba(34,211,238,.2);">file renderer</span>
-                    <span style="font-size:10px;color:#2d4a6a;margin-left:8px;">14:32:09</span>
-                  </div>
-                  <div class="tool-block-body">
-                    <div class="renderer-label"><span>📁</span> /workspace/research · 6 items · custom renderer</div>
-                    <div class="renderer-file">
-                      <div class="file-line"><span class="icon">📁</span><span class="dir">papers/</span></div>
-                      <div class="file-line" style="padding-left:18px;"><span class="icon">📄</span><span class="file">raptor-2025.pdf</span><span style="margin-left:auto;color:#2d4a6a;font-size:9px;">2.1 MB</span></div>
-                      <div class="file-line" style="padding-left:18px;"><span class="icon">📄</span><span class="file">hyde-plus-2025.pdf</span><span style="margin-left:auto;color:#2d4a6a;font-size:9px;">1.8 MB</span></div>
-                      <div class="file-line" style="padding-left:18px;"><span class="icon">📄</span><span class="file">graphrag-2025.pdf</span><span style="margin-left:auto;color:#2d4a6a;font-size:9px;">3.4 MB</span></div>
-                      <div class="file-line"><span class="icon">📄</span><span class="file">notes.md</span><span style="margin-left:auto;color:#2d4a6a;font-size:9px;">4.2 KB</span></div>
-                      <div class="file-line"><span class="icon">📄</span><span class="file">summary-draft.md</span><span style="margin-left:auto;color:#2d4a6a;font-size:9px;">1.1 KB</span></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="msg" style="margin-top:12px;">
-                <div class="msg-header">
-                  <span class="msg-author researcher">researcher-2</span>
-                  <span class="msg-time">14:32:14</span>
-                </div>
-                <div class="msg-body">I've found 3 key papers and saved them locally. Here's the two-page summary: <em style="color:#4b6a8a;">[summary text, truncated in monitoring view]</em></div>
-              </div>
+        <div style="flex: 1; overflow-y: auto; padding: 20px 24px">
+          <!-- Message 1: orchestrator delegates -->
+          <div class="msg">
+            <div class="msg-header">
+              <span class="msg-author orchestrator">orchestrator-1</span>
+              <span class="msg-time">14:32:01</span>
+            </div>
+            <div class="msg-body">
+              Research the latest papers on retrieval-augmented generation published in 2025, then
+              draft a two-page summary.
             </div>
 
-            <!-- Delegation result -->
-            <div style="padding:8px 16px;background:#080d18;border-top:1px solid #f59e0b22;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                <span class="tool-badge badge-result">delegation result</span>
-                <span style="font-size:10px;color:#2d4a6a;">14:32:14 · researcher-2 completed</span>
+            <!-- Delegation tool call -->
+            <div class="tool-block delegation" style="margin-top: 10px">
+              <div class="tool-block-header" onclick="toggle(this)">
+                <span class="chevron open">▶</span>
+                <span class="tool-badge badge-delegate">delegate</span>
+                <span style="font-family: ui-monospace, monospace; font-size: 11px; color: #f59e0b"
+                  >send_message → researcher-2</span
+                >
+                <span style="font-size: 10px; color: #2d4a6a; margin-left: auto">14:32:02</span>
               </div>
-              <div style="font-size:11px;color:#4b6a8a;font-style:italic;">Summary returned to orchestrator-1 ↑</div>
+              <div class="tool-block-body open">
+                <!-- Sub-thread from researcher-2 -->
+                <div class="sub-thread">
+                  <div
+                    style="
+                      font-size: 9px;
+                      font-weight: 700;
+                      text-transform: uppercase;
+                      letter-spacing: 0.07em;
+                      color: #f59e0b88;
+                      margin-bottom: 12px;
+                    "
+                  >
+                    researcher-2 sub-thread
+                  </div>
+
+                  <div class="msg">
+                    <div class="msg-header">
+                      <span class="msg-author researcher">researcher-2</span>
+                      <span class="msg-time">14:32:03</span>
+                    </div>
+                    <div class="msg-body">
+                      I'll search for recent RAG papers and compile a summary.
+                    </div>
+
+                    <!-- Tool: web search with custom renderer -->
+                    <div class="tool-block regular" style="margin-top: 8px; border-color: #1e3a5f">
+                      <div class="tool-block-header" onclick="toggle(this)">
+                        <span class="chevron open">▶</span>
+                        <span class="tool-badge badge-call">tool call</span>
+                        <span
+                          style="
+                            font-family: ui-monospace, monospace;
+                            font-size: 11px;
+                            color: #e2e8f0;
+                          "
+                          >mcp__web-search__search</span
+                        >
+                        <span style="font-size: 10px; color: #2d4a6a; margin-left: auto"
+                          >14:32:04</span
+                        >
+                      </div>
+                      <div class="tool-block-body open">
+                        <div class="renderer-label"><span>📄</span> arguments</div>
+                        <div class="renderer-json">
+                          {"<span class="json-key">query</span>": "<span class="json-str"
+                            >retrieval-augmented generation 2025 papers</span
+                          >", "<span class="json-key">limit</span>":
+                          <span class="json-num">5</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Tool result: custom search renderer -->
+                    <div class="tool-block regular" style="border-color: #4ade8022">
+                      <div class="tool-block-header" onclick="toggle(this)">
+                        <span class="chevron open">▶</span>
+                        <span class="tool-badge badge-result">result</span>
+                        <span
+                          style="
+                            font-family: ui-monospace, monospace;
+                            font-size: 11px;
+                            color: #e2e8f0;
+                          "
+                          >mcp__web-search__search</span
+                        >
+                        <span
+                          style="
+                            font-size: 10px;
+                            background: rgba(34, 211, 238, 0.08);
+                            color: #22d3ee;
+                            padding: 1px 6px;
+                            border-radius: 3px;
+                            margin-left: auto;
+                            border: 1px solid rgba(34, 211, 238, 0.2);
+                          "
+                          >search renderer</span
+                        >
+                        <span style="font-size: 10px; color: #2d4a6a; margin-left: 8px"
+                          >14:32:07</span
+                        >
+                      </div>
+                      <div class="tool-block-body open">
+                        <div class="renderer-label">
+                          <span>🔍</span> 4 results · custom renderer
+                        </div>
+                        <div class="renderer-search">
+                          <div class="search-result">
+                            <div class="search-result-title">
+                              RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval
+                              (2025)
+                            </div>
+                            <div class="search-result-url">arxiv.org/abs/2501.04219</div>
+                            <div class="search-result-snippet">
+                              A novel approach to RAG that builds hierarchical tree structures over
+                              documents, enabling retrieval at multiple levels of abstraction...
+                            </div>
+                          </div>
+                          <div class="search-result">
+                            <div class="search-result-title">
+                              HyDE+: Improved Hypothetical Document Embeddings for Zero-Shot RAG
+                            </div>
+                            <div class="search-result-url">arxiv.org/abs/2502.11803</div>
+                            <div class="search-result-snippet">
+                              Extends the HyDE technique with multi-step hypothesis generation,
+                              achieving state-of-the-art on BEIR benchmarks...
+                            </div>
+                          </div>
+                          <div class="search-result">
+                            <div class="search-result-title">
+                              GraphRAG: Knowledge Graph-Augmented Retrieval at Scale (2025)
+                            </div>
+                            <div class="search-result-url">arxiv.org/abs/2503.09142</div>
+                            <div class="search-result-snippet">
+                              Integrates knowledge graphs with vector retrieval to handle multi-hop
+                              reasoning queries that traditional RAG fails on...
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Tool: read_file with custom renderer -->
+                    <div
+                      class="tool-block regular"
+                      style="border-color: #4ade8022; margin-top: 8px"
+                    >
+                      <div class="tool-block-header" onclick="toggle(this)">
+                        <span class="chevron">▶</span>
+                        <span class="tool-badge badge-result">result</span>
+                        <span
+                          style="
+                            font-family: ui-monospace, monospace;
+                            font-size: 11px;
+                            color: #e2e8f0;
+                          "
+                          >mcp__filesystem__list_directory</span
+                        >
+                        <span
+                          style="
+                            font-size: 10px;
+                            background: rgba(34, 211, 238, 0.08);
+                            color: #22d3ee;
+                            padding: 1px 6px;
+                            border-radius: 3px;
+                            margin-left: auto;
+                            border: 1px solid rgba(34, 211, 238, 0.2);
+                          "
+                          >file renderer</span
+                        >
+                        <span style="font-size: 10px; color: #2d4a6a; margin-left: 8px"
+                          >14:32:09</span
+                        >
+                      </div>
+                      <div class="tool-block-body">
+                        <div class="renderer-label">
+                          <span>📁</span> /workspace/research · 6 items · custom renderer
+                        </div>
+                        <div class="renderer-file">
+                          <div class="file-line">
+                            <span class="icon">📁</span><span class="dir">papers/</span>
+                          </div>
+                          <div class="file-line" style="padding-left: 18px">
+                            <span class="icon">📄</span><span class="file">raptor-2025.pdf</span
+                            ><span style="margin-left: auto; color: #2d4a6a; font-size: 9px"
+                              >2.1 MB</span
+                            >
+                          </div>
+                          <div class="file-line" style="padding-left: 18px">
+                            <span class="icon">📄</span><span class="file">hyde-plus-2025.pdf</span
+                            ><span style="margin-left: auto; color: #2d4a6a; font-size: 9px"
+                              >1.8 MB</span
+                            >
+                          </div>
+                          <div class="file-line" style="padding-left: 18px">
+                            <span class="icon">📄</span><span class="file">graphrag-2025.pdf</span
+                            ><span style="margin-left: auto; color: #2d4a6a; font-size: 9px"
+                              >3.4 MB</span
+                            >
+                          </div>
+                          <div class="file-line">
+                            <span class="icon">📄</span><span class="file">notes.md</span
+                            ><span style="margin-left: auto; color: #2d4a6a; font-size: 9px"
+                              >4.2 KB</span
+                            >
+                          </div>
+                          <div class="file-line">
+                            <span class="icon">📄</span><span class="file">summary-draft.md</span
+                            ><span style="margin-left: auto; color: #2d4a6a; font-size: 9px"
+                              >1.1 KB</span
+                            >
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="msg" style="margin-top: 12px">
+                    <div class="msg-header">
+                      <span class="msg-author researcher">researcher-2</span>
+                      <span class="msg-time">14:32:14</span>
+                    </div>
+                    <div class="msg-body">
+                      I've found 3 key papers and saved them locally. Here's the two-page summary:
+                      <em style="color: #4b6a8a">[summary text, truncated in monitoring view]</em>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Delegation result -->
+                <div
+                  style="padding: 8px 16px; background: #080d18; border-top: 1px solid #f59e0b22"
+                >
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
+                    <span class="tool-badge badge-result">delegation result</span>
+                    <span style="font-size: 10px; color: #2d4a6a"
+                      >14:32:14 · researcher-2 completed</span
+                    >
+                  </div>
+                  <div style="font-size: 11px; color: #4b6a8a; font-style: italic">
+                    Summary returned to orchestrator-1 ↑
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Message 2: orchestrator continues -->
+          <div class="msg">
+            <div class="msg-header">
+              <span class="msg-author orchestrator">orchestrator-1</span>
+              <span class="msg-time">14:32:15</span>
+            </div>
+            <div class="msg-body">
+              Summary received. Now delegating to writer-3 to format this into a publishable post...
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px">
+              <div
+                style="
+                  width: 5px;
+                  height: 5px;
+                  background: #22d3ee;
+                  border-radius: 50%;
+                  animation: pulse 1.5s infinite;
+                "
+              ></div>
+              <span style="font-size: 10px; color: #2d4a6a; font-style: italic"
+                >Waiting for writer-3...</span
+              >
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Message 2: orchestrator continues -->
-      <div class="msg">
-        <div class="msg-header">
-          <span class="msg-author orchestrator">orchestrator-1</span>
-          <span class="msg-time">14:32:15</span>
-        </div>
-        <div class="msg-body">Summary received. Now delegating to writer-3 to format this into a publishable post...</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
-          <div style="width:5px;height:5px;background:#22d3ee;border-radius:50%;animation:pulse 1.5s infinite;"></div>
-          <span style="font-size:10px;color:#2d4a6a;font-style:italic;">Waiting for writer-3...</span>
+        <div style="padding: 10px 20px; border-top: 1px solid #1e3a5f; background: #0a1220">
+          <span style="font-size: 10px; color: #2d4a6a; font-style: italic"
+            >Read-only monitoring view.</span
+          >
         </div>
       </div>
-
     </div>
 
-    <div style="padding:10px 20px;border-top:1px solid #1e3a5f;background:#0a1220;">
-      <span style="font-size:10px;color:#2d4a6a;font-style:italic;">Read-only monitoring view.</span>
-    </div>
-  </div>
-</div>
-
-<script>
-function toggle(header) {
-  const body = header.nextElementSibling;
-  const chevron = header.querySelector('.chevron');
-  const isOpen = body.classList.contains('open');
-  body.classList.toggle('open', !isOpen);
-  chevron.classList.toggle('open', !isOpen);
-}
-</script>
-</body>
+    <script>
+      function toggle(header) {
+        const body = header.nextElementSibling;
+        const chevron = header.querySelector('.chevron');
+        const isOpen = body.classList.contains('open');
+        body.classList.toggle('open', !isOpen);
+        chevron.classList.toggle('open', !isOpen);
+      }
+    </script>
+  </body>
 </html>

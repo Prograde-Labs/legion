@@ -27,15 +27,15 @@ requests, authenticates participants via JWT, executes tools on their behalf, an
 
 ## What is NOT new in this plan
 
-| Item | Where it lives | Plan |
-|------|----------------|------|
-| `CredentialStore` interface + `FileCredentialStore` (argon2) | `@legion/core/src/credentials/` | Plan 3 |
-| `BOOTSTRAP_OPERATOR_ID` + `createDefaultParticipants()` | `@legion/core/src/collective/default-participants.ts` | Plan 3 |
-| `Collective.seedDefaultsIfEmpty()` | `@legion/core/src/collective/Collective.ts` | Plan 3 |
-| `ServiceManager` + `ServiceRuntime` | `@legion/core/src/service/` | Plan 8 |
-| `loadMCPSources()` | `@legion/core/src/tools/` | Plan 9 |
-| `AgentRuntime`, `MockRuntime` | `@legion/core/src/runtime/` | Plans 6, 5 |
-| Global tools: `communicateTool`, `approvalResponseTool`, management tools | `@legion/core/src/tools/` | Plans 4–7 |
+| Item                                                                      | Where it lives                                        | Plan       |
+| ------------------------------------------------------------------------- | ----------------------------------------------------- | ---------- |
+| `CredentialStore` interface + `FileCredentialStore` (argon2)              | `@legion/core/src/credentials/`                       | Plan 3     |
+| `BOOTSTRAP_OPERATOR_ID` + `createDefaultParticipants()`                   | `@legion/core/src/collective/default-participants.ts` | Plan 3     |
+| `Collective.seedDefaultsIfEmpty()`                                        | `@legion/core/src/collective/Collective.ts`           | Plan 3     |
+| `ServiceManager` + `ServiceRuntime`                                       | `@legion/core/src/service/`                           | Plan 8     |
+| `loadMCPSources()`                                                        | `@legion/core/src/tools/`                             | Plan 9     |
+| `AgentRuntime`, `MockRuntime`                                             | `@legion/core/src/runtime/`                           | Plans 6, 5 |
+| Global tools: `communicateTool`, `approvalResponseTool`, management tools | `@legion/core/src/tools/`                             | Plans 4–7  |
 
 ---
 
@@ -215,17 +215,44 @@ private async sendInner(opts: SendOptions): Promise<MessageRouterResult> {
 ```typescript
 describe('MessageRouter: per-conversation locking', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'legion-lock-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-lock-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
 
   it('serialises concurrent sends to the same conversation', async () => {
     const { router, baseContext } = await setup(dir);
-    const first = await router.send({ senderId: 'op', recipientId: 'mock-1', message: 'one', context: baseContext });
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'one',
+      context: baseContext,
+    });
     const order: number[] = [];
-    const p1 = router.send({ senderId: 'op', recipientId: 'mock-1', message: 'a',
-      conversationId: first.conversationId, context: baseContext }).then(() => { order.push(1); });
-    const p2 = router.send({ senderId: 'op', recipientId: 'mock-1', message: 'b',
-      conversationId: first.conversationId, context: baseContext }).then(() => { order.push(2); });
+    const p1 = router
+      .send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'a',
+        conversationId: first.conversationId,
+        context: baseContext,
+      })
+      .then(() => {
+        order.push(1);
+      });
+    const p2 = router
+      .send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'b',
+        conversationId: first.conversationId,
+        context: baseContext,
+      })
+      .then(() => {
+        order.push(2);
+      });
     await Promise.all([p1, p2]);
     // Both complete; order is 1 then 2 (first in, first served).
     expect(order).toEqual([1, 2]);
@@ -318,15 +345,23 @@ function makeConnector(name: string): Connector & { delivered: unknown[] } {
     name,
     delivered: [],
     async start() {},
-    async deliver(msg) { this.delivered.push(msg); },
+    async deliver(msg) {
+      this.delivered.push(msg);
+    },
     async stop() {},
   };
 }
 
 const inbound: MessageData = {
-  id: 'm1', parentId: null, conversationId: 'c1', senderId: 'op',
-  recipientId: 'user-a', role: 'user', content: 'hello',
-  status: 'active', timestamp: '2026-01-01T00:00:00.000Z',
+  id: 'm1',
+  parentId: null,
+  conversationId: 'c1',
+  senderId: 'op',
+  recipientId: 'user-a',
+  role: 'user',
+  content: 'hello',
+  status: 'active',
+  timestamp: '2026-01-01T00:00:00.000Z',
 };
 
 function makeCtx(): RuntimeContext {
@@ -377,8 +412,12 @@ describe('UserDeliveryRuntime', () => {
   it('swallows connector.deliver() errors and continues', async () => {
     const registry = new ConnectorRegistry();
     const failConnector: Connector = {
-      name: 'broken', async start() {}, async stop() {},
-      async deliver() { throw new Error('network error'); },
+      name: 'broken',
+      async start() {},
+      async stop() {},
+      async deliver() {
+        throw new Error('network error');
+      },
     };
     const goodConnector = makeConnector('good');
     registry.register(failConnector);
@@ -605,14 +644,13 @@ packages/core/src/
 ## Task 1: `@legion/runtime` package scaffold
 
 **Files to create:**
+
 1. `packages/runtime/package.json`
 2. `packages/runtime/tsconfig.json`
 3. `packages/runtime/vitest.config.ts`
 4. `packages/runtime/src/index.ts` — placeholder barrel
 
-**Root amendments:**
-5. `package.json` — `packages/runtime` is already listed in `workspaces` (Plan 1 scaffold); verify only
-6. `tsconfig.json` — add `{ "path": "packages/runtime" }` to `references`
+**Root amendments:** 5. `package.json` — `packages/runtime` is already listed in `workspaces` (Plan 1 scaffold); verify only 6. `tsconfig.json` — add `{ "path": "packages/runtime" }` to `references`
 
 > Note: Plan 1 created `packages/runtime/` as a minimal placeholder (`package.json` +
 > empty `src/index.ts`). This task replaces that placeholder with the full build config.
@@ -664,15 +702,9 @@ packages/core/src/
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "references": [
-    { "path": "../core" }
-  ],
+  "references": [{ "path": "../core" }],
   "include": ["src/**/*.ts"],
-  "exclude": [
-    "src/**/*.test.ts",
-    "src/**/*.integration.test.ts",
-    "node_modules"
-  ]
+  "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts", "node_modules"]
 }
 ```
 
@@ -737,6 +769,7 @@ git commit -m "feat(runtime): scaffold @legion/runtime package"
 ## Task 2: Connector interfaces + `ConnectorRegistry` in `@legion/core`
 
 **Files:**
+
 1. Create: `packages/core/src/connectors/Connector.ts` (see shape above)
 2. Create: `packages/core/src/connectors/ConnectorRegistry.ts` (see shape above)
 3. Create: `packages/core/src/connectors/ConnectorRegistry.test.ts`
@@ -893,6 +926,7 @@ git commit -m "feat(core): Connector interfaces and ConnectorRegistry"
 ## Task 3: `@legion/core` amendments — UserDeliveryRuntime, EventBus.onAny, MessageRouter.withLock
 
 **Files:**
+
 1. Replace: `packages/core/src/runtime/UserDeliveryRuntime.ts` (content above)
 2. Create: `packages/core/src/runtime/UserDeliveryRuntime.test.ts` (content above)
 3. Modify: `packages/core/src/events/EventBus.ts` (add `onAny`/`offAny` + update `emit()`)
@@ -958,6 +992,7 @@ Expected: PASS (7 tests — 4 original + 3 new).
 In `packages/core/src/runtime/MessageRouter.ts`:
 
 1. Add the `locks` private field after `background`:
+
    ```typescript
    private locks = new Map<string, Promise<void>>();
    ```
@@ -1013,6 +1048,7 @@ git commit -m "feat(core): connector-aware delivery, EventBus.onAny, MessageRout
 ## Task 4: `WebConnector` — HTTP server
 
 **Files:**
+
 1. Create: `packages/runtime/src/server/auth.ts`
 2. Create: `packages/runtime/src/server/routes/health.ts`
 3. Create: `packages/runtime/src/server/routes/auth.ts`
@@ -1209,12 +1245,9 @@ export async function registerExecuteRoute(
       }
 
       // Execute via ConnectorContext (authorization + routing handled inside)
-      const { result, conversationId: convId } = await ctx.callTool(
-        participantId,
-        toolName,
-        args,
-        { conversationId },
-      );
+      const { result, conversationId: convId } = await ctx.callTool(participantId, toolName, args, {
+        conversationId,
+      });
 
       return reply.send({ result, conversationId: convId });
     },
@@ -1236,7 +1269,13 @@ import websocketPlugin from '@fastify/websocket';
 import staticPlugin from '@fastify/static';
 import type { WebSocket } from 'ws';
 import type { Connector, ConnectorContext } from '@legion/core';
-import type { Collective, CredentialStore, EventBus, LegionEventName, ServerConfig } from '@legion/core';
+import type {
+  Collective,
+  CredentialStore,
+  EventBus,
+  LegionEventName,
+  ServerConfig,
+} from '@legion/core';
 import { signToken, verifyToken, extractBearerToken } from './auth.js';
 import type { JwtSecret } from './auth.js';
 import { registerHealthRoute } from './routes/health.js';
@@ -1456,7 +1495,9 @@ function makeCredentials(storage: MemoryStorage) {
   return new FileCredentialStore(storage);
 }
 
-function makeConnectorContext(toolResult: ToolResult = { status: 'success', data: 'ok' }): ConnectorContext {
+function makeConnectorContext(
+  toolResult: ToolResult = { status: 'success', data: 'ok' },
+): ConnectorContext {
   return {
     submit: vi.fn().mockResolvedValue({ status: 'success', conversationId: 'conv-1' }),
     callTool: vi.fn().mockResolvedValue({ result: toolResult, conversationId: 'conv-test' }),
@@ -1523,7 +1564,8 @@ describe('WebConnector: POST /api/auth/login', () => {
   it('returns 400 when name or password is missing', async () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator' },
     });
     expect(res.statusCode).toBe(400);
@@ -1533,7 +1575,8 @@ describe('WebConnector: POST /api/auth/login', () => {
   it('returns 401 for unknown participant name', async () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Ghost', password: 'x' },
     });
     expect(res.statusCode).toBe(401);
@@ -1543,7 +1586,8 @@ describe('WebConnector: POST /api/auth/login', () => {
   it('returns 401 for wrong password', async () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator', password: 'wrong' },
     });
     expect(res.statusCode).toBe(401);
@@ -1553,7 +1597,8 @@ describe('WebConnector: POST /api/auth/login', () => {
   it('returns 200 and a JWT token on success', async () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator', password: 'hunter2' },
     });
     expect(res.statusCode).toBe(200);
@@ -1576,7 +1621,8 @@ describe('WebConnector: GET /api/auth/me', () => {
   it('returns 401 for an invalid token', async () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, {
-      method: 'GET', url: '/api/auth/me',
+      method: 'GET',
+      url: '/api/auth/me',
       headers: { authorization: 'Bearer invalid.token.here' },
     });
     expect(res.statusCode).toBe(401);
@@ -1587,13 +1633,15 @@ describe('WebConnector: GET /api/auth/me', () => {
     const { connector } = await makeConnector();
     // Login first to obtain a token from the same instance (same JWT secret).
     const loginRes = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator', password: 'hunter2' },
     });
     const { token } = JSON.parse(loginRes.body) as { token: string };
 
     const meRes = await inject(connector, {
-      method: 'GET', url: '/api/auth/me',
+      method: 'GET',
+      url: '/api/auth/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(meRes.statusCode).toBe(200);
@@ -1608,7 +1656,8 @@ describe('WebConnector: POST /api/execute', () => {
   it('returns 401 when unauthenticated', async () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, {
-      method: 'POST', url: '/api/execute',
+      method: 'POST',
+      url: '/api/execute',
       payload: { tool: 'list_participants', args: {} },
     });
     expect(res.statusCode).toBe(401);
@@ -1618,12 +1667,14 @@ describe('WebConnector: POST /api/execute', () => {
   it('returns 400 when tool name is missing', async () => {
     const { connector } = await makeConnector();
     const loginRes = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator', password: 'hunter2' },
     });
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
-      method: 'POST', url: '/api/execute',
+      method: 'POST',
+      url: '/api/execute',
       headers: { authorization: `Bearer ${token}` },
       payload: { args: {} },
     });
@@ -1634,12 +1685,14 @@ describe('WebConnector: POST /api/execute', () => {
   it('returns 200 + result on success', async () => {
     const { connector } = await makeConnector();
     const loginRes = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator', password: 'hunter2' },
     });
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
-      method: 'POST', url: '/api/execute',
+      method: 'POST',
+      url: '/api/execute',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'list_participants', args: {} },
     });
@@ -1653,12 +1706,14 @@ describe('WebConnector: POST /api/execute', () => {
   it('returns conversationId even when not supplied in request', async () => {
     const { connector } = await makeConnector();
     const loginRes = await inject(connector, {
-      method: 'POST', url: '/api/auth/login',
+      method: 'POST',
+      url: '/api/auth/login',
       payload: { name: 'Operator', password: 'hunter2' },
     });
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
-      method: 'POST', url: '/api/execute',
+      method: 'POST',
+      url: '/api/execute',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'list_participants' },
     });
@@ -1683,8 +1738,12 @@ describe('WebConnector: deliver()', () => {
     const { connector } = await makeConnector();
     await expect(
       connector.deliver({
-        id: 'm1', conversationId: 'c1', senderId: 'agent-1', recipientId: 'op-1',
-        content: 'hello', timestamp: new Date().toISOString(),
+        id: 'm1',
+        conversationId: 'c1',
+        senderId: 'agent-1',
+        recipientId: 'op-1',
+        content: 'hello',
+        timestamp: new Date().toISOString(),
       }),
     ).resolves.toBeUndefined();
     await connector.stop();
@@ -1695,15 +1754,21 @@ describe('WebConnector: deliver()', () => {
     const sent: string[] = [];
     const fakeSocket = {
       readyState: 1, // OPEN
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     };
     // Directly inject a fake socket into the connections map for testing.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (connector as any).connections.set('op-1', new Set([fakeSocket]));
 
     await connector.deliver({
-      id: 'm1', conversationId: 'c1', senderId: 'agent-1', recipientId: 'op-1',
-      content: 'hi', timestamp: new Date().toISOString(),
+      id: 'm1',
+      conversationId: 'c1',
+      senderId: 'agent-1',
+      recipientId: 'op-1',
+      content: 'hi',
+      timestamp: new Date().toISOString(),
     });
 
     expect(sent).toHaveLength(1);
@@ -1717,14 +1782,20 @@ describe('WebConnector: deliver()', () => {
     const sent: string[] = [];
     const closedSocket = {
       readyState: 3, // CLOSED
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (connector as any).connections.set('op-1', new Set([closedSocket]));
 
     await connector.deliver({
-      id: 'm1', conversationId: 'c1', senderId: 'agent-1', recipientId: 'op-1',
-      content: 'hi', timestamp: new Date().toISOString(),
+      id: 'm1',
+      conversationId: 'c1',
+      senderId: 'agent-1',
+      recipientId: 'op-1',
+      content: 'hi',
+      timestamp: new Date().toISOString(),
     });
     expect(sent).toHaveLength(0);
     await connector.stop();
@@ -1794,8 +1865,13 @@ function getPort(server: { address: () => { port: number } | null }): number {
 async function setup(port: number) {
   const storage = new MemoryStorage();
   await storage.writeJson('collective/participants/op-1.json', {
-    id: 'op-1', name: 'Operator', type: 'user', tools: {}, operator: true,
-    protected: true, status: 'active',
+    id: 'op-1',
+    name: 'Operator',
+    type: 'user',
+    tools: {},
+    operator: true,
+    protected: true,
+    status: 'active',
   });
   const collective = await Collective.load(storage);
   const credentials = new FileCredentialStore(storage);
@@ -1803,7 +1879,9 @@ async function setup(port: number) {
   const eventBus = new EventBus();
 
   const connector = new WebConnector({
-    collective, credentials, eventBus,
+    collective,
+    credentials,
+    eventBus,
     serverConfig: { port, host: '127.0.0.1' },
   });
 
@@ -1981,6 +2059,7 @@ git commit -m "test(runtime): WebConnector WebSocket integration tests"
 ## Task 6: `LegionProcess`
 
 **Files:**
+
 1. Create: `packages/runtime/src/LegionProcess.ts`
 2. Create: `packages/runtime/src/LegionProcess.integration.test.ts`
 
@@ -2059,9 +2138,11 @@ export class LegionProcess {
       await credentials.setCredential(BOOTSTRAP_OPERATOR_ID, password);
       console.log(
         '\n  ┌─ Legion bootstrap ──────────────────────────────────────────────┐' +
-        '\n  │  Bootstrap operator password: ' + password + '  │' +
-        '\n  │  Store this password — it will not be shown again.              │' +
-        '\n  └─────────────────────────────────────────────────────────────────┘\n',
+          '\n  │  Bootstrap operator password: ' +
+          password +
+          '  │' +
+          '\n  │  Store this password — it will not be shown again.              │' +
+          '\n  └─────────────────────────────────────────────────────────────────┘\n',
       );
     }
 
@@ -2118,7 +2199,9 @@ export class LegionProcess {
     runtimeRegistry.registerFactory('service', (id) => serviceManager.getRuntime(id));
 
     // Register agent factory (now that router + context deps are all wired)
-    const buildBaseContext = (participantId: string): Omit<ToolContext, 'participant' | 'conversationId' | 'conversation'> => ({
+    const buildBaseContext = (
+      participantId: string,
+    ): Omit<ToolContext, 'participant' | 'conversationId' | 'conversation'> => ({
       collective,
       communicationDepth: 0,
       toolRegistry,
@@ -2173,9 +2256,15 @@ export class LegionProcess {
     eventBus.emit('process:ready', { workspaceRoot });
 
     return new LegionProcess(
-      router, collective, store, credentials,
-      serviceManager, connectorRegistry, eventBus,
-      mcpSources, webConnector,
+      router,
+      collective,
+      store,
+      credentials,
+      serviceManager,
+      connectorRegistry,
+      eventBus,
+      mcpSources,
+      webConnector,
     );
   }
 
@@ -2239,8 +2328,18 @@ interface ConnectorContextDeps {
 /** Build the `ConnectorContext` passed to every connector's `start()`. */
 function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
   const {
-    router, toolRegistry, authEngine, connectorRegistry, collective,
-    store, pendingApprovalRegistry, eventBus, storage, config, workspaceRoot, serviceManager,
+    router,
+    toolRegistry,
+    authEngine,
+    connectorRegistry,
+    collective,
+    store,
+    pendingApprovalRegistry,
+    eventBus,
+    storage,
+    config,
+    workspaceRoot,
+    serviceManager,
   } = deps;
 
   return {
@@ -2406,7 +2505,10 @@ describe.skipIf(!LIVE)('LegionProcess (integration)', () => {
     // Capture bootstrap password from stdout (hacky but reliable for integration).
     const logged: string[] = [];
     const origLog = console.log;
-    console.log = (...args: unknown[]) => { logged.push(args.join(' ')); origLog(...args); };
+    console.log = (...args: unknown[]) => {
+      logged.push(args.join(' '));
+      origLog(...args);
+    };
 
     process_ = await LegionProcess.start(workspaceRoot);
     console.log = origLog;
@@ -2488,6 +2590,7 @@ git commit -m "feat(runtime): LegionProcess assembly and integration test"
 ## Task 7: Barrel exports + full suite verification
 
 **Files:**
+
 1. Update: `packages/runtime/src/index.ts`
 2. Update: `packages/core/src/index.ts` — verify connectors barrel already added (Task 2)
 
@@ -2570,16 +2673,16 @@ git commit -m "chore(runtime): wire barrel exports; full suite green"
 
 ## Key decisions recorded
 
-| Decision | Value |
-|----------|-------|
-| Password hashing | argon2 (Plan 3 decision; `FileCredentialStore` in `@legion/core`) |
-| Auth sessions | Stateless JWT via `jose`. 8 h expiry. Secret: `crypto.getRandomValues(new Uint8Array(32))`. Never persisted. |
-| Per-conversation locking | Hand-rolled lock-chain in `MessageRouter.withLock()` |
-| `Connector`/`ConnectorContext`/`ConnectorRegistry` package | `@legion/core` |
-| `WebConnector` / `LegionProcess` package | `@legion/runtime` |
-| WS auth protocol | First-message `{"type":"auth","token":"..."}`. 10 s timeout. |
-| Login lookup | By participant `name` (case-insensitive), first active match |
-| `/api/execute` conversation | New per-call if not provided; existing if `conversationId` supplied |
-| Bootstrap password | `randomUUID()` on first init; printed to stdout; never recoverable |
-| SPA serving | `@fastify/static`; skipped (no crash) if `packages/web/dist/` absent |
-| Integration test gate | `LEGION_INTEGRATION=1` |
+| Decision                                                   | Value                                                                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Password hashing                                           | argon2 (Plan 3 decision; `FileCredentialStore` in `@legion/core`)                                            |
+| Auth sessions                                              | Stateless JWT via `jose`. 8 h expiry. Secret: `crypto.getRandomValues(new Uint8Array(32))`. Never persisted. |
+| Per-conversation locking                                   | Hand-rolled lock-chain in `MessageRouter.withLock()`                                                         |
+| `Connector`/`ConnectorContext`/`ConnectorRegistry` package | `@legion/core`                                                                                               |
+| `WebConnector` / `LegionProcess` package                   | `@legion/runtime`                                                                                            |
+| WS auth protocol                                           | First-message `{"type":"auth","token":"..."}`. 10 s timeout.                                                 |
+| Login lookup                                               | By participant `name` (case-insensitive), first active match                                                 |
+| `/api/execute` conversation                                | New per-call if not provided; existing if `conversationId` supplied                                          |
+| Bootstrap password                                         | `randomUUID()` on first init; printed to stdout; never recoverable                                           |
+| SPA serving                                                | `@fastify/static`; skipped (no crash) if `packages/web/dist/` absent                                         |
+| Integration test gate                                      | `LEGION_INTEGRATION=1`                                                                                       |

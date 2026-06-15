@@ -102,7 +102,9 @@ describe('FileStorage', () => {
     const outside = await setupOutsideSymlink();
     try {
       await expect(s.write('link/file', 'x')).rejects.toThrow();
-      await expect(readFile(join(outside, 'file'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(join(outside, 'file'), 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
@@ -129,7 +131,9 @@ describe('FileStorage', () => {
     const outside = await setupOutsideSymlink();
     try {
       await expect(s.scope('link').write('file', 'x')).rejects.toThrow();
-      await expect(readFile(join(outside, 'file'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(readFile(join(outside, 'file'), 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
     } finally {
       await rm(outside, { recursive: true, force: true });
     }

@@ -31,6 +31,7 @@ All exported from `packages/core/src/index.ts`.
 ## Task 1: Collective — load + query
 
 **Files:**
+
 - Create: `packages/core/src/collective/Collective.ts`
 - Test: `packages/core/src/collective/Collective.test.ts`
 
@@ -84,7 +85,10 @@ describe('Collective: load and query', () => {
   it('lists only active participants via listActive', async () => {
     const { storage, operator, agent } = seedStorage();
     await storage.writeJson('collective/participants/op-1.json', operator);
-    await storage.writeJson('collective/participants/agent-1.json', { ...agent, status: 'retired' });
+    await storage.writeJson('collective/participants/agent-1.json', {
+      ...agent,
+      status: 'retired',
+    });
     const collective = await Collective.load(storage);
     expect(collective.listActive().map((p) => p.id)).toEqual(['op-1']);
   });
@@ -187,6 +191,7 @@ git commit -m "feat(core): add Collective roster load and query"
 ## Task 2: Collective — add / update / retire with invariants
 
 **Files:**
+
 - Modify: `packages/core/src/collective/Collective.ts`
 - Test: `packages/core/src/collective/Collective.test.ts` (add cases)
 
@@ -209,10 +214,17 @@ describe('Collective: mutation and invariants', () => {
   it('adds a participant and persists it', async () => {
     const collective = await withOperatorAndAgent();
     await collective.add({
-      id: 'mock-1', name: 'Mock', type: 'mock', tools: {}, responses: ['ok'], status: 'active',
+      id: 'mock-1',
+      name: 'Mock',
+      type: 'mock',
+      tools: {},
+      responses: ['ok'],
+      status: 'active',
     });
     expect(collective.get('mock-1')?.name).toBe('Mock');
-    const reloaded = await Collective.load((collective as unknown as { storage: MemoryStorage }).storage);
+    const reloaded = await Collective.load(
+      (collective as unknown as { storage: MemoryStorage }).storage,
+    );
     expect(reloaded.get('mock-1')).toBeDefined();
   });
 
@@ -238,7 +250,12 @@ describe('Collective: mutation and invariants', () => {
     const { storage } = seedStorage();
     // operator that is NOT protected, but is the only operator
     await storage.writeJson('collective/participants/op-1.json', {
-      id: 'op-1', name: 'Op', type: 'user', tools: {}, operator: true, status: 'active',
+      id: 'op-1',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      operator: true,
+      status: 'active',
     });
     const collective = await Collective.load(storage);
     await expect(collective.retire('op-1')).rejects.toThrow(/operator/i);
@@ -253,7 +270,12 @@ describe('Collective: mutation and invariants', () => {
   it('refuses to strip operator authority from the last operator', async () => {
     const { storage } = seedStorage();
     await storage.writeJson('collective/participants/op-1.json', {
-      id: 'op-1', name: 'Op', type: 'user', tools: {}, operator: true, status: 'active',
+      id: 'op-1',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      operator: true,
+      status: 'active',
     });
     const collective = await Collective.load(storage);
     await expect(collective.update('op-1', { operator: false })).rejects.toThrow(/operator/i);
@@ -357,6 +379,7 @@ git commit -m "feat(core): add Collective mutations with protected/operator inva
 ## Task 3: Default participants (bootstrap operator)
 
 **Files:**
+
 - Create: `packages/core/src/collective/default-participants.ts`
 - Test: `packages/core/src/collective/default-participants.test.ts`
 
@@ -381,9 +404,7 @@ describe('createDefaultParticipants', () => {
 
   it('grants the operator the web connector identity and management tools', () => {
     const [operator] = createDefaultParticipants();
-    expect(operator.identities).toEqual([
-      { connector: 'web', externalId: BOOTSTRAP_OPERATOR_ID },
-    ]);
+    expect(operator.identities).toEqual([{ connector: 'web', externalId: BOOTSTRAP_OPERATOR_ID }]);
     expect(operator.tools['create_agent']).toBe('auto');
     expect(operator.tools['communicate']).toBe('auto');
   });
@@ -500,6 +521,7 @@ git commit -m "feat(core): add bootstrap operator seeding"
 ## Task 4: CredentialStore interface
 
 **Files:**
+
 - Create: `packages/core/src/credentials/CredentialStore.ts`
 
 - [ ] **Step 1: Create the interface** (spec §6)
@@ -539,6 +561,7 @@ git commit -m "feat(core): add CredentialStore interface"
 ## Task 5: FileCredentialStore (argon2)
 
 **Files:**
+
 - Modify: `packages/core/package.json` (add `@node-rs/argon2`)
 - Create: `packages/core/src/credentials/FileCredentialStore.ts`
 - Test: `packages/core/src/credentials/FileCredentialStore.test.ts`

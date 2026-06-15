@@ -36,6 +36,7 @@ All new symbols exported from `packages/core/src/index.ts`.
 ## Task 1: Provider types + ProviderRegistry
 
 **Files:**
+
 - Create: `packages/core/src/providers/Provider.ts`
 - Create: `packages/core/src/providers/ProviderRegistry.ts`
 - Test: `packages/core/src/providers/ProviderRegistry.test.ts`
@@ -184,6 +185,7 @@ git commit -m "feat(core): add Provider interface and ProviderRegistry"
 ## Task 2: OpenAICompatibleProvider
 
 **Files:**
+
 - Create: `packages/core/src/providers/OpenAICompatibleProvider.ts`
 - Test: `packages/core/src/providers/OpenAICompatibleProvider.test.ts`
 
@@ -305,7 +307,10 @@ describe('OpenAICompatibleProvider', () => {
     fetchMock.mockResolvedValue(
       makeOkResponse({
         choices: [
-          { message: { role: 'assistant', content: 'ok', tool_calls: null }, finish_reason: 'stop' },
+          {
+            message: { role: 'assistant', content: 'ok', tool_calls: null },
+            finish_reason: 'stop',
+          },
         ],
       }),
     );
@@ -449,9 +454,7 @@ export class OpenAICompatibleProvider implements Provider {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new ProviderError(
-        `OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`,
-      );
+      throw new ProviderError(`OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`);
     }
 
     const data = (await res.json()) as OAIChatResponse;
@@ -506,6 +509,7 @@ git commit -m "feat(core): add OpenAICompatibleProvider with native fetch"
 ## Task 3: AgentRuntime
 
 **Files:**
+
 - Create: `packages/core/src/runtime/AgentRuntime.ts`
 - Test: `packages/core/src/runtime/AgentRuntime.test.ts`
 
@@ -690,16 +694,25 @@ describe('AgentRuntime', () => {
     } as AgentConfig);
     const collective = await Collective.load(storage);
     const conv = await conversationStore.create({
-      schemaVersion: '2.0', activeBranchHead: '', messages: {},
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
     });
     const thread = new ConversationThread(conv, conversationStore);
     const inbound = await thread.append({
-      senderId: 'u', recipientId: 'agent-1', role: 'user', content: 'hi',
+      senderId: 'u',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
     });
     const toolRegistry = new ToolRegistry();
     toolRegistry.register({
-      name: 'echo', description: 'echo', parameters: { type: 'object' },
-      async execute(args) { return { status: 'success', data: (args as { text: string }).text }; },
+      name: 'echo',
+      description: 'echo',
+      parameters: { type: 'object' },
+      async execute(args) {
+        return { status: 'success', data: (args as { text: string }).text };
+      },
     });
     let tcId = 0;
     const loopingProvider: Provider = {
@@ -922,17 +935,21 @@ git commit -m "feat(core): add AgentRuntime LLM agentic loop"
 ## Task 4: Env-gated live integration test
 
 **Files:**
+
 - Create: `packages/core/src/runtime/agent-runtime.integration.test.ts`
 
 > This test gates the first runnable milestone. It exercises the complete path:
 > operator → MessageRouter → AgentRuntime → real OpenAI-compatible API → response.
 >
 > **To run:**
+>
 > ```
 > LEGION_OPENAI_INTEGRATION=1 OPENAI_API_KEY=<key> npx vitest run \
 >   packages/core/src/runtime/agent-runtime.integration.test.ts
 > ```
+>
 > Optionally override the endpoint and model:
+>
 > ```
 > OPENAI_BASE_URL=http://localhost:11434/v1 \
 > OPENAI_MODEL=llama3.2 \
@@ -963,151 +980,146 @@ import type { ToolContext } from '../tools/Tool.js';
 const LIVE = !!process.env['LEGION_OPENAI_INTEGRATION'];
 
 describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => {
-  it(
-    'connects to the OpenAI-compatible endpoint and returns a text response',
-    async () => {
-      const model = process.env['OPENAI_MODEL'] ?? 'gpt-4o-mini';
-      const storage = new MemoryStorage();
+  it('connects to the OpenAI-compatible endpoint and returns a text response', async () => {
+    const model = process.env['OPENAI_MODEL'] ?? 'gpt-4o-mini';
+    const storage = new MemoryStorage();
 
-      // Participants: a user (operator) and an agent.
-      await storage.writeJson('collective/participants/operator.json', {
-        id: 'operator',
-        name: 'Operator',
-        type: 'user',
-        tools: {},
-        status: 'active',
-      });
-      await storage.writeJson('collective/participants/assistant.json', {
-        id: 'assistant',
-        name: 'Assistant',
-        type: 'agent',
-        systemPrompt:
-          'You are a helpful assistant. Always respond in exactly one short sentence.',
-        model: { provider: 'openai-compatible', model },
-        tools: {},
-        status: 'active',
-      });
+    // Participants: a user (operator) and an agent.
+    await storage.writeJson('collective/participants/operator.json', {
+      id: 'operator',
+      name: 'Operator',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/assistant.json', {
+      id: 'assistant',
+      name: 'Assistant',
+      type: 'agent',
+      systemPrompt: 'You are a helpful assistant. Always respond in exactly one short sentence.',
+      model: { provider: 'openai-compatible', model },
+      tools: {},
+      status: 'active',
+    });
 
-      const collective = await Collective.load(storage);
-      const conversationStore = new FileConversationStore(storage);
-      const eventBus = new EventBus();
-      const toolRegistry = new ToolRegistry();
+    const collective = await Collective.load(storage);
+    const conversationStore = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const toolRegistry = new ToolRegistry();
 
-      const providerRegistry = new ProviderRegistry();
-      providerRegistry.register('openai-compatible', new OpenAICompatibleProvider());
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register('openai-compatible', new OpenAICompatibleProvider());
 
-      const runtimeRegistry = new RuntimeRegistry();
-      runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
-      runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
+    const runtimeRegistry = new RuntimeRegistry();
+    runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
 
-      const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
+    const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
 
-      const baseContext = {
-        collective,
-        config: { version: '2' },
-        eventBus,
-        storage,
-        workspaceRoot: '/tmp/legion-live-test',
-        communicationDepth: 0,
-        toolRegistry,
-        authEngine: new AuthEngine(),
-        pendingApprovalRegistry: new PendingApprovalRegistry(),
-      } as unknown as ToolContext;
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: '/tmp/legion-live-test',
+      communicationDepth: 0,
+      toolRegistry,
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
 
-      const result = await router.send({
-        senderId: 'operator',
-        recipientId: 'assistant',
-        message: 'What is the capital of France?',
-        context: baseContext,
-      });
+    const result = await router.send({
+      senderId: 'operator',
+      recipientId: 'assistant',
+      message: 'What is the capital of France?',
+      context: baseContext,
+    });
 
-      expect(result.status).toBe('success');
-      expect(typeof result.response).toBe('string');
-      expect(result.response!.length).toBeGreaterThan(0);
-      // Should contain "Paris" somewhere in the response.
-      expect(result.response!.toLowerCase()).toContain('paris');
-    },
-    30_000, // 30-second timeout for live API call
-  );
+    expect(result.status).toBe('success');
+    expect(typeof result.response).toBe('string');
+    expect(result.response!.length).toBeGreaterThan(0);
+    // Should contain "Paris" somewhere in the response.
+    expect(result.response!.toLowerCase()).toContain('paris');
+  }, 30_000); // 30-second timeout for live API call
 
-  it(
-    'executes a tool call when the agent is configured with an echo tool',
-    async () => {
-      const model = process.env['OPENAI_MODEL'] ?? 'gpt-4o-mini';
-      const storage = new MemoryStorage();
+  it('executes a tool call when the agent is configured with an echo tool', async () => {
+    const model = process.env['OPENAI_MODEL'] ?? 'gpt-4o-mini';
+    const storage = new MemoryStorage();
 
-      await storage.writeJson('collective/participants/operator.json', {
-        id: 'operator', name: 'Op', type: 'user', tools: {}, status: 'active',
-      });
-      await storage.writeJson('collective/participants/agent.json', {
-        id: 'agent',
-        name: 'Echo Agent',
-        type: 'agent',
-        systemPrompt:
-          'You are a test agent. When asked to echo something, call the echo tool with ' +
-          'that text, then report the result.',
-        model: { provider: 'openai-compatible', model },
-        tools: { echo: 'auto' },
-        status: 'active',
-      });
+    await storage.writeJson('collective/participants/operator.json', {
+      id: 'operator',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/agent.json', {
+      id: 'agent',
+      name: 'Echo Agent',
+      type: 'agent',
+      systemPrompt:
+        'You are a test agent. When asked to echo something, call the echo tool with ' +
+        'that text, then report the result.',
+      model: { provider: 'openai-compatible', model },
+      tools: { echo: 'auto' },
+      status: 'active',
+    });
 
-      const collective = await Collective.load(storage);
-      const conversationStore = new FileConversationStore(storage);
-      const eventBus = new EventBus();
+    const collective = await Collective.load(storage);
+    const conversationStore = new FileConversationStore(storage);
+    const eventBus = new EventBus();
 
-      const toolRegistry = new ToolRegistry();
-      toolRegistry.register({
-        name: 'echo',
-        description: 'Echoes the provided text back',
-        parameters: {
-          type: 'object',
-          properties: { text: { type: 'string', description: 'Text to echo' } },
-          required: ['text'],
-        },
-        async execute(args) {
-          const { text } = args as { text: string };
-          return { status: 'success', data: text };
-        },
-      });
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register({
+      name: 'echo',
+      description: 'Echoes the provided text back',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string', description: 'Text to echo' } },
+        required: ['text'],
+      },
+      async execute(args) {
+        const { text } = args as { text: string };
+        return { status: 'success', data: text };
+      },
+    });
 
-      const providerRegistry = new ProviderRegistry();
-      providerRegistry.register('openai-compatible', new OpenAICompatibleProvider());
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register('openai-compatible', new OpenAICompatibleProvider());
 
-      const runtimeRegistry = new RuntimeRegistry();
-      runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
-      runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
+    const runtimeRegistry = new RuntimeRegistry();
+    runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
 
-      const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
+    const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
 
-      const baseContext = {
-        collective,
-        config: { version: '2' },
-        eventBus,
-        storage,
-        workspaceRoot: '/tmp/legion-live-test',
-        communicationDepth: 0,
-        toolRegistry,
-        authEngine: new AuthEngine(),
-        pendingApprovalRegistry: new PendingApprovalRegistry(),
-      } as unknown as ToolContext;
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: '/tmp/legion-live-test',
+      communicationDepth: 0,
+      toolRegistry,
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
 
-      const toolEvents: string[] = [];
-      eventBus.on('tool:call', (p) => toolEvents.push(p.tool));
+    const toolEvents: string[] = [];
+    eventBus.on('tool:call', (p) => toolEvents.push(p.tool));
 
-      const result = await router.send({
-        senderId: 'operator',
-        recipientId: 'agent',
-        message: 'Please echo the text "hello legion".',
-        context: baseContext,
-      });
+    const result = await router.send({
+      senderId: 'operator',
+      recipientId: 'agent',
+      message: 'Please echo the text "hello legion".',
+      context: baseContext,
+    });
 
-      expect(result.status).toBe('success');
-      expect(result.response).toBeTruthy();
-      // The agent should have called the echo tool at least once.
-      expect(toolEvents).toContain('echo');
-    },
-    45_000, // longer timeout — two round trips to the LLM
-  );
+    expect(result.status).toBe('success');
+    expect(result.response).toBeTruthy();
+    // The agent should have called the echo tool at least once.
+    expect(toolEvents).toContain('echo');
+  }, 45_000); // longer timeout — two round trips to the LLM
 });
 ```
 
@@ -1122,9 +1134,11 @@ Expected: SKIP (2 tests skipped, 0 failed). The full suite still passes.
 LEGION_OPENAI_INTEGRATION=1 OPENAI_API_KEY=<your-key> \
   npx vitest run packages/core/src/runtime/agent-runtime.integration.test.ts
 ```
+
 Expected: PASS (2 tests, 30-45s).
 
 For a local Ollama server:
+
 ```bash
 LEGION_OPENAI_INTEGRATION=1 OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_MODEL=llama3.2 \
   npx vitest run packages/core/src/runtime/agent-runtime.integration.test.ts
@@ -1142,6 +1156,7 @@ git commit -m "test(core): add env-gated AgentRuntime live integration test"
 ## Task 5: Barrel exports + full build + test gate
 
 **Files:**
+
 - Modify: `packages/core/src/index.ts`
 
 - [ ] **Step 1: Export provider + AgentRuntime from the core barrel**

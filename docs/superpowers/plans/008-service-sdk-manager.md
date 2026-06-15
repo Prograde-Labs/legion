@@ -14,31 +14,32 @@
 
 **New files — all under `packages/core/src/service/`:**
 
-| File | Responsibility |
-|------|---------------|
-| `LegionService.ts` | `LegionService`, `ServiceContext`, `IncomingMessage`, `CommunicateResult`, `ServiceStatus`, `ServiceInfo` interfaces |
-| `LegionService.test.ts` | Type-shape tests |
-| `ServiceRuntime.ts` | `Runtime` adapter — calls `onMessage()` from `MessageRouter` dispatch |
-| `ServiceRuntime.test.ts` | Unit tests |
-| `ServiceContextImpl.ts` | Concrete `ServiceContext`; `callTool` auth flow, `communicate`, `sleep` |
-| `ServiceContextImpl.test.ts` | Unit tests |
-| `ServiceManager.ts` | Lifecycle management — load, start, stop, autoStart, error notification |
-| `ServiceManager.test.ts` | Unit tests |
-| `service.integration.test.ts` | End-to-end: load → start → handle → stop |
+| File                          | Responsibility                                                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `LegionService.ts`            | `LegionService`, `ServiceContext`, `IncomingMessage`, `CommunicateResult`, `ServiceStatus`, `ServiceInfo` interfaces |
+| `LegionService.test.ts`       | Type-shape tests                                                                                                     |
+| `ServiceRuntime.ts`           | `Runtime` adapter — calls `onMessage()` from `MessageRouter` dispatch                                                |
+| `ServiceRuntime.test.ts`      | Unit tests                                                                                                           |
+| `ServiceContextImpl.ts`       | Concrete `ServiceContext`; `callTool` auth flow, `communicate`, `sleep`                                              |
+| `ServiceContextImpl.test.ts`  | Unit tests                                                                                                           |
+| `ServiceManager.ts`           | Lifecycle management — load, start, stop, autoStart, error notification                                              |
+| `ServiceManager.test.ts`      | Unit tests                                                                                                           |
+| `service.integration.test.ts` | End-to-end: load → start → handle → stop                                                                             |
 
 **Amended files:**
 
-| File | Change |
-|------|--------|
-| `packages/types/src/participant.ts` | Add `errorNotify?: string` to `ServiceConfig` |
+| File                                   | Change                                                         |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `packages/types/src/participant.ts`    | Add `errorNotify?: string` to `ServiceConfig`                  |
 | `packages/core/src/runtime/Runtime.ts` | `serviceManager?: unknown` → `serviceManager?: ServiceManager` |
-| `packages/core/src/index.ts` | Add service barrel exports |
+| `packages/core/src/index.ts`           | Add service barrel exports                                     |
 
 ---
 
 ## Task 1: LegionService SDK interfaces
 
 **Files:**
+
 - Create: `packages/core/src/service/LegionService.ts`
 - Create: `packages/core/src/service/LegionService.test.ts`
 
@@ -130,7 +131,7 @@ Expected: FAIL — `Cannot find module './LegionService.js'`.
 
 `packages/core/src/service/LegionService.ts`:
 
-```typescript
+````typescript
 import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
 import type { ToolResult } from '@legion/types';
@@ -238,7 +239,7 @@ export interface LegionService {
   stop(): Promise<void>;
   onMessage?(message: IncomingMessage, context: ServiceContext): Promise<string | void>;
 }
-```
+````
 
 - [ ] **Step 4: Run tests to confirm they pass**
 
@@ -260,6 +261,7 @@ git commit -m "feat(core): add LegionService SDK type interfaces"
 ## Task 2: Type amendments — ServiceConfig.errorNotify + RuntimeContext.serviceManager
 
 **Files:**
+
 - Modify: `packages/types/src/participant.ts`
 - Modify: `packages/core/src/runtime/Runtime.ts`
 
@@ -342,12 +344,13 @@ git commit -m "feat(types,core): ServiceConfig.errorNotify + RuntimeContext.serv
 ## Task 3: ServiceRuntime
 
 **Files:**
+
 - Create: `packages/core/src/service/ServiceRuntime.ts`
 - Create: `packages/core/src/service/ServiceRuntime.test.ts`
 
 > Implements `Runtime`. Called by `MessageRouter` when a message is dispatched to a
 > `service`-type participant. Maps `MessageData + RuntimeContext` → `IncomingMessage +
-> ServiceContext` → `LegionService.onMessage()` → `RuntimeResult`.
+ServiceContext` → `LegionService.onMessage()` → `RuntimeResult`.
 >
 > The `makeContext` factory (provided by `ServiceManager.loadService()`) creates a fresh
 > `ServiceContext` bound to the incoming message's conversationId. This keeps
@@ -401,7 +404,9 @@ describe('ServiceRuntime', () => {
     const svc: LegionService = {
       async start() {},
       async stop() {},
-      async onMessage(msg) { return `echo: ${msg.content}`; },
+      async onMessage(msg) {
+        return `echo: ${msg.content}`;
+      },
     };
     const runtime = new ServiceRuntime(svc, {}, stubContextFactory);
     const result = await runtime.handle(makeIncoming(), stubRuntimeCtx());
@@ -412,7 +417,9 @@ describe('ServiceRuntime', () => {
     const svc: LegionService = {
       async start() {},
       async stop() {},
-      async onMessage() { return undefined; },
+      async onMessage() {
+        return undefined;
+      },
     };
     const runtime = new ServiceRuntime(svc, {}, stubContextFactory);
     const result = await runtime.handle(makeIncoming(), stubRuntimeCtx());
@@ -423,24 +430,41 @@ describe('ServiceRuntime', () => {
     const svc: LegionService = {
       async start() {},
       async stop() {},
-      async onMessage() { return 'never called'; },
+      async onMessage() {
+        return 'never called';
+      },
     };
     const runtime = new ServiceRuntime(svc, { canReceive: false }, stubContextFactory);
     const result = await runtime.handle(makeIncoming(), stubRuntimeCtx());
-    expect(result).toEqual({ kind: 'response', content: expect.stringContaining('does not accept') });
+    expect(result).toEqual({
+      kind: 'response',
+      content: expect.stringContaining('does not accept'),
+    });
   });
 
   it('declines gracefully when onMessage is absent', async () => {
     const svc: LegionService = { async start() {}, async stop() {} };
     const runtime = new ServiceRuntime(svc, {}, stubContextFactory);
     const result = await runtime.handle(makeIncoming(), stubRuntimeCtx());
-    expect(result).toEqual({ kind: 'response', content: expect.stringContaining('does not accept') });
+    expect(result).toEqual({
+      kind: 'response',
+      content: expect.stringContaining('does not accept'),
+    });
   });
 
   it('passes the incoming conversationId to the context factory', async () => {
     const seen: string[] = [];
-    const factory = (id: string): ServiceContext => { seen.push(id); return stubContextFactory(id); };
-    const svc: LegionService = { async start() {}, async stop() {}, async onMessage() { return 'ok'; } };
+    const factory = (id: string): ServiceContext => {
+      seen.push(id);
+      return stubContextFactory(id);
+    };
+    const svc: LegionService = {
+      async start() {},
+      async stop() {},
+      async onMessage() {
+        return 'ok';
+      },
+    };
     const runtime = new ServiceRuntime(svc, {}, factory);
     await runtime.handle(makeIncoming({ conversationId: 'conv-42' }), stubRuntimeCtx());
     expect(seen).toEqual(['conv-42']);
@@ -451,7 +475,10 @@ describe('ServiceRuntime', () => {
     const svc: LegionService = {
       async start() {},
       async stop() {},
-      async onMessage(msg) { seen = msg; return 'ok'; },
+      async onMessage(msg) {
+        seen = msg;
+        return 'ok';
+      },
     };
     const runtime = new ServiceRuntime(svc, {}, stubContextFactory);
     const incoming = makeIncoming({ senderId: 'op-1', replyTo: 'user-1', content: 'ping' });
@@ -551,6 +578,7 @@ git commit -m "feat(core): add ServiceRuntime adapter"
 ## Task 4: ServiceContextImpl
 
 **Files:**
+
 - Create: `packages/core/src/service/ServiceContextImpl.ts`
 - Create: `packages/core/src/service/ServiceContextImpl.test.ts`
 
@@ -638,7 +666,10 @@ async function setup() {
     workspaceRoot: dir,
     authEngine: new AuthEngine({ defaultPolicy: 'auto' }),
     pendingApprovalRegistry: {
-      create: vi.fn(), get: vi.fn(), resolve: vi.fn(), getAll: vi.fn(),
+      create: vi.fn(),
+      get: vi.fn(),
+      resolve: vi.fn(),
+      getAll: vi.fn(),
     } as any,
     messageRouter: mockRouter,
     stopped: abortController.signal,
@@ -747,9 +778,7 @@ describe('ServiceContextImpl', () => {
       dir = d;
       const ctx = new ServiceContextImpl(deps);
       await ctx.communicate('agent-b', 'async task', { replyTo: 'op-1' });
-      expect(mockRouter.send).toHaveBeenCalledWith(
-        expect.objectContaining({ replyTo: 'op-1' }),
-      );
+      expect(mockRouter.send).toHaveBeenCalledWith(expect.objectContaining({ replyTo: 'op-1' }));
     });
 
     it('uses supplied conversationId when provided', async () => {
@@ -879,11 +908,12 @@ export class ServiceContextImpl implements ServiceContext {
     return {
       conversationId: result.conversationId,
       response: result.response,
-      status: result.status === 'dispatched'
-        ? 'dispatched'
-        : result.status === 'error'
-          ? 'error'
-          : 'success',
+      status:
+        result.status === 'dispatched'
+          ? 'dispatched'
+          : result.status === 'error'
+            ? 'error'
+            : 'success',
       error: result.error,
     };
   }
@@ -920,8 +950,17 @@ export class ServiceContextImpl implements ServiceContext {
    */
   private buildToolContext(): ToolContext {
     const {
-      participant, conversationId, collective, workspaceConfig, eventBus, rawStorage,
-      workspaceRoot, authEngine, pendingApprovalRegistry, messageRouter, serviceManager,
+      participant,
+      conversationId,
+      collective,
+      workspaceConfig,
+      eventBus,
+      rawStorage,
+      workspaceRoot,
+      authEngine,
+      pendingApprovalRegistry,
+      messageRouter,
+      serviceManager,
       toolRegistry,
     } = this.deps;
 
@@ -964,6 +1003,7 @@ git commit -m "feat(core): add ServiceContextImpl (callTool, communicate, sleep)
 ## Task 5: ServiceManager
 
 **Files:**
+
 - Create: `packages/core/src/service/ServiceManager.ts`
 - Create: `packages/core/src/service/ServiceManager.test.ts`
 
@@ -972,13 +1012,14 @@ git commit -m "feat(core): add ServiceContextImpl (callTool, communicate, sleep)
 > `ServiceRuntime` instances for the Plan 10 factory closure.
 >
 > Error handling policy (agreed in brainstorming):
->   - `start()` throws → status `'failed'`, emit `error` event, if `errorNotify` is set
->     send a message to that participant (fire-and-forget, failures swallowed).
->   - `stop()` throws → emit `error` event, transition to `'stopped'` anyway (abort was
->     already fired; the service is considered stopped).
->   - `onMessage()` throws → `ServiceRuntime` lets the exception propagate up to
->     `MessageRouter` which wraps it as an error result; does NOT change lifecycle state
->     (the service is still running after a handler error).
+>
+> - `start()` throws → status `'failed'`, emit `error` event, if `errorNotify` is set
+>   send a message to that participant (fire-and-forget, failures swallowed).
+> - `stop()` throws → emit `error` event, transition to `'stopped'` anyway (abort was
+>   already fired; the service is considered stopped).
+> - `onMessage()` throws → `ServiceRuntime` lets the exception propagate up to
+>   `MessageRouter` which wraps it as an error result; does NOT change lifecycle state
+>   (the service is still running after a handler error).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1001,7 +1042,7 @@ const BASE_CONFIG: ServiceConfig = {
   id: 'svc-1',
   name: 'Test Service',
   type: 'service',
-  module: '',       // filled in per-test
+  module: '', // filled in per-test
   tools: {},
   autoStart: false, // don't auto-start unless the test opts in
 };
@@ -1280,11 +1321,7 @@ export class ServiceManager {
     const mod = (await import(modPath)) as Record<string, unknown>;
     const service = mod['service'] as LegionService | undefined;
 
-    if (
-      !service ||
-      typeof service.start !== 'function' ||
-      typeof service.stop !== 'function'
-    ) {
+    if (!service || typeof service.start !== 'function' || typeof service.stop !== 'function') {
       throw new ConfigError(
         `Service module '${config.module}' must export a named 'service' constant implementing LegionService ` +
           `(has start() and stop()).`,
@@ -1487,6 +1524,7 @@ git commit -m "feat(core): add ServiceManager (load, start, stop, autoStart, err
 ## Task 6: Integration test + barrel exports
 
 **Files:**
+
 - Create: `packages/core/src/service/service.integration.test.ts`
 - Modify: `packages/core/src/index.ts`
 
@@ -1634,16 +1672,18 @@ export const service = {
 
   it('service without onMessage declines inbound messages gracefully', async () => {
     const modPath = join(dir, 'silent-service.mjs');
-    await writeFile(
-      modPath,
-      `export const service = { async start() {}, async stop() {} };\n`,
-    );
+    await writeFile(modPath, `export const service = { async start() {}, async stop() {} };\n`);
 
     const storage = new FileStorage(dir);
     const store = new FileConversationStore(storage);
 
     const manager = new ServiceManager({
-      collective: { getOrThrow: vi.fn(), get: vi.fn(), list: vi.fn(), listActive: vi.fn().mockReturnValue([]) } as any,
+      collective: {
+        getOrThrow: vi.fn(),
+        get: vi.fn(),
+        list: vi.fn(),
+        listActive: vi.fn().mockReturnValue([]),
+      } as any,
       store,
       toolRegistry: { get: vi.fn(), has: vi.fn(), list: vi.fn(), execute: vi.fn() } as any,
       authEngine: new AuthEngine(),
@@ -1667,8 +1707,14 @@ export const service = {
     const runtime = manager.getRuntime('svc-silent');
     const result = await runtime.handle(
       {
-        id: 'msg-1', parentId: null, conversationId: 'c1', senderId: 'op-1',
-        recipientId: 'svc-silent', role: 'user', content: 'hi', status: 'active',
+        id: 'msg-1',
+        parentId: null,
+        conversationId: 'c1',
+        senderId: 'op-1',
+        recipientId: 'svc-silent',
+        role: 'user',
+        content: 'hi',
+        status: 'active',
         timestamp: new Date().toISOString(),
       },
       {} as any,
@@ -1735,26 +1781,26 @@ git commit -m "feat(core): Service SDK integration test + barrel exports"
 
 ### Spec coverage
 
-| Spec requirement | Task covering it |
-|-----------------|-----------------|
-| §5 `LegionService` interface (`start`, `stop`, `onMessage?`) | Task 1 |
-| §5 `ServiceContext` (`participantId`, `stopped`, `storage`, `eventBus`, `communicate`, `callTool`, `sleep`) | Tasks 1, 4 |
-| §5 `IncomingMessage` shape | Task 1 |
-| §5 `CommunicateResult` shape | Task 1 |
-| §5 `ServiceContext.storage` scoped to `.legion/services/<id>/` | Tasks 4, 5 |
-| §1 `ServiceConfig.canReceive` respected | Task 3 (`ServiceRuntime`) |
-| §1 `ServiceConfig.autoStart` respected | Task 5 (`autoStart()`) |
-| §7 "all authorized identically" — `callTool` goes through `AuthEngine` | Task 4 |
-| §8 step 8 "Create ServiceManager, load all service modules" | Task 5 |
-| §8 step 10 "Auto-start services with `autoStart: true`" | Task 5 (`autoStart()`) |
-| §4 `RuntimeContext.serviceManager` typed concretely | Task 2 |
-| Named `service` export convention | Task 1 (documented), Task 5 (enforced in `loadService`) |
-| Error notification (`errorNotify`) | Task 2 (field), Task 5 (notification) |
-| Full lifecycle states (starting/running/stopping/stopped/failed) | Task 1 (`ServiceStatus`), Task 5 |
-| `sleep` honors abort signal | Task 4 |
-| `requires_approval` fails closed in service context | Task 4 |
-| Startup conversation created for `start()` context | Task 5 |
-| `getRuntime(id)` for Plan 10 factory closure | Task 5 |
+| Spec requirement                                                                                            | Task covering it                                        |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| §5 `LegionService` interface (`start`, `stop`, `onMessage?`)                                                | Task 1                                                  |
+| §5 `ServiceContext` (`participantId`, `stopped`, `storage`, `eventBus`, `communicate`, `callTool`, `sleep`) | Tasks 1, 4                                              |
+| §5 `IncomingMessage` shape                                                                                  | Task 1                                                  |
+| §5 `CommunicateResult` shape                                                                                | Task 1                                                  |
+| §5 `ServiceContext.storage` scoped to `.legion/services/<id>/`                                              | Tasks 4, 5                                              |
+| §1 `ServiceConfig.canReceive` respected                                                                     | Task 3 (`ServiceRuntime`)                               |
+| §1 `ServiceConfig.autoStart` respected                                                                      | Task 5 (`autoStart()`)                                  |
+| §7 "all authorized identically" — `callTool` goes through `AuthEngine`                                      | Task 4                                                  |
+| §8 step 8 "Create ServiceManager, load all service modules"                                                 | Task 5                                                  |
+| §8 step 10 "Auto-start services with `autoStart: true`"                                                     | Task 5 (`autoStart()`)                                  |
+| §4 `RuntimeContext.serviceManager` typed concretely                                                         | Task 2                                                  |
+| Named `service` export convention                                                                           | Task 1 (documented), Task 5 (enforced in `loadService`) |
+| Error notification (`errorNotify`)                                                                          | Task 2 (field), Task 5 (notification)                   |
+| Full lifecycle states (starting/running/stopping/stopped/failed)                                            | Task 1 (`ServiceStatus`), Task 5                        |
+| `sleep` honors abort signal                                                                                 | Task 4                                                  |
+| `requires_approval` fails closed in service context                                                         | Task 4                                                  |
+| Startup conversation created for `start()` context                                                          | Task 5                                                  |
+| `getRuntime(id)` for Plan 10 factory closure                                                                | Task 5                                                  |
 
 ### Key design decisions to carry into Plan 9 / Plan 10
 

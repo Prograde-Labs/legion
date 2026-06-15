@@ -18,12 +18,12 @@ The collective is a roster of participants. Every participant has an `id`, a `na
 
 There are four types:
 
-| Type | Driver |
-|------|--------|
-| `agent` | LLM agentic loop (calls tools, receives results, repeats until done) |
-| `service` | Code module (`LegionService` interface, §5) |
-| `user` | No internal driver — behaviour comes entirely from an external entity reached through a connector (§6) |
-| `mock` | Scripted deterministic responses (testing) |
+| Type      | Driver                                                                                                 |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| `agent`   | LLM agentic loop (calls tools, receives results, repeats until done)                                   |
+| `service` | Code module (`LegionService` interface, §5)                                                            |
+| `user`    | No internal driver — behaviour comes entirely from an external entity reached through a connector (§6) |
+| `mock`    | Scripted deterministic responses (testing)                                                             |
 
 `type` describes only the internal driver. **No routing, authorization, or delivery logic branches on type.**
 
@@ -34,12 +34,12 @@ interface BaseParticipant {
   id: string;
   name: string;
   type: 'agent' | 'service' | 'user' | 'mock';
-  tools: Record<string, ToolPolicy>;         // what tools this participant may run
-  approvalAuthority?: ApprovalAuthority;     // whose tool calls this participant may approve
+  tools: Record<string, ToolPolicy>; // what tools this participant may run
+  approvalAuthority?: ApprovalAuthority; // whose tool calls this participant may approve
   status?: 'active' | 'retired';
-  identities?: ConnectorIdentity[];          // external identities that map to this participant
-  operator?: boolean;                        // broad administrative authority (by convention)
-  protected?: boolean;                       // cannot be retired; last operator cannot be removed
+  identities?: ConnectorIdentity[]; // external identities that map to this participant
+  operator?: boolean; // broad administrative authority (by convention)
+  protected?: boolean; // cannot be retired; last operator cannot be removed
 }
 ```
 
@@ -55,10 +55,10 @@ interface AgentConfig extends BaseParticipant {
 
 interface ServiceConfig extends BaseParticipant {
   type: 'service';
-  module: string;           // npm module name or relative path
+  module: string; // npm module name or relative path
   config?: Record<string, unknown>;
-  canReceive?: boolean;     // whether this service accepts incoming messages (default: true)
-  autoStart?: boolean;      // whether to start on process boot (default: true)
+  canReceive?: boolean; // whether this service accepts incoming messages (default: true)
+  autoStart?: boolean; // whether to start on process boot (default: true)
 }
 
 interface UserConfig extends BaseParticipant {
@@ -68,18 +68,18 @@ interface UserConfig extends BaseParticipant {
 
 interface MockConfig extends BaseParticipant {
   type: 'mock';
-  responses: string[];      // scripted responses, cycling
+  responses: string[]; // scripted responses, cycling
 }
 ```
 
 ### Connector binding is orthogonal to type
 
-Any participant — not just `user` — may be bound to a boundary connector (e.g. an agent exposed to a Teams integration). A `user` is simply a participant that has no internal driver, so it is *only* reachable via connector(s). Binding is declared in `identities`:
+Any participant — not just `user` — may be bound to a boundary connector (e.g. an agent exposed to a Teams integration). A `user` is simply a participant that has no internal driver, so it is _only_ reachable via connector(s). Binding is declared in `identities`:
 
 ```typescript
 interface ConnectorIdentity {
-  connector: string;    // connector name: "web" | "teams" | "slack" | ...
-  externalId: string;   // implementation-defined external id
+  connector: string; // connector name: "web" | "teams" | "slack" | ...
+  externalId: string; // implementation-defined external id
 }
 ```
 
@@ -106,8 +106,8 @@ interface ConversationData {
   createdAt: string;
   updatedAt: string;
   title?: string;
-  activeBranchHead: string;           // ID of the current leaf in the active chain
-  messages: Record<string, MessageData>;  // keyed map, not an array
+  activeBranchHead: string; // ID of the current leaf in the active chain
+  messages: Record<string, MessageData>; // keyed map, not an array
 }
 ```
 
@@ -120,29 +120,29 @@ Messages are stored as a **keyed map**, not an array. Order is recovered by trav
 ```typescript
 interface MessageData {
   id: string;
-  parentId: string | null;     // null for the root message
+  parentId: string | null; // null for the root message
   conversationId: string;
-  senderId: string;            // participant who sent this
-  recipientId: string;         // participant this is addressed to
-  replyTo?: string;            // participantId — redirect recipient's response here (§3)
-  role: 'user' | 'assistant';  // stored on the message; computed from senderId/recipientId
+  senderId: string; // participant who sent this
+  recipientId: string; // participant this is addressed to
+  replyTo?: string; // participantId — redirect recipient's response here (§3)
+  role: 'user' | 'assistant'; // stored on the message; computed from senderId/recipientId
   content: string;
-  type?: 'message' | 'summary';  // 'summary' for compaction nodes (default: 'message')
+  type?: 'message' | 'summary'; // 'summary' for compaction nodes (default: 'message')
   status: 'active' | 'superseded' | 'pruned' | 'compacted';
   toolCalls?: ToolCallData[];
   toolResults?: ToolCallResult[];
   timestamp: string;
 
   // Edit tracking
-  editOf?: string;             // references the original message ID this node replaces
-  supersededBy?: string;       // set on the original when it has been edited
+  editOf?: string; // references the original message ID this node replaces
+  supersededBy?: string; // set on the original when it has been edited
 
   // Compaction tracking
-  compacts?: string[];         // set on summary nodes; IDs of messages this node replaces
+  compacts?: string[]; // set on summary nodes; IDs of messages this node replaces
 
   // Prune tracking
   prunedAt?: string;
-  prunedBy?: string;           // participantId of who performed the prune
+  prunedBy?: string; // participantId of who performed the prune
 }
 ```
 
@@ -254,13 +254,13 @@ class MessageRouter {
     conversationId?: string;
     replyTo?: string;
     context: Omit<RuntimeContext, 'participant' | 'conversationId' | 'conversation'>;
-  }): Promise<MessageRouterResult>
+  }): Promise<MessageRouterResult>;
 }
 
 interface MessageRouterResult {
   conversationId: string;
   response?: string;
-  status: 'success' | 'error' | 'dispatched';  // 'dispatched' = fire-and-forget
+  status: 'success' | 'error' | 'dispatched'; // 'dispatched' = fire-and-forget
   error?: string;
 }
 ```
@@ -273,7 +273,7 @@ The object passed to every tool execution and runtime invocation:
 
 ```typescript
 interface RuntimeContext {
-  participant: ParticipantConfig;           // the principal executing this action
+  participant: ParticipantConfig; // the principal executing this action
   conversationId: string;
   conversation: ConversationThread;
   collective: Collective;
@@ -284,7 +284,7 @@ interface RuntimeContext {
   storage: Storage;
   workspaceRoot: string;
   authEngine: AuthEngine;
-  callingParticipantId?: string;            // immediate caller (first approver candidate — §7)
+  callingParticipantId?: string; // immediate caller (first approver candidate — §7)
   pendingApprovalRegistry: PendingApprovalRegistry;
   messageRouter: MessageRouter;
   serviceManager?: ServiceManager;
@@ -329,13 +329,13 @@ export interface IncomingMessage {
 export interface ServiceContext {
   participantId: string;
   stopped: AbortSignal;
-  storage: Storage;           // scoped to .legion/services/<id>/
+  storage: Storage; // scoped to .legion/services/<id>/
   eventBus: EventBus;
 
   communicate(
     to: string,
     message: string,
-    opts?: { conversationId?: string; replyTo?: string }
+    opts?: { conversationId?: string; replyTo?: string },
   ): Promise<CommunicateResult>;
 
   callTool(toolName: string, args: unknown): Promise<ToolResult>;
@@ -357,12 +357,12 @@ export interface CommunicateResult {
 
 A **connector** is the channel through which a participant is contacted and through which its responses (and any approval requests) return. There are two kinds:
 
-| Connector | Boundary | Role |
-|-----------|----------|------|
-| `communicate` tool | Internal (participant ↔ participant, in-collective) | Pure routing |
-| web / Teams / Slack | Boundary (participant ↔ external entity) | Authentication + transport |
+| Connector           | Boundary                                            | Role                       |
+| ------------------- | --------------------------------------------------- | -------------------------- |
+| `communicate` tool  | Internal (participant ↔ participant, in-collective) | Pure routing               |
+| web / Teams / Slack | Boundary (participant ↔ external entity)            | Authentication + transport |
 
-**A connector is not a participant.** It is a channel. Messages route between participants by `senderId`/`recipientId`; a connector is *how* a participant is reached when it is connector-bound.
+**A connector is not a participant.** It is a channel. Messages route between participants by `senderId`/`recipientId`; a connector is _how_ a participant is reached when it is connector-bound.
 
 **Boundary connectors map external identities to participants.** A single web connector authenticates many external identities, each resolving to its own participant. Unknown identities are rejected (or optionally mapped to a configured low-privilege default participant, per-connector opt-in).
 
@@ -372,7 +372,7 @@ A **connector** is the channel through which a participant is contacted and thro
 interface Connector {
   readonly name: string;
   start(ctx: ConnectorContext): Promise<void>;
-  deliver(message: IncomingMessage): Promise<void>;  // outbound to external entity
+  deliver(message: IncomingMessage): Promise<void>; // outbound to external entity
   stop(): Promise<void>;
 }
 
@@ -389,7 +389,7 @@ interface ConnectorContext {
   // Execute a tool as a participant this connector fronts
   callTool(participantId: string, toolName: string, args: unknown): Promise<ToolResult>;
 
-  registry: ConnectorRegistry;  // register/deregister participants this connector fronts
+  registry: ConnectorRegistry; // register/deregister participants this connector fronts
 }
 ```
 
@@ -512,15 +512,15 @@ class LegionProcess {
 
 The web connector exposes a minimal API. Every collective operation is a tool call; there are no bespoke CRUD endpoints.
 
-| Route | Description |
-|-------|-------------|
-| `POST /api/auth/login` | Verify password, establish `AuthSession` |
-| `POST /api/auth/logout` | Clear `AuthSession` |
-| `GET  /api/auth/me` | Authenticated participant + authority summary |
-| `POST /api/execute` | Execute a named tool **as the authenticated participant** |
-| `GET  /ws` | EventBus → WebSocket stream (authenticated) |
-| `GET  /api/health` | Process liveness (unauthenticated) |
-| `GET  /` | Vue SPA (served from `packages/web/dist/`) |
+| Route                   | Description                                               |
+| ----------------------- | --------------------------------------------------------- |
+| `POST /api/auth/login`  | Verify password, establish `AuthSession`                  |
+| `POST /api/auth/logout` | Clear `AuthSession`                                       |
+| `GET  /api/auth/me`     | Authenticated participant + authority summary             |
+| `POST /api/execute`     | Execute a named tool **as the authenticated participant** |
+| `GET  /ws`              | EventBus → WebSocket stream (authenticated)               |
+| `GET  /api/health`      | Process liveness (unauthenticated)                        |
+| `GET  /`                | Vue SPA (served from `packages/web/dist/`)                |
 
 All authorization and audit come from `AuthEngine` + `ApprovalLog`. No per-endpoint permission logic.
 
@@ -553,7 +553,9 @@ export interface ToolSource {
 
 export class MCPToolSource implements ToolSource {
   constructor(private config: MCPServerConfig) {}
-  async load(): Promise<Tool[]> { /* connect to MCP server, list tools */ }
+  async load(): Promise<Tool[]> {
+    /* connect to MCP server, list tools */
+  }
 }
 ```
 
@@ -592,7 +594,11 @@ export interface ConversationStore {
   load(conversationId: string): Promise<ConversationData | null>;
   save(data: ConversationData): Promise<void>;
   appendMessage(conversationId: string, message: MessageData): Promise<void>;
-  updateMessage(conversationId: string, messageId: string, patch: Partial<MessageData>): Promise<void>;
+  updateMessage(
+    conversationId: string,
+    messageId: string,
+    patch: Partial<MessageData>,
+  ): Promise<void>;
   updateHead(conversationId: string, newHeadId: string): Promise<void>;
   list(filter?: ConversationFilter): Promise<ConversationMeta[]>;
   exists(conversationId: string): Promise<boolean>;
@@ -618,7 +624,7 @@ interface WorkspaceConfig {
   storage?: StorageConfig;
   server?: ServerConfig;
   connectors?: ConnectorConfig[];
-  mcpServers?: MCPServerConfig[];     // tool sources available to all participants
+  mcpServers?: MCPServerConfig[]; // tool sources available to all participants
   defaultModel?: ModelConfig;
   providers?: Record<string, ProviderConfig>;
   logging?: LoggingConfig;
@@ -632,14 +638,14 @@ interface MCPServerConfig {
 }
 
 interface ServerConfig {
-  port?: number;   // default: 3000
-  host?: string;   // default: '127.0.0.1'
+  port?: number; // default: 3000
+  host?: string; // default: '127.0.0.1'
 }
 
 interface ConnectorConfig {
-  name: string;                      // 'web' | 'teams' | 'slack' | ...
-  enabled?: boolean;                 // default: true
-  defaultParticipantId?: string;     // low-privilege fallback for unknown verified identities
+  name: string; // 'web' | 'teams' | 'slack' | ...
+  enabled?: boolean; // default: true
+  defaultParticipantId?: string; // low-privilege fallback for unknown verified identities
   options?: Record<string, unknown>;
 }
 ```
@@ -654,18 +660,18 @@ Stores API keys and user preferences. LLM provider API keys live here or in envi
 
 `EventBus` emits typed events. Key events:
 
-| Event | Description |
-|-------|-------------|
-| `process:ready` | Process fully initialised |
-| `conversation:created` | New conversation thread created |
-| `message:sent` | Message appended to a conversation |
-| `message:delivered` | Message delivered to a connector-bound participant |
-| `tool:call` | Tool invocation started |
-| `tool:result` | Tool invocation completed |
-| `approval:requested` | Tool call requires approval |
-| `approval:resolved` | Approval decision made (includes `decidedByParticipantId`) |
-| `iteration` | Agent completed one agentic loop iteration |
-| `error` | Runtime error |
+| Event                  | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| `process:ready`        | Process fully initialised                                  |
+| `conversation:created` | New conversation thread created                            |
+| `message:sent`         | Message appended to a conversation                         |
+| `message:delivered`    | Message delivered to a connector-bound participant         |
+| `tool:call`            | Tool invocation started                                    |
+| `tool:result`          | Tool invocation completed                                  |
+| `approval:requested`   | Tool call requires approval                                |
+| `approval:resolved`    | Approval decision made (includes `decidedByParticipantId`) |
+| `iteration`            | Agent completed one agentic loop iteration                 |
+| `error`                | Runtime error                                              |
 
 All events carry `conversationId` (not a session concept). Message-routing events use `senderId`/`recipientId`. WebSocket serialization converts `Error` to `{ name, message }` and `Date` to ISO strings.
 

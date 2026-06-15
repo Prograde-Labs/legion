@@ -17,17 +17,17 @@
 
 ## What is NOT new in this plan
 
-| Item | Where | Plan |
-|------|-------|------|
-| `Storage.list(prefix)` | `@legion/core/src/storage/Storage.ts` | 1 |
-| `LegionEventMap` base events | `@legion/types/src/events.ts` | 1 (amended 7, 10) |
-| `Collective`, `BOOTSTRAP_OPERATOR_ID` | `@legion/core/src/collective/` | 3 |
-| `ToolRegistry`, `AuthEngine` | `@legion/core/src/tools/` | 4 |
-| `create_agent`, `retire_agent`, `list_participants`, `get_conversation`, `set_credential` | `@legion/core/src/tools/management-tools.ts` | 4 |
-| `RuntimeRegistry` | `@legion/core/src/runtime/` | 5 |
-| `AgentRuntime`, `ProviderRegistry` | `@legion/core/src/runtime/` | 6 |
-| `WebConnector` `POST /api/execute`, `GET /ws` | `@legion/runtime/src/server/` | 10 |
-| `packages/web/package.json` placeholder | `packages/web/package.json` | 1 |
+| Item                                                                                      | Where                                        | Plan              |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------- |
+| `Storage.list(prefix)`                                                                    | `@legion/core/src/storage/Storage.ts`        | 1                 |
+| `LegionEventMap` base events                                                              | `@legion/types/src/events.ts`                | 1 (amended 7, 10) |
+| `Collective`, `BOOTSTRAP_OPERATOR_ID`                                                     | `@legion/core/src/collective/`               | 3                 |
+| `ToolRegistry`, `AuthEngine`                                                              | `@legion/core/src/tools/`                    | 4                 |
+| `create_agent`, `retire_agent`, `list_participants`, `get_conversation`, `set_credential` | `@legion/core/src/tools/management-tools.ts` | 4                 |
+| `RuntimeRegistry`                                                                         | `@legion/core/src/runtime/`                  | 5                 |
+| `AgentRuntime`, `ProviderRegistry`                                                        | `@legion/core/src/runtime/`                  | 6                 |
+| `WebConnector` `POST /api/execute`, `GET /ws`                                             | `@legion/runtime/src/server/`                | 10                |
+| `packages/web/package.json` placeholder                                                   | `packages/web/package.json`                  | 1                 |
 
 ---
 
@@ -162,6 +162,7 @@ packages/web/
 ```
 
 Also modified:
+
 - `packages/core/src/tools/management-tools.ts` — add `modify_agent`, `list_tools`, `list_conversations`
 - `packages/runtime/src/server/runtime-tools.ts` — new file: `list_providers`, `configure_provider`, `list_credentials`
 - `packages/runtime/src/index.ts` — export new tools
@@ -174,6 +175,7 @@ Also modified:
 ## Task 1: `@legion/web` package scaffold
 
 **Files:**
+
 - Modify: `packages/web/package.json`
 - Create: `packages/web/vite.config.ts`
 - Create: `packages/web/vitest.config.ts`
@@ -289,7 +291,7 @@ export default defineConfig({
 - [ ] **Step 6: Create `packages/web/src/assets/style.css`**
 
 ```css
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
   --color-navy-950: #060d1a;
@@ -369,6 +371,7 @@ git commit -m "feat(web): scaffold @legion/web package with Vite + Tailwind v4 +
 ## Task 2: Amendments to prior plans
 
 **Files:**
+
 - Modify: `packages/types/src/events.ts`
 - Modify: `packages/core/src/collective/Collective.ts`
 - Modify: `packages/core/src/tools/management-tools.ts` (create_agent config persistence only)
@@ -418,16 +421,19 @@ Expected: FAIL — events not yet emitted.
 - [ ] **Step 4: Apply Amendment B — add `modify()` and emit events in `Collective.ts`**
 
 In `seed()`, after registering each participant:
+
 ```typescript
 this.eventBus.emit('participant:active', { participantId: p.id });
 ```
 
 In `retire(id)`:
+
 ```typescript
 this.eventBus.emit('participant:retired', { participantId: id });
 ```
 
 Add `modify()` method:
+
 ```typescript
 modify(id: string, updates: { name?: string }): Participant {
   const p = this.getOrThrow(id);
@@ -452,9 +458,15 @@ Add to `packages/core/src/tools/management-tools.test.ts`:
 it('create_agent writes agent config to storage', async () => {
   const storage = new MemoryStorage();
   const deps = buildTestDeps({ storage });
-  await invokeManagementTool('create_agent', {
-    name: 'bot-1', model: 'gpt-4o', providerId: 'openai',
-  }, deps);
+  await invokeManagementTool(
+    'create_agent',
+    {
+      name: 'bot-1',
+      model: 'gpt-4o',
+      providerId: 'openai',
+    },
+    deps,
+  );
   const ids = await storage.list('agents/');
   expect(ids.length).toBe(1);
   const config = await storage.readJson<{ model: string }>(ids[0]!);
@@ -505,6 +517,7 @@ git commit -m "feat(core): amend LegionEventMap participant events, Collective.m
 ## Task 3: New core management tools
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Test: `packages/core/src/tools/management-tools.test.ts`
 
@@ -519,37 +532,58 @@ describe('modify_agent', () => {
   it('updates model and systemPrompt in storage', async () => {
     const storage = new MemoryStorage();
     const deps = buildTestDeps({ storage });
-    const { id } = await invokeManagementTool('create_agent', {
-      name: 'bot-1', model: 'gpt-4o', providerId: 'openai',
-    }, deps) as { id: string };
-    await invokeManagementTool('modify_agent', {
-      id, model: 'gpt-4o-mini', systemPrompt: 'Be concise.',
-    }, deps);
-    const config = await storage.readJson<{ model: string; systemPrompt: string }>(`agents/${id}.json`);
+    const { id } = (await invokeManagementTool(
+      'create_agent',
+      {
+        name: 'bot-1',
+        model: 'gpt-4o',
+        providerId: 'openai',
+      },
+      deps,
+    )) as { id: string };
+    await invokeManagementTool(
+      'modify_agent',
+      {
+        id,
+        model: 'gpt-4o-mini',
+        systemPrompt: 'Be concise.',
+      },
+      deps,
+    );
+    const config = await storage.readJson<{ model: string; systemPrompt: string }>(
+      `agents/${id}.json`,
+    );
     expect(config?.model).toBe('gpt-4o-mini');
     expect(config?.systemPrompt).toBe('Be concise.');
   });
 
   it('updates name in Collective', async () => {
     const deps = buildTestDeps({});
-    const { id } = await invokeManagementTool('create_agent', {
-      name: 'bot-1', model: 'gpt-4o', providerId: 'openai',
-    }, deps) as { id: string };
-    const updated = await invokeManagementTool('modify_agent', { id, name: 'renamed' }, deps) as { name: string };
+    const { id } = (await invokeManagementTool(
+      'create_agent',
+      {
+        name: 'bot-1',
+        model: 'gpt-4o',
+        providerId: 'openai',
+      },
+      deps,
+    )) as { id: string };
+    const updated = (await invokeManagementTool('modify_agent', { id, name: 'renamed' }, deps)) as {
+      name: string;
+    };
     expect(updated.name).toBe('renamed');
   });
 
   it('throws if participant id not found', async () => {
     const deps = buildTestDeps({});
-    await expect(invokeManagementTool('modify_agent', { id: 'no-such' }, deps))
-      .rejects.toThrow();
+    await expect(invokeManagementTool('modify_agent', { id: 'no-such' }, deps)).rejects.toThrow();
   });
 });
 
 describe('list_tools', () => {
   it('returns registered tool names', async () => {
     const deps = buildTestDeps({});
-    const tools = await invokeManagementTool('list_tools', {}, deps) as string[];
+    const tools = (await invokeManagementTool('list_tools', {}, deps)) as string[];
     expect(Array.isArray(tools)).toBe(true);
     expect(tools).toContain('list_tools');
   });
@@ -559,18 +593,22 @@ describe('list_conversations', () => {
   it('returns empty array when no conversations exist', async () => {
     const storage = new MemoryStorage();
     const deps = buildTestDeps({ storage });
-    const result = await invokeManagementTool('list_conversations', {}, deps) as unknown[];
+    const result = (await invokeManagementTool('list_conversations', {}, deps)) as unknown[];
     expect(result).toEqual([]);
   });
 
   it('returns summaries for stored conversations', async () => {
     const storage = new MemoryStorage();
     await storage.writeJson('conversations/conv-1.json', {
-      id: 'conv-1', participantIds: ['a', 'b'], status: 'active',
-      messageCount: 3, createdAt: 1000, updatedAt: 2000,
+      id: 'conv-1',
+      participantIds: ['a', 'b'],
+      status: 'active',
+      messageCount: 3,
+      createdAt: 1000,
+      updatedAt: 2000,
     });
     const deps = buildTestDeps({ storage });
-    const result = await invokeManagementTool('list_conversations', {}, deps) as { id: string }[];
+    const result = (await invokeManagementTool('list_conversations', {}, deps)) as { id: string }[];
     expect(result[0]?.id).toBe('conv-1');
   });
 });
@@ -672,6 +710,7 @@ Add to the array returned by `createManagementTools(deps)`:
 ```
 
 Also add `listAll()` to `ToolRegistry`:
+
 ```typescript
 listAll(): string[] {
   return [...this.tools.keys()];
@@ -679,6 +718,7 @@ listAll(): string[] {
 ```
 
 Add `ConversationSummary` to `packages/types/src/conversation.ts`:
+
 ```typescript
 export interface ConversationSummary {
   id: string;
@@ -689,6 +729,7 @@ export interface ConversationSummary {
   updatedAt: number;
 }
 ```
+
 Export from `packages/types/src/index.ts`.
 
 - [ ] **Step 5: Run tests to verify passing**
@@ -711,6 +752,7 @@ git commit -m "feat(core): add modify_agent, list_tools, list_conversations mana
 ## Task 4: New runtime tools
 
 **Files:**
+
 - Create: `packages/runtime/src/server/runtime-tools.ts`
 - Test: `packages/runtime/src/server/runtime-tools.test.ts`
 - Modify: `packages/runtime/src/index.ts`
@@ -718,6 +760,7 @@ git commit -m "feat(core): add modify_agent, list_tools, list_conversations mana
 - [ ] **Step 1: Add `ProviderConfig` and `CredentialInfo` to `@legion/types`**
 
 In `packages/types/src/config.ts`:
+
 ```typescript
 export interface ProviderConfig {
   name: string;
@@ -734,6 +777,7 @@ export interface CredentialInfo {
   updatedAt: number;
 }
 ```
+
 Export both from `packages/types/src/index.ts`.
 
 - [ ] **Step 2: Write failing tests**
@@ -761,12 +805,14 @@ describe('list_providers', () => {
   it('returns stored provider configs', async () => {
     const { storage, credStore } = makeDeps();
     await storage.writeJson('providers/openai.json', {
-      name: 'openai', type: 'openai-compatible',
-      baseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o',
+      name: 'openai',
+      type: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      defaultModel: 'gpt-4o',
     });
     const tools = createRuntimeTools({ storage, credStore });
     const list = tools.find((t) => t.name === 'list_providers')!;
-    const result = await list.execute({}) as { name: string }[];
+    const result = (await list.execute({})) as { name: string }[];
     expect(result[0]?.name).toBe('openai');
   });
 });
@@ -776,8 +822,12 @@ describe('configure_provider', () => {
     const { storage, credStore } = makeDeps();
     const tools = createRuntimeTools({ storage, credStore });
     const cfg = tools.find((t) => t.name === 'configure_provider')!;
-    await cfg.execute({ name: 'local', type: 'openai-compatible',
-      baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3.2' });
+    await cfg.execute({
+      name: 'local',
+      type: 'openai-compatible',
+      baseUrl: 'http://localhost:11434/v1',
+      defaultModel: 'llama3.2',
+    });
     const stored = await storage.readJson<{ name: string }>('providers/local.json');
     expect(stored?.name).toBe('local');
   });
@@ -787,13 +837,15 @@ describe('list_credentials', () => {
   it('returns masked credential info', async () => {
     const storage = new MemoryStorage();
     await storage.writeJson('credential-meta/OPENAI_API_KEY.json', {
-      key: 'OPENAI_API_KEY', maskedValue: 'sk-••••3f2a',
-      usedBy: ['openai'], updatedAt: 1000,
+      key: 'OPENAI_API_KEY',
+      maskedValue: 'sk-••••3f2a',
+      usedBy: ['openai'],
+      updatedAt: 1000,
     });
     const credStore = { set: async () => {}, list: async () => ['OPENAI_API_KEY'] };
     const tools = createRuntimeTools({ storage, credStore });
     const list = tools.find((t) => t.name === 'list_credentials')!;
-    const result = await list.execute({}) as { key: string }[];
+    const result = (await list.execute({})) as { key: string }[];
     expect(result[0]?.key).toBe('OPENAI_API_KEY');
   });
 });
@@ -840,10 +892,10 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       parameters: {
         type: 'object',
         properties: {
-          name:          { type: 'string' },
-          type:          { type: 'string', enum: ['openai-compatible', 'anthropic', 'copilot', 'codex'] },
-          baseUrl:       { type: 'string' },
-          defaultModel:  { type: 'string' },
+          name: { type: 'string' },
+          type: { type: 'string', enum: ['openai-compatible', 'anthropic', 'copilot', 'codex'] },
+          baseUrl: { type: 'string' },
+          defaultModel: { type: 'string' },
           credentialKey: { type: 'string' },
         },
         required: ['name', 'type', 'defaultModel'],
@@ -872,9 +924,9 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       parameters: {
         type: 'object',
         properties: {
-          key:       { type: 'string' },
-          value:     { type: 'string' },
-          usedBy:    { type: 'array', items: { type: 'string' } },
+          key: { type: 'string' },
+          value: { type: 'string' },
+          usedBy: { type: 'array', items: { type: 'string' } },
         },
         required: ['key', 'value'],
       },
@@ -925,6 +977,7 @@ git commit -m "feat(runtime): add list_providers, configure_provider, list_crede
 ## Task 5: App shell, auth composable, router, LoginView
 
 **Files:**
+
 - Create: `packages/web/src/composables/useAuth.ts`
 - Create: `packages/web/src/composables/useAuth.test.ts`
 - Create: `packages/web/src/composables/useExecute.ts`
@@ -1049,7 +1102,9 @@ Expected: PASS.
 ```typescript
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-beforeEach(() => { vi.restoreAllMocks(); });
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('useExecute', () => {
   it('POSTs to /api/execute with bearer token and returns result', async () => {
@@ -1065,13 +1120,16 @@ describe('useExecute', () => {
     const { execute } = useExecute();
     const result = await execute<string[]>('list_participants', {});
     expect(result).toEqual(['p1', 'p2']);
-    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers['Authorization'])
-      .toBe('Bearer tok-1');
+    expect(
+      (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers['Authorization'],
+    ).toBe('Bearer tok-1');
   });
 
   it('throws on non-ok response', async () => {
     const { useExecute } = await import('./useExecute.js');
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, text: async () => 'Forbidden' } as Response);
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: false, text: async () => 'Forbidden' } as Response);
     const { execute } = useExecute();
     await expect(execute('list_participants', {})).rejects.toThrow('Forbidden');
   });
@@ -1125,12 +1183,36 @@ import { useAuth } from '../composables/useAuth.js';
 const routes = [
   { path: '/login', component: () => import('../views/LoginView.vue') },
   { path: '/', redirect: '/participants' },
-  { path: '/participants', component: () => import('../views/ParticipantsView.vue'), meta: { requiresAuth: true } },
-  { path: '/conversations', component: () => import('../views/ConversationsView.vue'), meta: { requiresAuth: true } },
-  { path: '/conversations/:id', component: () => import('../views/ConversationsView.vue'), meta: { requiresAuth: true } },
-  { path: '/events', component: () => import('../views/EventStreamView.vue'), meta: { requiresAuth: true } },
-  { path: '/config', component: () => import('../views/ConfigView.vue'), meta: { requiresAuth: true } },
-  { path: '/config/credentials', component: () => import('../views/ConfigView.vue'), meta: { requiresAuth: true } },
+  {
+    path: '/participants',
+    component: () => import('../views/ParticipantsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/conversations',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/conversations/:id',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/events',
+    component: () => import('../views/EventStreamView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config',
+    component: () => import('../views/ConfigView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config/credentials',
+    component: () => import('../views/ConfigView.vue'),
+    meta: { requiresAuth: true },
+  },
 ];
 
 export const router = createRouter({ history: createWebHashHistory(), routes });
@@ -1174,31 +1256,50 @@ async function submit() {
   <div class="bg-navy-950 min-h-screen flex items-center justify-center">
     <div class="w-80">
       <div class="text-center mb-8">
-        <div class="w-10 h-10 bg-cyan-400 rounded-lg inline-flex items-center justify-center text-navy-950 font-black text-xl mb-3">L</div>
+        <div
+          class="w-10 h-10 bg-cyan-400 rounded-lg inline-flex items-center justify-center text-navy-950 font-black text-xl mb-3"
+        >
+          L
+        </div>
         <h1 class="text-slate-100 text-xl font-bold">Legion</h1>
         <p class="text-navy-400 text-xs mt-1">Management console</p>
       </div>
       <div class="bg-navy-800 border border-navy-600 rounded-xl p-7">
         <form @submit.prevent="submit" class="space-y-4">
           <div>
-            <label class="text-navy-400 text-xs uppercase tracking-wider font-semibold block mb-1">Name</label>
-            <input v-model="name" type="text" autocomplete="username"
-              class="w-full bg-navy-900 border border-navy-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/40" />
+            <label class="text-navy-400 text-xs uppercase tracking-wider font-semibold block mb-1"
+              >Name</label
+            >
+            <input
+              v-model="name"
+              type="text"
+              autocomplete="username"
+              class="w-full bg-navy-900 border border-navy-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/40"
+            />
           </div>
           <div>
-            <label class="text-navy-400 text-xs uppercase tracking-wider font-semibold block mb-1">Password</label>
-            <input v-model="password" type="password" autocomplete="current-password"
-              class="w-full bg-navy-900 border border-navy-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/40" />
+            <label class="text-navy-400 text-xs uppercase tracking-wider font-semibold block mb-1"
+              >Password</label
+            >
+            <input
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              class="w-full bg-navy-900 border border-navy-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/40"
+            />
             <p v-if="error" class="text-red-400 text-xs mt-1">{{ error }}</p>
           </div>
-          <button type="submit" :disabled="loading"
-            class="w-full bg-cyan-400 text-navy-950 font-bold text-sm py-2.5 rounded-md mt-2 hover:opacity-90 disabled:opacity-50">
+          <button
+            type="submit"
+            :disabled="loading"
+            class="w-full bg-cyan-400 text-navy-950 font-bold text-sm py-2.5 rounded-md mt-2 hover:opacity-90 disabled:opacity-50"
+          >
             {{ loading ? 'Signing in…' : 'Sign in' }}
           </button>
         </form>
       </div>
       <p class="text-center text-navy-600 text-xs mt-4 leading-relaxed">
-        First run? The bootstrap password was<br>printed to process stdout on startup.
+        First run? The bootstrap password was<br />printed to process stdout on startup.
       </p>
     </div>
   </div>
@@ -1208,6 +1309,7 @@ async function submit() {
 - [ ] **Step 10: Wire up `main.ts` and `App.vue`**
 
 `src/main.ts`:
+
 ```typescript
 import './assets/style.css';
 import { createApp } from 'vue';
@@ -1218,6 +1320,7 @@ createApp(App).use(router).mount('#app');
 ```
 
 `src/App.vue`:
+
 ```vue
 <script setup lang="ts"></script>
 <template><RouterView /></template>
@@ -1243,6 +1346,7 @@ git commit -m "feat(web): auth composable, router, login view"
 ## Task 6: `useEventStream` composable
 
 **Files:**
+
 - Create: `packages/web/src/composables/useEventStream.ts`
 - Test: `packages/web/src/composables/useEventStream.test.ts`
 
@@ -1303,7 +1407,11 @@ let backoff = 1000;
 
 function dispatch(evt: StreamEvent) {
   for (const handler of subscribers) {
-    try { handler(evt); } catch { /* isolate */ }
+    try {
+      handler(evt);
+    } catch {
+      /* isolate */
+    }
   }
 }
 
@@ -1322,11 +1430,15 @@ function connect() {
     try {
       const msg = JSON.parse(e.data as string) as StreamEvent;
       if (msg.type === 'event') dispatch(msg);
-    } catch { /* ignore malformed */ }
+    } catch {
+      /* ignore malformed */
+    }
   });
 
   ws.addEventListener('close', () => scheduleReconnect());
-  ws.addEventListener('error', () => { ws?.close(); });
+  ws.addEventListener('error', () => {
+    ws?.close();
+  });
 }
 
 function scheduleReconnect() {
@@ -1350,7 +1462,10 @@ export function useEventStream() {
   }
 
   function disconnect() {
-    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     ws?.close();
     ws = null;
   }
@@ -1359,7 +1474,9 @@ export function useEventStream() {
 }
 
 // Test escape hatch — not imported in production
-export function _testDispatch(evt: StreamEvent) { dispatch(evt); }
+export function _testDispatch(evt: StreamEvent) {
+  dispatch(evt);
+}
 ```
 
 - [ ] **Step 3: Run tests**
@@ -1382,6 +1499,7 @@ git commit -m "feat(web): useEventStream WebSocket composable with reconnect"
 ## Task 7: Common components + AppLayout
 
 **Files:**
+
 - Create: `packages/web/src/components/common/StatusDot.vue`
 - Create: `packages/web/src/components/common/TypeBadge.vue`
 - Create: `packages/web/src/components/common/SlideOver.vue`
@@ -1395,8 +1513,10 @@ git commit -m "feat(web): useEventStream WebSocket composable with reconnect"
 <script setup lang="ts">
 defineProps<{ status: 'active' | 'retired' | 'live' | 'complete' }>();
 const colours: Record<string, string> = {
-  active: 'bg-cyan-400', live: 'bg-cyan-400 animate-pulse',
-  complete: 'bg-green-400', retired: 'bg-navy-500',
+  active: 'bg-cyan-400',
+  live: 'bg-cyan-400 animate-pulse',
+  complete: 'bg-green-400',
+  retired: 'bg-navy-500',
 };
 </script>
 <template>
@@ -1410,16 +1530,18 @@ const colours: Record<string, string> = {
 <script setup lang="ts">
 defineProps<{ type: string }>();
 const colours: Record<string, string> = {
-  'message:sent':    'bg-cyan-400/10 text-cyan-400 border-cyan-400/20',
-  'tool:call':       'bg-violet-400/10 text-violet-400 border-violet-400/20',
-  'tool:result':     'bg-green-400/10 text-green-400 border-green-400/20',
-  error:             'bg-red-400/10 text-red-400 border-red-400/20',
-  delegation:        'bg-amber-400/10 text-amber-400 border-amber-400/20',
+  'message:sent': 'bg-cyan-400/10 text-cyan-400 border-cyan-400/20',
+  'tool:call': 'bg-violet-400/10 text-violet-400 border-violet-400/20',
+  'tool:result': 'bg-green-400/10 text-green-400 border-green-400/20',
+  error: 'bg-red-400/10 text-red-400 border-red-400/20',
+  delegation: 'bg-amber-400/10 text-amber-400 border-amber-400/20',
 };
 const cls = (t: string) => colours[t] ?? 'bg-navy-700/50 text-navy-400 border-navy-600';
 </script>
 <template>
-  <span :class="['inline-block text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border', cls(type)]">
+  <span
+    :class="['inline-block text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border', cls(type)]"
+  >
     {{ type }}
   </span>
 </template>
@@ -1440,18 +1562,31 @@ const emit = defineEmits<{ close: [] }>();
         <div class="w-96 bg-navy-800 border-l border-navy-600 flex flex-col shadow-2xl">
           <div class="flex items-center justify-between px-5 py-4 border-b border-navy-600">
             <span class="text-sm font-semibold text-slate-100">{{ title }}</span>
-            <button @click="emit('close')" class="text-navy-400 hover:text-slate-200 text-lg leading-none">✕</button>
+            <button
+              @click="emit('close')"
+              class="text-navy-400 hover:text-slate-200 text-lg leading-none"
+            >
+              ✕
+            </button>
           </div>
           <div class="flex-1 overflow-y-auto"><slot /></div>
-          <div v-if="$slots.footer" class="border-t border-navy-600 bg-navy-900"><slot name="footer" /></div>
+          <div v-if="$slots.footer" class="border-t border-navy-600 bg-navy-900">
+            <slot name="footer" />
+          </div>
         </div>
       </div>
     </Transition>
   </Teleport>
 </template>
 <style scoped>
-.slide-enter-from .w-96, .slide-leave-to .w-96 { transform: translateX(100%); }
-.slide-enter-active .w-96, .slide-leave-active .w-96 { transition: transform .2s ease; }
+.slide-enter-from .w-96,
+.slide-leave-to .w-96 {
+  transform: translateX(100%);
+}
+.slide-enter-active .w-96,
+.slide-leave-active .w-96 {
+  transition: transform 0.2s ease;
+}
 </style>
 ```
 
@@ -1480,20 +1615,33 @@ async function handleLogout() {
 <template>
   <aside class="w-[200px] shrink-0 bg-navy-900 border-r border-navy-600 flex flex-col h-full">
     <div class="flex items-center gap-2 px-4 py-3.5 border-b border-navy-600">
-      <div class="w-[22px] h-[22px] bg-cyan-400 rounded flex items-center justify-center text-[11px] font-black text-navy-950">L</div>
+      <div
+        class="w-[22px] h-[22px] bg-cyan-400 rounded flex items-center justify-center text-[11px] font-black text-navy-950"
+      >
+        L
+      </div>
       <span class="text-sm font-bold text-slate-100">Legion</span>
     </div>
     <nav class="flex-1 p-2 space-y-0.5">
-      <RouterLink v-for="item in nav" :key="item.to" :to="item.to"
+      <RouterLink
+        v-for="item in nav"
+        :key="item.to"
+        :to="item.to"
         class="flex items-center gap-2.5 px-3 py-1.5 rounded text-xs text-navy-400 hover:text-slate-200"
-        active-class="bg-cyan-400/10 text-cyan-300 border-l-2 border-cyan-400 !pl-[10px]">
-        <span>{{ item.icon }}</span>{{ item.label }}
+        active-class="bg-cyan-400/10 text-cyan-300 border-l-2 border-cyan-400 !pl-[10px]"
+      >
+        <span>{{ item.icon }}</span
+        >{{ item.label }}
       </RouterLink>
     </nav>
     <div class="p-2 border-t border-navy-600">
-      <button @click="handleLogout"
-        class="flex items-center gap-2 px-3 py-1.5 w-full text-xs text-navy-400 hover:text-slate-200">
-        <span class="w-5 h-5 rounded-full bg-navy-600 flex items-center justify-center text-[10px]">A</span>
+      <button
+        @click="handleLogout"
+        class="flex items-center gap-2 px-3 py-1.5 w-full text-xs text-navy-400 hover:text-slate-200"
+      >
+        <span class="w-5 h-5 rounded-full bg-navy-600 flex items-center justify-center text-[10px]"
+          >A</span
+        >
         admin <span class="ml-auto text-navy-600">logout</span>
       </button>
     </div>
@@ -1558,6 +1706,7 @@ git commit -m "feat(web): common components, AppSidebar, AppLayout"
 ## Task 8: Participants screen
 
 **Files:**
+
 - Create: `packages/web/src/components/participants/ToolPolicyEditor.vue`
 - Create: `packages/web/src/components/participants/ToolPolicyEditor.test.ts`
 - Create: `packages/web/src/components/participants/ParticipantSlideOver.vue`
@@ -1621,9 +1770,7 @@ const emit = defineEmits<{
 const policies = ['allow', 'require-approval', 'deny'] as const;
 
 function toggleEnabled(index: number) {
-  const next = props.overrides.map((o, i) =>
-    i === index ? { ...o, enabled: !o.enabled } : o,
-  );
+  const next = props.overrides.map((o, i) => (i === index ? { ...o, enabled: !o.enabled } : o));
   emit('update:overrides', next);
 }
 
@@ -1635,7 +1782,10 @@ function toggleApproval(index: number) {
 }
 
 function removeOverride(index: number) {
-  emit('update:overrides', props.overrides.filter((_, i) => i !== index));
+  emit(
+    'update:overrides',
+    props.overrides.filter((_, i) => i !== index),
+  );
 }
 
 function addTool(toolName: string) {
@@ -1664,13 +1814,21 @@ const addingTool = ref('');
   <div class="space-y-4 p-5">
     <!-- Default policy -->
     <div>
-      <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold mb-2">Default policy</p>
+      <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold mb-2">
+        Default policy
+      </p>
       <div class="flex gap-2">
-        <button v-for="p in policies" :key="p"
+        <button
+          v-for="p in policies"
+          :key="p"
           @click="emit('update:defaultPolicy', p)"
-          :class="['text-xs px-3 py-1.5 rounded border transition-colors', defaultPolicy === p
-            ? 'bg-cyan-400/10 border-cyan-400/30 text-cyan-400'
-            : 'border-navy-600 text-navy-400 hover:text-slate-200']">
+          :class="[
+            'text-xs px-3 py-1.5 rounded border transition-colors',
+            defaultPolicy === p
+              ? 'bg-cyan-400/10 border-cyan-400/30 text-cyan-400'
+              : 'border-navy-600 text-navy-400 hover:text-slate-200',
+          ]"
+        >
           {{ p }}
         </button>
       </div>
@@ -1678,39 +1836,70 @@ const addingTool = ref('');
 
     <!-- Per-tool overrides -->
     <div>
-      <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold mb-2">Per-tool overrides</p>
+      <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold mb-2">
+        Per-tool overrides
+      </p>
       <template v-for="[source, items] in grouped" :key="source">
-        <p class="text-[9px] uppercase tracking-wider text-navy-500 font-semibold py-1.5">{{ source }}</p>
-        <div v-for="(override, idx) in items" :key="override.tool"
+        <p class="text-[9px] uppercase tracking-wider text-navy-500 font-semibold py-1.5">
+          {{ source }}
+        </p>
+        <div
+          v-for="(override, idx) in items"
+          :key="override.tool"
           data-tool-row
-          class="flex items-center gap-2 py-1.5 border-b border-navy-900">
-          <input type="checkbox" :checked="override.enabled"
+          class="flex items-center gap-2 py-1.5 border-b border-navy-900"
+        >
+          <input
+            type="checkbox"
+            :checked="override.enabled"
             @change="toggleEnabled(props.overrides.indexOf(override))"
-            class="accent-cyan-400" />
-          <span :class="['flex-1 font-mono text-xs', override.enabled ? 'text-slate-100' : 'text-navy-500']">
+            class="accent-cyan-400"
+          />
+          <span
+            :class="[
+              'flex-1 font-mono text-xs',
+              override.enabled ? 'text-slate-100' : 'text-navy-500',
+            ]"
+          >
             {{ override.tool }}
           </span>
-          <button v-if="override.enabled"
+          <button
+            v-if="override.enabled"
             @click="toggleApproval(props.overrides.indexOf(override))"
-            :class="['text-[9px] px-2 py-0.5 rounded border transition-colors', override.requireApproval
-              ? 'bg-amber-400/10 border-amber-400/30 text-amber-400'
-              : 'border-navy-600 text-navy-500']">
+            :class="[
+              'text-[9px] px-2 py-0.5 rounded border transition-colors',
+              override.requireApproval
+                ? 'bg-amber-400/10 border-amber-400/30 text-amber-400'
+                : 'border-navy-600 text-navy-500',
+            ]"
+          >
             require approval
           </button>
-          <button @click="removeOverride(props.overrides.indexOf(override))"
-            class="text-navy-600 hover:text-red-400 text-sm leading-none">×</button>
+          <button
+            @click="removeOverride(props.overrides.indexOf(override))"
+            class="text-navy-600 hover:text-red-400 text-sm leading-none"
+          >
+            ×
+          </button>
         </div>
       </template>
 
       <!-- Add tool -->
       <div class="flex gap-2 mt-3">
-        <select v-model="addingTool"
-          class="flex-1 bg-navy-900 border border-navy-600 rounded text-xs text-navy-400 px-2 py-1.5 font-mono">
+        <select
+          v-model="addingTool"
+          class="flex-1 bg-navy-900 border border-navy-600 rounded text-xs text-navy-400 px-2 py-1.5 font-mono"
+        >
           <option value="">— add tool override —</option>
           <option v-for="t in availableTools" :key="t" :value="t">{{ t }}</option>
         </select>
-        <button @click="addTool(addingTool); addingTool = ''"
-          class="text-xs px-3 py-1.5 bg-cyan-400/10 border border-cyan-400/30 text-cyan-400 rounded">
+        <button
+          @click="
+            addTool(addingTool);
+            addingTool = '';
+          "
+          class="text-xs px-3 py-1.5 bg-cyan-400/10 border border-cyan-400/30 text-cyan-400 rounded"
+        >
           Add
         </button>
       </div>
@@ -1755,30 +1944,52 @@ const defaultPolicy = ref<'allow' | 'require-approval' | 'deny'>('allow');
 const overrides = ref<ToolOverride[]>([]);
 const saving = ref(false);
 
-watch(() => props.open, async (open) => {
-  if (!open) return;
-  tab.value = 'basic';
-  if (props.participantId) {
-    // Load existing — in a real app fetch participant details
-  } else {
-    name.value = ''; model.value = ''; providerId.value = '';
-    systemPrompt.value = ''; maxIterations.value = 20;
-    defaultPolicy.value = 'allow'; overrides.value = [];
-  }
-});
+watch(
+  () => props.open,
+  async (open) => {
+    if (!open) return;
+    tab.value = 'basic';
+    if (props.participantId) {
+      // Load existing — in a real app fetch participant details
+    } else {
+      name.value = '';
+      model.value = '';
+      providerId.value = '';
+      systemPrompt.value = '';
+      maxIterations.value = 20;
+      defaultPolicy.value = 'allow';
+      overrides.value = [];
+    }
+  },
+);
 
 async function save() {
   saving.value = true;
   try {
     const toolPolicies = Object.fromEntries(
-      overrides.value.map((o) => [o.tool, o.requireApproval ? 'require-approval' : o.enabled ? 'allow' : 'deny']),
+      overrides.value.map((o) => [
+        o.tool,
+        o.requireApproval ? 'require-approval' : o.enabled ? 'allow' : 'deny',
+      ]),
     );
     if (props.participantId) {
-      await execute('modify_agent', { id: props.participantId, name: name.value, model: model.value,
-        systemPrompt: systemPrompt.value, maxIterations: maxIterations.value, toolPolicies });
+      await execute('modify_agent', {
+        id: props.participantId,
+        name: name.value,
+        model: model.value,
+        systemPrompt: systemPrompt.value,
+        maxIterations: maxIterations.value,
+        toolPolicies,
+      });
     } else {
-      await execute('create_agent', { name: name.value, model: model.value, providerId: providerId.value,
-        systemPrompt: systemPrompt.value, maxIterations: maxIterations.value, toolPolicies });
+      await execute('create_agent', {
+        name: name.value,
+        model: model.value,
+        providerId: providerId.value,
+        systemPrompt: systemPrompt.value,
+        maxIterations: maxIterations.value,
+        toolPolicies,
+      });
     }
     emit('saved');
     emit('close');
@@ -1796,13 +2007,24 @@ async function retire() {
 </script>
 
 <template>
-  <SlideOver :open="open" :title="participantId ? 'Edit agent' : 'New agent'" @close="emit('close')">
+  <SlideOver
+    :open="open"
+    :title="participantId ? 'Edit agent' : 'New agent'"
+    @close="emit('close')"
+  >
     <!-- Tabs -->
     <div class="flex border-b border-navy-600 bg-navy-900">
-      <button v-for="t in ['basic', 'tools'] as const" :key="t" @click="tab = t"
-        :class="['px-4 py-2 text-xs font-medium border-b-2 transition-colors', tab === t
-          ? 'text-cyan-400 border-cyan-400'
-          : 'text-navy-400 border-transparent hover:text-slate-200']">
+      <button
+        v-for="t in ['basic', 'tools'] as const"
+        :key="t"
+        @click="tab = t"
+        :class="[
+          'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
+          tab === t
+            ? 'text-cyan-400 border-cyan-400'
+            : 'text-navy-400 border-transparent hover:text-slate-200',
+        ]"
+      >
         {{ t === 'basic' ? 'Basic' : 'Tool policies' }}
       </button>
     </div>
@@ -1810,52 +2032,89 @@ async function retire() {
     <!-- Basic tab -->
     <div v-if="tab === 'basic'" class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Name</label>
-        <input v-model="name" :readonly="!!participantId"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-cyan-400/40" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Name</label
+        >
+        <input
+          v-model="name"
+          :readonly="!!participantId"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-cyan-400/40"
+        />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Provider</label>
-        <select v-model="providerId"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100">
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Provider</label
+        >
+        <select
+          v-model="providerId"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
+        >
           <option v-for="p in providers" :key="p.name" :value="p.name">{{ p.name }}</option>
         </select>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Model</label>
-        <input v-model="model"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none focus:border-cyan-400/40" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Model</label
+        >
+        <input
+          v-model="model"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none focus:border-cyan-400/40"
+        />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">System prompt</label>
-        <textarea v-model="systemPrompt" rows="6"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-xs text-slate-200 font-mono resize-none outline-none focus:border-cyan-400/40" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >System prompt</label
+        >
+        <textarea
+          v-model="systemPrompt"
+          rows="6"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-xs text-slate-200 font-mono resize-none outline-none focus:border-cyan-400/40"
+        />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Max iterations</label>
-        <input v-model.number="maxIterations" type="number" class="w-20 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Max iterations</label
+        >
+        <input
+          v-model.number="maxIterations"
+          type="number"
+          class="w-20 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none"
+        />
       </div>
     </div>
 
     <!-- Tools tab -->
-    <ToolPolicyEditor v-else
+    <ToolPolicyEditor
+      v-else
       :default-policy="defaultPolicy"
       :overrides="overrides"
       :available-tools="availableTools"
       @update:default-policy="(v) => (defaultPolicy = v as typeof defaultPolicy)"
-      @update:overrides="(v) => (overrides = v)" />
+      @update:overrides="(v) => (overrides = v)"
+    />
 
     <template #footer>
       <div class="flex items-center justify-between px-5 py-3">
-        <button v-if="participantId" @click="retire"
-          class="text-xs px-3 py-1.5 border border-red-900 text-red-400 rounded hover:border-red-700">
+        <button
+          v-if="participantId"
+          @click="retire"
+          class="text-xs px-3 py-1.5 border border-red-900 text-red-400 rounded hover:border-red-700"
+        >
           Retire agent
         </button>
         <div v-else />
         <div class="flex gap-2">
-          <button @click="emit('close')" class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded hover:text-slate-200">Cancel</button>
-          <button @click="save" :disabled="saving"
-            class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50">
+          <button
+            @click="emit('close')"
+            class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded hover:text-slate-200"
+          >
+            Cancel
+          </button>
+          <button
+            @click="save"
+            :disabled="saving"
+            class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50"
+          >
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
         </div>
@@ -1898,16 +2157,24 @@ onMounted(async () => {
   });
 });
 
-function openCreate() { editingId.value = null; slideOpen.value = true; }
-function openEdit(id: string) { editingId.value = id; slideOpen.value = true; }
+function openCreate() {
+  editingId.value = null;
+  slideOpen.value = true;
+}
+function openEdit(id: string) {
+  editingId.value = id;
+  slideOpen.value = true;
+}
 </script>
 
 <template>
   <AppLayout>
     <div class="flex items-center justify-between px-5 py-3.5 border-b border-navy-600">
       <h1 class="text-sm font-semibold text-slate-100">Participants</h1>
-      <button @click="openCreate"
-        class="text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded hover:border-cyan-400/40">
+      <button
+        @click="openCreate"
+        class="text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded hover:border-cyan-400/40"
+      >
         + New agent
       </button>
     </div>
@@ -1915,16 +2182,38 @@ function openEdit(id: string) { editingId.value = id; slideOpen.value = true; }
     <table class="w-full border-collapse text-xs">
       <thead>
         <tr class="border-b border-navy-700">
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Status</th>
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Name</th>
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Model</th>
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Provider</th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Status
+          </th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Name
+          </th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Model
+          </th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Provider
+          </th>
           <th />
         </tr>
       </thead>
       <tbody>
-        <tr v-for="p in participants" :key="p.id"
-          :class="['border-b border-navy-900 hover:bg-navy-800/40', p.status === 'retired' ? 'opacity-35' : '']">
+        <tr
+          v-for="p in participants"
+          :key="p.id"
+          :class="[
+            'border-b border-navy-900 hover:bg-navy-800/40',
+            p.status === 'retired' ? 'opacity-35' : '',
+          ]"
+        >
           <td class="px-4 py-2.5">
             <div class="flex items-center gap-2">
               <StatusDot :status="p.status === 'active' ? 'active' : 'retired'" />
@@ -1937,8 +2226,13 @@ function openEdit(id: string) { editingId.value = id; slideOpen.value = true; }
           <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).model ?? '—' }}</td>
           <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).providerId ?? '—' }}</td>
           <td class="px-4 py-2.5 text-right">
-            <button v-if="p.status === 'active'" @click="openEdit(p.id)"
-              class="text-navy-400 hover:text-slate-200 mr-3">Edit</button>
+            <button
+              v-if="p.status === 'active'"
+              @click="openEdit(p.id)"
+              class="text-navy-400 hover:text-slate-200 mr-3"
+            >
+              Edit
+            </button>
           </td>
         </tr>
       </tbody>
@@ -1950,7 +2244,8 @@ function openEdit(id: string) { editingId.value = id; slideOpen.value = true; }
       :available-tools="allTools"
       :providers="providers"
       @close="slideOpen = false"
-      @saved="load" />
+      @saved="load"
+    />
   </AppLayout>
 </template>
 
@@ -1961,7 +2256,7 @@ import StatusDot from '../components/common/StatusDot.vue';
 
 - [ ] **Step 6: Commit**
 
-```bash
+````bash
 git add packages/web/src/components/participants/ packages/web/src/views/ParticipantsView.vue
 git commit -m "feat(web): participants screen — table, slide-over, tool policy editor"
 
@@ -2007,7 +2302,7 @@ describe('renderer registry', () => {
     expect(r.name).toBe('FileTreeRenderer');
   });
 });
-```
+````
 
 - [ ] **Step 2: Implement `packages/web/src/renderers/index.ts`**
 
@@ -2017,13 +2312,16 @@ import FileTreeRenderer from './FileTreeRenderer.vue';
 import JsonRenderer from './JsonRenderer.vue';
 import SearchResultRenderer from './SearchResultRenderer.vue';
 
-export interface RendererEntry { pattern: RegExp; component: Component }
+export interface RendererEntry {
+  pattern: RegExp;
+  component: Component;
+}
 
 const registry: RendererEntry[] = [
-  { pattern: /^mcp__web-search__/,        component: SearchResultRenderer },
-  { pattern: /^mcp__filesystem__list_/,   component: FileTreeRenderer },
-  { pattern: /^mcp__filesystem__read_/,   component: JsonRenderer }, // plain text/code
-  { pattern: /.*/,                         component: JsonRenderer },
+  { pattern: /^mcp__web-search__/, component: SearchResultRenderer },
+  { pattern: /^mcp__filesystem__list_/, component: FileTreeRenderer },
+  { pattern: /^mcp__filesystem__read_/, component: JsonRenderer }, // plain text/code
+  { pattern: /.*/, component: JsonRenderer },
 ];
 
 export function registerRenderer(pattern: RegExp, component: Component) {
@@ -2038,28 +2336,41 @@ export function lookupRenderer(toolName: string): Component {
 - [ ] **Step 3: Create renderer components**
 
 `packages/web/src/renderers/JsonRenderer.vue`:
+
 ```vue
 <script setup lang="ts">
 defineProps<{ tool: string; args?: unknown; result?: unknown }>();
-function fmt(v: unknown) { return JSON.stringify(v, null, 2); }
+function fmt(v: unknown) {
+  return JSON.stringify(v, null, 2);
+}
 </script>
 <template>
-  <pre class="text-[10px] font-mono text-navy-400 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap">{{ fmt(result ?? args) }}</pre>
+  <pre
+    class="text-[10px] font-mono text-navy-400 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap"
+    >{{ fmt(result ?? args) }}</pre
+  >
 </template>
 ```
 
 `packages/web/src/renderers/SearchResultRenderer.vue`:
+
 ```vue
 <script setup lang="ts">
-interface SearchResult { title: string; url: string; snippet: string }
+interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
 defineProps<{ tool: string; args?: unknown; result?: unknown }>();
-const results = (props: { result?: unknown }) =>
-  (props.result as SearchResult[] | null) ?? [];
+const results = (props: { result?: unknown }) => (props.result as SearchResult[] | null) ?? [];
 </script>
 <template>
   <div class="p-3 space-y-2">
-    <div v-for="r in results($props)" :key="r.url"
-      class="bg-navy-950 border border-navy-600 rounded p-2.5">
+    <div
+      v-for="r in results($props)"
+      :key="r.url"
+      class="bg-navy-950 border border-navy-600 rounded p-2.5"
+    >
       <p class="text-[11px] font-medium text-cyan-300 mb-0.5">{{ r.title }}</p>
       <p class="text-[9px] font-mono text-navy-500 mb-1">{{ r.url }}</p>
       <p class="text-[10px] text-slate-500 leading-relaxed">{{ r.snippet }}</p>
@@ -2069,16 +2380,24 @@ const results = (props: { result?: unknown }) =>
 ```
 
 `packages/web/src/renderers/FileTreeRenderer.vue`:
+
 ```vue
 <script setup lang="ts">
-interface FileEntry { name: string; type: 'file' | 'dir'; size?: number }
+interface FileEntry {
+  name: string;
+  type: 'file' | 'dir';
+  size?: number;
+}
 defineProps<{ tool: string; args?: unknown; result?: unknown }>();
 const entries = (r: unknown) => (r as FileEntry[] | null) ?? [];
 </script>
 <template>
   <div class="p-3 font-mono text-[10px] space-y-0.5">
-    <div v-for="e in entries($props.result)" :key="e.name"
-      class="flex items-center gap-2 text-slate-400 hover:text-slate-200">
+    <div
+      v-for="e in entries($props.result)"
+      :key="e.name"
+      class="flex items-center gap-2 text-slate-400 hover:text-slate-200"
+    >
       <span>{{ e.type === 'dir' ? '📁' : '📄' }}</span>
       <span :class="e.type === 'dir' ? 'text-cyan-400' : ''">{{ e.name }}</span>
       <span v-if="e.size" class="ml-auto text-navy-500">{{ e.size }}B</span>
@@ -2088,6 +2407,7 @@ const entries = (r: unknown) => (r as FileEntry[] | null) ?? [];
 ```
 
 `packages/web/src/renderers/ToolResultRenderer.vue`:
+
 ```vue
 <script setup lang="ts">
 import { computed } from 'vue';
@@ -2141,10 +2461,16 @@ const open = ref(false);
 </script>
 
 <template>
-  <div :class="['border rounded-md my-1.5 overflow-hidden',
-    entry.type === 'delegation' ? 'border-amber-400/30' : 'border-navy-600']">
-    <button @click="open = !open"
-      class="flex items-center gap-2 px-3 py-1.5 w-full hover:bg-white/[.02] text-left">
+  <div
+    :class="[
+      'border rounded-md my-1.5 overflow-hidden',
+      entry.type === 'delegation' ? 'border-amber-400/30' : 'border-navy-600',
+    ]"
+  >
+    <button
+      @click="open = !open"
+      class="flex items-center gap-2 px-3 py-1.5 w-full hover:bg-white/[.02] text-left"
+    >
       <span :class="['text-[9px] transition-transform', open ? 'rotate-90' : '']">▶</span>
       <TypeBadge :type="entry.type" />
       <span class="font-mono text-[11px] text-slate-100">{{ entry.tool }}</span>
@@ -2206,8 +2532,14 @@ import SubThreadBlock from './SubThreadBlock.vue';
 describe('SubThreadBlock', () => {
   it('renders a flat message list', () => {
     const messages = [
-      { id: 'm1', author: 'agent-1', authorColour: '#22d3ee',
-        content: 'Hello', timestamp: '12:00', toolCalls: [] },
+      {
+        id: 'm1',
+        author: 'agent-1',
+        authorColour: '#22d3ee',
+        content: 'Hello',
+        timestamp: '12:00',
+        toolCalls: [],
+      },
     ];
     const w = mount(SubThreadBlock, { props: { messages } });
     expect(w.text()).toContain('Hello');
@@ -2216,15 +2548,30 @@ describe('SubThreadBlock', () => {
 
   it('renders nested delegation tool call', () => {
     const messages = [
-      { id: 'm1', author: 'orchestrator', authorColour: '#22d3ee',
-        content: 'Delegating', timestamp: '12:00',
-        toolCalls: [{
-          id: 'tc1', tool: 'send_message', type: 'delegation' as const,
-          timestamp: '12:00', subThread: [
-            { id: 'm2', author: 'researcher', authorColour: '#f59e0b',
-              content: 'Sub-response', timestamp: '12:01', toolCalls: [] },
-          ],
-        }],
+      {
+        id: 'm1',
+        author: 'orchestrator',
+        authorColour: '#22d3ee',
+        content: 'Delegating',
+        timestamp: '12:00',
+        toolCalls: [
+          {
+            id: 'tc1',
+            tool: 'send_message',
+            type: 'delegation' as const,
+            timestamp: '12:00',
+            subThread: [
+              {
+                id: 'm2',
+                author: 'researcher',
+                authorColour: '#f59e0b',
+                content: 'Sub-response',
+                timestamp: '12:01',
+                toolCalls: [],
+              },
+            ],
+          },
+        ],
       },
     ];
     const w = mount(SubThreadBlock, { props: { messages }, global: { stubs: { teleport: true } } });
@@ -2244,6 +2591,7 @@ Expected: PASS.
 - [ ] **Step 9: Create `ConversationList.vue` and `ConversationThread.vue`**
 
 `ConversationList.vue`:
+
 ```vue
 <script setup lang="ts">
 import type { ConversationSummary } from '@legion/types';
@@ -2263,9 +2611,15 @@ function ago(ts: number) {
       <span class="text-[9px] text-navy-500">{{ conversations.length }} total</span>
     </div>
     <div class="flex-1 overflow-y-auto">
-      <button v-for="c in conversations" :key="c.id" @click="emit('select', c.id)"
-        :class="['w-full text-left px-4 py-3 border-b border-navy-900 hover:bg-navy-800/40',
-          activeId === c.id ? 'bg-navy-800/60 border-l-2 border-cyan-400 !pl-[14px]' : '']">
+      <button
+        v-for="c in conversations"
+        :key="c.id"
+        @click="emit('select', c.id)"
+        :class="[
+          'w-full text-left px-4 py-3 border-b border-navy-900 hover:bg-navy-800/40',
+          activeId === c.id ? 'bg-navy-800/60 border-l-2 border-cyan-400 !pl-[14px]' : '',
+        ]"
+      >
         <div class="flex items-center gap-2 mb-1">
           <StatusDot :status="c.status === 'active' ? 'live' : 'complete'" />
           <span class="font-mono text-[11px] text-slate-100 truncate">{{ c.id }}</span>
@@ -2282,6 +2636,7 @@ import StatusDot from '../common/StatusDot.vue';
 ```
 
 `ConversationThread.vue`:
+
 ```vue
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
@@ -2308,21 +2663,29 @@ function colourFor(author: string) {
 async function load(id: string) {
   const data = await execute<{ messages: any[] }>('get_conversation', { id });
   messages.value = (data.messages ?? []).map((m: any) => ({
-    id: m.id, author: m.participantId, authorColour: colourFor(m.participantId),
-    content: m.content ?? '', timestamp: new Date(m.createdAt).toLocaleTimeString(),
+    id: m.id,
+    author: m.participantId,
+    authorColour: colourFor(m.participantId),
+    content: m.content ?? '',
+    timestamp: new Date(m.createdAt).toLocaleTimeString(),
     toolCalls: (m.toolCalls ?? []).map((tc: any) => ({
-      id: tc.callId, tool: tc.tool,
+      id: tc.callId,
+      tool: tc.tool,
       type: tc.tool === 'send_message' ? 'delegation' : 'tool:call',
-      args: tc.arguments, timestamp: '',
+      args: tc.arguments,
+      timestamp: '',
     })),
   }));
 }
 
-watch(() => props.conversationId, async (id) => {
-  if (!id) return;
-  await load(id);
-  isLive.value = true;
-});
+watch(
+  () => props.conversationId,
+  async (id) => {
+    if (!id) return;
+    await load(id);
+    isLive.value = true;
+  },
+);
 
 const off = subscribe((evt) => {
   if (evt.event === 'message:sent' && (evt.data as any).conversationId === props.conversationId) {
@@ -2407,6 +2770,7 @@ git commit -m "feat(web): conversations screen — two-pane, nested threads, too
 ## Task 10: Event stream screen
 
 **Files:**
+
 - Create: `packages/web/src/components/events/EventDetailPanel.vue`
 - Create: `packages/web/src/components/events/EventTable.vue`
 - Create: `packages/web/src/views/EventStreamView.vue`
@@ -2416,7 +2780,9 @@ git commit -m "feat(web): conversations screen — two-pane, nested threads, too
 ```vue
 <script setup lang="ts">
 defineProps<{ event: { type: string; event: string; data: unknown } | null }>();
-function fmt(v: unknown) { return JSON.stringify(v, null, 2); }
+function fmt(v: unknown) {
+  return JSON.stringify(v, null, 2);
+}
 </script>
 <template>
   <div class="w-72 shrink-0 border-l border-navy-600 flex flex-col bg-navy-800/40">
@@ -2424,8 +2790,14 @@ function fmt(v: unknown) { return JSON.stringify(v, null, 2); }
       <span class="text-xs font-semibold text-slate-100">Event detail</span>
       <TypeBadge v-if="event" :type="event.event" />
     </div>
-    <pre v-if="event" class="flex-1 text-[10px] font-mono text-navy-400 p-4 overflow-auto leading-relaxed whitespace-pre-wrap">{{ fmt(event.data) }}</pre>
-    <div v-else class="flex-1 flex items-center justify-center text-navy-600 text-xs">Select an event</div>
+    <pre
+      v-if="event"
+      class="flex-1 text-[10px] font-mono text-navy-400 p-4 overflow-auto leading-relaxed whitespace-pre-wrap"
+      >{{ fmt(event.data) }}</pre
+    >
+    <div v-else class="flex-1 flex items-center justify-center text-navy-600 text-xs">
+      Select an event
+    </div>
   </div>
 </template>
 <script>
@@ -2443,7 +2815,13 @@ import EventDetailPanel from '../components/events/EventDetailPanel.vue';
 import TypeBadge from '../components/common/TypeBadge.vue';
 import { useEventStream } from '../composables/useEventStream.js';
 
-interface LiveEvent { id: string; type: string; event: string; data: unknown; time: string }
+interface LiveEvent {
+  id: string;
+  type: string;
+  event: string;
+  data: unknown;
+  time: string;
+}
 
 const { subscribe } = useEventStream();
 const events = ref<LiveEvent[]>([]);
@@ -2455,8 +2833,13 @@ const search = ref('');
 let idSeq = 0;
 const off = subscribe((evt) => {
   if (paused.value) return;
-  const le: LiveEvent = { id: String(idSeq++), type: 'event', event: evt.event,
-    data: evt.data, time: new Date().toLocaleTimeString() };
+  const le: LiveEvent = {
+    id: String(idSeq++),
+    type: 'event',
+    event: evt.event,
+    data: evt.data,
+    time: new Date().toLocaleTimeString(),
+  };
   events.value.unshift(le);
   if (events.value.length > 500) events.value.splice(500);
 });
@@ -2464,31 +2847,39 @@ onUnmounted(() => off());
 
 const chips = [
   { label: 'message', events: ['message:sent', 'message:delivered'] },
-  { label: 'tool',    events: ['tool:call', 'tool:result'] },
-  { label: 'error',   events: ['error'] },
-  { label: 'system',  events: ['conversation:created', 'participant:active', 'participant:retired', 'process:ready'] },
+  { label: 'tool', events: ['tool:call', 'tool:result'] },
+  { label: 'error', events: ['error'] },
+  {
+    label: 'system',
+    events: ['conversation:created', 'participant:active', 'participant:retired', 'process:ready'],
+  },
 ];
 
-function toggleChip(chip: typeof chips[number]) {
+function toggleChip(chip: (typeof chips)[number]) {
   for (const e of chip.events) {
     if (filters.value.has(e)) filters.value.delete(e);
     else filters.value.add(e);
   }
 }
 
-function chipActive(chip: typeof chips[number]) {
+function chipActive(chip: (typeof chips)[number]) {
   return chip.events.some((e) => filters.value.has(e));
 }
 
 const visible = ref<LiveEvent[]>([]);
 // Simple computed won't work well with Set reactivity; use watch instead
 import { watch } from 'vue';
-watch([events, filters, search], () => {
-  visible.value = events.value.filter((e) =>
-    filters.value.has(e.event) &&
-    (!search.value || JSON.stringify(e.data).includes(search.value)),
-  );
-}, { immediate: true });
+watch(
+  [events, filters, search],
+  () => {
+    visible.value = events.value.filter(
+      (e) =>
+        filters.value.has(e.event) &&
+        (!search.value || JSON.stringify(e.data).includes(search.value)),
+    );
+  },
+  { immediate: true },
+);
 
 function summary(e: LiveEvent): string {
   const d = e.data as Record<string, unknown>;
@@ -2502,7 +2893,9 @@ function summary(e: LiveEvent): string {
   <AppLayout>
     <div class="flex flex-col h-full">
       <!-- Toolbar -->
-      <div class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-600 bg-navy-900 flex-wrap">
+      <div
+        class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-600 bg-navy-900 flex-wrap"
+      >
         <div class="flex items-center gap-1.5">
           <StatusDot :status="paused ? 'retired' : 'live'" />
           <span :class="['text-xs font-semibold', paused ? 'text-navy-400' : 'text-cyan-400']">
@@ -2511,15 +2904,31 @@ function summary(e: LiveEvent): string {
         </div>
         <div class="w-px h-4 bg-navy-600" />
         <span class="text-[10px] text-navy-500">Filter:</span>
-        <button v-for="chip in chips" :key="chip.label" @click="toggleChip(chip)"
-          :class="['text-[10px] px-2.5 py-1 rounded-full border transition-colors',
-            chipActive(chip) ? 'bg-cyan-400 text-navy-950 border-transparent font-semibold' : 'border-navy-600 text-navy-400']">
+        <button
+          v-for="chip in chips"
+          :key="chip.label"
+          @click="toggleChip(chip)"
+          :class="[
+            'text-[10px] px-2.5 py-1 rounded-full border transition-colors',
+            chipActive(chip)
+              ? 'bg-cyan-400 text-navy-950 border-transparent font-semibold'
+              : 'border-navy-600 text-navy-400',
+          ]"
+        >
           {{ chip.label }}
         </button>
-        <input v-model="search" placeholder="filter by participant or conv…"
-          class="bg-navy-950 border border-navy-600 rounded px-2.5 py-1 text-xs text-slate-300 outline-none w-48" />
-        <button @click="paused = !paused" class="ml-auto text-xs px-3 py-1.5 rounded border"
-          :class="paused ? 'border-amber-400/30 text-amber-400' : 'border-cyan-400/30 text-cyan-400'">
+        <input
+          v-model="search"
+          placeholder="filter by participant or conv…"
+          class="bg-navy-950 border border-navy-600 rounded px-2.5 py-1 text-xs text-slate-300 outline-none w-48"
+        />
+        <button
+          @click="paused = !paused"
+          class="ml-auto text-xs px-3 py-1.5 rounded border"
+          :class="
+            paused ? 'border-amber-400/30 text-amber-400' : 'border-cyan-400/30 text-cyan-400'
+          "
+        >
           {{ paused ? '▶ Resume' : '⏸ Pause' }}
         </button>
       </div>
@@ -2530,18 +2939,28 @@ function summary(e: LiveEvent): string {
           <table class="w-full border-collapse text-xs">
             <thead class="sticky top-0 bg-navy-950">
               <tr>
-                <th v-for="h in ['Time', 'Event', 'Detail', 'Conv']" :key="h"
-                  class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-3 py-2 font-semibold border-b border-navy-700">
+                <th
+                  v-for="h in ['Time', 'Event', 'Detail', 'Conv']"
+                  :key="h"
+                  class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-3 py-2 font-semibold border-b border-navy-700"
+                >
                   {{ h }}
                 </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="e in visible" :key="e.id"
+              <tr
+                v-for="e in visible"
+                :key="e.id"
                 @click="selected = e"
-                :class="['border-b border-navy-900 cursor-pointer hover:bg-navy-800/40',
-                  selected?.id === e.id ? 'bg-navy-800/60' : '']">
-                <td class="px-3 py-1.5 font-mono text-[10px] text-navy-500 whitespace-nowrap">{{ e.time }}</td>
+                :class="[
+                  'border-b border-navy-900 cursor-pointer hover:bg-navy-800/40',
+                  selected?.id === e.id ? 'bg-navy-800/60' : '',
+                ]"
+              >
+                <td class="px-3 py-1.5 font-mono text-[10px] text-navy-500 whitespace-nowrap">
+                  {{ e.time }}
+                </td>
                 <td class="px-3 py-1.5"><TypeBadge :type="e.event" /></td>
                 <td class="px-3 py-1.5 text-slate-400 truncate max-w-xs">{{ summary(e) }}</td>
                 <td class="px-3 py-1.5 font-mono text-[9px] text-navy-600 whitespace-nowrap">
@@ -2573,6 +2992,7 @@ git commit -m "feat(web): event stream screen — live feed, filter chips, detai
 ## Task 11: Configuration screen
 
 **Files:**
+
 - Create: `packages/web/src/components/config/ProviderSlideOver.vue`
 - Create: `packages/web/src/components/config/CredentialSlideOver.vue`
 - Create: `packages/web/src/views/ConfigView.vue`
@@ -2586,7 +3006,11 @@ import type { ProviderConfig } from '@legion/types';
 import SlideOver from '../common/SlideOver.vue';
 import { useExecute } from '../../composables/useExecute.js';
 
-const props = defineProps<{ open: boolean; provider: ProviderConfig | null; credentialKeys: string[] }>();
+const props = defineProps<{
+  open: boolean;
+  provider: ProviderConfig | null;
+  credentialKeys: string[];
+}>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 const { execute } = useExecute();
 
@@ -2597,52 +3021,94 @@ const defaultModel = ref('');
 const credentialKey = ref('');
 const saving = ref(false);
 
-watch(() => props.open, (open) => {
-  if (!open) return;
-  name.value = props.provider?.name ?? '';
-  type.value = props.provider?.type ?? 'openai-compatible';
-  baseUrl.value = props.provider?.baseUrl ?? '';
-  defaultModel.value = props.provider?.defaultModel ?? '';
-  credentialKey.value = props.provider?.credentialKey ?? '';
-});
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return;
+    name.value = props.provider?.name ?? '';
+    type.value = props.provider?.type ?? 'openai-compatible';
+    baseUrl.value = props.provider?.baseUrl ?? '';
+    defaultModel.value = props.provider?.defaultModel ?? '';
+    credentialKey.value = props.provider?.credentialKey ?? '';
+  },
+);
 
 async function save() {
   saving.value = true;
   try {
-    await execute('configure_provider', { name: name.value, type: type.value,
-      baseUrl: baseUrl.value || undefined, defaultModel: defaultModel.value,
-      credentialKey: credentialKey.value || undefined });
-    emit('saved'); emit('close');
-  } finally { saving.value = false; }
+    await execute('configure_provider', {
+      name: name.value,
+      type: type.value,
+      baseUrl: baseUrl.value || undefined,
+      defaultModel: defaultModel.value,
+      credentialKey: credentialKey.value || undefined,
+    });
+    emit('saved');
+    emit('close');
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 
 <template>
-  <SlideOver :open="open" :title="provider ? 'Edit provider' : 'Add provider'" @close="emit('close')">
+  <SlideOver
+    :open="open"
+    :title="provider ? 'Edit provider' : 'Add provider'"
+    @close="emit('close')"
+  >
     <div class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Name</label>
-        <input v-model="name" :readonly="!!provider"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Name</label
+        >
+        <input
+          v-model="name"
+          :readonly="!!provider"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
+        />
         <p class="text-[10px] text-navy-500 mt-1">Cannot change after creation.</p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Type</label>
-        <select v-model="type" class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100">
-          <option>openai-compatible</option><option>anthropic</option><option>copilot</option><option>codex</option>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Type</label
+        >
+        <select
+          v-model="type"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
+        >
+          <option>openai-compatible</option>
+          <option>anthropic</option>
+          <option>copilot</option>
+          <option>codex</option>
         </select>
       </div>
       <div v-if="type === 'openai-compatible'">
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Base URL</label>
-        <input v-model="baseUrl" class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Base URL</label
+        >
+        <input
+          v-model="baseUrl"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
+        />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Default model</label>
-        <input v-model="defaultModel" class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Default model</label
+        >
+        <input
+          v-model="defaultModel"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
+        />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Credential key</label>
-        <select v-model="credentialKey" class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono">
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Credential key</label
+        >
+        <select
+          v-model="credentialKey"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono"
+        >
           <option value="">— none —</option>
           <option v-for="k in credentialKeys" :key="k" :value="k">{{ k }}</option>
         </select>
@@ -2650,8 +3116,17 @@ async function save() {
     </div>
     <template #footer>
       <div class="flex justify-end gap-2 px-5 py-3">
-        <button @click="emit('close')" class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded">Cancel</button>
-        <button @click="save" :disabled="saving" class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50">
+        <button
+          @click="emit('close')"
+          class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded"
+        >
+          Cancel
+        </button>
+        <button
+          @click="save"
+          :disabled="saving"
+          class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50"
+        >
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
       </div>
@@ -2678,54 +3153,88 @@ const value = ref('');
 const saving = ref(false);
 const isNew = ref(true);
 
-watch(() => props.open, (open) => {
-  if (!open) return;
-  isNew.value = !props.credential;
-  key.value = props.credential?.key ?? '';
-  value.value = '';
-});
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return;
+    isNew.value = !props.credential;
+    key.value = props.credential?.key ?? '';
+    value.value = '';
+  },
+);
 
 async function save() {
   saving.value = true;
   try {
-    await execute('set_credential_with_meta', { key: key.value, value: value.value,
-      usedBy: props.credential?.usedBy ?? [] });
-    emit('saved'); emit('close');
-  } finally { saving.value = false; }
+    await execute('set_credential_with_meta', {
+      key: key.value,
+      value: value.value,
+      usedBy: props.credential?.usedBy ?? [],
+    });
+    emit('saved');
+    emit('close');
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 
 <template>
-  <SlideOver :open="open" :title="isNew ? 'Add credential' : 'Rotate credential'" @close="emit('close')">
+  <SlideOver
+    :open="open"
+    :title="isNew ? 'Add credential' : 'Rotate credential'"
+    @close="emit('close')"
+  >
     <div class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Key name</label>
-        <input v-model="key" :readonly="!isNew"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm font-mono text-slate-100 outline-none" />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Key name</label
+        >
+        <input
+          v-model="key"
+          :readonly="!isNew"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm font-mono text-slate-100 outline-none"
+        />
         <p v-if="!isNew" class="text-[10px] text-navy-500 mt-1">Delete and re-add to rename.</p>
       </div>
       <div>
         <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">
           {{ isNew ? 'Value' : 'New value' }}
         </label>
-        <input v-model="value" type="password"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm font-mono text-slate-100 outline-none" />
+        <input
+          v-model="value"
+          type="password"
+          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm font-mono text-slate-100 outline-none"
+        />
         <p class="text-[10px] text-navy-500 mt-1">Write-only. Current value cannot be retrieved.</p>
       </div>
       <div v-if="credential" class="bg-navy-900 border border-navy-600 rounded p-3">
         <p class="text-[10px] text-navy-400 mb-2">Used by</p>
-        <span v-for="p in credential.usedBy" :key="p"
-          class="inline-block text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded mr-1">
+        <span
+          v-for="p in credential.usedBy"
+          :key="p"
+          class="inline-block text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded mr-1"
+        >
           {{ p }}
         </span>
-        <p class="text-[10px] text-navy-500 mt-2">Saving takes effect immediately — no restart required.</p>
+        <p class="text-[10px] text-navy-500 mt-2">
+          Saving takes effect immediately — no restart required.
+        </p>
       </div>
     </div>
     <template #footer>
       <div class="flex justify-end gap-2 px-5 py-3">
-        <button @click="emit('close')" class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded">Cancel</button>
-        <button @click="save" :disabled="saving || !value"
-          class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50">
+        <button
+          @click="emit('close')"
+          class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded"
+        >
+          Cancel
+        </button>
+        <button
+          @click="save"
+          :disabled="saving || !value"
+          class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50"
+        >
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
       </div>
@@ -2764,12 +3273,18 @@ async function load() {
 
 onMounted(load);
 
-function openProvider(p: ProviderConfig | null) { editingProvider.value = p; providerSlide.value = true; }
-function openCredential(c: CredentialInfo | null) { editingCredential.value = c; credSlide.value = true; }
+function openProvider(p: ProviderConfig | null) {
+  editingProvider.value = p;
+  providerSlide.value = true;
+}
+function openCredential(c: CredentialInfo | null) {
+  editingCredential.value = c;
+  credSlide.value = true;
+}
 
 const typeBadge: Record<string, string> = {
   'openai-compatible': 'bg-green-400/10 text-green-400 border-green-400/20',
-  anthropic:           'bg-amber-400/10 text-amber-400 border-amber-400/20',
+  anthropic: 'bg-amber-400/10 text-amber-400 border-amber-400/20',
 };
 </script>
 
@@ -2779,10 +3294,17 @@ const typeBadge: Record<string, string> = {
       <div class="px-5 pt-4 pb-0">
         <h1 class="text-sm font-semibold text-slate-100 mb-3">Configuration</h1>
         <div class="flex gap-0">
-          <button v-for="tab in ['providers', 'credentials']" :key="tab"
+          <button
+            v-for="tab in ['providers', 'credentials']"
+            :key="tab"
             @click="activeTab = tab"
-            :class="['px-4 py-2 text-xs font-medium border-b-2 capitalize transition-colors',
-              activeTab === tab ? 'text-slate-100 border-cyan-400' : 'text-navy-400 border-transparent']">
+            :class="[
+              'px-4 py-2 text-xs font-medium border-b-2 capitalize transition-colors',
+              activeTab === tab
+                ? 'text-slate-100 border-cyan-400'
+                : 'text-navy-400 border-transparent',
+            ]"
+          >
             {{ tab }}
           </button>
         </div>
@@ -2793,34 +3315,64 @@ const typeBadge: Record<string, string> = {
       <!-- Providers tab -->
       <template v-if="activeTab === 'providers'">
         <div class="flex items-start justify-between mb-4">
-          <p class="text-xs text-navy-400 max-w-lg leading-relaxed">Provider instances available to agents. Each references a credential for authentication.</p>
-          <button @click="openProvider(null)" class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded">+ Add provider</button>
+          <p class="text-xs text-navy-400 max-w-lg leading-relaxed">
+            Provider instances available to agents. Each references a credential for authentication.
+          </p>
+          <button
+            @click="openProvider(null)"
+            class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded"
+          >
+            + Add provider
+          </button>
         </div>
-        <table class="w-full border-collapse bg-navy-900 rounded-lg border border-navy-600 overflow-hidden text-xs">
+        <table
+          class="w-full border-collapse bg-navy-900 rounded-lg border border-navy-600 overflow-hidden text-xs"
+        >
           <thead class="bg-navy-950">
             <tr>
-              <th v-for="h in ['Name', 'Type', 'Base URL', 'Default model', 'Credential', '']" :key="h"
-                class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-3 py-2 font-semibold">{{ h }}</th>
+              <th
+                v-for="h in ['Name', 'Type', 'Base URL', 'Default model', 'Credential', '']"
+                :key="h"
+                class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-3 py-2 font-semibold"
+              >
+                {{ h }}
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in providers" :key="p.name" class="border-t border-navy-700 hover:bg-navy-800/40">
+            <tr
+              v-for="p in providers"
+              :key="p.name"
+              class="border-t border-navy-700 hover:bg-navy-800/40"
+            >
               <td class="px-3 py-2.5 font-mono text-slate-100 font-medium">{{ p.name }}</td>
               <td class="px-3 py-2.5">
-                <span :class="['text-[9px] font-bold px-1.5 py-0.5 rounded border', typeBadge[p.type] ?? 'bg-navy-700/50 text-navy-400 border-navy-600']">
+                <span
+                  :class="[
+                    'text-[9px] font-bold px-1.5 py-0.5 rounded border',
+                    typeBadge[p.type] ?? 'bg-navy-700/50 text-navy-400 border-navy-600',
+                  ]"
+                >
                   {{ p.type }}
                 </span>
               </td>
-              <td class="px-3 py-2.5 font-mono text-navy-400 text-[10px]">{{ p.baseUrl ?? '—' }}</td>
+              <td class="px-3 py-2.5 font-mono text-navy-400 text-[10px]">
+                {{ p.baseUrl ?? '—' }}
+              </td>
               <td class="px-3 py-2.5 font-mono text-navy-400 text-[10px]">{{ p.defaultModel }}</td>
               <td class="px-3 py-2.5">
-                <span v-if="p.credentialKey" class="text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded">
+                <span
+                  v-if="p.credentialKey"
+                  class="text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded"
+                >
                   {{ p.credentialKey }}
                 </span>
                 <span v-else class="text-navy-600 text-[10px] italic">none</span>
               </td>
               <td class="px-3 py-2.5 text-right">
-                <button @click="openProvider(p)" class="text-navy-400 hover:text-slate-200 mr-2">Edit</button>
+                <button @click="openProvider(p)" class="text-navy-400 hover:text-slate-200 mr-2">
+                  Edit
+                </button>
               </td>
             </tr>
           </tbody>
@@ -2830,27 +3382,56 @@ const typeBadge: Record<string, string> = {
       <!-- Credentials tab -->
       <template v-else>
         <div class="flex items-start justify-between mb-4">
-          <p class="text-xs text-navy-400 max-w-lg leading-relaxed">Named secrets stored encrypted at rest. Values are write-only after saving.</p>
-          <button @click="openCredential(null)" class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded">+ Add credential</button>
+          <p class="text-xs text-navy-400 max-w-lg leading-relaxed">
+            Named secrets stored encrypted at rest. Values are write-only after saving.
+          </p>
+          <button
+            @click="openCredential(null)"
+            class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded"
+          >
+            + Add credential
+          </button>
         </div>
-        <table class="w-full border-collapse bg-navy-900 rounded-lg border border-navy-600 overflow-hidden text-xs">
+        <table
+          class="w-full border-collapse bg-navy-900 rounded-lg border border-navy-600 overflow-hidden text-xs"
+        >
           <thead class="bg-navy-950">
             <tr>
-              <th v-for="h in ['Key name', 'Value', 'Used by', 'Last updated', '']" :key="h"
-                class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-3 py-2 font-semibold">{{ h }}</th>
+              <th
+                v-for="h in ['Key name', 'Value', 'Used by', 'Last updated', '']"
+                :key="h"
+                class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-3 py-2 font-semibold"
+              >
+                {{ h }}
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in credentials" :key="c.key" class="border-t border-navy-700 hover:bg-navy-800/40">
+            <tr
+              v-for="c in credentials"
+              :key="c.key"
+              class="border-t border-navy-700 hover:bg-navy-800/40"
+            >
               <td class="px-3 py-2.5 font-mono text-slate-100 font-medium">{{ c.key }}</td>
-              <td class="px-3 py-2.5 font-mono text-navy-500 text-[10px] tracking-wider">{{ c.maskedValue }}</td>
+              <td class="px-3 py-2.5 font-mono text-navy-500 text-[10px] tracking-wider">
+                {{ c.maskedValue }}
+              </td>
               <td class="px-3 py-2.5">
-                <span v-for="p in c.usedBy" :key="p" class="text-[9px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-1.5 py-0.5 rounded mr-1">{{ p }}</span>
+                <span
+                  v-for="p in c.usedBy"
+                  :key="p"
+                  class="text-[9px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-1.5 py-0.5 rounded mr-1"
+                  >{{ p }}</span
+                >
                 <span v-if="!c.usedBy.length" class="text-navy-600 text-[10px] italic">unused</span>
               </td>
-              <td class="px-3 py-2.5 text-navy-500 text-[10px]">{{ new Date(c.updatedAt).toLocaleDateString() }}</td>
+              <td class="px-3 py-2.5 text-navy-500 text-[10px]">
+                {{ new Date(c.updatedAt).toLocaleDateString() }}
+              </td>
               <td class="px-3 py-2.5 text-right">
-                <button @click="openCredential(c)" class="text-navy-400 hover:text-slate-200">Rotate</button>
+                <button @click="openCredential(c)" class="text-navy-400 hover:text-slate-200">
+                  Rotate
+                </button>
               </td>
             </tr>
           </tbody>
@@ -2858,11 +3439,19 @@ const typeBadge: Record<string, string> = {
       </template>
     </div>
 
-    <ProviderSlideOver :open="providerSlide" :provider="editingProvider"
+    <ProviderSlideOver
+      :open="providerSlide"
+      :provider="editingProvider"
       :credential-keys="credentials.map((c) => c.key)"
-      @close="providerSlide = false" @saved="load" />
-    <CredentialSlideOver :open="credSlide" :credential="editingCredential"
-      @close="credSlide = false" @saved="load" />
+      @close="providerSlide = false"
+      @saved="load"
+    />
+    <CredentialSlideOver
+      :open="credSlide"
+      :credential="editingCredential"
+      @close="credSlide = false"
+      @saved="load"
+    />
   </AppLayout>
 </template>
 ```
@@ -2879,6 +3468,7 @@ git commit -m "feat(web): configuration screen — providers and credentials tab
 ## Task 12: Build integration + full verification
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/WebConnector.ts` (verify static file path already wired)
 
 - [ ] **Step 1: Build `@legion/web`**
@@ -2931,6 +3521,7 @@ Expected: no type errors.
 - [ ] **Step 6: Update the roadmap**
 
 In `docs/superpowers/plans/000-roadmap.md`:
+
 - Mark Plan 11 status as "Plan written"
 - Check `[ ] Plan 11 written` → `[x] Plan 11 written`
 
@@ -2947,39 +3538,43 @@ git commit -m "chore: mark Plan 11 written in roadmap"
 
 **Spec coverage check:**
 
-| Spec requirement | Covered by |
-|-----------------|-----------|
-| Vue 3 + Vite + Tailwind v4 | Task 1 |
-| `@legion/web` depends on `@legion/types` only | Task 1 tsconfig, no core imports |
-| Navy/cyan colour palette | Task 1 `style.css` `@theme` block |
-| Login screen | Task 5 `LoginView.vue` |
-| Persistent left sidebar | Task 7 `AppSidebar.vue` |
-| Participants: table list | Task 8 `ParticipantsView.vue` |
-| Participants: slide-over with Basic + Tool policies tabs | Task 8 `ParticipantSlideOver.vue` |
-| Tool policies: checkbox whitelist + require approval toggle | Task 8 `ToolPolicyEditor.vue` |
-| `modify_agent` tool (new) | Task 3 |
-| `list_tools` tool (new) | Task 3 |
-| Conversations: two-pane | Task 9 `ConversationsView.vue` |
-| Recursive nested delegation threads | Task 9 `SubThreadBlock.vue` |
-| Tool renderer registry + built-in renderers | Task 9 |
-| Event stream: live feed + filter chips + pause | Task 10 `EventStreamView.vue` |
-| Event detail panel | Task 10 `EventDetailPanel.vue` |
-| Config: Providers tab | Task 11 `ConfigView.vue` |
-| Config: Credentials tab (write-only, masked) | Task 11 |
-| `list_providers`, `configure_provider`, `list_credentials` (new) | Task 4 |
-| `useAuth` singleton with `useLocalStorage` | Task 5 |
-| `useEventStream` with reconnect | Task 6 |
-| Static serving from `@legion/runtime` | Task 12 |
-| `participant:active` / `participant:retired` events | Task 2 |
-| `Collective.modify()` | Task 2 |
-| `create_agent` config persistence | Task 2 |
+| Spec requirement                                                 | Covered by                        |
+| ---------------------------------------------------------------- | --------------------------------- |
+| Vue 3 + Vite + Tailwind v4                                       | Task 1                            |
+| `@legion/web` depends on `@legion/types` only                    | Task 1 tsconfig, no core imports  |
+| Navy/cyan colour palette                                         | Task 1 `style.css` `@theme` block |
+| Login screen                                                     | Task 5 `LoginView.vue`            |
+| Persistent left sidebar                                          | Task 7 `AppSidebar.vue`           |
+| Participants: table list                                         | Task 8 `ParticipantsView.vue`     |
+| Participants: slide-over with Basic + Tool policies tabs         | Task 8 `ParticipantSlideOver.vue` |
+| Tool policies: checkbox whitelist + require approval toggle      | Task 8 `ToolPolicyEditor.vue`     |
+| `modify_agent` tool (new)                                        | Task 3                            |
+| `list_tools` tool (new)                                          | Task 3                            |
+| Conversations: two-pane                                          | Task 9 `ConversationsView.vue`    |
+| Recursive nested delegation threads                              | Task 9 `SubThreadBlock.vue`       |
+| Tool renderer registry + built-in renderers                      | Task 9                            |
+| Event stream: live feed + filter chips + pause                   | Task 10 `EventStreamView.vue`     |
+| Event detail panel                                               | Task 10 `EventDetailPanel.vue`    |
+| Config: Providers tab                                            | Task 11 `ConfigView.vue`          |
+| Config: Credentials tab (write-only, masked)                     | Task 11                           |
+| `list_providers`, `configure_provider`, `list_credentials` (new) | Task 4                            |
+| `useAuth` singleton with `useLocalStorage`                       | Task 5                            |
+| `useEventStream` with reconnect                                  | Task 6                            |
+| Static serving from `@legion/runtime`                            | Task 12                           |
+| `participant:active` / `participant:retired` events              | Task 2                            |
+| `Collective.modify()`                                            | Task 2                            |
+| `create_agent` config persistence                                | Task 2                            |
 
 **Placeholder scan:** No TBD/TODO present. All code blocks are complete.
 
 **Type consistency:**
+
 - `ToolOverride` defined in `ToolPolicyEditor.vue` and imported in `ParticipantSlideOver.vue` ✓
 - `MessageEntry` / `ToolCallEntry` defined in `ToolCallBlock.vue`, imported by `SubThreadBlock.vue` and `ConversationThread.vue` ✓
 - `ConversationSummary`, `ProviderConfig`, `CredentialInfo`, `AgentConfig` all defined in `@legion/types` ✓
 - `lookupRenderer` imported from `./index.js` in `ToolResultRenderer.vue` ✓
 - `useAuth().getToken()` used in both `useAuth.ts` and `useExecute.ts` ✓
+
+```
+
 ```
