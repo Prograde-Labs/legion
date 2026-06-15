@@ -1,0 +1,48 @@
+import { EventBus } from './EventBus.js';
+
+describe('EventBus', () => {
+  it('delivers a typed payload to a subscriber', () => {
+    const bus = new EventBus();
+    const seen: string[] = [];
+    bus.on('message:sent', (p) => seen.push(p.messageId));
+    bus.emit('message:sent', {
+      conversationId: 'c1',
+      senderId: 'a',
+      recipientId: 'b',
+      messageId: 'm1',
+    });
+    expect(seen).toEqual(['m1']);
+  });
+
+  it('supports multiple subscribers and unsubscribe', () => {
+    const bus = new EventBus();
+    let count = 0;
+    const off = bus.on('process:ready', () => (count += 1));
+    bus.on('process:ready', () => (count += 1));
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(count).toBe(2);
+    off();
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(count).toBe(3);
+  });
+
+  it('once fires a handler a single time', () => {
+    const bus = new EventBus();
+    let count = 0;
+    bus.once('iteration', () => (count += 1));
+    bus.emit('iteration', { conversationId: 'c', participantId: 'a', iteration: 1 });
+    bus.emit('iteration', { conversationId: 'c', participantId: 'a', iteration: 2 });
+    expect(count).toBe(1);
+  });
+
+  it('isolates subscriber errors so other handlers still run', () => {
+    const bus = new EventBus();
+    let reached = false;
+    bus.on('process:ready', () => {
+      throw new Error('boom');
+    });
+    bus.on('process:ready', () => (reached = true));
+    expect(() => bus.emit('process:ready', { workspaceRoot: '/w' })).not.toThrow();
+    expect(reached).toBe(true);
+  });
+});
