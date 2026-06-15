@@ -1,4 +1,4 @@
-import type { AgentConfig, MessageData, ModelConfig, ToolCallData, ToolCallResult, ToolResult } from '@legion/types';
+import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
 import type { Runtime, RuntimeContext } from './Runtime.js';
 import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
@@ -47,7 +47,7 @@ export class AgentRuntime implements Runtime {
     private providerRegistry: ProviderRegistry,
   ) {}
 
-  async handle(incoming: MessageData, context: RuntimeContext): Promise<string | void> {
+  async handle(_incoming: MessageData, context: RuntimeContext): Promise<string | void> {
     const participant = context.collective.getOrThrow(this.participantId);
     if (participant.type !== 'agent') return;
     const agent = participant as AgentConfig;

@@ -65,9 +65,9 @@ export class OpenAICompatibleProvider implements Provider {
   ): Promise<ProviderResponse> {
     // Base URL: per-model override → OPENAI_BASE_URL env var → constructor default.
     const baseUrl = (
-      (model.baseUrl ??
+      model.baseUrl ??
       process.env['OPENAI_BASE_URL'] ??
-      this.defaultBaseUrl)
+      this.defaultBaseUrl
     ).replace(/\/$/, '');
 
     // API key: read the env var named by model.apiKeyEnv (or the constructor default).
