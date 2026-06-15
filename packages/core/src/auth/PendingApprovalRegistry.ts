@@ -1,9 +1,12 @@
 import { createId } from '../util/ids.js';
 import { LegionError } from '../errors/LegionError.js';
+import type { Storage } from '../storage/Storage.js';
 
 export interface ApprovalDecision {
   approved: boolean;
   decidedByParticipantId: string;
+  message?: string;
+  decidedAt: string;
 }
 
 export interface PendingApprovalInput {
@@ -14,48 +17,80 @@ export interface PendingApprovalInput {
 }
 
 export interface PendingApproval extends PendingApprovalInput {
-  requestId: string;
+  approvalId: string;
   createdAt: string;
 }
 
-interface PendingEntry extends PendingApproval {
-  resolveFn: (decision: ApprovalDecision) => void;
+interface RegistryData {
+  pending: Record<string, PendingApproval>;
+  decisions: Record<string, ApprovalDecision>;
 }
 
+const STORAGE_KEY = 'pending-approvals/registry.json';
+
 export class PendingApprovalRegistry {
-  private pending = new Map<string, PendingEntry>();
+  private data: RegistryData = { pending: {}, decisions: {} };
 
-  create(input: PendingApprovalInput): { requestId: string; decision: Promise<ApprovalDecision> } {
-    const requestId = createId('appr');
-    let resolveFn!: (decision: ApprovalDecision) => void;
-    const decision = new Promise<ApprovalDecision>((resolve) => {
-      resolveFn = resolve;
-    });
-    this.pending.set(requestId, {
+  constructor(private storage?: Storage) {}
+
+  /**
+   * Load a durable registry from storage. If the file does not exist yet, returns a
+   * fresh empty registry backed by the provided storage.
+   */
+  static async load(storage: Storage): Promise<PendingApprovalRegistry> {
+    const reg = new PendingApprovalRegistry(storage);
+    try {
+      const data = await storage.readJson<RegistryData>(STORAGE_KEY);
+      if (data) reg.data = data;
+    } catch {
+      // No file yet — start fresh.
+    }
+    return reg;
+  }
+
+  private async persist(): Promise<void> {
+    if (this.storage) {
+      await this.storage.writeJson(STORAGE_KEY, this.data);
+    }
+  }
+
+  async create(input: PendingApprovalInput): Promise<{ approvalId: string }> {
+    const approvalId = createId('appr');
+    const pending: PendingApproval = {
       ...input,
-      requestId,
+      approvalId,
       createdAt: new Date().toISOString(),
-      resolveFn,
-    });
-    return { requestId, decision };
+    };
+    this.data.pending[approvalId] = pending;
+    await this.persist();
+    return { approvalId };
   }
 
-  get(requestId: string): PendingApproval | undefined {
-    const entry = this.pending.get(requestId);
-    if (!entry) return undefined;
-    const { resolveFn: _ignored, ...rest } = entry;
-    return rest;
+  /** Returns the pending approval if it has not yet been resolved. */
+  get(approvalId: string): PendingApproval | undefined {
+    return this.data.pending[approvalId];
   }
 
-  list(): PendingApproval[] {
-    return [...this.pending.values()].map(({ resolveFn: _ignored, ...rest }) => rest);
+  /** Returns the decision if this approval has been resolved; undefined if still pending. */
+  getDecision(approvalId: string): ApprovalDecision | undefined {
+    return this.data.decisions[approvalId];
   }
 
-  resolve(requestId: string, decision: ApprovalDecision): void {
-    const entry = this.pending.get(requestId);
-    if (!entry)
-      throw new LegionError(`Unknown approval request: ${requestId}`, 'APPROVAL_NOT_FOUND');
-    this.pending.delete(requestId);
-    entry.resolveFn(decision);
+  /**
+   * Lists all still-pending approvals, optionally filtered to a specific conversation.
+   */
+  listPending(conversationId?: string): PendingApproval[] {
+    const all = Object.values(this.data.pending);
+    if (!conversationId) return all;
+    return all.filter((p) => p.conversationId === conversationId);
+  }
+
+  async resolve(approvalId: string, decision: ApprovalDecision): Promise<void> {
+    if (!this.data.pending[approvalId]) {
+      throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+    }
+    this.data.decisions[approvalId] = decision;
+    delete this.data.pending[approvalId];
+    await this.persist();
   }
 }

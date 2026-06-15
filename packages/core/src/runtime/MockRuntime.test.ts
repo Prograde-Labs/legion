@@ -38,14 +38,17 @@ describe('MockRuntime', () => {
   it('returns scripted responses in order then cycles', async () => {
     const runtime = new MockRuntime('mock-1');
     const context = await ctxFor(['one', 'two']);
-    expect(await runtime.handle(inbound, context)).toBe('one');
-    expect(await runtime.handle(inbound, context)).toBe('two');
-    expect(await runtime.handle(inbound, context)).toBe('one');
+    expect(await runtime.handle(inbound, context)).toEqual({ kind: 'response', content: 'one' });
+    expect(await runtime.handle(inbound, context)).toEqual({ kind: 'response', content: 'two' });
+    expect(await runtime.handle(inbound, context)).toEqual({ kind: 'response', content: 'one' });
   });
 
   it('returns a default acknowledgement when no responses are configured', async () => {
     const runtime = new MockRuntime('mock-1');
     const context = await ctxFor([]);
-    expect(await runtime.handle(inbound, context)).toBe('[mock:mock-1] no scripted response');
+    expect(await runtime.handle(inbound, context)).toEqual({
+      kind: 'response',
+      content: '[mock:mock-1] no scripted response',
+    });
   });
 });
