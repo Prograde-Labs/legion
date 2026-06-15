@@ -1,4 +1,4 @@
-import { createConversation, appendMessage, getActiveChain, editMessage, pruneMessage, compactRange } from './conversation-ops.js';
+import { createConversation, appendMessage, getActiveChain, editMessage, pruneMessage, compactRange, validateConversation } from './conversation-ops.js';
 
 describe('conversation-ops: creation and active chain', () => {
   it('createConversation seeds an empty thread with no head', () => {
@@ -145,5 +145,43 @@ describe('conversation-ops: compaction', () => {
 
     // active chain is [summary, m3]
     expect(getActiveChain(conv).map((m) => m.content)).toEqual(['summary of m1+m2', 'm3']);
+  });
+});
+
+describe('conversation-ops: invariants', () => {
+  it('passes for a well-formed conversation', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
+    expect(validateConversation(conv)).toEqual([]);
+  });
+
+  it('flags a dangling parentId', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    const id = conv.activeBranchHead;
+    conv.messages[id] = { ...conv.messages[id], parentId: 'ghost' };
+    const errors = validateConversation(conv);
+    expect(errors.some((e) => e.includes('ghost'))).toBe(true);
+  });
+
+  it('flags a missing activeBranchHead reference', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    conv.activeBranchHead = 'nope';
+    expect(validateConversation(conv).some((e) => e.includes('activeBranchHead'))).toBe(true);
+  });
+
+  it('flags multiple roots', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    const extra = { ...conv.messages[conv.activeBranchHead], id: 'root2', parentId: null };
+    conv.messages['root2'] = extra;
+    expect(validateConversation(conv).some((e) => e.includes('root'))).toBe(true);
   });
 });

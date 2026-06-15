@@ -105,6 +105,64 @@ export function editMessage(
   };
 }
 
+export function validateConversation(conversation: ConversationData): string[] {
+  const errors: string[] = [];
+  const ids = Object.keys(conversation.messages);
+
+  // activeBranchHead must reference an existing key (empty allowed for new threads).
+  if (conversation.activeBranchHead && !conversation.messages[conversation.activeBranchHead]) {
+    errors.push(`activeBranchHead references missing message: ${conversation.activeBranchHead}`);
+  }
+
+  // Exactly one root (parentId null) when there is at least one message.
+  const roots = ids.filter((id) => conversation.messages[id].parentId === null);
+  if (ids.length > 0 && roots.length !== 1) {
+    errors.push(`expected exactly one root message, found ${roots.length}`);
+  }
+
+  // Parent references must exist.
+  for (const id of ids) {
+    const parentId = conversation.messages[id].parentId;
+    if (parentId !== null && !conversation.messages[parentId]) {
+      errors.push(`message ${id} has dangling parentId: ${parentId}`);
+    }
+  }
+
+  // No cycles reachable from any message walking up to root.
+  for (const id of ids) {
+    const seen = new Set<string>();
+    let cursor: string | null = id;
+    while (cursor) {
+      if (seen.has(cursor)) {
+        errors.push(`cycle detected involving message: ${cursor}`);
+        break;
+      }
+      seen.add(cursor);
+      cursor = conversation.messages[cursor]?.parentId ?? null;
+    }
+  }
+
+  // superseded => valid supersededBy reference.
+  for (const id of ids) {
+    const m = conversation.messages[id];
+    if (m.status === 'superseded' && (!m.supersededBy || !conversation.messages[m.supersededBy])) {
+      errors.push(`superseded message ${id} has invalid supersededBy`);
+    }
+  }
+
+  // compacted => appears in exactly one summary's compacts array.
+  const summaries = ids.map((id) => conversation.messages[id]).filter((m) => m.type === 'summary');
+  for (const id of ids) {
+    if (conversation.messages[id].status !== 'compacted') continue;
+    const count = summaries.filter((s) => s.compacts?.includes(id)).length;
+    if (count !== 1) {
+      errors.push(`compacted message ${id} appears in ${count} summary nodes (expected 1)`);
+    }
+  }
+
+  return errors;
+}
+
 export function pruneMessage(
   conversation: ConversationData,
   messageId: string,
