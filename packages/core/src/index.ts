@@ -10,3 +10,4 @@ export * from './conversation/ConversationStore.js';
 export * from './conversation/FileConversationStore.js';
 export * from './conversation/ConversationThread.js';
 export * from './credentials/CredentialStore.js';
+export * from './credentials/FileCredentialStore.js';
