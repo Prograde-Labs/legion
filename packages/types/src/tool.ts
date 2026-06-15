@@ -5,12 +5,16 @@ export type JSONSchema = {
   [key: string]: unknown;
 };
 
-export type ToolResultStatus = 'success' | 'error';
+export type ToolResultStatus = 'success' | 'error' | 'pending_approval' | 'rejected';
 
 export interface ToolResult {
   status: ToolResultStatus;
   data?: unknown;
   error?: string;
+  /** Set on status:'pending_approval' — the PendingApprovalRegistry key. */
+  approvalId?: string;
+  /** Set on status:'rejected' — the approver's explanation. */
+  message?: string;
 }
 
 export interface ToolCallData {

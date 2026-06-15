@@ -5,12 +5,14 @@ import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
+import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 
 export interface MessageRouterResult {
   conversationId: string;
   response?: string;
-  status: 'success' | 'error' | 'dispatched';
+  status: 'success' | 'error' | 'dispatched' | 'pending_approval';
   error?: string;
+  approvalRequests?: PendingApproval[];
 }
 
 /** Minimal port so core tools can route messages without depending on @legion/runtime. */
@@ -23,6 +25,16 @@ export interface MessageRouterPort {
     replyTo?: string;
     context: ToolContext;
   }): Promise<MessageRouterResult>;
+
+  /**
+   * Re-trigger a paused participant after approval decisions arrive.
+   * Called by `approval_response` after resolving pending approvals.
+   */
+  resume(
+    conversationId: string,
+    participantId: string,
+    context: ToolContext,
+  ): Promise<MessageRouterResult>;
 }
 
 /**
