@@ -35,6 +35,23 @@ describe('EventBus', () => {
     expect(count).toBe(1);
   });
 
+  it('does not run handlers added during the current emit', () => {
+    const bus = new EventBus();
+    const calls: string[] = [];
+    const lateHandler = () => calls.push('late');
+
+    bus.on('process:ready', () => {
+      calls.push('first');
+      bus.on('process:ready', lateHandler);
+    });
+
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(calls).toEqual(['first']);
+
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(calls).toEqual(['first', 'first', 'late']);
+  });
+
   it('isolates subscriber errors so other handlers still run', () => {
     const bus = new EventBus();
     let reached = false;
