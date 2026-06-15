@@ -5,7 +5,7 @@ import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../tools/Tool.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
-import type { RuntimeContext } from './Runtime.js';
+import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 
 export interface SendOptions {
   senderId: string;
@@ -47,6 +47,43 @@ export class MessageRouter implements MessageRouterPort {
     return new ConversationThread(created, this.store);
   }
 
+  private buildRuntimeContext(
+    thread: ConversationThread,
+    participantId: string,
+    toolContext: ToolContext,
+    depth: number,
+  ): RuntimeContext {
+    const participant = this.collective.getOrThrow(participantId);
+    return {
+      ...(toolContext as RuntimeContext),
+      participant,
+      conversationId: thread.id,
+      conversation: thread,
+      communicationDepth: depth,
+      messageRouter: this,
+    };
+  }
+
+  private async persistResponse(
+    thread: ConversationThread,
+    senderId: string,
+    recipientId: string,
+    content: string,
+  ): Promise<void> {
+    const responseMsg = await thread.append({
+      senderId,
+      recipientId,
+      role: 'assistant',
+      content,
+    });
+    this.eventBus.emit('message:sent', {
+      conversationId: thread.id,
+      senderId,
+      recipientId,
+      messageId: responseMsg.id,
+    });
+  }
+
   async send(opts: SendOptions): Promise<MessageRouterResult> {
     const recipient = this.collective.get(opts.recipientId);
     if (!recipient) {
@@ -83,14 +120,12 @@ export class MessageRouter implements MessageRouterPort {
     });
 
     const runtime = this.registry.build(recipient.type, recipient.id);
-    const runtimeContext: RuntimeContext = {
-      ...(opts.context as RuntimeContext),
-      participant: recipient,
-      conversationId: thread.id,
-      conversation: thread,
-      communicationDepth: depth,
-      messageRouter: this,
-    };
+    const runtimeContext = this.buildRuntimeContext(
+      thread,
+      recipient.id,
+      { ...opts.context, communicationDepth: depth },
+      depth,
+    );
 
     if (opts.replyTo) {
       const task = this.dispatchAsync(runtime, inbound, runtimeContext, thread, opts);
@@ -99,22 +134,69 @@ export class MessageRouter implements MessageRouterPort {
       return { conversationId: thread.id, status: 'dispatched' };
     }
 
-    const response = await runtime.handle(inbound, runtimeContext);
-    if (typeof response === 'string') {
-      const responseMsg = await thread.append({
-        senderId: opts.recipientId,
-        recipientId: opts.senderId,
-        role: 'assistant',
-        content: response,
-      });
-      this.eventBus.emit('message:sent', {
-        conversationId: thread.id,
-        senderId: opts.recipientId,
-        recipientId: opts.senderId,
-        messageId: responseMsg.id,
-      });
-      return { conversationId: thread.id, response, status: 'success' };
+    const result = await runtime.handle(inbound, runtimeContext);
+    return await this.handleRuntimeResult(result, thread, recipient.id, opts.senderId);
+  }
+
+  /**
+   * Re-trigger a paused participant after approval decisions have been recorded.
+   * Finds the last user message addressed to `participantId` and calls handle() again.
+   */
+  async resume(
+    conversationId: string,
+    participantId: string,
+    toolContext: ToolContext,
+  ): Promise<MessageRouterResult> {
+    const thread = await this.getThread(conversationId);
+    const participant = this.collective.get(participantId);
+    if (!participant) {
+      return {
+        conversationId,
+        status: 'error',
+        error: new ParticipantNotFoundError(participantId).message,
+      };
     }
+
+    // Find the last user message addressed to this participant — that is the
+    // 'incoming' message the participant was responding to when it paused.
+    const chain = thread.activeChain;
+    const lastIncoming = [...chain]
+      .reverse()
+      .find((m) => m.recipientId === participantId && m.role === 'user');
+
+    if (!lastIncoming) {
+      return {
+        conversationId,
+        status: 'error',
+        error: `No incoming message to resume from in conversation ${conversationId}`,
+      };
+    }
+
+    const runtime = this.registry.build(participant.type, participant.id);
+    const runtimeContext = this.buildRuntimeContext(thread, participant.id, toolContext, 0);
+
+    const result = await runtime.handle(lastIncoming, runtimeContext);
+    return await this.handleRuntimeResult(result, thread, participant.id, lastIncoming.senderId);
+  }
+
+  private async handleRuntimeResult(
+    result: RuntimeResult,
+    thread: ConversationThread,
+    senderId: string,
+    defaultRecipientId: string,
+  ): Promise<MessageRouterResult> {
+    if (result.kind === 'response') {
+      await this.persistResponse(thread, senderId, defaultRecipientId, result.content);
+      return { conversationId: thread.id, response: result.content, status: 'success' };
+    }
+    if (result.kind === 'pending_approval') {
+      return {
+        conversationId: thread.id,
+        status: 'pending_approval',
+        approvalRequests: result.approvalRequests,
+      };
+    }
+    // kind === 'void'
     return { conversationId: thread.id, status: 'success' };
   }
 
@@ -125,15 +207,14 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     opts: SendOptions,
   ): Promise<void> {
-    const response = await runtime.handle(inbound, runtimeContext);
-    if (typeof response !== 'string') return;
-    // Route the response to the replyTo participant (spec §3).
+    const result = await runtime.handle(inbound, runtimeContext);
+    if (result.kind !== 'response') return;
     const replyTarget = opts.replyTo!;
     const responseMsg = await thread.append({
       senderId: opts.recipientId,
       recipientId: replyTarget,
       role: 'assistant',
-      content: response,
+      content: result.content,
     });
     this.eventBus.emit('message:delivered', {
       conversationId: thread.id,

@@ -158,3 +158,137 @@ describe('MessageRouter: fire-and-forget', () => {
     expect(toOp?.content).toBe('hello back');
   });
 });
+
+describe('MessageRouter: pending_approval result', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-pa-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns pending_approval status and approvalRequests when runtime returns pending_approval', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/mock-1.json', {
+      id: 'mock-1',
+      name: 'M',
+      type: 'mock',
+      tools: {},
+      responses: [],
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    // A runtime that returns pending_approval
+    const pendingRuntime = {
+      async handle(): Promise<import('./Runtime.js').RuntimeResult> {
+        return {
+          kind: 'pending_approval',
+          approvalRequests: [
+            {
+              approvalId: 'appr-test',
+              conversationId: 'conv-1',
+              requesterId: 'mock-1',
+              tool: 'write_file',
+              args: {},
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        };
+      },
+    };
+    registry.registerFactory('mock', () => pendingRuntime);
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      participant: collective.getOrThrow('mock-1'),
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as import('../tools/Tool.js').ToolContext;
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hi',
+      context: baseContext,
+    });
+
+    expect(result.status).toBe('pending_approval');
+    expect(result.approvalRequests?.[0].approvalId).toBe('appr-test');
+    // No response message should be persisted to the conversation
+    const conv = await store.load(result.conversationId);
+    const messages = Object.values(conv!.messages);
+    expect(messages.every((m) => m.role === 'user')).toBe(true);
+  });
+});
+
+describe('MessageRouter: resume()', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-resume-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('re-triggers the paused runtime and persists the final response', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/mock-1.json', {
+      id: 'mock-1',
+      name: 'M',
+      type: 'mock',
+      tools: {},
+      responses: ['resumed response'],
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      participant: collective.getOrThrow('mock-1'),
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as import('../tools/Tool.js').ToolContext;
+
+    // Send a message to establish the conversation
+    const sent = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'original',
+      context: baseContext,
+    });
+    const { conversationId } = sent;
+
+    // resume() should call handle() again and persist the response
+    const resumeResult = await router.resume(conversationId, 'mock-1', baseContext);
+    expect(resumeResult.status).toBe('success');
+    expect(resumeResult.response).toBe('resumed response');
+
+    // The response should appear in the conversation
+    const conv = await store.load(conversationId);
+    const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
+    expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
+  });
+});
