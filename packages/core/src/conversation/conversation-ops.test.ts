@@ -68,4 +68,9 @@ describe('conversation-ops: edit + re-run', () => {
     const chain = getActiveChain(conv);
     expect(chain.map((m) => m.content)).toEqual(['edited']);
   });
+
+  it('throws ConversationNotFoundError for a missing message', () => {
+    const conv = createConversation();
+    expect(() => editMessage(conv, 'nonexistent', 'x')).toThrow('nonexistent');
+  });
 });
