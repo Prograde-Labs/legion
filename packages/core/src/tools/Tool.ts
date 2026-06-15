@@ -4,6 +4,7 @@ import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
+import type { ConversationStore } from '../conversation/ConversationStore.js';
 
 export interface MessageRouterResult {
   conversationId: string;
@@ -43,6 +44,7 @@ export interface ToolContext {
   credentialStore?: CredentialStore;
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;
+  conversationStore?: ConversationStore;
   // Plans 5 & 7 attach: authEngine, pendingApprovalRegistry, serviceManager.
   [key: string]: unknown;
 }
