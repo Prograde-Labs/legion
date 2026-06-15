@@ -1,10 +1,16 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FileStorage } from './FileStorage.js';
 
 describe('FileStorage', () => {
   let dir: string;
+
+  async function setupOutsideSymlink(): Promise<string> {
+    const outside = await mkdtemp(join(tmpdir(), 'legion-storage-outside-'));
+    await symlink(outside, join(dir, 'link'), 'dir');
+    return outside;
+  }
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'legion-storage-'));
@@ -89,5 +95,43 @@ describe('FileStorage', () => {
     await expect(s.delete('../x')).rejects.toThrow();
     await expect(s.list('..')).rejects.toThrow();
     expect(() => s.scope('..')).toThrow();
+  });
+
+  it('rejects writes through symlinks outside the root', async () => {
+    const s = new FileStorage(dir);
+    const outside = await setupOutsideSymlink();
+    try {
+      await expect(s.write('link/file', 'x')).rejects.toThrow();
+      await expect(readFile(join(outside, 'file'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects reads, lists, and deletes through symlinks outside the root', async () => {
+    const s = new FileStorage(dir);
+    const outside = await setupOutsideSymlink();
+    try {
+      await writeFile(join(outside, 'file'), 'x', 'utf8');
+      await writeFile(join(outside, 'delete-me'), 'delete me', 'utf8');
+
+      await expect(s.read('link/file')).rejects.toThrow();
+      await expect(s.list('link')).rejects.toThrow();
+      await expect(s.delete('link/delete-me')).rejects.toThrow();
+      expect(await readFile(join(outside, 'delete-me'), 'utf8')).toBe('delete me');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects scoped writes through symlinks outside the root', async () => {
+    const s = new FileStorage(dir);
+    const outside = await setupOutsideSymlink();
+    try {
+      await expect(s.scope('link').write('file', 'x')).rejects.toThrow();
+      await expect(readFile(join(outside, 'file'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
