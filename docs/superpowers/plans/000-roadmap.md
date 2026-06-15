@@ -28,19 +28,19 @@ End state of the full plan set: a **functional web connector + Vue web interface
 
 ## Plan Sequence
 
-| #   | Plan                                   | Spec §§           | Status       | File                                         |
-| --- | -------------------------------------- | ----------------- | ------------ | -------------------------------------------- |
-| 1   | Foundation & core primitives           | 8, 10, 12, 15, 16 | Plan written | `001-foundation-core-primitives.md`          |
-| 2   | Conversations & message model          | 2, 10             | Plan written | `002-conversations-message-model.md`         |
-| 3   | Participants, Collective & credentials | 1, 6, 7           | Plan written | `003-participants-collective-credentials.md` |
-| 4   | Tools, ToolRegistry & AuthEngine       | 7, 14             | Plan written | `004-tools-registry-authengine.md`           |
-| 5   | Runtimes & MessageRouter (mock loop)   | 3, 4              | Plan written | `005-runtimes-message-router.md`             |
-| 6   | Provider abstraction & AgentRuntime    | 1, 4              | Plan implemented | `006-provider-agent-runtime.md`            |
-| 7   | Approval bubbling                      | 7                 | Plan written | `007-approval-bubbling.md`                   |
-| 8   | Service SDK & ServiceManager           | 5, 8              | Plan written | `008-service-sdk-manager.md`                 |
-| 9   | MCP tool sources                       | 9                 | Plan written | `009-mcp-tool-sources.md`                    |
-| 10  | LegionProcess, connectors & web server | 6, 8, 11, 12      | Plan written | `010-process-connectors-web-server.md`       |
-| 11  | Vue management SPA                     | 13                | Not started  | `011-web-management-spa.md`                  |
+| #   | Plan                                   | Spec §§           | Status           | File                                         |
+| --- | -------------------------------------- | ----------------- | ---------------- | -------------------------------------------- |
+| 1   | Foundation & core primitives           | 8, 10, 12, 15, 16 | Plan written     | `001-foundation-core-primitives.md`          |
+| 2   | Conversations & message model          | 2, 10             | Plan written     | `002-conversations-message-model.md`         |
+| 3   | Participants, Collective & credentials | 1, 6, 7           | Plan written     | `003-participants-collective-credentials.md` |
+| 4   | Tools, ToolRegistry & AuthEngine       | 7, 14             | Plan written     | `004-tools-registry-authengine.md`           |
+| 5   | Runtimes & MessageRouter (mock loop)   | 3, 4              | Plan written     | `005-runtimes-message-router.md`             |
+| 6   | Provider abstraction & AgentRuntime    | 1, 4              | Plan implemented | `006-provider-agent-runtime.md`              |
+| 7   | Approval bubbling                      | 7                 | Plan implemented | `007-approval-bubbling.md`                   |
+| 8   | Service SDK & ServiceManager           | 5, 8              | Plan written     | `008-service-sdk-manager.md`                 |
+| 9   | MCP tool sources                       | 9                 | Plan written     | `009-mcp-tool-sources.md`                    |
+| 10  | LegionProcess, connectors & web server | 6, 8, 11, 12      | Plan written     | `010-process-connectors-web-server.md`       |
+| 11  | Vue management SPA                     | 13                | Not started      | `011-web-management-spa.md`                  |
 
 ## Generation progress
 

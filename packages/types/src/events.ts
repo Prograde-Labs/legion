@@ -16,8 +16,18 @@ export interface LegionEventMap {
     callId: string;
     status: 'success' | 'error' | 'pending_approval' | 'rejected';
   };
-  'approval:requested': { conversationId: string; participantId: string; tool: string; approvalId: string };
-  'approval:resolved': { conversationId: string; approvalId: string; approved: boolean; decidedByParticipantId: string };
+  'approval:requested': {
+    conversationId: string;
+    participantId: string;
+    tool: string;
+    approvalId: string;
+  };
+  'approval:resolved': {
+    conversationId: string;
+    approvalId: string;
+    approved: boolean;
+    decidedByParticipantId: string;
+  };
   iteration: { conversationId: string; participantId: string; iteration: number };
   error: { conversationId?: string; error: { name: string; message: string } };
 }

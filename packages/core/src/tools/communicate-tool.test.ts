@@ -150,7 +150,10 @@ describe('communicate tool', () => {
       messageRouter: router,
     } as unknown as import('./Tool.js').ToolContext;
 
-    const result = await communicateTool.execute({ to: 'agent-b', message: 'do the thing' }, context);
+    const result = await communicateTool.execute(
+      { to: 'agent-b', message: 'do the thing' },
+      context,
+    );
     expect(result.status).toBe('pending_approval');
     const data = result.data as { approvalRequests: { tool: string }[] };
     expect(data.approvalRequests[0].tool).toBe('write_file');
