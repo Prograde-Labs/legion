@@ -4,6 +4,11 @@ type Handler<E extends LegionEventName> = (payload: LegionEventMap[E]) => void;
 
 export class EventBus {
   private handlers = new Map<LegionEventName, Set<Handler<LegionEventName>>>();
+  private onError?: (event: LegionEventName, err: unknown) => void;
+
+  constructor(options?: { onError?: (event: LegionEventName, err: unknown) => void }) {
+    this.onError = options?.onError;
+  }
 
   on<E extends LegionEventName>(event: E, handler: Handler<E>): () => void {
     let set = this.handlers.get(event);
@@ -33,7 +38,8 @@ export class EventBus {
     for (const handler of [...set]) {
       try {
         handler(payload);
-      } catch {
+      } catch (err) {
+        this.onError?.(event, err);
         // Subscriber errors must not break emission for other handlers.
       }
     }

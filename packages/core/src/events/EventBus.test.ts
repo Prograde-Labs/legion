@@ -62,4 +62,19 @@ describe('EventBus', () => {
     expect(() => bus.emit('process:ready', { workspaceRoot: '/w' })).not.toThrow();
     expect(reached).toBe(true);
   });
+
+  it('calls onError with the event name and error when a subscriber throws', () => {
+    const errors: Array<{ event: string; err: unknown }> = [];
+    const bus = new EventBus({
+      onError: (event, err) => errors.push({ event, err }),
+    });
+    const boom = new Error('boom');
+    bus.on('process:ready', () => {
+      throw boom;
+    });
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].event).toBe('process:ready');
+    expect(errors[0].err).toBe(boom);
+  });
 });
