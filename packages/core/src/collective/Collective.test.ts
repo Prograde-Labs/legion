@@ -143,3 +143,20 @@ describe('Collective: mutation and invariants', () => {
     await expect(collective.update('op-1', { operator: false })).rejects.toThrow(InvariantError);
   });
 });
+
+describe('Collective: seedDefaultsIfEmpty', () => {
+  it('seeds the bootstrap operator into an empty collective', async () => {
+    const storage = new MemoryStorage();
+    const collective = await Collective.load(storage);
+    const seeded = await collective.seedDefaultsIfEmpty();
+    expect(seeded).toContain('operator');
+    expect(collective.operators().length).toBe(1);
+  });
+
+  it('does nothing when participants already exist', async () => {
+    const { storage, operator } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', operator);
+    const collective = await Collective.load(storage);
+    expect(await collective.seedDefaultsIfEmpty()).toEqual([]);
+  });
+});

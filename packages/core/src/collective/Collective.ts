@@ -1,6 +1,7 @@
 import type { Storage } from '../storage/Storage.js';
 import type { ParticipantConfig } from '@legion/types';
 import { ConflictError, InvariantError, ParticipantNotFoundError } from '../errors/LegionError.js';
+import { createDefaultParticipants } from './default-participants.js';
 
 const PARTICIPANTS_PREFIX = 'collective/participants';
 
@@ -94,5 +95,15 @@ export class Collective {
     const updated = { ...existing, status: 'retired' as const };
     this.participants.set(id, updated);
     await this.persist(updated);
+  }
+
+  async seedDefaultsIfEmpty(): Promise<string[]> {
+    if (this.participants.size > 0) return [];
+    const defaults = createDefaultParticipants();
+    for (const config of defaults) {
+      this.participants.set(config.id, config);
+      await this.persist(config);
+    }
+    return defaults.map((p) => p.id);
   }
 }
