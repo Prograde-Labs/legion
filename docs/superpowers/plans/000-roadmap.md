@@ -35,7 +35,7 @@ End state of the full plan set: a **functional web connector + Vue web interface
 | 3   | Participants, Collective & credentials | 1, 6, 7           | Plan written | `003-participants-collective-credentials.md` |
 | 4   | Tools, ToolRegistry & AuthEngine       | 7, 14             | Plan written | `004-tools-registry-authengine.md`           |
 | 5   | Runtimes & MessageRouter (mock loop)   | 3, 4              | Plan written | `005-runtimes-message-router.md`             |
-| 6   | Provider abstraction & AgentRuntime    | 1, 4              | Plan written | `006-provider-agent-runtime.md`              |
+| 6   | Provider abstraction & AgentRuntime    | 1, 4              | Plan implemented | `006-provider-agent-runtime.md`            |
 | 7   | Approval bubbling                      | 7                 | Plan written | `007-approval-bubbling.md`                   |
 | 8   | Service SDK & ServiceManager           | 5, 8              | Plan written | `008-service-sdk-manager.md`                 |
 | 9   | MCP tool sources                       | 9                 | Plan written | `009-mcp-tool-sources.md`                    |
@@ -49,7 +49,7 @@ End state of the full plan set: a **functional web connector + Vue web interface
 - [x] Plan 3 written
 - [x] Plan 4 written
 - [x] Plan 5 written
-- [x] Plan 6 written
+- [x] Plan 6 implemented
 - [x] Plan 7 written
 - [x] Plan 8 written
 - [x] Plan 9 written
