@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 function random5(): string {
-  return randomBytes(4).toString('hex').slice(0, 5);
+  return randomBytes(3).toString('hex').slice(0, 5);
 }
 
 export function createConversationId(): string {

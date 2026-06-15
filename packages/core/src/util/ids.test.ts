@@ -3,7 +3,7 @@ import { createId, createConversationId, nowIso } from './ids.js';
 describe('id utilities', () => {
   it('createConversationId matches conv-<timestamp>-<random5>', () => {
     const id = createConversationId();
-    expect(id).toMatch(/^conv-\d+-[a-z0-9]{5}$/);
+    expect(id).toMatch(/^conv-\d+-[a-f0-9]{5}$/);
   });
 
   it('createId prefixes and stays unique across calls', () => {
