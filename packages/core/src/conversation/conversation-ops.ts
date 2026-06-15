@@ -133,3 +133,46 @@ export function pruneMessage(
     messages,
   };
 }
+
+export function compactRange(
+  conversation: ConversationData,
+  compactedIds: string[],
+  summaryContent: string,
+): ConversationData {
+  if (compactedIds.length === 0) return conversation;
+  const first = requireMessage(conversation, compactedIds[0]);
+  const last = requireMessage(conversation, compactedIds[compactedIds.length - 1]);
+
+  const summary = createMessage(conversation.id, first.parentId, {
+    senderId: first.senderId,
+    recipientId: first.recipientId,
+    role: 'assistant',
+    content: summaryContent,
+    type: 'summary',
+  });
+  (summary as MessageData & { compacts: string[] }).compacts = [...compactedIds];
+
+  const messages: Record<string, MessageData> = { ...conversation.messages };
+  messages[summary.id] = summary;
+  for (const id of compactedIds) {
+    messages[id] = { ...messages[id], status: 'compacted' };
+  }
+
+  // Re-point the message that followed the last compacted node to the summary.
+  for (const message of Object.values(messages)) {
+    if (message.parentId === last.id && !compactedIds.includes(message.id)) {
+      messages[message.id] = { ...message, parentId: summary.id };
+    }
+  }
+
+  // If the head itself was the last compacted node, advance head to the summary.
+  let head = conversation.activeBranchHead;
+  if (head === last.id) head = summary.id;
+
+  return {
+    ...conversation,
+    updatedAt: nowIso(),
+    activeBranchHead: head,
+    messages,
+  };
+}

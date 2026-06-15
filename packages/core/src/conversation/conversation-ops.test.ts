@@ -1,4 +1,4 @@
-import { createConversation, appendMessage, getActiveChain, editMessage, pruneMessage } from './conversation-ops.js';
+import { createConversation, appendMessage, getActiveChain, editMessage, pruneMessage, compactRange } from './conversation-ops.js';
 
 describe('conversation-ops: creation and active chain', () => {
   it('createConversation seeds an empty thread with no head', () => {
@@ -110,5 +110,40 @@ describe('conversation-ops: prune', () => {
     // Prune the middle node; head stays at 'two' but chain cannot route through pruned parent.
     conv = pruneMessage(conv, midId, 'op');
     expect(getActiveChain(conv).map((m) => m.content)).toEqual([]);
+  });
+});
+
+describe('conversation-ops: compaction', () => {
+  it('replaces a contiguous range with a summary node', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'm1' });
+    const id1 = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'm2',
+    });
+    const id2 = conv.activeBranchHead;
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'm3' });
+    const id3 = conv.activeBranchHead;
+
+    conv = compactRange(conv, [id1, id2], 'summary of m1+m2');
+
+    // m1 and m2 are compacted
+    expect(conv.messages[id1].status).toBe('compacted');
+    expect(conv.messages[id2].status).toBe('compacted');
+
+    // a summary node exists with parentId = parent of first compacted (null here)
+    const summary = Object.values(conv.messages).find((m) => m.type === 'summary');
+    expect(summary).toBeDefined();
+    expect(summary!.parentId).toBeNull();
+    expect(summary!.compacts).toEqual([id1, id2]);
+
+    // m3 now points at the summary node
+    expect(conv.messages[id3].parentId).toBe(summary!.id);
+
+    // active chain is [summary, m3]
+    expect(getActiveChain(conv).map((m) => m.content)).toEqual(['summary of m1+m2', 'm3']);
   });
 });
