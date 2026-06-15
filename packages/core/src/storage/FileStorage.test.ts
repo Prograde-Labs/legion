@@ -22,6 +22,12 @@ describe('FileStorage', () => {
     expect(await s.exists('nested/a.txt')).toBe(true);
   });
 
+  it('allows dot-prefixed keys under the root', async () => {
+    const s = new FileStorage(dir);
+    await s.write('..cache', 'ok');
+    expect(await s.read('..cache')).toBe('ok');
+  });
+
   it('round-trips JSON', async () => {
     const s = new FileStorage(dir);
     await s.writeJson('obj.json', { x: 1 });

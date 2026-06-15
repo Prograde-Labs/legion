@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Storage } from './Storage.js';
 
 export class FileStorage implements Storage {
@@ -10,7 +10,7 @@ export class FileStorage implements Storage {
   private path(key: string): string {
     const target = resolve(this.root, key);
     const rel = relative(this.root, target);
-    if (rel.startsWith('..') || isAbsolute(rel)) {
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
       throw new Error(`Invalid storage key outside root: ${key}`);
     }
     return target;
