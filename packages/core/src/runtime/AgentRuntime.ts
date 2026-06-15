@@ -1,21 +1,22 @@
 import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
-import type { Runtime, RuntimeContext } from './Runtime.js';
+import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
+import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
+import type { ConversationThread } from '../conversation/ConversationThread.js';
 
 const DEFAULT_MAX_ITERATIONS = 20;
 
 /**
  * Build the provider message list from the conversation chain + system prompt.
- * Tool-call turns (messages with toolCalls) are expanded into an assistant message
- * followed by one tool-result message per call, matching the OpenAI message format.
+ * Tool-call turns are expanded into an assistant message followed by one
+ * tool-result message per call, matching the OpenAI Chat Completions format.
  */
 function buildProviderMessages(chain: MessageData[], systemPrompt: string): ProviderMessage[] {
   const messages: ProviderMessage[] = [{ role: 'system', content: systemPrompt }];
 
   for (const msg of chain) {
     if (msg.toolCalls && msg.toolCalls.length > 0) {
-      // Expand the tool-call turn into assistant message + tool result messages.
       messages.push({
         role: 'assistant',
         content: msg.content || null,
@@ -47,30 +48,55 @@ export class AgentRuntime implements Runtime {
     private providerRegistry: ProviderRegistry,
   ) {}
 
-  async handle(_incoming: MessageData, context: RuntimeContext): Promise<string | void> {
+  async handle(_incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult> {
     const participant = context.collective.getOrThrow(this.participantId);
-    if (participant.type !== 'agent') return;
+    if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
 
     const provider = this.providerRegistry.get(agent.model.provider);
     if (!provider) {
-      return `[AgentRuntime error: no provider registered for '${agent.model.provider}']`;
+      return {
+        kind: 'response',
+        content: `[AgentRuntime error: no provider registered for '${agent.model.provider}']`,
+      };
     }
 
+    // -------------------------------------------------------------------------
+    // Resumption check: if the active chain's last assistant message has
+    // pending_approval tool results, this is a re-trigger from approval_response.
+    // Process resolved decisions; return pending_approval if any remain outstanding.
+    // -------------------------------------------------------------------------
+    const chain = context.conversation.activeChain;
+    const lastAssistantMsg = [...chain]
+      .reverse()
+      .find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.toolResults?.some((tr) => tr.result.status === 'pending_approval'),
+      );
+
+    if (lastAssistantMsg) {
+      const stillPending = await this.processResumedApprovals(lastAssistantMsg, context);
+      if (stillPending !== null) {
+        return { kind: 'pending_approval', approvalRequests: stillPending };
+      }
+      // All resolved — fall through; buildProviderMessages will read the updated chain.
+    }
+
+    // -------------------------------------------------------------------------
+    // LLM agentic loop
+    // -------------------------------------------------------------------------
     const maxIterations = agent.runtimeConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-    // Build initial message list from the full conversation chain (includes the inbound
-    // message that MessageRouter appended before calling handle()).
     const messages: ProviderMessage[] = buildProviderMessages(
       context.conversation.activeChain,
       agent.systemPrompt,
     );
 
-    // Build the tool list: only 'auto'-policy tools are presented to the LLM in this
-    // plan. 'requires_approval' tools will be added in Plan 7 (approval bubbling).
+    // Present all non-deny tools to the LLM. Auth check runs at execution time.
     const providerTools: ProviderTool[] = context.toolRegistry
       .list()
-      .filter((tool) => agent.tools[tool.name] === 'auto')
+      .filter((tool) => (agent.tools[tool.name] ?? 'requires_approval') !== 'deny')
       .map((tool) => ({
         name: tool.name,
         description: tool.description,
@@ -86,12 +112,10 @@ export class AgentRuntime implements Runtime {
 
       const response = await provider.complete(messages, providerTools, agent.model);
 
-      // Text response (or no tool calls): return it; MessageRouter persists it.
       if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
-        return response.content ?? '';
+        return { kind: 'response', content: response.content ?? '' };
       }
 
-      // Execute tool calls and collect results.
       const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
         id: tc.id,
         name: tc.name,
@@ -99,6 +123,8 @@ export class AgentRuntime implements Runtime {
       }));
 
       const toolResults: ToolCallResult[] = [];
+      const pendingApprovals: PendingApproval[] = [];
+
       for (const tc of response.toolCalls) {
         context.eventBus.emit('tool:call', {
           conversationId: context.conversationId,
@@ -106,6 +132,54 @@ export class AgentRuntime implements Runtime {
           tool: tc.name,
           callId: tc.id,
         });
+
+        const authResult = context.authEngine.authorize(
+          this.participantId,
+          tc.name,
+          tc.arguments,
+          agent.tools,
+        );
+
+        if (authResult.reason === 'deny') {
+          toolResults.push({
+            id: tc.id,
+            name: tc.name,
+            result: { status: 'error', error: `Tool '${tc.name}' is denied for this agent` },
+          });
+          context.eventBus.emit('tool:result', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: tc.name,
+            callId: tc.id,
+            status: 'error',
+          });
+          continue;
+        }
+
+        if (authResult.reason === 'requires_approval') {
+          const { approvalId } = await context.pendingApprovalRegistry.create({
+            conversationId: context.conversationId,
+            requesterId: this.participantId,
+            tool: tc.name,
+            args: tc.arguments,
+          });
+          const pending = context.pendingApprovalRegistry.get(approvalId)!;
+          pendingApprovals.push(pending);
+          toolResults.push({
+            id: tc.id,
+            name: tc.name,
+            result: { status: 'pending_approval', approvalId },
+          });
+          context.eventBus.emit('approval:requested', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: tc.name,
+            approvalId,
+          });
+          continue;
+        }
+
+        // 'auto': execute immediately
         const result = await context.toolRegistry.execute(tc.name, tc.arguments, context);
         context.eventBus.emit('tool:result', {
           conversationId: context.conversationId,
@@ -117,7 +191,7 @@ export class AgentRuntime implements Runtime {
         toolResults.push({ id: tc.id, name: tc.name, result });
       }
 
-      // Persist the tool-call turn to the conversation for audit + context replay.
+      // Persist the tool-call turn to the conversation.
       await context.conversation.append({
         senderId: this.participantId,
         recipientId: this.participantId,
@@ -127,7 +201,12 @@ export class AgentRuntime implements Runtime {
         toolResults,
       });
 
-      // Advance the local message history so the next iteration has full context.
+      // If any approvals are pending, return early.
+      if (pendingApprovals.length > 0) {
+        return { kind: 'pending_approval', approvalRequests: pendingApprovals };
+      }
+
+      // All tools executed — advance the local message history.
       messages.push({
         role: 'assistant',
         content: response.content ?? null,
@@ -143,6 +222,100 @@ export class AgentRuntime implements Runtime {
       }
     }
 
-    return `[Agent reached maximum iteration limit of ${maxIterations}]`;
+    return {
+      kind: 'response',
+      content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
+    };
+  }
+
+  /**
+   * Process resolved approval decisions for a message that previously had
+   * pending_approval tool results.
+   *
+   * Returns `null` when all pending approvals are resolved (caller should continue
+   * the loop). Returns the array of still-pending approvals if any remain outstanding.
+   */
+  private async processResumedApprovals(
+    lastMsg: MessageData,
+    context: RuntimeContext,
+  ): Promise<PendingApproval[] | null> {
+    const updatedResults: ToolCallResult[] = [...(lastMsg.toolResults ?? [])];
+    const stillPending: PendingApproval[] = [];
+
+    for (let i = 0; i < updatedResults.length; i++) {
+      const tr = updatedResults[i];
+      if (tr.result.status !== 'pending_approval') continue;
+
+      const { approvalId } = tr.result;
+      if (!approvalId) continue;
+
+      const decision = context.pendingApprovalRegistry.getDecision(approvalId);
+
+      if (!decision) {
+        const pending = context.pendingApprovalRegistry.get(approvalId);
+        if (pending) stillPending.push(pending);
+        continue;
+      }
+
+      if (!decision.approved) {
+        updatedResults[i] = {
+          ...tr,
+          result: {
+            status: 'rejected',
+            message: decision.message ?? 'Request rejected',
+          },
+        };
+        context.eventBus.emit('approval:resolved', {
+          conversationId: context.conversationId,
+          approvalId,
+          approved: false,
+          decidedByParticipantId: decision.decidedByParticipantId,
+        });
+        continue;
+      }
+
+      // Approved: execute the tool now.
+      const toolCall = lastMsg.toolCalls?.find((tc) => tc.id === tr.id);
+      if (!toolCall) {
+        updatedResults[i] = {
+          ...tr,
+          result: { status: 'error', error: 'Tool call data missing from conversation' },
+        };
+        continue;
+      }
+
+      context.eventBus.emit('tool:call', {
+        conversationId: context.conversationId,
+        participantId: this.participantId,
+        tool: tr.name,
+        callId: tr.id,
+      });
+      const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, context);
+      updatedResults[i] = { ...tr, result };
+      context.eventBus.emit('tool:result', {
+        conversationId: context.conversationId,
+        participantId: this.participantId,
+        tool: tr.name,
+        callId: tr.id,
+        status: result.status,
+      });
+      context.eventBus.emit('approval:resolved', {
+        conversationId: context.conversationId,
+        approvalId,
+        approved: true,
+        decidedByParticipantId: decision.decidedByParticipantId,
+      });
+    }
+
+    if (stillPending.length > 0) {
+      return stillPending;
+    }
+
+    // All resolved — update the conversation message in place.
+    await (context.conversation as ConversationThread).updateToolResults(
+      lastMsg.id,
+      updatedResults,
+    );
+    return null;
   }
 }

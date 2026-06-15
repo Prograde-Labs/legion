@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it, expect, vi } from 'vitest';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
+import { FileStorage } from '../storage/FileStorage.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
 import { EventBus } from '../events/EventBus.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
@@ -10,8 +14,10 @@ import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
-import type { RuntimeContext } from './Runtime.js';
-import type { AgentConfig } from '@legion/types';
+import type { RuntimeContext, RuntimeResult } from './Runtime.js';
+import type { AgentConfig, JSONSchema, Tool, MessageData } from '@legion/types';
+import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
+import type { MessageRouterPort } from '../tools/Tool.js';
 
 // ── Test helper ──────────────────────────────────────────────────────────────
 
@@ -95,7 +101,7 @@ describe('AgentRuntime', () => {
     ]);
     const runtime = new AgentRuntime('agent-1', providerRegistry);
     const result = await runtime.handle(inbound, context);
-    expect(result).toBe('I am happy to help!');
+    expect(result).toEqual({ kind: 'response', content: 'I am happy to help!' });
     // No extra messages persisted — only the inbound message
     expect(context.conversation.activeChain).toHaveLength(1);
   });
@@ -112,7 +118,7 @@ describe('AgentRuntime', () => {
     const runtime = new AgentRuntime('agent-1', providerRegistry);
     const result = await runtime.handle(inbound, context);
 
-    expect(result).toBe('Done echoing!');
+    expect(result).toEqual({ kind: 'response', content: 'Done echoing!' });
 
     // Tool-call turn persisted as a second message in the conversation
     const chain = context.conversation.activeChain;
@@ -212,8 +218,8 @@ describe('AgentRuntime', () => {
 
     const runtime = new AgentRuntime('agent-1', reg);
     const result = await runtime.handle(inbound, context);
-    expect(result).toMatch(/maximum iteration limit/i);
-    expect(result).toContain('2');
+    expect((result as { kind: string; content: string }).content).toMatch(/maximum iteration/i);
+    expect((result as { kind: string; content: string }).content).toContain('2');
   });
 
   it('returns an error message when no provider is registered for the agent model', async () => {
@@ -221,7 +227,280 @@ describe('AgentRuntime', () => {
     const { context, inbound } = await makeSetup([]);
     const runtime = new AgentRuntime('agent-1', emptyReg);
     const result = await runtime.handle(inbound, context);
-    expect(result).toMatch(/no provider/i);
-    expect(result).toMatch(/test/); // provider name from model config
+    expect((result as { kind: string; content: string }).content).toMatch(/no provider/i);
+    expect((result as { kind: string; content: string }).content).toMatch(/test/); // provider name from model config
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auth: deny policy
+// ---------------------------------------------------------------------------
+describe('AgentRuntime: auth – deny policy', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-ar-deny-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns error tool result for a denied tool; LLM continues', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('collective/participants/agent-1.json', {
+      id: 'agent-1',
+      name: 'A',
+      type: 'agent',
+      status: 'active',
+      tools: { echo: 'deny' }, // echo is denied
+      systemPrompt: 'You are an assistant.',
+      model: { provider: 'scripted', model: 'test' },
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(new FileStorage(dir));
+    const eventBus = new EventBus();
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+
+    // Provider: first return tool call to 'echo', then return text after seeing denied result
+    const provider: Provider = {
+      async complete(_msgs, _tools) {
+        const last = _msgs[_msgs.length - 1];
+        if (last.role === 'tool') {
+          return { content: 'Got denied result', toolCalls: [], stopReason: 'stop' };
+        }
+        return {
+          content: null,
+          toolCalls: [{ id: 'tc-deny', name: 'echo', arguments: { text: 'hi' } }],
+          stopReason: 'tool_calls',
+        };
+      },
+    };
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register('scripted', provider);
+
+    const echoTool: Tool = {
+      name: 'echo',
+      description: 'echo',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      } as JSONSchema,
+      async execute(args) {
+        return { status: 'success', data: (args as { text: string }).text };
+      },
+    };
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(echoTool);
+
+    const context: RuntimeContext = {
+      participant: collective.getOrThrow('agent-1'),
+      conversationId: thread.id,
+      conversation: thread,
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry,
+      authEngine: new AuthEngine(), // default fail-safe
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+      messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
+    } as unknown as RuntimeContext;
+
+    const incoming: MessageData = {
+      id: 'msg-1',
+      parentId: null,
+      conversationId: thread.id,
+      senderId: 'op',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'use echo',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    };
+
+    const runtime = new AgentRuntime('agent-1', providerRegistry);
+    const result = await runtime.handle(incoming, context);
+
+    expect(result.kind).toBe('response');
+    expect((result as { kind: string; content: string }).content).toBe('Got denied result');
+
+    // The tool result in the conversation should carry status:'error'
+    const chain = thread.activeChain;
+    const toolTurn = chain.find((m) => m.toolResults && m.toolResults.length > 0);
+    expect(toolTurn?.toolResults?.[0].result.status).toBe('error');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auth: requires_approval policy – returns pending_approval
+// ---------------------------------------------------------------------------
+describe('AgentRuntime: auth – requires_approval policy', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-ar-appr-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function setupApprovalScenario(tmpDir: string) {
+    const storage = new MemoryStorage();
+    await storage.writeJson('collective/participants/agent-1.json', {
+      id: 'agent-1',
+      name: 'A',
+      type: 'agent',
+      status: 'active',
+      tools: { echo: 'requires_approval' },
+      systemPrompt: 'You are an assistant.',
+      model: { provider: 'scripted', model: 'test' },
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(new FileStorage(tmpDir));
+    const eventBus = new EventBus();
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+
+    const provider: Provider = {
+      async complete(_msgs, _tools) {
+        const last = _msgs[_msgs.length - 1];
+        if (last.role === 'tool') {
+          const parsed = JSON.parse(last.content ?? '{}');
+          if (parsed.status !== 'pending_approval') {
+            return { content: 'Done', toolCalls: [], stopReason: 'stop' };
+          }
+        }
+        return {
+          content: null,
+          toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+          stopReason: 'tool_calls',
+        };
+      },
+    };
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register('scripted', provider);
+
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register({
+      name: 'echo',
+      description: 'echo',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      } as JSONSchema,
+      async execute(args) {
+        return { status: 'success', data: (args as { text: string }).text };
+      },
+    });
+
+    const pendingApprovalRegistry = new PendingApprovalRegistry();
+
+    const context: RuntimeContext = {
+      participant: collective.getOrThrow('agent-1'),
+      conversationId: thread.id,
+      conversation: thread,
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: tmpDir,
+      communicationDepth: 0,
+      toolRegistry,
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry,
+      messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
+    } as unknown as RuntimeContext;
+
+    const incoming: MessageData = {
+      id: 'msg-1',
+      parentId: null,
+      conversationId: thread.id,
+      senderId: 'op',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'use echo',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    };
+
+    return {
+      runtime: new AgentRuntime('agent-1', providerRegistry),
+      incoming,
+      context,
+      thread,
+      pendingApprovalRegistry,
+    };
+  }
+
+  it('returns pending_approval when a tool requires approval', async () => {
+    const { runtime, incoming, context } = await setupApprovalScenario(dir);
+    const result = await runtime.handle(incoming, context);
+    expect(result.kind).toBe('pending_approval');
+    const r = result as { kind: string; approvalRequests: { tool: string }[] };
+    expect(r.approvalRequests[0].tool).toBe('echo');
+  });
+
+  it('writes pending_approval tool result to the conversation', async () => {
+    const { runtime, incoming, context, thread } = await setupApprovalScenario(dir);
+    await runtime.handle(incoming, context);
+    const chain = thread.activeChain;
+    const toolTurn = chain.find((m) =>
+      m.toolResults?.some((tr) => tr.result.status === 'pending_approval'),
+    );
+    expect(toolTurn).toBeDefined();
+    expect(toolTurn?.toolResults?.[0].result.approvalId).toMatch(/^appr-/);
+  });
+
+  it('resumes and completes after approval is granted', async () => {
+    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
+    const result = await runtime.handle(incoming, context);
+    expect(result.kind).toBe('pending_approval');
+
+    const r = result as { kind: string; approvalRequests: { approvalId: string }[] };
+    const { approvalId } = r.approvalRequests[0];
+
+    await pendingApprovalRegistry.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: new Date().toISOString(),
+    });
+
+    const resumeResult = await runtime.handle(incoming, context);
+    expect(resumeResult.kind).toBe('response');
+    expect((resumeResult as { kind: string; content: string }).content).toBe('Done');
+
+    const chain = thread.activeChain;
+    const resolved = chain.find((m) => m.toolResults?.some((tr) => tr.result.status === 'success'));
+    expect(resolved).toBeDefined();
+  });
+
+  it('resumes with rejection message in context', async () => {
+    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
+    const result = await runtime.handle(incoming, context);
+    const r = result as { kind: string; approvalRequests: { approvalId: string }[] };
+
+    await pendingApprovalRegistry.resolve(r.approvalRequests[0].approvalId, {
+      approved: false,
+      decidedByParticipantId: 'operator',
+      message: 'Not permitted on prod',
+      decidedAt: new Date().toISOString(),
+    });
+
+    const resumeResult = await runtime.handle(incoming, context);
+    expect(resumeResult.kind).toBe('response');
+    const chain = thread.activeChain;
+    const rejectedTurn = chain.find((m) =>
+      m.toolResults?.some((tr) => tr.result.status === 'rejected'),
+    );
+    expect(rejectedTurn?.toolResults?.[0].result.message).toBe('Not permitted on prod');
   });
 });
