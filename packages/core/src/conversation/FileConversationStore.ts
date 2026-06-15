@@ -35,7 +35,9 @@ export class FileConversationStore implements ConversationStore {
   }
 
   async save(data: ConversationData): Promise<void> {
-    await this.storage.writeJson(this.key(data.id), { ...data, updatedAt: nowIso() });
+    const now = nowIso();
+    await this.storage.writeJson(this.key(data.id), { ...data, updatedAt: now });
+    data.updatedAt = now;
   }
 
   private async loadOrThrow(conversationId: string): Promise<ConversationData> {
