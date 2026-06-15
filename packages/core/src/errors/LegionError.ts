@@ -47,3 +47,15 @@ export class AuthorizationError extends LegionError {
     super(message, 'AUTHORIZATION_ERROR');
   }
 }
+
+export class ConflictError extends LegionError {
+  constructor(message: string) {
+    super(message, 'CONFLICT');
+  }
+}
+
+export class InvariantError extends LegionError {
+  constructor(message: string) {
+    super(message, 'INVARIANT_VIOLATION');
+  }
+}

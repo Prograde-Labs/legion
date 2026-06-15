@@ -1,6 +1,7 @@
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from './Collective.js';
 import type { AgentConfig, UserConfig } from '@legion/types';
+import { ConflictError, InvariantError } from '../errors/LegionError.js';
 
 function seedStorage() {
   const storage = new MemoryStorage();
@@ -62,5 +63,83 @@ describe('Collective: load and query', () => {
     const collective = await Collective.load(storage);
     expect(collective.findByIdentity('web', 'op-1')?.id).toBe('op-1');
     expect(collective.findByIdentity('web', 'nobody')).toBeUndefined();
+  });
+});
+
+describe('Collective: mutation and invariants', () => {
+  async function withOperatorAndAgent() {
+    const { storage, operator, agent } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', operator);
+    await storage.writeJson('collective/participants/agent-1.json', agent);
+    return Collective.load(storage);
+  }
+
+  it('adds a participant and persists it', async () => {
+    const collective = await withOperatorAndAgent();
+    await collective.add({
+      id: 'mock-1',
+      name: 'Mock',
+      type: 'mock',
+      tools: {},
+      responses: ['ok'],
+      status: 'active',
+    });
+    expect(collective.get('mock-1')?.name).toBe('Mock');
+    const reloaded = await Collective.load(
+      (collective as unknown as { storage: MemoryStorage }).storage,
+    );
+    expect(reloaded.get('mock-1')).toBeDefined();
+  });
+
+  it('rejects adding a duplicate id', async () => {
+    const collective = await withOperatorAndAgent();
+    await expect(
+      collective.add({ id: 'agent-1', name: 'Dup', type: 'mock', tools: {}, responses: [] }),
+    ).rejects.toThrow(ConflictError);
+  });
+
+  it('retires a non-protected participant', async () => {
+    const collective = await withOperatorAndAgent();
+    await collective.retire('agent-1');
+    expect(collective.get('agent-1')?.status).toBe('retired');
+  });
+
+  it('refuses to retire a protected participant', async () => {
+    const collective = await withOperatorAndAgent();
+    await expect(collective.retire('op-1')).rejects.toThrow(InvariantError);
+  });
+
+  it('refuses to retire the last active operator', async () => {
+    const { storage } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', {
+      id: 'op-1',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      operator: true,
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    await expect(collective.retire('op-1')).rejects.toThrow(InvariantError);
+  });
+
+  it('updates a participant via patch', async () => {
+    const collective = await withOperatorAndAgent();
+    await collective.update('agent-1', { name: 'Renamed' });
+    expect(collective.get('agent-1')?.name).toBe('Renamed');
+  });
+
+  it('refuses to strip operator authority from the last operator', async () => {
+    const { storage } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', {
+      id: 'op-1',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      operator: true,
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    await expect(collective.update('op-1', { operator: false })).rejects.toThrow(InvariantError);
   });
 });
