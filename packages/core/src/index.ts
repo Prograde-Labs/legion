@@ -1,1 +1,1 @@
-export const CORE_PACKAGE = '@legion/core';
+export * from './errors/LegionError.js';
