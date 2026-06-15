@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { FileStorage } from './FileStorage.js';
 
 describe('FileStorage', () => {
@@ -25,7 +25,16 @@ describe('FileStorage', () => {
   it('round-trips JSON', async () => {
     const s = new FileStorage(dir);
     await s.writeJson('obj.json', { x: 1 });
+    expect(await s.read('obj.json')).toBe('{\n  "x": 1\n}');
     expect(await s.readJson<{ x: number }>('obj.json')).toEqual({ x: 1 });
+  });
+
+  it('deletes keys', async () => {
+    const s = new FileStorage(dir);
+    await s.write('a', '1');
+    await s.delete('a');
+    expect(await s.exists('a')).toBe(false);
+    await s.delete('a');
   });
 
   it('lists immediate children', async () => {
@@ -48,9 +57,31 @@ describe('FileStorage', () => {
     expect(await s.list('missing')).toEqual([]);
   });
 
+  it('throws non-missing filesystem errors from exists', async () => {
+    const s = new FileStorage(dir);
+    await expect(s.exists('\0')).rejects.toThrow();
+  });
+
   it('scopes under a sub-path', async () => {
     const s = new FileStorage(dir).scope('services/svc-1');
     await s.write('state.json', 'x');
     expect(await new FileStorage(dir).read('services/svc-1/state.json')).toBe('x');
+  });
+
+  it('rejects keys and scopes outside the root', async () => {
+    const s = new FileStorage(dir);
+    const outsideKey = `../${basename(dir)}-outside`;
+    const outsidePath = join(dir, outsideKey);
+
+    try {
+      await expect(s.write(outsideKey, 'x')).rejects.toThrow();
+    } finally {
+      await rm(outsidePath, { force: true });
+    }
+
+    await expect(s.read('../x')).rejects.toThrow();
+    await expect(s.delete('../x')).rejects.toThrow();
+    await expect(s.list('..')).rejects.toThrow();
+    expect(() => s.scope('..')).toThrow();
   });
 });
