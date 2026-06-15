@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Legion — Event Stream</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: { extend: { colors: { navy: { 950:'#060d1a',900:'#0a1220',800:'#0d1a30',600:'#1e3a5f',500:'#2d4a6a',400:'#4b6a8a' } } } }
+}
+</script>
+<style>
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif;background:#090e1a;color:#e2e8f0;height:100vh;overflow:hidden;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;font-size:12px;color:#4b6a8a;}
+  .nav-item.active{background:rgba(34,211,238,.08);color:#67e8f9;border-left:2px solid #22d3ee;margin-left:-2px;}
+
+  /* Filter chips */
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:500;cursor:pointer;border:1px solid #1e3a5f;color:#4b6a8a;transition:all .1s;white-space:nowrap;}
+  .chip.active{color:#060d1a;border-color:transparent;}
+  .chip-message.active{background:#22d3ee;color:#060d1a;}
+  .chip-tool.active{background:#a78bfa;}
+  .chip-error.active{background:#f87171;}
+  .chip-system.active{background:#4b6a8a;}
+
+  /* Event rows */
+  .event-row{display:grid;grid-template-columns:62px 140px 1fr auto;align-items:baseline;gap:10px;padding:5px 16px;border-bottom:1px solid #0a1525;font-size:11px;font-family:ui-monospace,monospace;cursor:pointer;transition:background .1s;}
+  .event-row:hover{background:#0d1a30;}
+  .event-row.highlight{background:#0f1e2a;}
+  .event-time{color:#2d4a6a;font-size:10px;flex-shrink:0;}
+  .event-type{font-size:10px;font-weight:600;padding:1px 7px;border-radius:3px;display:inline-block;white-space:nowrap;}
+  .type-message{background:rgba(34,211,238,.1);color:#22d3ee;}
+  .type-tool{background:rgba(167,139,250,.1);color:#a78bfa;}
+  .type-error{background:rgba(248,113,113,.1);color:#f87171;}
+  .type-system{background:rgba(75,106,138,.15);color:#4b6a8a;}
+  .type-approval{background:rgba(245,158,11,.1);color:#f59e0b;}
+  .event-detail{color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;}
+  .event-detail em{color:#94a3b8;font-style:normal;}
+  .event-conv{font-size:9px;color:#1e3a5f;white-space:nowrap;}
+
+  /* Detail panel */
+  .detail-panel{width:320px;flex-shrink:0;background:#0d1a30;border-left:1px solid #1e3a5f;display:flex;flex-direction:column;}
+  .detail-json{font-family:ui-monospace,monospace;font-size:10px;line-height:1.7;color:#4b6a8a;padding:14px 16px;overflow-y:auto;flex:1;}
+  .json-key{color:#67e8f9;}
+  .json-str{color:#4ade80;}
+  .json-num{color:#f59e0b;}
+  .json-bool{color:#f59e0b;}
+
+  /* Pause button */
+  .pause-btn{padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid;}
+  .pause-btn.live{background:rgba(34,211,238,.1);border-color:rgba(34,211,238,.3);color:#22d3ee;}
+  .pause-btn.paused{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#f59e0b;}
+
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  .event-row.new{animation:fadeIn .3s ease-out;}
+</style>
+</head>
+<body>
+<div style="display:flex;height:100vh;">
+
+  <!-- Sidebar nav -->
+  <div style="width:200px;flex-shrink:0;background:#0a1220;border-right:1px solid #1e3a5f;display:flex;flex-direction:column;">
+    <div style="padding:14px 16px;border-bottom:1px solid #1e3a5f;display:flex;align-items:center;gap:8px;">
+      <div style="width:22px;height:22px;background:#22d3ee;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#060d1a;">L</div>
+      <span style="font-size:13px;font-weight:700;">Legion</span>
+    </div>
+    <nav style="padding:10px 8px;flex:1;">
+      <div class="nav-item">👤 Participants</div>
+      <div class="nav-item">💬 Conversations</div>
+      <div class="nav-item active">⚡ Events</div>
+      <div class="nav-item">⚙️ Config</div>
+    </nav>
+    <div style="padding:10px 8px;border-top:1px solid #1e3a5f;">
+      <div class="nav-item"><div style="width:22px;height:22px;background:#1e3a5f;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#4b6a8a;">A</div><span style="font-size:11px;">admin</span></div>
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+    <!-- Toolbar -->
+    <div style="padding:10px 16px;border-bottom:1px solid #1e3a5f;background:#0a1220;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;margin-right:4px;">
+        <div style="width:6px;height:6px;background:#22d3ee;border-radius:50%;animation:pulse 1.5s infinite;"></div>
+        <span style="font-size:11px;font-weight:600;color:#22d3ee;">Live</span>
+      </div>
+
+      <div style="width:1px;height:16px;background:#1e3a5f;"></div>
+
+      <span style="font-size:10px;color:#2d4a6a;flex-shrink:0;">Filter:</span>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;">
+        <span class="chip chip-message active" onclick="toggleChip(this)">● message</span>
+        <span class="chip chip-tool active" onclick="toggleChip(this)">● tool</span>
+        <span class="chip chip-error active" onclick="toggleChip(this)">● error</span>
+        <span class="chip chip-system" onclick="toggleChip(this)">● system</span>
+      </div>
+
+      <div style="width:1px;height:16px;background:#1e3a5f;margin-left:4px;"></div>
+
+      <input placeholder="filter by participant or conv…" style="background:#090e1a;border:1px solid #1e3a5f;border-radius:4px;padding:4px 10px;font-size:11px;color:#94a3b8;width:200px;outline:none;">
+
+      <div style="margin-left:auto;">
+        <span class="pause-btn live" id="pauseBtn" onclick="togglePause(this)">⏸ Pause</span>
+      </div>
+    </div>
+
+    <!-- Event list + detail panel -->
+    <div style="flex:1;display:flex;min-height:0;">
+
+      <!-- Event list -->
+      <div style="flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;" id="eventList">
+
+        <!-- Column headers -->
+        <div style="display:grid;grid-template-columns:62px 140px 1fr auto;gap:10px;padding:5px 16px;border-bottom:1px solid #1e3a5f;position:sticky;top:0;background:#090e1a;z-index:1;">
+          <span style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#2d4a6a;">Time</span>
+          <span style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#2d4a6a;">Event type</span>
+          <span style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#2d4a6a;">Detail</span>
+          <span style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#2d4a6a;">Conv</span>
+        </div>
+
+        <!-- New event (top, highlighted) -->
+        <div class="event-row new highlight" onclick="selectEvent(this)">
+          <span class="event-time">14:32:15</span>
+          <span class="event-type type-tool">tool:called</span>
+          <span class="event-detail"><em>orchestrator-1</em> → send_message(<em>researcher-2</em>)</span>
+          <span class="event-conv">conv_a3f9b2</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:32:14</span>
+          <span class="event-type type-tool">tool:completed</span>
+          <span class="event-detail"><em>researcher-2</em> → mcp__web-search__search <span style="color:#4ade80;">✓</span></span>
+          <span class="event-conv">conv_a3f9b2</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:32:11</span>
+          <span class="event-type type-message">message:created</span>
+          <span class="event-detail"><em>researcher-2</em> → "I'll search for recent RAG papers…"</span>
+          <span class="event-conv">conv_a3f9b2</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:32:09</span>
+          <span class="event-type type-tool">tool:called</span>
+          <span class="event-detail"><em>researcher-2</em> → mcp__web-search__search</span>
+          <span class="event-conv">conv_a3f9b2</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:32:04</span>
+          <span class="event-type type-message">message:created</span>
+          <span class="event-detail"><em>orchestrator-1</em> → "Research the latest papers on RAG…"</span>
+          <span class="event-conv">conv_a3f9b2</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:31:58</span>
+          <span class="event-type type-system">conversation:started</span>
+          <span class="event-detail">new conversation created by <em>orchestrator-1</em></span>
+          <span class="event-conv">conv_a3f9b2</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:28:33</span>
+          <span class="event-type type-tool">tool:completed</span>
+          <span class="event-detail"><em>writer-3</em> → mcp__filesystem__write_file <span style="color:#4ade80;">✓</span></span>
+          <span class="event-conv">conv_c71d44</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:27:10</span>
+          <span class="event-type type-error">error</span>
+          <span class="event-detail"><em>writer-3</em> → mcp__filesystem__write_file permission denied</span>
+          <span class="event-conv">conv_c71d44</span>
+        </div>
+
+        <div class="event-row" onclick="selectEvent(this)">
+          <span class="event-time">14:21:04</span>
+          <span class="event-type type-system">participant:active</span>
+          <span class="event-detail"><em>researcher-2</em> joined collective</span>
+          <span class="event-conv" style="color:transparent;">—</span>
+        </div>
+
+      </div>
+
+      <!-- Detail panel -->
+      <div class="detail-panel">
+        <div style="padding:12px 16px;border-bottom:1px solid #1e3a5f;display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:12px;font-weight:600;color:#e2e8f0;">Event detail</span>
+          <span class="event-type type-tool" style="font-size:9px;">tool:called</span>
+        </div>
+        <div class="detail-json">
+{<br>
+&nbsp;&nbsp;"<span class="json-key">type</span>": "<span class="json-str">tool:called</span>",<br>
+&nbsp;&nbsp;"<span class="json-key">timestamp</span>": "<span class="json-str">2025-06-14T14:32:15.342Z</span>",<br>
+&nbsp;&nbsp;"<span class="json-key">conversationId</span>": "<span class="json-str">conv_a3f9b2</span>",<br>
+&nbsp;&nbsp;"<span class="json-key">participantId</span>": "<span class="json-str">orchestrator-1</span>",<br>
+&nbsp;&nbsp;"<span class="json-key">tool</span>": "<span class="json-str">send_message</span>",<br>
+&nbsp;&nbsp;"<span class="json-key">arguments</span>": {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"<span class="json-key">to</span>": "<span class="json-str">researcher-2</span>",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;"<span class="json-key">message</span>": "<span class="json-str">Research the latest papers on retrieval-augmented generation published in 2025, then draft a two-page summary.</span>"<br>
+&nbsp;&nbsp;}<br>
+}<br>
+        </div>
+        <div style="padding:10px 16px;border-top:1px solid #1e3a5f;display:flex;gap:8px;">
+          <a style="font-size:10px;color:#22d3ee;cursor:pointer;text-decoration:none;">→ Jump to conversation</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleChip(el) { el.classList.toggle('active'); }
+function selectEvent(row) {
+  document.querySelectorAll('.event-row').forEach(r => r.classList.remove('highlight'));
+  row.classList.add('highlight');
+}
+let paused = false;
+function togglePause(btn) {
+  paused = !paused;
+  btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  btn.classList.toggle('live', !paused);
+  btn.classList.toggle('paused', paused);
+}
+</script>
+</body>
+</html>
