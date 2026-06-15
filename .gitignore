@@ -3,6 +3,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Worktrees
+.worktrees/
+
 # Legion runtime data (git-ignored per spec §16)
 .legion/conversations/
 .legion/services/
