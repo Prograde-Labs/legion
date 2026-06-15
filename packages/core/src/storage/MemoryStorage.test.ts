@@ -12,6 +12,7 @@ describe('MemoryStorage', () => {
   it('round-trips JSON', async () => {
     const s = new MemoryStorage();
     await s.writeJson('obj.json', { x: 1 });
+    expect(await s.read('obj.json')).toBe('{\n  "x": 1\n}');
     expect(await s.readJson<{ x: number }>('obj.json')).toEqual({ x: 1 });
   });
 
@@ -30,6 +31,14 @@ describe('MemoryStorage', () => {
     await s.write('dir/sub/c.json', '3');
     const listed = (await s.list('dir')).sort();
     expect(listed).toEqual(['a.json', 'b.json', 'sub']);
+  });
+
+  it('lists immediate children at the root', async () => {
+    const s = new MemoryStorage();
+    await s.write('a.json', '1');
+    await s.write('dir/b.json', '2');
+    const listed = (await s.list('')).sort();
+    expect(listed).toEqual(['a.json', 'dir']);
   });
 
   it('scopes under a prefix', async () => {

@@ -36,11 +36,11 @@ export class MemoryStorage implements Storage {
 
   async list(prefix: string): Promise<string[]> {
     const base = this.full(prefix).replace(/\/$/, '');
-    const needle = `${base}/`;
+    const needle = base ? `${base}/` : '';
     const children = new Set<string>();
     for (const fullKey of this.map.keys()) {
-      if (!fullKey.startsWith(needle)) continue;
-      const rest = fullKey.slice(needle.length);
+      if (needle && !fullKey.startsWith(needle)) continue;
+      const rest = needle ? fullKey.slice(needle.length) : fullKey;
       const firstSegment = rest.split('/')[0];
       if (firstSegment) children.add(firstSegment);
     }
