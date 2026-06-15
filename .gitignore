@@ -1,1 +1,9 @@
 .superpowers/
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Legion runtime data (git-ignored per spec §16)
+.legion/conversations/
+.legion/services/
+.legion/credentials.json
