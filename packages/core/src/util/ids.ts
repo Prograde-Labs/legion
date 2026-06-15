@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 function random5(): string {
+  // 3 bytes → 6 hex chars; take first 5 (20 bits of entropy)
   return randomBytes(3).toString('hex').slice(0, 5);
 }
 
