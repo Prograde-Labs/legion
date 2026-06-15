@@ -123,3 +123,38 @@ describe('MessageRouter: synchronous send', () => {
     expect(sent).toBe(2);
   });
 });
+
+describe('MessageRouter: fire-and-forget', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-faf-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns dispatched immediately and routes the response to replyTo', async () => {
+    const { router, baseContext, store, eventBus } = await setup(dir);
+    let delivered: { recipientId: string } | null = null;
+    eventBus.on('message:delivered', (p) => (delivered = { recipientId: p.recipientId }));
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'analyze',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    expect(result.response).toBeUndefined();
+
+    await router.drain();
+
+    expect(delivered).toEqual({ recipientId: 'op' });
+    const conv = await store.load(result.conversationId);
+    const toOp = Object.values(conv!.messages).find(
+      (m) => m.recipientId === 'op' && m.role === 'assistant',
+    );
+    expect(toOp?.content).toBe('hello back');
+  });
+});
