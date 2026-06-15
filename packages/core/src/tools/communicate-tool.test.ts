@@ -90,4 +90,69 @@ describe('communicate tool', () => {
     const result = await communicateTool.execute({ to: 'agent-b', message: 'x' }, broken);
     expect(result.status).toBe('error');
   });
+
+  it('surfaces pending_approval result when the recipient runtime returns one', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/agent-a.json', {
+      id: 'agent-a',
+      name: 'A',
+      type: 'mock',
+      tools: { communicate: 'auto' },
+      responses: [],
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/agent-b.json', {
+      id: 'agent-b',
+      name: 'B',
+      type: 'mock',
+      tools: {},
+      responses: [],
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const storeB = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    // B's runtime returns pending_approval
+    const pendingRuntime = {
+      async handle(): Promise<import('../runtime/Runtime.js').RuntimeResult> {
+        return {
+          kind: 'pending_approval',
+          approvalRequests: [
+            {
+              approvalId: 'appr-1',
+              conversationId: 'c1',
+              requesterId: 'agent-b',
+              tool: 'write_file',
+              args: {},
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        };
+      },
+    };
+    registry.registerFactory('mock', () => pendingRuntime);
+
+    const router = new MessageRouter(storeB, registry, collective, eventBus);
+    const context = {
+      participant: collective.getOrThrow('agent-a'),
+      conversationId: 'seed',
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+      messageRouter: router,
+    } as unknown as import('./Tool.js').ToolContext;
+
+    const result = await communicateTool.execute({ to: 'agent-b', message: 'do the thing' }, context);
+    expect(result.status).toBe('pending_approval');
+    const data = result.data as { approvalRequests: { tool: string }[] };
+    expect(data.approvalRequests[0].tool).toBe('write_file');
+  });
 });

@@ -36,6 +36,15 @@ export const communicateTool: Tool = {
     if (result.status === 'error') {
       return { status: 'error', error: result.error };
     }
+    if (result.status === 'pending_approval') {
+      return {
+        status: 'pending_approval',
+        data: {
+          conversationId: result.conversationId,
+          approvalRequests: result.approvalRequests,
+        },
+      };
+    }
     return {
       status: 'success',
       data: {

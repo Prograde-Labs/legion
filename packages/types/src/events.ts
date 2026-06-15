@@ -14,7 +14,7 @@ export interface LegionEventMap {
     participantId: string;
     tool: string;
     callId: string;
-    status: 'success' | 'error';
+    status: 'success' | 'error' | 'pending_approval' | 'rejected';
   };
   'approval:requested': { conversationId: string; participantId: string; tool: string; approvalId: string };
   'approval:resolved': { conversationId: string; approvalId: string; approved: boolean; decidedByParticipantId: string };
