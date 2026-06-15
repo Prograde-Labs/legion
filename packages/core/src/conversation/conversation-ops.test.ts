@@ -1,4 +1,4 @@
-import { createConversation, appendMessage, getActiveChain, editMessage } from './conversation-ops.js';
+import { createConversation, appendMessage, getActiveChain, editMessage, pruneMessage } from './conversation-ops.js';
 
 describe('conversation-ops: creation and active chain', () => {
   it('createConversation seeds an empty thread with no head', () => {
@@ -72,5 +72,43 @@ describe('conversation-ops: edit + re-run', () => {
   it('throws ConversationNotFoundError for a missing message', () => {
     const conv = createConversation();
     expect(() => editMessage(conv, 'nonexistent', 'x')).toThrow('nonexistent');
+  });
+});
+
+describe('conversation-ops: prune', () => {
+  it('marks the node pruned and rolls head back when pruning the head', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    const firstId = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
+    const headId = conv.activeBranchHead;
+
+    conv = pruneMessage(conv, headId, 'operator-1');
+
+    expect(conv.messages[headId].status).toBe('pruned');
+    expect(conv.messages[headId].prunedBy).toBe('operator-1');
+    expect(conv.messages[headId].prunedAt).toBeDefined();
+    expect(conv.activeBranchHead).toBe(firstId);
+    expect(getActiveChain(conv).map((m) => m.content)).toEqual(['one']);
+  });
+
+  it('excludes descendants of a pruned middle node from the chain', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    const midId = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
+    // Prune the middle node; head stays at 'two' but chain cannot route through pruned parent.
+    conv = pruneMessage(conv, midId, 'op');
+    expect(getActiveChain(conv).map((m) => m.content)).toEqual([]);
   });
 });

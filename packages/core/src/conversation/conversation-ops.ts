@@ -59,6 +59,10 @@ export function getActiveChain(conversation: ConversationData): MessageData[] {
   if (!conversation.activeBranchHead) return chain;
   let current: MessageData | undefined = conversation.messages[conversation.activeBranchHead];
   while (current) {
+    if (current.status !== 'active') {
+      // A non-active node in the line of ancestry invalidates this path.
+      return [];
+    }
     chain.unshift(current);
     current = current.parentId ? conversation.messages[current.parentId] : undefined;
   }
@@ -97,6 +101,35 @@ export function editMessage(
     ...conversation,
     updatedAt: nowIso(),
     activeBranchHead: edit.id,
+    messages,
+  };
+}
+
+export function pruneMessage(
+  conversation: ConversationData,
+  messageId: string,
+  prunedBy: string,
+): ConversationData {
+  const target = requireMessage(conversation, messageId);
+  const messages: Record<string, MessageData> = {
+    ...conversation.messages,
+    [target.id]: {
+      ...target,
+      status: 'pruned',
+      prunedAt: nowIso(),
+      prunedBy,
+    },
+  };
+
+  let head = conversation.activeBranchHead;
+  if (head === target.id) {
+    head = target.parentId ?? '';
+  }
+
+  return {
+    ...conversation,
+    updatedAt: nowIso(),
+    activeBranchHead: head,
     messages,
   };
 }
