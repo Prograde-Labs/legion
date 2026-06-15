@@ -1,5 +1,6 @@
 import type { ConversationData, MessageData } from '@legion/types';
 import { createConversationId, createId, nowIso } from '../util/ids.js';
+import { ConversationNotFoundError } from '../errors/LegionError.js';
 
 export function createConversation(title?: string): ConversationData {
   const now = nowIso();
@@ -62,4 +63,40 @@ export function getActiveChain(conversation: ConversationData): MessageData[] {
     current = current.parentId ? conversation.messages[current.parentId] : undefined;
   }
   return chain;
+}
+
+function requireMessage(conversation: ConversationData, messageId: string): MessageData {
+  const message = conversation.messages[messageId];
+  if (!message) {
+    throw new ConversationNotFoundError(`${conversation.id}#${messageId}`);
+  }
+  return message;
+}
+
+export function editMessage(
+  conversation: ConversationData,
+  messageId: string,
+  newContent: string,
+): ConversationData {
+  const original = requireMessage(conversation, messageId);
+  const edit = createMessage(conversation.id, original.parentId, {
+    senderId: original.senderId,
+    recipientId: original.recipientId,
+    role: original.role,
+    content: newContent,
+  });
+  edit.editOf = original.id;
+
+  const messages: Record<string, MessageData> = {
+    ...conversation.messages,
+    [original.id]: { ...original, status: 'superseded', supersededBy: edit.id },
+    [edit.id]: edit,
+  };
+
+  return {
+    ...conversation,
+    updatedAt: nowIso(),
+    activeBranchHead: edit.id,
+    messages,
+  };
 }

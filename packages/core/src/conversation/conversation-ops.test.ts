@@ -1,4 +1,4 @@
-import { createConversation, appendMessage, getActiveChain } from './conversation-ops.js';
+import { createConversation, appendMessage, getActiveChain, editMessage } from './conversation-ops.js';
 
 describe('conversation-ops: creation and active chain', () => {
   it('createConversation seeds an empty thread with no head', () => {
@@ -41,5 +41,31 @@ describe('conversation-ops: creation and active chain', () => {
     });
     const chain = getActiveChain(conv);
     expect(chain.map((m) => m.content)).toEqual(['one', 'two']);
+  });
+});
+
+describe('conversation-ops: edit + re-run', () => {
+  it('supersedes the original and links the edit to the same parent', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'orig' });
+    const originalId = conv.activeBranchHead;
+
+    conv = editMessage(conv, originalId, 'edited');
+    const editId = conv.activeBranchHead;
+
+    expect(conv.messages[originalId].status).toBe('superseded');
+    expect(conv.messages[originalId].supersededBy).toBe(editId);
+    expect(conv.messages[editId].editOf).toBe(originalId);
+    expect(conv.messages[editId].parentId).toBe(conv.messages[originalId].parentId);
+    expect(conv.messages[editId].content).toBe('edited');
+  });
+
+  it('excludes the superseded node from the active chain', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'orig' });
+    const originalId = conv.activeBranchHead;
+    conv = editMessage(conv, originalId, 'edited');
+    const chain = getActiveChain(conv);
+    expect(chain.map((m) => m.content)).toEqual(['edited']);
   });
 });
