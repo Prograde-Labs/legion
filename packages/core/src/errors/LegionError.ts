@@ -34,8 +34,11 @@ export class ConfigError extends LegionError {
 }
 
 export class ConversationNotFoundError extends LegionError {
-  constructor(conversationId: string) {
-    super(`Conversation not found: ${conversationId}`, 'CONVERSATION_NOT_FOUND');
+  constructor(conversationId: string, messageId?: string) {
+    const msg = messageId
+      ? `Conversation not found: ${conversationId}#${messageId}`
+      : `Conversation not found: ${conversationId}`;
+    super(msg, 'CONVERSATION_NOT_FOUND');
   }
 }
 

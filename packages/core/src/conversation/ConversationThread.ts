@@ -22,10 +22,8 @@ export class ConversationThread {
 
   async append(input: NewMessageInput): Promise<MessageData> {
     this.data = appendMessage(this.data, input);
-    const message = this.data.messages[this.data.activeBranchHead];
-    await this.store.appendMessage(this.data.id, message);
-    await this.store.updateHead(this.data.id, message.id);
-    return message;
+    await this.store.save(this.data);
+    return this.data.messages[this.data.activeBranchHead];
   }
 
   async reload(): Promise<void> {

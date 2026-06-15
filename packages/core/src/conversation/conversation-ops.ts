@@ -72,7 +72,7 @@ export function getActiveChain(conversation: ConversationData): MessageData[] {
 function requireMessage(conversation: ConversationData, messageId: string): MessageData {
   const message = conversation.messages[messageId];
   if (!message) {
-    throw new ConversationNotFoundError(`${conversation.id}#${messageId}`);
+    throw new ConversationNotFoundError(conversation.id, messageId);
   }
   return message;
 }
