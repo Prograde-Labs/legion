@@ -1,2 +1,8 @@
-<script setup lang="ts"></script>
-<template><div class="bg-navy-950 min-h-screen">ConversationsView</div></template>
+<script setup lang="ts">
+import AppLayout from '../components/layout/AppLayout.vue';
+</script>
+<template>
+  <AppLayout>
+    <div class="p-6">ConversationsView</div>
+  </AppLayout>
+</template>
