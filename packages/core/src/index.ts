@@ -35,3 +35,8 @@ export * from './service/LegionService.js';
 export * from './service/ServiceContextImpl.js';
 export * from './service/ServiceRuntime.js';
 export * from './service/ServiceManager.js';
+
+// MCP tool sources (spec §9)
+export type { ToolSource } from './tools/ToolSource.js';
+export { MCPToolSource } from './tools/MCPToolSource.js';
+export { loadMCPSources } from './tools/loadMCPSources.js';
