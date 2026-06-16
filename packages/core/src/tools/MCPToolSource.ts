@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig, JSONSchema } from '@legion/types';
 import { ConfigError } from '../errors/LegionError.js';
 import type { Tool, ToolContext } from './Tool.js';
 import type { ToolResult } from '@legion/types';
@@ -55,6 +55,8 @@ export class MCPToolSource implements ToolSource {
   }
 
   async load(): Promise<Tool[]> {
+    if (this.client) return [];
+
     const transport = this.createTransport();
     const client = new Client(
       { name: 'legion', version: '2.0.0' },
@@ -73,9 +75,9 @@ export class MCPToolSource implements ToolSource {
       const tool: Tool = {
         name: namespacedName,
         description: mcpTool.description ?? namespacedName,
-        parameters: (mcpTool.inputSchema ?? {
+        parameters: mcpTool.inputSchema ?? {
           type: 'object',
-        }) as import('@legion/types').JSONSchema,
+        } as JSONSchema,
         async execute(args: unknown, _context: ToolContext): Promise<ToolResult> {
           try {
             const response = (await client!.callTool({
