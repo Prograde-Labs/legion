@@ -34,6 +34,11 @@ export interface ServiceConfig extends BaseParticipant {
   config?: Record<string, unknown>;
   canReceive?: boolean;
   autoStart?: boolean;
+  /**
+   * Participant ID to notify when this service fails to start or crashes during onMessage.
+   * ServiceManager sends the error details as a message to this participant.
+   */
+  errorNotify?: string;
 }
 
 export interface UserConfig extends BaseParticipant {
