@@ -78,3 +78,37 @@ describe('EventBus', () => {
     expect(errors[0].err).toBe(boom);
   });
 });
+
+describe('EventBus: onAny', () => {
+  it('receives every named event', () => {
+    const bus = new EventBus();
+    const calls: [string, unknown][] = [];
+    bus.onAny((event, payload) => calls.push([event, payload]));
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    bus.emit('iteration', { conversationId: 'c', participantId: 'p', iteration: 1 });
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0]).toBe('process:ready');
+    expect(calls[1][0]).toBe('iteration');
+  });
+
+  it('offAny stops the handler from receiving further events', () => {
+    const bus = new EventBus();
+    let count = 0;
+    const off = bus.onAny(() => (count += 1));
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    off();
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(count).toBe(1);
+  });
+
+  it('onAny does not interfere with typed on() listeners', () => {
+    const bus = new EventBus();
+    let typed = 0;
+    let any = 0;
+    bus.on('process:ready', () => (typed += 1));
+    bus.onAny(() => (any += 1));
+    bus.emit('process:ready', { workspaceRoot: '/w' });
+    expect(typed).toBe(1);
+    expect(any).toBe(1);
+  });
+});

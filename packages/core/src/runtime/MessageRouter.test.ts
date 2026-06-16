@@ -292,3 +292,72 @@ describe('MessageRouter: resume()', () => {
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
   });
 });
+
+describe('MessageRouter: per-conversation locking', () => {
+  let dir: string;
+  beforeEach(async () => {
+    const { mkdtemp } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    dir = await mkdtemp(require('path').join(require('os').tmpdir(), 'legion-lock-'));
+  });
+  afterEach(async () => {
+    const { rm } = await import('node:fs/promises');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('serialises concurrent sends to the same conversation', async () => {
+    const { router, baseContext } = await setup(dir);
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'one',
+      context: baseContext,
+    });
+    const order: number[] = [];
+    const p1 = router
+      .send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'a',
+        conversationId: first.conversationId,
+        context: baseContext,
+      })
+      .then(() => {
+        order.push(1);
+      });
+    const p2 = router
+      .send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'b',
+        conversationId: first.conversationId,
+        context: baseContext,
+      })
+      .then(() => {
+        order.push(2);
+      });
+    await Promise.all([p1, p2]);
+    expect(order).toEqual([1, 2]);
+  });
+
+  it('does not block concurrent sends to different conversations', async () => {
+    const { router, baseContext } = await setup(dir);
+    const [r1, r2] = await Promise.all([
+      router.send({ senderId: 'op', recipientId: 'mock-1', message: 'a', context: baseContext }),
+      router.send({ senderId: 'op', recipientId: 'mock-1', message: 'b', context: baseContext }),
+    ]);
+    expect(r1.conversationId).not.toBe(r2.conversationId);
+    expect(r1.status).toBe('success');
+    expect(r2.status).toBe('success');
+  });
+
+  it('new conversations (no conversationId) bypass the lock', async () => {
+    const { router, baseContext } = await setup(dir);
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        router.send({ senderId: 'op', recipientId: 'mock-1', message: 'x', context: baseContext }),
+      ),
+    );
+    expect(new Set(results.map((r) => r.conversationId)).size).toBe(4);
+  });
+});

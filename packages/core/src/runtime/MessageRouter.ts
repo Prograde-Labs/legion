@@ -20,6 +20,7 @@ const DEFAULT_DEPTH_LIMIT = 10;
 
 export class MessageRouter implements MessageRouterPort {
   private background = new Set<Promise<void>>();
+  private locks = new Map<string, Promise<void>>();
 
   constructor(
     private store: ConversationStore,
@@ -31,6 +32,26 @@ export class MessageRouter implements MessageRouterPort {
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
   async drain(): Promise<void> {
     await Promise.all([...this.background]);
+  }
+
+  private withLock<T>(conversationId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(conversationId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((res) => {
+      release = res;
+    });
+    this.locks.set(conversationId, prev.then(() => next));
+    return prev.then(async () => {
+      try {
+        return await fn();
+      } finally {
+        release();
+        // Best-effort cleanup: remove if no one else queued after us.
+        if (this.locks.get(conversationId) === prev.then(() => next)) {
+          this.locks.delete(conversationId);
+        }
+      }
+    });
   }
 
   private async getThread(conversationId?: string): Promise<ConversationThread> {
@@ -85,6 +106,13 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   async send(opts: SendOptions): Promise<MessageRouterResult> {
+    if (opts.conversationId) {
+      return this.withLock(opts.conversationId, () => this.sendInner(opts));
+    }
+    return this.sendInner(opts);
+  }
+
+  private async sendInner(opts: SendOptions): Promise<MessageRouterResult> {
     const recipient = this.collective.get(opts.recipientId);
     if (!recipient) {
       return {
