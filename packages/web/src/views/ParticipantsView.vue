@@ -5,6 +5,7 @@ import AppLayout from '../components/layout/AppLayout.vue';
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
 import { useEventStream } from '../composables/useEventStream.js';
 import { useExecute } from '../composables/useExecute.js';
+import StatusDot from '../components/common/StatusDot.vue';
 
 const { execute } = useExecute();
 const { subscribe } = useEventStream();
@@ -94,6 +95,7 @@ function openEdit(id: string) {
             </div>
           </td>
           <td class="px-4 py-2.5 text-slate-100 font-medium">{{ p.name }}</td>
+          <!-- BaseParticipant doesn't include model/providerId; using any for these runtime fields -->
           <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).model ?? '—' }}</td>
           <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).providerId ?? '—' }}</td>
           <td class="px-4 py-2.5 text-right">
@@ -119,7 +121,3 @@ function openEdit(id: string) {
     />
   </AppLayout>
 </template>
-
-<script>
-import StatusDot from '../components/common/StatusDot.vue';
-</script>

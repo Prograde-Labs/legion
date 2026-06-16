@@ -15,10 +15,11 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'update:defaultPolicy': [value: string];
+  'update:defaultPolicy': [value: 'allow' | 'require-approval' | 'deny'];
   'update:overrides': [value: ToolOverride[]];
 }>();
 
+const addingTool = ref('');
 const policies = ['allow', 'require-approval', 'deny'] as const;
 
 function toggleEnabled(index: number) {
@@ -57,8 +58,6 @@ const grouped = computed(() => {
   }
   return map;
 });
-
-const addingTool = ref('');
 </script>
 
 <template>
