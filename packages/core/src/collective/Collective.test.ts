@@ -2,6 +2,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from './Collective.js';
 import type { AgentConfig, UserConfig } from '@legion/types';
 import { ConflictError, InvariantError } from '../errors/LegionError.js';
+import { EventBus } from '../events/EventBus.js';
 
 function seedStorage() {
   const storage = new MemoryStorage();
@@ -158,5 +159,26 @@ describe('Collective: seedDefaultsIfEmpty', () => {
     await storage.writeJson('collective/participants/op-1.json', operator);
     const collective = await Collective.load(storage);
     expect(await collective.seedDefaultsIfEmpty()).toEqual([]);
+  });
+});
+
+describe('Collective: participant events', () => {
+  it('emits participant:active when seed() registers a participant', async () => {
+    const bus = new EventBus();
+    const collective = new Collective(bus);
+    const seen: string[] = [];
+    bus.on('participant:active', (p) => seen.push(p.participantId));
+    await collective.seed([{ id: 'p1', name: 'alpha', type: 'agent', status: 'active' }]);
+    expect(seen).toEqual(['p1']);
+  });
+
+  it('emits participant:retired when retire() is called', async () => {
+    const bus = new EventBus();
+    const collective = new Collective(bus);
+    await collective.seed([{ id: 'p1', name: 'alpha', type: 'agent', status: 'active' }]);
+    const seen: string[] = [];
+    bus.on('participant:retired', (p) => seen.push(p.participantId));
+    await collective.retire('p1');
+    expect(seen).toEqual(['p1']);
   });
 });

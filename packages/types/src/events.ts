@@ -28,6 +28,8 @@ export interface LegionEventMap {
     approved: boolean;
     decidedByParticipantId: string;
   };
+  'participant:active': { participantId: string };
+  'participant:retired': { participantId: string };
   iteration: { conversationId: string; participantId: string; iteration: number };
   error: { conversationId?: string; error: { name: string; message: string } };
 }

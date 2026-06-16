@@ -39,7 +39,18 @@ export const createAgentTool: Tool = {
       status: 'active',
     };
     try {
-      await requireCollective(context).add(config);
+      const collective = requireCollective(context);
+      await collective.add(config);
+      const agentStorage = collective.storageForWriting;
+      if (agentStorage) {
+        await agentStorage.writeJson(`agents/${id}.json`, {
+          name: id,
+          model: typeof model === 'string' ? model : (model as { model?: string }).model ?? 'gpt-4o',
+          systemPrompt: systemPrompt ?? '',
+          maxIterations: 20,
+          providerId: typeof model === 'string' ? 'default' : ((model as { provider?: string }).provider ?? 'default'),
+        });
+      }
       return { status: 'success', data: { id } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };

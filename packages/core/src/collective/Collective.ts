@@ -2,17 +2,32 @@ import type { Storage } from '../storage/Storage.js';
 import type { ParticipantConfig } from '@legion/types';
 import { ConflictError, InvariantError, ParticipantNotFoundError } from '../errors/LegionError.js';
 import { createDefaultParticipants } from './default-participants.js';
+import { EventBus } from '../events/EventBus.js';
 
 const PARTICIPANTS_PREFIX = 'collective/participants';
 
 export class Collective {
   private participants = new Map<string, ParticipantConfig>();
 
-  private constructor(
-    private storage: Storage,
-    participants: ParticipantConfig[],
+  constructor(eventBus: EventBus);
+  constructor(storage: Storage, participants: ParticipantConfig[]);
+  constructor(
+    storageOrEventBus: Storage | EventBus,
+    participants?: ParticipantConfig[],
   ) {
-    for (const p of participants) this.participants.set(p.id, p);
+    if (storageOrEventBus instanceof EventBus) {
+      this.eventBus = storageOrEventBus;
+    } else {
+      this.storage = storageOrEventBus;
+      for (const p of participants!) this.participants.set(p.id, p);
+    }
+  }
+
+  private eventBus?: EventBus;
+  private storage?: Storage;
+
+  get storageForWriting(): Storage | undefined {
+    return this.storage;
   }
 
   static async load(storage: Storage): Promise<Collective> {
@@ -56,6 +71,7 @@ export class Collective {
   }
 
   private async persist(config: ParticipantConfig): Promise<void> {
+    if (!this.storage) return;
     await this.storage.writeJson(`${PARTICIPANTS_PREFIX}/${config.id}.json`, config);
   }
 
@@ -95,6 +111,22 @@ export class Collective {
     const updated = { ...existing, status: 'retired' as const };
     this.participants.set(id, updated);
     await this.persist(updated);
+    this.eventBus?.emit('participant:retired', { participantId: id });
+  }
+
+  async seed(participants: ParticipantConfig[]): Promise<void> {
+    for (const p of participants) {
+      const withStatus: ParticipantConfig = { status: 'active', ...p };
+      this.participants.set(withStatus.id, withStatus);
+      await this.persist(withStatus);
+      this.eventBus?.emit('participant:active', { participantId: withStatus.id });
+    }
+  }
+
+  modify(id: string, updates: { name?: string }): ParticipantConfig {
+    const p = this.getOrThrow(id);
+    if (updates.name !== undefined) p.name = updates.name;
+    return p;
   }
 
   async seedDefaultsIfEmpty(): Promise<string[]> {

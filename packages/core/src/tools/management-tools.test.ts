@@ -144,4 +144,31 @@ describe('management tools', () => {
     );
     expect(result.status).toBe('error');
   });
+
+  it('create_agent writes agent config to storage', async () => {
+    const storage = new MemoryStorage();
+    const collective = await Collective.load(storage);
+    await collective.seedDefaultsIfEmpty();
+    const conversationStore = new FileConversationStore(storage);
+    const context = {
+      participant: collective.getOrThrow('operator'),
+      collective,
+      conversationStore,
+      workspaceRoot: '/tmp',
+    } as unknown as ToolContext;
+    await createAgentTool.execute(
+      {
+        id: 'bot-1',
+        name: 'bot-1',
+        model: { provider: 'openai', model: 'gpt-4o' },
+        systemPrompt: '',
+        tools: {},
+      },
+      context,
+    );
+    const ids = await storage.list('agents/');
+    expect(ids.length).toBe(1);
+    const config = await storage.readJson<{ model: string }>(`agents/${ids[0]}`);
+    expect(config?.model).toBe('gpt-4o');
+  });
 });
