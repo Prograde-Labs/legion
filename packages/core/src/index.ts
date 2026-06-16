@@ -31,3 +31,7 @@ export * from './providers/ProviderRegistry.js';
 export * from './providers/OpenAICompatibleProvider.js';
 export * from './runtime/AgentRuntime.js';
 export * from './tools/approval-response-tool.js';
+export * from './service/LegionService.js';
+export * from './service/ServiceContextImpl.js';
+export * from './service/ServiceRuntime.js';
+export * from './service/ServiceManager.js';
