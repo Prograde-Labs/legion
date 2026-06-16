@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import websocketPlugin from '@fastify/websocket';
 import staticPlugin from '@fastify/static';
-import type { WebSocket } from 'ws';
+import { WebSocket } from 'ws';
 import type { Connector, ConnectorContext } from '@legion/core';
 import type {
   Collective,
@@ -104,16 +104,20 @@ export class WebConnector implements Connector {
     if (!sockets?.size) return;
     const payload = JSON.stringify({ type: 'message', data: message });
     for (const socket of sockets) {
-      if ((socket as any).readyState === 1 /* OPEN */) {
-        socket.send(payload);
+      try {
+        if ((socket as any).readyState === WebSocket.OPEN) {
+          socket.send(payload);
+        }
+      } catch {
+        // socket may have been closed between check and send
       }
     }
   }
 
   async stop(): Promise<void> {
+    this.connections.clear();
     await this.app?.close();
     this.app = undefined;
-    this.connections.clear();
   }
 
   // ── WebSocket handler ────────────────────────────────────────────────────────
@@ -148,6 +152,7 @@ export class WebConnector implements Connector {
         }
         verifyToken(token, this.jwtSecret)
           .then(({ participantId: pid }) => {
+            if (socket.readyState !== WebSocket.OPEN) return;
             clearTimeout(authTimer);
             participantId = pid;
 
