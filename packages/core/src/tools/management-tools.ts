@@ -190,24 +190,28 @@ export const modifyAgentTool: Tool = {
     },
     required: ['id'],
   },
-  async execute(rawArgs: unknown, context: ToolContext): Promise<unknown> {
+  async execute(rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
     const args = rawArgs as Partial<AgentConfig> & { id: string };
-    const collective = requireCollective(context);
-    const participant = collective.getOrThrow(args.id);
-    const storage = collective.storageForWriting;
-    if (!storage) throw new Error('Storage unavailable');
-    const existing = await storage.readJson<AgentConfig>(`agents/${args.id}.json`);
-    if (!existing) throw new Error(`Agent config not found for ${args.id}`);
-    const updated: AgentConfig = {
-      name: args.name ?? existing.name,
-      model: args.model ?? existing.model,
-      systemPrompt: args.systemPrompt ?? existing.systemPrompt,
-      maxIterations: args.maxIterations ?? existing.maxIterations,
-      providerId: args.providerId ?? existing.providerId,
-    };
-    if (args.name !== undefined) collective.modify(args.id, { name: args.name });
-    await storage.writeJson(`agents/${args.id}.json`, updated);
-    return collective.getOrThrow(args.id);
+    try {
+      const collective = requireCollective(context);
+      const participant = collective.getOrThrow(args.id);
+      const storage = collective.storageForWriting;
+      if (!storage) return { status: 'error', error: 'Storage unavailable' };
+      const existing = await storage.readJson<AgentConfig>(`agents/${args.id}.json`);
+      if (!existing) return { status: 'error', error: `Agent config not found for ${args.id}`, details: {} };
+      const updated: AgentConfig = {
+        name: args.name ?? existing.name,
+        model: args.model ?? existing.model,
+        systemPrompt: args.systemPrompt ?? existing.systemPrompt,
+        maxIterations: args.maxIterations ?? existing.maxIterations,
+        providerId: args.providerId ?? existing.providerId,
+      };
+      if (args.name !== undefined) collective.modify(args.id, { name: args.name });
+      await storage.writeJson(`agents/${args.id}.json`, updated);
+      return { status: 'success', data: collective.getOrThrow(args.id) };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
   },
 };
 
@@ -215,10 +219,10 @@ export const listToolsTool: Tool = {
   name: 'list_tools',
   description: 'List all tool names registered in the ToolRegistry.',
   parameters: { type: 'object', properties: {}, required: [] },
-  async execute(_rawArgs: unknown, context: ToolContext): Promise<unknown> {
+  async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
     const toolRegistry = (context as any).toolRegistry;
-    if (!toolRegistry) throw new Error('toolRegistry unavailable');
-    return toolRegistry.listAll();
+    if (!toolRegistry) return { status: 'error', error: 'toolRegistry unavailable' };
+    return { status: 'success', data: toolRegistry.listAll() };
   },
 };
 
@@ -226,14 +230,14 @@ export const listConversationsTool: Tool = {
   name: 'list_conversations',
   description: 'List conversation summaries.',
   parameters: { type: 'object', properties: {}, required: [] },
-  async execute(_rawArgs: unknown, context: ToolContext): Promise<unknown> {
+  async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
     const storage = (context as any).storage;
-    if (!storage) throw new Error('storage unavailable');
+    if (!storage) return { status: 'error', error: 'storage unavailable' };
     const keys = await storage.list('conversations/');
     const summaries = await Promise.all(
       keys.map((k) => storage.readJson<ConversationSummary>(`conversations/${k}`)),
     );
-    return summaries.filter(Boolean);
+    return { status: 'success', data: summaries.filter(Boolean) };
   },
 };
 
@@ -248,3 +252,26 @@ export const managementTools: Tool[] = [
   listToolsTool,
   listConversationsTool,
 ];
+
+export function createManagementTools(deps: {
+  collective: Collective;
+  storage: Storage;
+  toolRegistry: ToolRegistryLike;
+  credentialStore?: CredentialStore;
+  conversationStore?: ConversationStore;
+}): Tool[] {
+  const context = {
+    participant: { id: 'operator', name: 'operator', type: 'operator' } as any,
+    collective: deps.collective,
+    storage: deps.storage,
+    toolRegistry: deps.toolRegistry,
+    credentialStore: deps.credentialStore,
+    conversationStore: deps.conversationStore,
+    workspaceRoot: '/tmp',
+  } as unknown as ToolContext;
+
+  return managementTools.map((tool) => ({
+    ...tool,
+    execute: (args: unknown) => tool.execute(args, context),
+  }));
+}

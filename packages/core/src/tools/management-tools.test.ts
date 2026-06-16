@@ -268,21 +268,25 @@ describe('modify_agent', () => {
     )) as { status: string; data: { id: string } };
     const { id } = createResult.data;
     const updated = (await invokeManagementTool('modify_agent', { id, name: 'renamed' }, deps)) as {
-      name: string;
+      status: string;
+      data: { name: string };
     };
-    expect(updated.name).toBe('renamed');
+    expect(updated.status).toBe('success');
+    expect(updated.data.name).toBe('renamed');
   });
 
-  it('throws if participant id not found', async () => {
+  it('returns error status if participant id not found', async () => {
     const deps = await buildTestDeps({});
-    await expect(invokeManagementTool('modify_agent', { id: 'no-such' }, deps)).rejects.toThrow();
+    const result = await invokeManagementTool('modify_agent', { id: 'no-such' }, deps);
+    expect((result as { status: string }).status).toBe('error');
   });
 });
 
 describe('list_tools', () => {
   it('returns registered tool names', async () => {
     const deps = await buildTestDeps({});
-    const tools = (await invokeManagementTool('list_tools', {}, deps)) as string[];
+    const result = await invokeManagementTool('list_tools', {}, deps);
+    const tools = (result as { status: string; data: string[] }).data;
     expect(Array.isArray(tools)).toBe(true);
     expect(tools).toContain('list_tools');
   });
@@ -292,8 +296,8 @@ describe('list_conversations', () => {
   it('returns empty array when no conversations exist', async () => {
     const storage = new MemoryStorage();
     const deps = await buildTestDeps({ storage });
-    const result = (await invokeManagementTool('list_conversations', {}, deps)) as unknown[];
-    expect(result).toEqual([]);
+    const result = await invokeManagementTool('list_conversations', {}, deps);
+    expect((result as { status: string; data: unknown[] }).data).toEqual([]);
   });
 
   it('returns summaries for stored conversations', async () => {
@@ -307,7 +311,7 @@ describe('list_conversations', () => {
       updatedAt: 2000,
     });
     const deps = await buildTestDeps({ storage });
-    const result = (await invokeManagementTool('list_conversations', {}, deps)) as { id: string }[];
-    expect(result[0]?.id).toBe('conv-1');
+    const result = await invokeManagementTool('list_conversations', {}, deps);
+    expect((result as { status: string; data: { id: string }[] }).data[0]?.id).toBe('conv-1');
   });
 });
