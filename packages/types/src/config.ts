@@ -47,8 +47,18 @@ export interface StorageConfig {
 }
 
 export interface ProviderConfig {
+  name: string;
+  type: 'openai-compatible' | 'anthropic' | 'copilot' | 'codex';
   baseUrl?: string;
-  apiKeyEnv?: string;
+  defaultModel: string;
+  credentialKey?: string;
+}
+
+export interface CredentialInfo {
+  key: string;
+  maskedValue: string;
+  usedBy: string[];
+  updatedAt: number;
 }
 
 export interface LoggingConfig {

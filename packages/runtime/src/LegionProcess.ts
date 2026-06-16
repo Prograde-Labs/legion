@@ -35,6 +35,7 @@ import {
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
 import { WebConnector } from './server/WebConnector.js';
+import { createRuntimeTools } from './server/runtime-tools.js';
 
 /** The assembled Legion runtime. Returned by `LegionProcess.start()`. */
 export class LegionProcess {
@@ -98,6 +99,10 @@ export class LegionProcess {
     toolRegistry.register(communicateTool);
     toolRegistry.register(approvalResponseTool);
     for (const tool of managementTools) {
+      toolRegistry.register(tool);
+    }
+    const runtimeTools = createRuntimeTools({ storage, credStore: credentials });
+    for (const tool of runtimeTools) {
       toolRegistry.register(tool);
     }
 
