@@ -167,7 +167,7 @@ export class WebConnector implements Connector {
 
             // Bridge EventBus events
             const handler = (event: string, payload: unknown) => {
-              if ((socket as any).readyState === 1) {
+              if (socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ type: 'event', event, data: payload }));
               }
             };
