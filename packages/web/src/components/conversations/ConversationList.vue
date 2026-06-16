@@ -35,6 +35,6 @@ function ago(ts: number) {
     </div>
   </div>
 </template>
-<script>
+<script lang="ts">
 import StatusDot from '../common/StatusDot.vue';
 </script>

@@ -12,15 +12,15 @@ const { subscribe } = useEventStream();
 const messages = ref<MessageEntry[]>([]);
 const isLive = ref(false);
 
-const authorColours: Record<string, string> = {};
-const palette = ['#22d3ee', '#f59e0b', '#a78bfa', '#4ade80', '#f87171'];
-let colourIdx = 0;
-function colourFor(author: string) {
-  if (!authorColours[author]) authorColours[author] = palette[colourIdx++ % palette.length]!;
-  return authorColours[author]!;
-}
-
 async function load(id: string) {
+  const authorColours: Record<string, string> = {};
+  const palette = ['#22d3ee', '#f59e0b', '#a78bfa', '#4ade80', '#f87171'];
+  let colourIdx = 0;
+  function colourFor(author: string) {
+    if (!authorColours[author]) authorColours[author] = palette[colourIdx++ % palette.length]!;
+    return authorColours[author]!;
+  }
+
   const data = await execute<{ messages: any[] }>('get_conversation', { id });
   messages.value = (data.messages ?? []).map((m: any) => ({
     id: m.id,
@@ -38,21 +38,24 @@ async function load(id: string) {
   }));
 }
 
+let off: (() => void) | null = null;
+
 watch(
   () => props.conversationId,
   async (id) => {
     if (!id) return;
     await load(id);
     isLive.value = true;
+    if (off) off();
+    off = subscribe((evt) => {
+      if (evt.event === 'message:sent' && (evt.data as any).conversationId === props.conversationId) {
+        if (props.conversationId) load(props.conversationId);
+      }
+    });
   },
 );
 
-const off = subscribe((evt) => {
-  if (evt.event === 'message:sent' && (evt.data as any).conversationId === props.conversationId) {
-    if (props.conversationId) load(props.conversationId);
-  }
-});
-onUnmounted(() => off());
+onUnmounted(() => off?.());
 </script>
 
 <template>
@@ -73,6 +76,6 @@ onUnmounted(() => off());
     <p class="text-navy-500 text-sm">Select a conversation</p>
   </div>
 </template>
-<script>
+<script lang="ts">
 import StatusDot from '../common/StatusDot.vue';
 </script>
