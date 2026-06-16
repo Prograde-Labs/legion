@@ -73,5 +73,5 @@ export interface Tool {
   name: string;
   description: string;
   parameters: JSONSchema;
-  execute(args: unknown, context: ToolContext): Promise<ToolResult>;
+  execute(args: unknown, context: ToolContext): Promise<unknown>;
 }

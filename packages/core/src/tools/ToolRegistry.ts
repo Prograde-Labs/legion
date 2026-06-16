@@ -38,7 +38,7 @@ export class ToolRegistry implements ToolRegistryLike {
       return { status: 'error', error: new ToolNotFoundError(name).message };
     }
     try {
-      return await tool.execute(args, context);
+      return await tool.execute(args, context) as ToolResult;
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }

@@ -62,3 +62,22 @@ describe('list_credentials', () => {
     expect(result[0]?.key).toBe('OPENAI_API_KEY');
   });
 });
+
+describe('set_credential_with_meta', () => {
+  it('sets credential and writes metadata', async () => {
+    const storage = new MemoryStorage();
+    let storedValue = '';
+    const credStore = {
+      set: async (key: string, value: string) => { storedValue = value; },
+      list: async () => [] as string[],
+    };
+    const tools = createRuntimeTools({ storage, credStore });
+    const tool = tools.find((t) => t.name === 'set_credential_with_meta')!;
+    const result = await tool.execute({ key: 'TEST_KEY', value: 'secret1234', usedBy: ['openai'] });
+    expect(result).toEqual({ key: 'TEST_KEY' });
+    expect(storedValue).toBe('secret1234');
+    const meta = await storage.readJson<{ maskedValue: string; usedBy: string[] }>('credential-meta/TEST_KEY.json');
+    expect(meta?.maskedValue).toBe('••••1234');
+    expect(meta?.usedBy).toEqual(['openai']);
+  });
+});

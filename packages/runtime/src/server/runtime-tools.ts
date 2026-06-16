@@ -1,5 +1,5 @@
 import type { CredentialInfo, ProviderConfig } from '@legion/types';
-import type { Storage, Tool, ToolContext, ToolResult } from '@legion/core';
+import type { Storage, Tool, ToolContext } from '@legion/core';
 
 interface RuntimeToolDeps {
   storage: Storage;
@@ -14,10 +14,10 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       name: 'list_providers',
       description: 'List all configured LLM provider instances.',
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: async (): Promise<ToolResult> => {
+      execute: async () => {
         const keys = await storage.list('providers/');
         const configs = await Promise.all(keys.map((k) => storage.readJson<ProviderConfig>(`providers/${k}`)));
-        return configs.filter(Boolean) as unknown as ToolResult;
+        return configs.filter(Boolean);
       },
     },
 
@@ -35,10 +35,10 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         },
         required: ['name', 'type', 'defaultModel'],
       },
-      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+      execute: async (rawArgs: unknown) => {
         const args = rawArgs as ProviderConfig;
         await storage.writeJson(`providers/${args.name}.json`, args);
-        return args as unknown as ToolResult;
+        return args;
       },
     },
 
@@ -46,10 +46,10 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       name: 'list_credentials',
       description: 'List credential key names and metadata. Values are never returned.',
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: async (): Promise<ToolResult> => {
+      execute: async () => {
         const keys = await storage.list('credential-meta/');
         const infos = await Promise.all(keys.map((k) => storage.readJson<CredentialInfo>(`credential-meta/${k}`)));
-        return infos.filter(Boolean) as unknown as ToolResult;
+        return infos.filter(Boolean);
       },
     },
 
@@ -65,7 +65,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         },
         required: ['key', 'value'],
       },
-      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+      execute: async (rawArgs: unknown) => {
         const args = rawArgs as { key: string; value: string; usedBy?: string[] };
         await credStore.set(args.key, args.value);
         const masked = '••••' + args.value.slice(-4);
@@ -75,8 +75,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           usedBy: args.usedBy ?? [],
           updatedAt: Date.now(),
         } satisfies CredentialInfo);
-        return { key: args.key } as unknown as ToolResult;
+        return { key: args.key };
       },
     },
-  ];
+  ] satisfies Tool[];
 }
