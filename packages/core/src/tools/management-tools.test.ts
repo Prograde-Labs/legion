@@ -9,8 +9,12 @@ import {
   getConversationTool,
   setToolPolicyTool,
   setCredentialTool,
+  managementTools,
 } from './management-tools.js';
 import type { ToolContext } from './Tool.js';
+import { ToolRegistry } from './ToolRegistry.js';
+import { ProviderRegistry } from '../providers/ProviderRegistry.js';
+import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';
 
 async function makeContext() {
   const storage = new MemoryStorage();
@@ -24,6 +28,50 @@ async function makeContext() {
     workspaceRoot: '/tmp',
   } as unknown as ToolContext;
   return { context, collective, conversationStore };
+}
+
+interface TestDeps {
+  storage: MemoryStorage;
+  collective: Collective;
+  toolRegistry: ToolRegistry;
+  providerRegistry: ProviderRegistry;
+  runtimeRegistry: RuntimeRegistry;
+}
+
+async function buildTestDeps(options: { storage?: MemoryStorage } = {}) {
+  const storage = options.storage ?? new MemoryStorage();
+  const collective = await Collective.load(storage);
+  await collective.seedDefaultsIfEmpty();
+  const toolRegistry = new ToolRegistry();
+  for (const tool of managementTools) {
+    toolRegistry.register(tool);
+  }
+  return {
+    storage,
+    collective,
+    toolRegistry,
+    providerRegistry: new ProviderRegistry(),
+    runtimeRegistry: new RuntimeRegistry(),
+  };
+}
+
+async function invokeManagementTool(
+  name: string,
+  args: unknown,
+  deps: TestDeps,
+): Promise<unknown> {
+  const tool = deps.toolRegistry.get(name);
+  if (!tool) throw new Error(`Tool not found: ${name}`);
+  const context = {
+    participant: deps.collective.getOrThrow('operator'),
+    collective: deps.collective,
+    workspaceRoot: '/tmp',
+    storage: deps.storage,
+    toolRegistry: deps.toolRegistry,
+    providerRegistry: deps.providerRegistry,
+    runtimeRegistry: deps.runtimeRegistry,
+  } as unknown as ToolContext;
+  return await tool.execute(args, context);
 }
 
 describe('management tools', () => {
@@ -170,5 +218,96 @@ describe('management tools', () => {
     expect(ids.length).toBe(1);
     const config = await storage.readJson<{ model: string }>(`agents/${ids[0]}`);
     expect(config?.model).toBe('gpt-4o');
+  });
+});
+
+describe('modify_agent', () => {
+  it('updates model and systemPrompt in storage', async () => {
+    const storage = new MemoryStorage();
+    const deps = await buildTestDeps({ storage });
+    const createResult = (await invokeManagementTool(
+      'create_agent',
+      {
+        id: 'bot-1',
+        name: 'bot-1',
+        model: { provider: 'openai', model: 'gpt-4o' },
+        systemPrompt: '',
+        tools: {},
+      },
+      deps,
+    )) as { status: string; data: { id: string } };
+    const { id } = createResult.data;
+    await invokeManagementTool(
+      'modify_agent',
+      {
+        id,
+        model: 'gpt-4o-mini',
+        systemPrompt: 'Be concise.',
+      },
+      deps,
+    );
+    const config = await storage.readJson<{ model: string; systemPrompt: string }>(
+      `agents/${id}.json`,
+    );
+    expect(config?.model).toBe('gpt-4o-mini');
+    expect(config?.systemPrompt).toBe('Be concise.');
+  });
+
+  it('updates name in Collective', async () => {
+    const deps = await buildTestDeps({});
+    const createResult = (await invokeManagementTool(
+      'create_agent',
+      {
+        id: 'bot-2',
+        name: 'bot-1',
+        model: { provider: 'openai', model: 'gpt-4o' },
+        systemPrompt: '',
+        tools: {},
+      },
+      deps,
+    )) as { status: string; data: { id: string } };
+    const { id } = createResult.data;
+    const updated = (await invokeManagementTool('modify_agent', { id, name: 'renamed' }, deps)) as {
+      name: string;
+    };
+    expect(updated.name).toBe('renamed');
+  });
+
+  it('throws if participant id not found', async () => {
+    const deps = await buildTestDeps({});
+    await expect(invokeManagementTool('modify_agent', { id: 'no-such' }, deps)).rejects.toThrow();
+  });
+});
+
+describe('list_tools', () => {
+  it('returns registered tool names', async () => {
+    const deps = await buildTestDeps({});
+    const tools = (await invokeManagementTool('list_tools', {}, deps)) as string[];
+    expect(Array.isArray(tools)).toBe(true);
+    expect(tools).toContain('list_tools');
+  });
+});
+
+describe('list_conversations', () => {
+  it('returns empty array when no conversations exist', async () => {
+    const storage = new MemoryStorage();
+    const deps = await buildTestDeps({ storage });
+    const result = (await invokeManagementTool('list_conversations', {}, deps)) as unknown[];
+    expect(result).toEqual([]);
+  });
+
+  it('returns summaries for stored conversations', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('conversations/conv-1.json', {
+      id: 'conv-1',
+      participantIds: ['a', 'b'],
+      status: 'active',
+      messageCount: 3,
+      createdAt: 1000,
+      updatedAt: 2000,
+    });
+    const deps = await buildTestDeps({ storage });
+    const result = (await invokeManagementTool('list_conversations', {}, deps)) as { id: string }[];
+    expect(result[0]?.id).toBe('conv-1');
   });
 });

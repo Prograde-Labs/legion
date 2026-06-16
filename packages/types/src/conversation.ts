@@ -50,3 +50,12 @@ export interface ConversationFilter {
   participantId?: string;
   since?: string;
 }
+
+export interface ConversationSummary {
+  id: string;
+  participantIds: string[];
+  status: 'active' | 'completed';
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+}

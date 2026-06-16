@@ -28,6 +28,10 @@ export class ToolRegistry implements ToolRegistryLike {
     return [...this.tools.values()];
   }
 
+  listAll(): string[] {
+    return [...this.tools.keys()];
+  }
+
   async execute(name: string, args: unknown, context: ToolContext): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {

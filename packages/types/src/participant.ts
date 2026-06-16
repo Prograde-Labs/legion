@@ -21,11 +21,12 @@ export interface BaseParticipant {
   protected?: boolean;
 }
 
-export interface AgentConfig extends BaseParticipant {
-  type: 'agent';
+export interface AgentConfig {
+  name: string;
+  model: string;
   systemPrompt: string;
-  model: ModelConfig;
-  runtimeConfig?: Partial<RuntimeConfig>;
+  maxIterations: number;
+  providerId: string;
 }
 
 export interface ServiceConfig extends BaseParticipant {
