@@ -20,13 +20,20 @@ export async function loadMCPSources(
 ): Promise<ToolSource[]> {
   const sources: ToolSource[] = [];
 
-  for (const config of configs) {
-    const source = new MCPToolSource(config);
-    const tools = await source.load();
-    for (const tool of tools) {
-      registry.register(tool); // throws ConflictError on duplicate name
+  try {
+    for (const config of configs) {
+      const source = new MCPToolSource(config);
+      const tools = await source.load();
+      for (const tool of tools) {
+        registry.register(tool); // throws ConflictError on duplicate name
+      }
+      sources.push(source);
     }
-    sources.push(source);
+  } catch (e) {
+    for (const source of sources) {
+      await source.unload?.();
+    }
+    throw e;
   }
 
   return sources;
