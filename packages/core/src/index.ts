@@ -40,3 +40,4 @@ export * from './service/ServiceManager.js';
 export type { ToolSource } from './tools/ToolSource.js';
 export { MCPToolSource } from './tools/MCPToolSource.js';
 export { loadMCPSources } from './tools/loadMCPSources.js';
+export * from './connectors/index.js';
