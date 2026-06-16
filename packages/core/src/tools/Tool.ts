@@ -65,6 +65,7 @@ export interface ToolRegistryLike {
   get(name: string): Tool | undefined;
   has(name: string): boolean;
   list(): Tool[];
+  listAll(): string[];
   execute(name: string, args: unknown, context: ToolContext): Promise<ToolResult>;
 }
 

@@ -220,7 +220,7 @@ export const listToolsTool: Tool = {
   description: 'List all tool names registered in the ToolRegistry.',
   parameters: { type: 'object', properties: {}, required: [] },
   async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
-    const toolRegistry = (context as any).toolRegistry;
+    const toolRegistry = (context as ToolContext).toolRegistry;
     if (!toolRegistry) return { status: 'error', error: 'toolRegistry unavailable' };
     return { status: 'success', data: toolRegistry.listAll() };
   },
