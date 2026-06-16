@@ -13,10 +13,21 @@ export interface RuntimeConfig {
 }
 
 export interface MCPServerConfig {
+  /** Unique name for this MCP server; used in tool namespace: `mcp__<name>__<tool>`. */
   name: string;
-  command: string;
+  /** Stdio transport: path or name of the executable to spawn. Mutually exclusive with `url`. */
+  command?: string;
+  /** Stdio transport: arguments passed to the spawned process. */
   args?: string[];
+  /**
+   * Stdio transport: additional environment variables for the child process.
+   * Values may contain `${VAR}` placeholders that are expanded from `process.env` at load time.
+   */
   env?: Record<string, string>;
+  /** HTTP/SSE transport: base URL of the MCP server (e.g. `http://localhost:3000/mcp`). */
+  url?: string;
+  /** HTTP/SSE transport: additional HTTP headers (e.g. for auth). */
+  headers?: Record<string, string>;
 }
 
 export interface ServerConfig {
