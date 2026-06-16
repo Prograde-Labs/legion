@@ -1,5 +1,5 @@
 import type { ToolPolicy, ApprovalAuthority } from './tool.js';
-import type { ModelConfig, RuntimeConfig } from './config.js';
+
 
 export type ParticipantType = 'agent' | 'service' | 'user' | 'mock';
 export type ParticipantStatus = 'active' | 'retired';
