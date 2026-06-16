@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/types" },
     { "path": "packages/core" },
-    { "path": "packages/runtime" }
+    { "path": "packages/runtime" },
+    { "path": "packages/web" }
   ]
 }
