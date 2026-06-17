@@ -48,7 +48,7 @@ test.describe('Config — Credentials tab', () => {
     await page.locator('div:has(label:text-is("New value")) input[type="password"]').fill('new-super-secret');
     await page.getByRole('button', { name: 'Save' }).click();
 
-    await expect(page.getByText('Rotate credential')).not.toBeVisible();
+    await expect(page.getByText('Rotate credential', { exact: true })).not.toBeVisible();
     // Row still exists after rotate
     await expect(page.getByRole('row').filter({ hasText: 'ui-test-key' })).toBeVisible();
   });
