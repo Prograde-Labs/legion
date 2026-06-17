@@ -30,9 +30,9 @@ export interface MockProvider {
 export function startMockProvider(port: number): Promise<MockProvider> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      let body = '';
+      let _body = '';
       req.on('data', (chunk: Buffer) => {
-        body += chunk.toString();
+        _body += chunk.toString();
       });
       req.on('end', () => {
         res.setHeader('Content-Type', 'application/json');
