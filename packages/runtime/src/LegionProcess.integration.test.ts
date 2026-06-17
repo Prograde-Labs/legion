@@ -41,6 +41,19 @@ describe.skipIf(!LIVE)('LegionProcess (integration)', () => {
     process_ = undefined!; // prevent double-stop in afterEach
   });
 
+  it('respects LEGION_WORKSPACE env var', async () => {
+    const envWorkspace = workspaceRoot;
+    process_ = await (async () => {
+      const origEnv = process.env['LEGION_WORKSPACE'];
+      process.env['LEGION_WORKSPACE'] = envWorkspace;
+      const lp = await LegionProcess.start(envWorkspace);
+      process.env['LEGION_WORKSPACE'] = origEnv ?? '';
+      return lp;
+    })();
+    const participants = process_.collective.listActive();
+    expect(participants.length).toBeGreaterThan(0);
+  });
+
   it('full flow: seed → login → execute list_participants → result', async () => {
     // Start with a custom port to avoid collisions with other integration tests.
     // Write a minimal config.json to use port 3001.
