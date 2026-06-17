@@ -35,7 +35,7 @@ import {
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
-import type { ToolResult } from '@legion/types';
+import type { ConversationData, ToolResult } from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 
@@ -340,7 +340,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
       // Create or load conversation for this tool call
       let thread: ConversationThread;
       let conversationId: string;
-      if (opts?.conversationId) {
+      if (opts && opts.conversationId !== '' && opts.conversationId !== undefined) {
         const existing = await store.load(opts.conversationId);
         if (!existing) {
           return {
@@ -350,6 +350,19 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         }
         conversationId = opts.conversationId;
         thread = new ConversationThread(existing, store);
+      } else if (opts && opts.conversationId === '') {
+        // Management tools called without a conversationId — use ephemeral thread (no persistence)
+        const now = new Date().toISOString();
+        const data: ConversationData = {
+          id: '',
+          schemaVersion: '2.0',
+          createdAt: now,
+          updatedAt: now,
+          activeBranchHead: '',
+          messages: {},
+        };
+        conversationId = '';
+        thread = new ConversationThread(data, store);
       } else {
         const data = await store.create({
           schemaVersion: '2.0',

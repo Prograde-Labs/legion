@@ -45,7 +45,7 @@ export async function registerExecuteRoute(
 
       // Execute via ConnectorContext (authorization + routing handled inside)
       const { result, conversationId: convId } = await ctx.callTool(participantId, toolName, args, {
-        conversationId,
+        conversationId: conversationId ?? '',
       });
 
       return reply.send({ result, conversationId: convId });
