@@ -1,12 +1,12 @@
 import { test, expect } from '../../fixtures/index.js';
 
-const WS_URL = 'ws://127.0.0.1:4000/ws';
-
 test.describe('WebSocket /ws', () => {
-  test('accepts connection with valid token', async ({ authPage }) => {
+  test('accepts connection with valid token', async ({ authPage, connInfo }) => {
     const { page, token } = authPage;
     // Navigate to any page to give the browser context a same-origin base
     await page.goto('/');
+
+    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     const connected = await page.evaluate(
       async ({ wsUrl, tok }: { wsUrl: string; tok: string }) => {
@@ -26,14 +26,16 @@ test.describe('WebSocket /ws', () => {
           setTimeout(() => resolve(false), 5000);
         });
       },
-      { wsUrl: WS_URL, tok: token },
+      { wsUrl, tok: token },
     );
 
     expect(connected).toBe(true);
   });
 
-  test('rejects connection with no token (closes with 4401)', async ({ page }) => {
+  test('rejects connection with no token (closes with 4401)', async ({ page, connInfo }) => {
     await page.goto('/');
+
+    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     const closeCode = await page.evaluate(
       async ({ wsUrl }: { wsUrl: string }) => {
@@ -48,14 +50,16 @@ test.describe('WebSocket /ws', () => {
           setTimeout(() => resolve(0), 5000);
         });
       },
-      { wsUrl: WS_URL },
+      { wsUrl },
     );
 
     expect(closeCode).toBe(4401);
   });
 
-  test('rejects connection with invalid token (closes with 4401)', async ({ page }) => {
+  test('rejects connection with invalid token (closes with 4401)', async ({ page, connInfo }) => {
     await page.goto('/');
+
+    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     const closeCode = await page.evaluate(
       async ({ wsUrl }: { wsUrl: string }) => {
@@ -69,15 +73,17 @@ test.describe('WebSocket /ws', () => {
           setTimeout(() => resolve(0), 5000);
         });
       },
-      { wsUrl: WS_URL },
+      { wsUrl },
     );
 
     expect(closeCode).toBe(4401);
   });
 
-  test('after execute, at least one event arrives over WebSocket within 2s', async ({ authPage, api }) => {
+  test('after execute, at least one event arrives over WebSocket within 2s', async ({ authPage, api, connInfo }) => {
     const { page, token } = authPage;
     await page.goto('/');
+
+    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     // Phase 1: Authenticate the WS connection and keep it open
     await page.evaluate(
@@ -97,7 +103,7 @@ test.describe('WebSocket /ws', () => {
           setTimeout(() => reject(new Error('WS auth timeout')), 5000);
         });
       },
-      { wsUrl: WS_URL, tok: token },
+      { wsUrl, tok: token },
     );
 
     // Phase 2: Trigger a tool call that emits events — WS listener is already active
