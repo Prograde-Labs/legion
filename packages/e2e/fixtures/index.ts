@@ -26,7 +26,12 @@ type Fixtures = {
 
 export const test = base.extend<Fixtures>({
   connInfo: async ({}, use) => {
-    const raw = await readFile(CONN_INFO_FILE, 'utf-8');
+    let raw: string;
+    try {
+      raw = await readFile(CONN_INFO_FILE, 'utf-8');
+    } catch (err) {
+      throw new Error(`CONN_INFO_FILE not found at ${CONN_INFO_FILE}. Did globalSetup run?`);
+    }
     await use(JSON.parse(raw) as ConnInfo);
   },
 
