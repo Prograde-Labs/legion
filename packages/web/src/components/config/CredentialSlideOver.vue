@@ -11,13 +11,11 @@ const { execute } = useExecute();
 const key = ref('');
 const value = ref('');
 const saving = ref(false);
-const isNew = ref(true);
 
 watch(
   () => props.open,
   (open) => {
     if (!open) return;
-    isNew.value = !props.credential;
     key.value = props.credential?.key ?? '';
     value.value = '';
   },
@@ -42,7 +40,7 @@ async function save() {
 <template>
   <SlideOver
     :open="open"
-    :title="isNew ? 'Add credential' : 'Rotate credential'"
+    :title="!credential ? 'Add credential' : 'Rotate credential'"
     @close="emit('close')"
   >
     <div class="p-5 space-y-4">
@@ -52,14 +50,14 @@ async function save() {
         >
         <input
           v-model="key"
-          :readonly="!isNew"
+          :readonly="!!credential"
           class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm font-mono text-slate-100 outline-none"
         />
-        <p v-if="!isNew" class="text-[10px] text-navy-500 mt-1">Delete and re-add to rename.</p>
+        <p v-if="credential" class="text-[10px] text-navy-500 mt-1">Delete and re-add to rename.</p>
       </div>
       <div>
         <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">
-          {{ isNew ? 'Value' : 'New value' }}
+          {{ !credential ? 'Value' : 'New value' }}
         </label>
         <input
           v-model="value"

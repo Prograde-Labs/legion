@@ -9,7 +9,7 @@ import { useExecute } from '../composables/useExecute.js';
 
 const { execute } = useExecute();
 const route = useRoute();
-const activeTab = ref(route.path.includes('credentials') ? 'credentials' : 'providers');
+const activeTab = ref(route.path === '/config/credentials' ? 'credentials' : 'providers');
 
 const providers = ref<ProviderConfig[]>([]);
 const credentials = ref<CredentialInfo[]>([]);
@@ -37,6 +37,8 @@ function openCredential(c: CredentialInfo | null) {
 const typeBadge: Record<string, string> = {
   'openai-compatible': 'bg-green-400/10 text-green-400 border-green-400/20',
   anthropic: 'bg-amber-400/10 text-amber-400 border-amber-400/20',
+  copilot: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/20',
+  codex: 'bg-violet-400/10 text-violet-400 border-violet-400/20',
 };
 </script>
 
@@ -111,7 +113,7 @@ const typeBadge: Record<string, string> = {
               <td class="px-3 py-2.5 font-mono text-navy-400 text-[10px]">
                 {{ p.baseUrl ?? '—' }}
               </td>
-              <td class="px-3 py-2.5 font-mono text-navy-400 text-[10px]">{{ p.defaultModel }}</td>
+              <td class="px-3 py-2.5 font-mono text-navy-400 text-[10px]">{{ p.defaultModel || '—' }}</td>
               <td class="px-3 py-2.5">
                 <span
                   v-if="p.credentialKey"
