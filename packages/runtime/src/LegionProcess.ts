@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   // Core engine
   Collective,
@@ -34,6 +35,7 @@ import {
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
+import type { ToolResult } from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 
@@ -65,13 +67,16 @@ export class LegionProcess {
     const credentials = new FileCredentialStore(storage);
     const seeded = await collective.seedDefaultsIfEmpty();
     if (seeded.length > 0) {
-      const password = randomUUID();
+      const password = process.env.LEGION_BOOTSTRAP_PASSWORD ?? randomUUID();
       await credentials.setCredential(BOOTSTRAP_OPERATOR_ID, password);
       console.log(
         '\n  ┌─ Legion bootstrap ──────────────────────────────────────────────┐' +
-          '\n  │  Bootstrap operator password: ' +
+          '\n  │  Username: ' +
+          BOOTSTRAP_OPERATOR_ID +
+          '                                          │' +
+          '\n  │  Password: ' +
           password +
-          '  │' +
+          '                                         │' +
           '\n  │  Store this password — it will not be shown again.              │' +
           '\n  └─────────────────────────────────────────────────────────────────┘\n',
       );
@@ -137,7 +142,7 @@ export class LegionProcess {
     const providerRegistry = new ProviderRegistry();
     if (workspaceConfig.providers) {
       for (const [name, config] of Object.entries(workspaceConfig.providers)) {
-        const provider = new OpenAICompatibleProvider(config.baseUrl, config.apiKeyEnv);
+        const provider = new OpenAICompatibleProvider(config.baseUrl, config.apiKeyEnv ?? config.credentialKey);
         providerRegistry.register(name, provider);
       }
     }
@@ -148,8 +153,15 @@ export class LegionProcess {
     });
 
     // ── Step 9: Initialise web connector ─────────────────────────────────────
-    const webConnectorConfig = workspaceConfig.server ?? {};
-    const webDistPath = join(workspaceRoot, 'packages', 'web', 'dist');
+    const port = process.env.PORT
+      ? parseInt(process.env.PORT, 10)
+      : (workspaceConfig.server?.port ?? 3000);
+    const webConnectorConfig = { ...(workspaceConfig.server ?? {}), port };
+    // Derive web dist path from this file's compiled location, not from workspaceRoot.
+    // Compiled location: packages/runtime/dist/LegionProcess.js
+    // Web dist:          packages/web/dist/
+    const _dirname = fileURLToPath(new URL('.', import.meta.url));
+    const webDistPath = join(_dirname, '..', '..', 'web', 'dist');
     const webConnector = new WebConnector({
       collective,
       credentials,
@@ -362,7 +374,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
       };
 
-      const result = await tool.execute(args, toolCtx);
+      const result = await tool.execute(args, toolCtx) as ToolResult;
       return { result, conversationId };
     },
 
