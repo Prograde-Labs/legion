@@ -156,6 +156,9 @@ export class LegionProcess {
     const port = process.env.PORT
       ? parseInt(process.env.PORT, 10)
       : (workspaceConfig.server?.port ?? 3000);
+    if (isNaN(port)) {
+      throw new Error(`Invalid PORT env var: "${process.env.PORT}" — must be a number`);
+    }
     const webConnectorConfig = { ...(workspaceConfig.server ?? {}), port };
     // Derive web dist path from this file's compiled location, not from workspaceRoot.
     // Compiled location: packages/runtime/dist/LegionProcess.js
