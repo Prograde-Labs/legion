@@ -10,7 +10,8 @@
     "packages/types",
     "packages/core",
     "packages/runtime",
-    "packages/web"
+    "packages/web",
+    "packages/e2e"
   ],
   "scripts": {
     "build": "tsc --build",
@@ -19,12 +20,17 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --build --force"
+    "typecheck": "tsc --build --force",
+    "start": "node packages/runtime/bin/legion.js",
+    "test:e2e": "playwright test --config packages/e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "prettier": "^3.3.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.2.0"
   }
 }
