@@ -40,7 +40,7 @@ End state of the full plan set: a **functional web connector + Vue web interface
 | 8   | Service SDK & ServiceManager           | 5, 8              | Plan written     | `008-service-sdk-manager.md`                 |
 | 9   | MCP tool sources                       | 9                 | Plan written     | `009-mcp-tool-sources.md`                    |
 | 10  | LegionProcess, connectors & web server | 6, 8, 11, 12      | Plan written     | `010-process-connectors-web-server.md`       |
-| 11  | Vue management SPA                     | 13                | Not started      | `011-web-management-spa.md`                  |
+| 11  | Vue management SPA                     | 13                | Plan implemented | `011-web-management-spa.md`                  |
 
 ## Generation progress
 
@@ -54,7 +54,7 @@ End state of the full plan set: a **functional web connector + Vue web interface
 - [x] Plan 8 written
 - [x] Plan 9 written
 - [x] Plan 10 written
-- [ ] Plan 11 written
+- [x] Plan 11 written
 
 **This session:** generating Plans 1–10 (foundation batch through LegionProcess + web server).
 
