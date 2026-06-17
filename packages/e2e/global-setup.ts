@@ -31,50 +31,66 @@ async function waitForUrl(url: string, maxMs: number, intervalMs = 500): Promise
 export default async function globalSetup(
   _config: FullConfig,
 ): Promise<() => Promise<void>> {
-  // 1. Create temp workspace dir
   const workspaceDir = await mkdtemp(join(tmpdir(), 'legion-e2e-'));
+  let mockProvider: MockProvider | undefined;
 
-  // 2. Start mock LLM provider in-process (port 4001)
-  const mockProvider: MockProvider = await startMockProvider(4001);
-  console.log('[e2e setup] Mock LLM provider listening on :4001');
+  try {
+    // 2. Start mock LLM provider in-process (port 4001)
+    mockProvider = await startMockProvider(4001);
+    console.log('[e2e setup] Mock LLM provider listening on :4001');
 
-  // 3. Spawn Legion server as child process (port 4000)
-  const legionServer: ChildProcess = spawn(
-    'node',
-    [join(REPO_ROOT, 'packages/runtime/bin/legion.js')],
-    {
-      env: {
-        ...process.env,
-        LEGION_BOOTSTRAP_PASSWORD: BOOTSTRAP_PASSWORD,
-        LEGION_WORKSPACE: workspaceDir,
-        PORT: String(SERVER_PORT),
+    // 3. Spawn Legion server as child process (port 4000)
+    const legionServer: ChildProcess = spawn(
+      'node',
+      [join(REPO_ROOT, 'packages/runtime/bin/legion.js')],
+      {
+        env: {
+          ...process.env,
+          LEGION_BOOTSTRAP_PASSWORD: BOOTSTRAP_PASSWORD,
+          LEGION_WORKSPACE: workspaceDir,
+          PORT: String(SERVER_PORT),
+        },
+        stdio: 'pipe',
       },
-      stdio: 'pipe',
-    },
-  );
+    );
 
-  legionServer.stderr?.on('data', (d: Buffer) => {
-    process.stderr.write(`[legion] ${d.toString()}`);
-  });
+    let serverExited = false;
+    legionServer.on('exit', (code) => {
+      serverExited = true;
+      console.error(`[e2e setup] Legion server exited with code ${code}`);
+    });
 
-  // 4. Wait for health endpoint (max 15s)
-  await waitForUrl(`http://127.0.0.1:${SERVER_PORT}/api/health`, 15_000);
-  console.log(`[e2e setup] Legion server ready on :${SERVER_PORT}`);
+    legionServer.stderr?.on('data', (d: Buffer) => {
+      process.stderr.write(`[legion] ${d.toString()}`);
+    });
 
-  // 5. Write connection info for fixtures
-  const connInfo = {
-    serverUrl: `http://127.0.0.1:${SERVER_PORT}`,
-    mockProviderUrl: `http://127.0.0.1:4001`,
-    password: BOOTSTRAP_PASSWORD,
-  };
-  await writeFile(CONN_INFO_FILE, JSON.stringify(connInfo, null, 2));
+    // 4. Wait for health endpoint (max 15s)
+    await waitForUrl(`http://127.0.0.1:${SERVER_PORT}/api/health`, 15_000);
+    if (serverExited) {
+      throw new Error('Legion server exited before becoming healthy');
+    }
+    console.log(`[e2e setup] Legion server ready on :${SERVER_PORT}`);
 
-  // Return teardown function (Playwright calls this after all tests)
-  return async function teardown(): Promise<void> {
-    legionServer.kill('SIGTERM');
-    await mockProvider.stop();
+    // 5. Write connection info for fixtures
+    const connInfo = {
+      serverUrl: `http://127.0.0.1:${SERVER_PORT}`,
+      mockProviderUrl: `http://127.0.0.1:4001`,
+      password: BOOTSTRAP_PASSWORD,
+    };
+    await writeFile(CONN_INFO_FILE, JSON.stringify(connInfo, null, 2));
+
+    // Return teardown function (Playwright calls this after all tests)
+    return async function teardown(): Promise<void> {
+      try { legionServer.kill('SIGTERM'); } catch {}
+      try { await mockProvider!.stop(); } catch {}
+      try { await rm(workspaceDir, { recursive: true, force: true }); } catch {}
+      try { await rm(CONN_INFO_FILE, { force: true }); } catch {}
+      console.log('[e2e teardown] Complete.');
+    };
+  } catch (err) {
+    console.error('[e2e setup] Failed:', err);
+    if (mockProvider) await mockProvider.stop().catch(() => {});
     await rm(workspaceDir, { recursive: true, force: true });
-    await rm(CONN_INFO_FILE, { force: true });
-    console.log('[e2e teardown] Complete.');
-  };
+    throw err;
+  }
 }
