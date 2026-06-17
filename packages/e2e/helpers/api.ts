@@ -34,7 +34,7 @@ export class ApiClient {
       data: { name, password },
     });
     if (!res.ok()) throw new Error(`Login failed: ${res.status()} ${await res.text()}`);
-    return res.json() as Promise<LoginResult>;
+    return res.json() as LoginResult;
   }
 
   async me(token: string): Promise<MeResult> {
@@ -42,7 +42,7 @@ export class ApiClient {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok()) throw new Error(`/me failed: ${res.status()} ${await res.text()}`);
-    return res.json() as Promise<MeResult>;
+    return res.json() as MeResult;
   }
 
   async execute<T = unknown>(
@@ -55,13 +55,13 @@ export class ApiClient {
       data: { tool, args },
     });
     if (!res.ok()) throw new Error(`execute(${tool}) failed: ${res.status()} ${await res.text()}`);
-    return res.json() as Promise<ExecuteResult<T>>;
+    return res.json() as ExecuteResult<T>;
   }
 
   async health(): Promise<HealthResult> {
     const res = await this.request.get(`${this.baseUrl}/api/health`);
-    if (!res.ok()) throw new Error(`health failed: ${res.status()}`);
-    return res.json() as Promise<HealthResult>;
+    if (!res.ok()) throw new Error(`health failed: ${res.status()} ${await res.text()}`);
+    return res.json() as HealthResult;
   }
 
   /** Raw request with no auth — for testing 401 paths. */
