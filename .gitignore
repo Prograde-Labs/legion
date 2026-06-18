@@ -10,3 +10,10 @@ dist/
 .legion/conversations/
 .legion/services/
 .legion/credentials.json
+
+## Playwright mcp
+.playwright-mcp
+
+## Testing
+coverage/
+packages/*/test-results/
