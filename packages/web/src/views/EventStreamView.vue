@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import AppLayout from '../components/layout/AppLayout.vue';
 import EventDetailPanel from '../components/events/EventDetailPanel.vue';
 import TypeBadge from '../components/common/TypeBadge.vue';
@@ -57,17 +57,12 @@ function chipActive(chip: (typeof chips)[number]) {
   return chip.events.some((e) => filters.value.has(e));
 }
 
-const visible = ref<LiveEvent[]>([]);
-watch(
-  [events, filters, search],
-  () => {
-    visible.value = events.value.filter(
-      (e) =>
-        filters.value.has(e.event) &&
-        (!search.value || JSON.stringify(e.data).includes(search.value)),
-    );
-  },
-  { immediate: true },
+const visible = computed(() =>
+  events.value.filter(
+    (e) =>
+      filters.value.has(e.event) &&
+      (!search.value || JSON.stringify(e.data).includes(search.value)),
+  ),
 );
 
 function summary(e: LiveEvent): string {

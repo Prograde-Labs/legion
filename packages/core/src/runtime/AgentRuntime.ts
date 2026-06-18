@@ -86,7 +86,7 @@ export class AgentRuntime implements Runtime {
     // -------------------------------------------------------------------------
     // LLM agentic loop
     // -------------------------------------------------------------------------
-    const maxIterations = agent.runtimeConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const maxIterations = (agent.runtimeConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS) as number;
 
     const messages: ProviderMessage[] = buildProviderMessages(
       context.conversation.activeChain,
@@ -126,13 +126,6 @@ export class AgentRuntime implements Runtime {
       const pendingApprovals: PendingApproval[] = [];
 
       for (const tc of response.toolCalls) {
-        context.eventBus.emit('tool:call', {
-          conversationId: context.conversationId,
-          participantId: this.participantId,
-          tool: tc.name,
-          callId: tc.id,
-        });
-
         const authResult = context.authEngine.authorize(
           this.participantId,
           tc.name,
@@ -141,6 +134,13 @@ export class AgentRuntime implements Runtime {
         );
 
         if (authResult.reason === 'deny') {
+          // Denied tools bypass ToolRegistry — emit events here
+          context.eventBus.emit('tool:call', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: tc.name,
+            callId: tc.id,
+          });
           toolResults.push({
             id: tc.id,
             name: tc.name,
@@ -170,6 +170,20 @@ export class AgentRuntime implements Runtime {
             name: tc.name,
             result: { status: 'pending_approval', approvalId },
           });
+          // Approval-required tools bypass ToolRegistry — emit events here
+          context.eventBus.emit('tool:call', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: tc.name,
+            callId: tc.id,
+          });
+          context.eventBus.emit('tool:result', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: tc.name,
+            callId: tc.id,
+            status: 'pending_approval',
+          });
           context.eventBus.emit('approval:requested', {
             conversationId: context.conversationId,
             participantId: this.participantId,
@@ -179,15 +193,8 @@ export class AgentRuntime implements Runtime {
           continue;
         }
 
-        // 'auto': execute immediately
+        // 'auto': execute immediately — ToolRegistry emits tool:call/tool:result
         const result = await context.toolRegistry.execute(tc.name, tc.arguments, context);
-        context.eventBus.emit('tool:result', {
-          conversationId: context.conversationId,
-          participantId: this.participantId,
-          tool: tc.name,
-          callId: tc.id,
-          status: result.status,
-        });
         toolResults.push({ id: tc.id, name: tc.name, result });
       }
 
@@ -292,13 +299,6 @@ export class AgentRuntime implements Runtime {
       });
       const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, context);
       updatedResults[i] = { ...tr, result };
-      context.eventBus.emit('tool:result', {
-        conversationId: context.conversationId,
-        participantId: this.participantId,
-        tool: tr.name,
-        callId: tr.id,
-        status: result.status,
-      });
       context.eventBus.emit('approval:resolved', {
         conversationId: context.conversationId,
         approvalId,

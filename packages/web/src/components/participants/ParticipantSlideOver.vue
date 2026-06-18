@@ -29,7 +29,9 @@ watch(
     if (!open) return;
     tab.value = 'basic';
     if (props.participantId) {
-      // Load existing — in a real app fetch participant details
+      const list = await execute<{ id: string; name: string }[]>('list_participants', {});
+      const p = list.find((x) => x.id === props.participantId);
+      if (p) name.value = p.name;
     } else {
       name.value = '';
       model.value = '';
@@ -61,12 +63,15 @@ async function save() {
         toolPolicies,
       });
     } else {
+      const id = name.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || `agent-${Date.now()}`;
+      const modelConfig = providerId.value && model.value
+        ? { provider: providerId.value, model: model.value }
+        : undefined;
       await execute('create_agent', {
+        id,
         name: name.value,
-        model: model.value,
-        providerId: providerId.value,
-        systemPrompt: systemPrompt.value,
-        maxIterations: maxIterations.value,
+        systemPrompt: systemPrompt.value || 'You are a helpful agent.',
+        model: modelConfig ?? { provider: props.providers[0]?.name ?? '', model: '' },
         toolPolicies,
       });
     }

@@ -1,4 +1,5 @@
 import type { ToolPolicy, ApprovalAuthority } from './tool.js';
+import type { ModelConfig } from './config.js';
 
 
 export type ParticipantType = 'agent' | 'service' | 'user' | 'mock';
@@ -21,12 +22,13 @@ export interface BaseParticipant {
   protected?: boolean;
 }
 
-export interface AgentConfig {
-  name: string;
-  model: string;
+export interface AgentConfig extends BaseParticipant {
+  type: 'agent';
+  model: ModelConfig;
   systemPrompt: string;
   maxIterations: number;
   providerId: string;
+  runtimeConfig?: Record<string, unknown>;
 }
 
 export interface ServiceConfig extends BaseParticipant {

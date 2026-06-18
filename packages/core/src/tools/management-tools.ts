@@ -1,6 +1,10 @@
-import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig } from '@legion/types';
+import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig, ConversationSummary, ConversationData, MessageData } from '@legion/types';
 import { getActiveChain } from '../conversation/conversation-ops.js';
-import type { Tool, ToolContext } from './Tool.js';
+import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
+import type { Collective } from '../collective/Collective.js';
+import type { Storage } from '../storage/Storage.js';
+import type { CredentialStore } from '../credentials/CredentialStore.js';
+import type { ConversationStore } from '../conversation/ConversationStore.js';
 
 function requireCollective(context: ToolContext): NonNullable<ToolContext['collective']> {
   if (!context.collective) throw new Error('collective unavailable in context');
@@ -16,7 +20,7 @@ export const createAgentTool: Tool = {
       id: { type: 'string' },
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
-      model: { type: 'object' },
+      model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
       tools: { type: 'object' },
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
@@ -36,19 +40,22 @@ export const createAgentTool: Tool = {
       tools: tools ?? {},
       systemPrompt,
       model,
+      maxIterations: 20,
+      providerId: typeof model === 'string' ? 'default' : (model.provider ?? 'default'),
       status: 'active',
     };
     try {
       const collective = requireCollective(context);
       await collective.add(config);
       const agentStorage = collective.storageForWriting;
+      const providerId = typeof model === 'string' ? 'default' : (model.provider ?? 'default');
       if (agentStorage) {
         await agentStorage.writeJson(`agents/${id}.json`, {
           name: id,
-          model: typeof model === 'string' ? model : (model as { model?: string }).model ?? 'gpt-4o',
+          model: typeof model === 'string' ? model : (model.model ?? 'gpt-4o'),
           systemPrompt: systemPrompt ?? '',
           maxIterations: 20,
-          providerId: typeof model === 'string' ? 'default' : ((model as { provider?: string }).provider ?? 'default'),
+          providerId,
         });
       }
       return { status: 'success', data: { id } };
@@ -194,14 +201,17 @@ export const modifyAgentTool: Tool = {
     const args = rawArgs as Partial<AgentConfig> & { id: string };
     try {
       const collective = requireCollective(context);
-      const participant = collective.getOrThrow(args.id);
       const storage = collective.storageForWriting;
       if (!storage) return { status: 'error', error: 'Storage unavailable' };
       const existing = await storage.readJson<AgentConfig>(`agents/${args.id}.json`);
-      if (!existing) return { status: 'error', error: `Agent config not found for ${args.id}`, details: {} };
+      if (!existing) return { status: 'error', error: `Agent config not found for ${args.id}` };
+      const updatedModel: ModelConfig = typeof args.model === 'string'
+        ? { provider: existing.providerId, model: args.model }
+        : (args.model ?? existing.model);
       const updated: AgentConfig = {
+        ...existing,
         name: args.name ?? existing.name,
-        model: args.model ?? existing.model,
+        model: updatedModel,
         systemPrompt: args.systemPrompt ?? existing.systemPrompt,
         maxIterations: args.maxIterations ?? existing.maxIterations,
         providerId: args.providerId ?? existing.providerId,
@@ -220,7 +230,7 @@ export const listToolsTool: Tool = {
   description: 'List all tool names registered in the ToolRegistry.',
   parameters: { type: 'object', properties: {}, required: [] },
   async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
-    const toolRegistry = (context as ToolContext).toolRegistry;
+    const toolRegistry = context.toolRegistry;
     if (!toolRegistry) return { status: 'error', error: 'toolRegistry unavailable' };
     return { status: 'success', data: toolRegistry.listAll() };
   },
@@ -231,13 +241,26 @@ export const listConversationsTool: Tool = {
   description: 'List conversation summaries.',
   parameters: { type: 'object', properties: {}, required: [] },
   async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
-    const storage = (context as any).storage;
+    const storage = context.storage;
     if (!storage) return { status: 'error', error: 'storage unavailable' };
     const keys = await storage.list('conversations/');
-    const summaries = await Promise.all(
-      keys.map((k) => storage.readJson<ConversationSummary>(`conversations/${k}`)),
+    const conversations = await Promise.all(
+      keys.map((k: string) => storage.readJson<ConversationData>(`conversations/${k}`)),
     );
-    return { status: 'success', data: summaries.filter(Boolean) };
+    const summaries: ConversationSummary[] = conversations.filter((c): c is ConversationData => Boolean(c)).map((c) => {
+      const participantIds = Array.from(new Set(
+        Object.values(c.messages ?? {}).map((m: MessageData) => m.senderId),
+      ));
+      return {
+        id: c.id,
+        participantIds,
+        status: 'active',
+        messageCount: Object.keys(c.messages ?? {}).length,
+        createdAt: new Date(c.createdAt).getTime(),
+        updatedAt: new Date(c.updatedAt).getTime(),
+      };
+    });
+    return { status: 'success', data: summaries };
   },
 };
 

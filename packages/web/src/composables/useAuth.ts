@@ -26,7 +26,7 @@ export function useAuth() {
     const data = (await res.json()) as AuthState;
     token.value = data.token;
     participantId.value = data.participantId;
-    expiresAt.value = data.expiresAt;
+    expiresAt.value = data.expiresAt ?? null;
   }
 
   function logout(): void {

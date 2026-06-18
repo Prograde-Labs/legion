@@ -16,14 +16,16 @@ export class Collective {
     participants?: ParticipantConfig[],
   ) {
     if (storageOrEventBus instanceof EventBus) {
-      this.eventBus = storageOrEventBus;
+      this._eventBus = storageOrEventBus;
     } else {
       this.storage = storageOrEventBus;
       for (const p of participants!) this.participants.set(p.id, p);
     }
   }
 
-  private eventBus?: EventBus;
+  private _eventBus?: EventBus;
+  get eventBus(): EventBus | undefined { return this._eventBus; }
+  set eventBus(v: EventBus | undefined) { this._eventBus = v; }
   private storage?: Storage;
 
   get storageForWriting(): Storage | undefined {

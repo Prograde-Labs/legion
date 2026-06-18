@@ -1,4 +1,5 @@
 import { useAuth } from './useAuth.js';
+import type { ToolResult } from '@legion/types';
 
 export function useExecute() {
   const { getToken, logout } = useAuth();
@@ -17,8 +18,11 @@ export function useExecute() {
       throw new Error('Unauthorized');
     }
     if (!res.ok) throw new Error(await res.text());
-    const data = (await res.json()) as { result: T };
-    return data.result;
+    const data = (await res.json()) as { result: ToolResult };
+    if (data.result.status === 'error') {
+      throw new Error(data.result.error ?? 'Tool error');
+    }
+    return data.result.data as T;
   }
 
   return { execute };

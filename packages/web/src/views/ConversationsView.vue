@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { ConversationSummary } from '@legion/types';
 import AppLayout from '../components/layout/AppLayout.vue';
@@ -13,6 +13,13 @@ const router = useRouter();
 
 const conversations = ref<ConversationSummary[]>([]);
 const activeId = ref<string | null>((route.params.id as string) ?? null);
+
+watch(
+  () => route.params.id,
+  (id) => {
+    activeId.value = (id as string) ?? null;
+  },
+);
 
 onMounted(async () => {
   conversations.value = await execute<ConversationSummary[]>('list_conversations', {});

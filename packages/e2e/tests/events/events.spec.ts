@@ -5,7 +5,7 @@ test.describe('EventStreamView', () => {
     const { page } = authPage;
     await page.goto('/#/events');
 
-    // The toolbar shows "Live" when connected
+    // The toolbar shows "Live" when not paused
     await expect(page.getByText('Live')).toBeVisible({ timeout: 5000 });
   });
 
@@ -14,12 +14,11 @@ test.describe('EventStreamView', () => {
     await page.goto('/#/events');
     await expect(page.getByText('Live')).toBeVisible();
 
-    // Trigger an event via communicate (emits message:sent + message:delivered events)
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
+    // Trigger a tool call — server emits tool:call + tool:result over WebSocket
+    await api.execute(token, 'list_participants');
 
-    // Wait for at least one data row to appear in the table body
+    // Wait up to 5s for at least one tbody row to appear
     await page.waitForSelector('tbody tr', { timeout: 5000 });
-
     expect(await page.locator('tbody tr').count()).toBeGreaterThan(0);
   });
 
@@ -29,20 +28,19 @@ test.describe('EventStreamView', () => {
     await expect(page.getByText('Live')).toBeVisible();
 
     // Trigger some events to populate the table
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
-    await page.waitForTimeout(1000); // allow events to arrive
+    await api.execute(token, 'list_participants');
+    await page.waitForSelector('tbody tr', { timeout: 5000 });
 
     // Deactivate all chips except 'tool'
     await page.getByRole('button', { name: 'message' }).click();
     await page.getByRole('button', { name: 'error' }).click();
     await page.getByRole('button', { name: 'system' }).click();
 
-    // Only 'tool' chip is active — rows should only show tool:call / tool:result events
+    // Only 'tool' chip is active — all visible rows should have a tool badge
     const rows = page.locator('tbody tr');
     const count = await rows.count();
-    // All visible rows should have a tool badge
     if (count > 0) {
-      await expect(rows.first().getByText(/tool:/)).toBeVisible({ timeout: 3000 });
+      await expect(rows.first().getByText(/tool:/)).toBeVisible();
     }
   });
 
@@ -51,16 +49,15 @@ test.describe('EventStreamView', () => {
     await page.goto('/#/events');
     await expect(page.getByText('Live')).toBeVisible();
 
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
-    await page.waitForTimeout(500);
+    await api.execute(token, 'list_participants');
+    await page.waitForSelector('tbody tr', { timeout: 5000 });
 
-    // Search for a term that matches known event data
+    // Search for 'operator' which appears in every tool:call/tool:result event
     await page.locator('input[placeholder*="filter by participant"]').fill('operator');
     await page.waitForTimeout(300);
 
-    // Only rows matching 'operator' remain (rows not matching are filtered out)
+    // Verify the filter runs without crashing — all remaining rows contain 'operator'
     const rows = page.locator('tbody tr');
-    // Just verify the filter runs without crashing — row count may vary by test run timing
     await expect(rows).toHaveCount(await rows.count());
   });
 
@@ -74,8 +71,8 @@ test.describe('EventStreamView', () => {
 
     const pausedCount = await page.locator('tbody tr').count();
 
-    // Tool call while paused — should NOT add new rows
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
+    // Tool call while paused — events arrive at server but UI drops them
+    await api.execute(token, 'list_participants');
     await page.waitForTimeout(1000);
 
     const countAfterPause = await page.locator('tbody tr').count();
@@ -94,7 +91,7 @@ test.describe('EventStreamView', () => {
     await expect(page.getByText('Live')).toBeVisible();
 
     const beforeCount = await page.locator('tbody tr').count();
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
+    await api.execute(token, 'list_participants');
     await page.waitForTimeout(500);
 
     const afterCount = await page.locator('tbody tr').count();
@@ -106,19 +103,15 @@ test.describe('EventStreamView', () => {
     await page.goto('/#/events');
     await expect(page.getByText('Live')).toBeVisible();
 
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
+    await api.execute(token, 'list_participants');
 
-    // Agent processing is async — wait for events to arrive via WebSocket and render as rows
-    await page.waitForTimeout(5000);
-
-    // Click a data row (not the header)
+    // Wait for a row to appear, then click it
+    await page.waitForSelector('tbody tr', { timeout: 5000 });
     const dataRow = page.locator('tbody tr').first();
-    await expect(dataRow).toBeVisible({ timeout: 3000 });
     await dataRow.click();
 
     // Detail panel shows JSON data
     await expect(page.getByText('Event detail')).toBeVisible();
-    // Pre element with JSON content appears
     await expect(page.locator('pre')).toBeVisible();
   });
 

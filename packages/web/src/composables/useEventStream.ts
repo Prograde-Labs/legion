@@ -81,8 +81,3 @@ export function useEventStream() {
 
   return { subscribe, unsubscribe, disconnect };
 }
-
-// Test escape hatch — not imported in production
-export function _testDispatch(evt: StreamEvent) {
-  dispatch(evt);
-}

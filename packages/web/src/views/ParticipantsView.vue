@@ -15,11 +15,17 @@ const allTools = ref<string[]>([]);
 const providers = ref<{ name: string }[]>([]);
 const slideOpen = ref(false);
 const editingId = ref<string | null>(null);
+const loadError = ref<string | null>(null);
 
 async function load() {
-  participants.value = await execute<BaseParticipant[]>('list_participants', {});
-  allTools.value = await execute<string[]>('list_tools', {});
-  providers.value = await execute<{ name: string }[]>('list_providers', {});
+  try {
+    participants.value = await execute<BaseParticipant[]>('list_participants', {});
+    allTools.value = await execute<string[]>('list_tools', {});
+    providers.value = await execute<{ name: string }[]>('list_providers', {});
+    loadError.value = null;
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : String(err);
+  }
 }
 
 onMounted(async () => {

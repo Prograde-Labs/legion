@@ -52,6 +52,7 @@ export interface ProviderConfig {
   baseUrl?: string;
   defaultModel: string;
   credentialKey?: string;
+  apiKeyEnv?: string; // alias for credentialKey, used by OpenAICompatibleProvider
 }
 
 export interface CredentialInfo {

@@ -21,6 +21,7 @@ export interface RuntimeContext extends ToolContext {
   pendingApprovalRegistry: PendingApprovalRegistry;
   approvalLog?: ApprovalLog;
   messageRouter: MessageRouterPort;
+  // TODO (Plan 008 Task 5): replace with `import('../service/ServiceManager.js').ServiceManager`
   serviceManager?: unknown;
 }
 

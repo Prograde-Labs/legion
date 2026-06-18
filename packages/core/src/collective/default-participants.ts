@@ -5,11 +5,19 @@ export const BOOTSTRAP_OPERATOR_ID = 'operator';
 const MANAGEMENT_TOOLS = [
   'communicate',
   'create_agent',
+  'modify_agent',
   'retire_agent',
   'list_participants',
+  'list_tools',
+  'list_conversations',
   'get_conversation',
   'set_tool_policy',
   'set_credential',
+  // runtime / config tools (registered by WebConnector layer)
+  'list_providers',
+  'configure_provider',
+  'list_credentials',
+  'set_credential_with_meta',
 ] as const;
 
 export function createDefaultParticipants(): ParticipantConfig[] {

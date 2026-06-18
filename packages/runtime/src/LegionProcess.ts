@@ -94,6 +94,7 @@ export class LegionProcess {
 
     // ── Step 5: Create core engine components ────────────────────────────────
     const eventBus = new EventBus();
+    collective.eventBus = eventBus;
     const toolRegistry = new ToolRegistry();
     const authEngine = new AuthEngine();
     const pendingApprovalRegistry = await PendingApprovalRegistry.load(storage);
@@ -390,7 +391,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
       };
 
-      const result = await tool.execute(args, toolCtx) as ToolResult;
+      const result = await toolRegistry.execute(toolName, args, toolCtx) as ToolResult;
       return { result, conversationId };
     },
 

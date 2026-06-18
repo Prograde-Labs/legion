@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ToolResult } from '@legion/types';
 import { ConflictError, ToolNotFoundError } from '../errors/LegionError.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
@@ -37,10 +38,34 @@ export class ToolRegistry implements ToolRegistryLike {
     if (!tool) {
       return { status: 'error', error: new ToolNotFoundError(name).message };
     }
+    const callId = randomUUID();
+    context.eventBus.emit('tool:call', {
+      conversationId: context.conversationId ?? '',
+      participantId: context.participant.id,
+      tool: name,
+      callId,
+    });
+
     try {
-      return await tool.execute(args, context) as ToolResult;
+      const result = await tool.execute(args, context) as ToolResult;
+      context.eventBus.emit('tool:result', {
+        conversationId: context.conversationId ?? '',
+        participantId: context.participant.id,
+        tool: name,
+        callId,
+        status: result.status,
+      });
+      return result;
     } catch (err) {
-      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+      const errorResult = { status: 'error' as const, error: err instanceof Error ? err.message : String(err) };
+      context.eventBus.emit('tool:result', {
+        conversationId: context.conversationId ?? '',
+        participantId: context.participant.id,
+        tool: name,
+        callId,
+        status: 'error',
+      });
+      return errorResult;
     }
   }
 }

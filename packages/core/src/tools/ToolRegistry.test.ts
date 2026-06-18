@@ -1,5 +1,6 @@
 import { ToolRegistry } from './ToolRegistry.js';
 import type { Tool, ToolContext } from './Tool.js';
+import { EventBus } from '../events/EventBus.js';
 
 const echoTool: Tool = {
   name: 'echo',
@@ -14,6 +15,8 @@ const echoTool: Tool = {
 function fakeContext(): ToolContext {
   return {
     participant: { id: 'p', name: 'P', type: 'mock', tools: {}, responses: [] },
+    conversationId: '',
+    eventBus: new EventBus(),
   } as unknown as ToolContext;
 }
 

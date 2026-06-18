@@ -85,53 +85,40 @@ test.describe('WebSocket /ws', () => {
 
     const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
-    // Phase 1: Authenticate the WS connection and keep it open
-    await page.evaluate(
-      async ({ wsUrl, tok }: { wsUrl: string; tok: string }) => {
-        return new Promise<void>((resolve, reject) => {
+    // Open authenticated WS connection and start listening for events in a single evaluate,
+    // so there is no race between registering the listener and triggering the tool call.
+    const eventPromise = page.evaluate(
+      ({ wsUrl, tok }: { wsUrl: string; tok: string }) => {
+        return new Promise<string>((resolve) => {
           const ws = new WebSocket(wsUrl);
-          (window as Record<string, unknown>).__e2eWs = ws;
           ws.addEventListener('open', () => {
             ws.send(JSON.stringify({ type: 'auth', token: tok }));
           });
           ws.addEventListener('message', (e: MessageEvent<string>) => {
-            const msg = JSON.parse(e.data) as { type: string };
-            if (msg.type === 'connected') {
-              resolve();
+            const msg = JSON.parse(e.data) as { type: string; event?: string };
+            // Skip the 'connected' handshake, wait for real events
+            if (msg.type === 'event') {
+              ws.close();
+              resolve(msg.event ?? 'unknown');
             }
           });
-          setTimeout(() => reject(new Error('WS auth timeout')), 5000);
+          ws.addEventListener('error', () => resolve('error'));
+          // Expose ws so we can trigger execute after connection is ready
+          (window as Record<string, unknown>).__e2eWs = ws;
+          setTimeout(() => resolve('timeout'), 5000);
         });
       },
       { wsUrl, tok: token },
     );
 
-    // Phase 2: Trigger a tool call that emits events — WS listener is already active
-    await api.execute(token, 'communicate', { to: 'operator', message: 'ping' });
+    // Wait briefly to ensure the WS handshake completes before triggering the tool call
+    await page.waitForTimeout(500);
 
-    // Phase 3: Wait for an event on the same WS connection
-    const eventType = await page.evaluate(
-      async (): Promise<string> => {
-        return new Promise<string>((resolve) => {
-          const ws = (window as Record<string, unknown>).__e2eWs as WebSocket;
-          if (!ws) { resolve('timeout'); return; }
-          const handler = (e: MessageEvent<string>) => {
-            const msg = JSON.parse(e.data) as { type: string; event?: string };
-            if (msg.type === 'event') {
-              ws.removeEventListener('message', handler);
-              ws.close();
-              resolve(msg.event ?? 'unknown');
-            }
-          };
-          ws.addEventListener('message', handler);
-          setTimeout(() => {
-            ws.removeEventListener('message', handler);
-            resolve('timeout');
-          }, 2000);
-        });
-      },
-    );
+    // Trigger a tool call — the server will emit events over the authenticated WS
+    await api.execute(token, 'list_participants');
 
+    const eventType = await eventPromise;
     expect(eventType).not.toBe('timeout');
+    expect(eventType).not.toBe('error');
   });
 });

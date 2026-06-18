@@ -17,10 +17,16 @@ const providerSlide = ref(false);
 const credSlide = ref(false);
 const editingProvider = ref<ProviderConfig | null>(null);
 const editingCredential = ref<CredentialInfo | null>(null);
+const loadError = ref<string | null>(null);
 
 async function load() {
-  providers.value = await execute<ProviderConfig[]>('list_providers', {});
-  credentials.value = await execute<CredentialInfo[]>('list_credentials', {});
+  try {
+    providers.value = await execute<ProviderConfig[]>('list_providers', {});
+    credentials.value = await execute<CredentialInfo[]>('list_credentials', {});
+    loadError.value = null;
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : String(err);
+  }
 }
 
 onMounted(load);

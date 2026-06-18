@@ -246,10 +246,10 @@ describe('modify_agent', () => {
       },
       deps,
     );
-    const config = await storage.readJson<{ model: string; systemPrompt: string }>(
+    const config = await storage.readJson<{ model: { provider: string; model: string }; systemPrompt: string }>(
       `agents/${id}.json`,
     );
-    expect(config?.model).toBe('gpt-4o-mini');
+    expect(config?.model).toEqual({ provider: 'openai', model: 'gpt-4o-mini' });
     expect(config?.systemPrompt).toBe('Be concise.');
   });
 

@@ -11,7 +11,7 @@ import type {
   EventBus,
   ServerConfig,
 } from '@legion/core';
-import { signToken, verifyToken, extractBearerToken } from './auth.js';
+import { verifyToken } from './auth.js';
 import type { JwtSecret } from './auth.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -33,7 +33,6 @@ export class WebConnector implements Connector {
   readonly name = 'web';
 
   private app?: FastifyInstance;
-  private ctx?: ConnectorContext;
   /** Fresh random secret per process — sessions invalidated on restart. */
   private readonly jwtSecret: JwtSecret = crypto.getRandomValues(new Uint8Array(32));
   /** participantId → active WS sockets (for outbound deliver()). */
@@ -42,7 +41,6 @@ export class WebConnector implements Connector {
   constructor(private deps: WebConnectorDeps) {}
 
   async start(ctx: ConnectorContext): Promise<void> {
-    this.ctx = ctx;
     const app = Fastify({ logger: false });
     this.app = app;
 
@@ -89,6 +87,7 @@ export class WebConnector implements Connector {
     }
 
     await app.listen({ port, host });
+    console.log(`  Web UI: http://${host}:${port}`);
   }
 
   async deliver(message: {

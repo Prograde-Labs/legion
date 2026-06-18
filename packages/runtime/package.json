@@ -2,6 +2,9 @@
   "name": "@legion/runtime",
   "version": "0.0.1",
   "type": "module",
+  "bin": {
+    "legion": "./bin/legion.js"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
