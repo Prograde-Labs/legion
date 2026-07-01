@@ -10,7 +10,7 @@
 
 The Conversations view is transformed from a read-only monitoring surface into the operator's primary chat interface. The Events view remains the firehose for auditing. The Conversations view becomes "your conversations" — where you talk to agents, watch them work, and approve or deny tool calls as they arise.
 
-This is Plan 12. It builds entirely on infrastructure already implemented in Plans 1–11. No new backend primitives are needed — only targeted extensions to existing tools, types, and components.
+This is Plan 12. It builds entirely on infrastructure already implemented in Plans 1–11. The only backend primitive change beyond tool/type extensions is participant-scoped event filtering on the WebSocket bridge.
 
 ---
 
@@ -22,6 +22,7 @@ This is Plan 12. It builds entirely on infrastructure already implemented in Pla
 - Start new conversations via a clean draft state
 - Filter the conversation list to "Mine" (conversations the operator participates in) or "All" (full monitoring view)
 - Maintain a clean composable architecture that separates transport, event subscription, and conversation state
+- Scope server-sent events to the authenticated participant — no user receives another participant's private conversation events
 
 ---
 
@@ -29,7 +30,7 @@ This is Plan 12. It builds entirely on infrastructure already implemented in Pla
 
 - Participant view shortcut to start a conversation with a specific agent (deferred, low LOE once Plan 12 is done)
 - "New messages" nudge when scrolled up in a long thread (good UX improvement, not needed for MVP)
-- Server-side event stream filtering by `conversationId` or event type (current client-side filtering is sufficient at low volume)
+- Server-side event subscription protocol (client declares which event types / conversationIds it wants) — client-side filtering within the participant-scoped stream is sufficient at current volume
 - Global sidebar badge for pending approvals across all conversations (amber dot on list item is sufficient for now)
 - Dashboard / overview screen
 
@@ -57,48 +58,79 @@ The `list_conversations` management tool gains an optional `participantId` param
 
 The web UI passes the operator's own `participantId` for "Mine" mode and omits it for "All" mode. Filtering always happens on the backend — the client never receives more data than it needs.
 
+### 4.4 Participant-scoped WebSocket event filtering
+
+Currently `WebConnector` registers an `onAny` handler per authenticated socket that forwards every EventBus event to every connected client unconditionally. With multiple users connected this is both a privacy problem (user B receives user A's conversation events) and a scalability problem (event volume multiplies across all clients).
+
+An `isRelevantToParticipant(event, payload, participantId)` function is added to `WebConnector`. It is called inside the `onAny` handler before `socket.send` — if it returns `false` the event is silently dropped for that socket.
+
+Relevance rules by event type:
+
+| Event | Relevant when |
+|---|---|
+| `process:ready` | Always |
+| `conversation:created` | Always |
+| `participant:active` | Always |
+| `participant:retired` | Always |
+| `error` | Always |
+| `message:sent` | `payload.senderId === pid` OR `payload.recipientId === pid` |
+| `message:delivered` | `payload.recipientId === pid` |
+| `tool:call` | `payload.participantId === pid` |
+| `tool:result` | `payload.participantId === pid` |
+| `iteration` | `payload.participantId === pid` |
+| `approval:requested` | `payload.requesterId === pid` OR participant is an operator |
+| `approval:resolved` | `payload.requesterId === pid` OR participant is an operator |
+
+Approval events are broadcast to all operators because operators are the approval authority. The `isRelevantToParticipant` function receives an `isOperator: boolean` flag resolved at auth time from the `Collective` — no per-event authority lookup needed.
+
+**Acknowledged debt:** This is a domain-driven `switch` over event names that must be updated whenever a new event type is added to `LegionEventMap`. The correct long-term solution is event metadata — each event type declaring its own relevance predicate, or events carrying explicit `scope` fields — so the routing logic doesn't need to know each event's payload shape. This is noted as a future improvement.
+
 ---
 
 ## 5. Composable Architecture
 
-The existing composable layer is refactored into three distinct layers:
+The existing composable layer is refactored into three distinct layers. A known memory leak in `ParticipantsView` (where `subscribe()` return value is discarded and no `onUnmounted` cleanup is registered) is fixed as part of this refactor.
 
 ### 5.1 `useWebSocket`
 
-Raw WebSocket connection lifecycle. Handles:
+Extracted from the current `useEventStream`. Owns the raw WebSocket connection lifecycle:
 - Connection establishment and JWT auth handshake (`{ type: 'auth', token }`)
-- Exponential backoff reconnect (1s → 30s max, same as current `useEventStream`)
-- Exposes a `send(message)` method and an `onMessage(handler)` registration
+- Exponential backoff reconnect (1s → 30s max)
+- Module-level singleton — one connection shared across the entire app
+- Exposes `onMessage(handler): () => void` for raw message subscription
 
-This becomes the single source of truth for the WebSocket connection. It is a singleton.
+This is a pure transport layer. It knows nothing about event types or conversation state.
 
 ### 5.2 `useEventStream`
 
-Subscribes to `useWebSocket`. Provides typed event subscriptions with optional filtering:
+Refactored to subscribe to `useWebSocket` rather than owning the WebSocket directly. Provides typed, filtered event subscriptions:
 
 ```ts
-useEventStream().on('message:sent', handler, { conversationId?: string })
-useEventStream().on('iteration', handler, { conversationId?: string })
-useEventStream().on('approval:requested', handler, { conversationId?: string })
+const { on } = useEventStream()
+on('message:sent', handler)                          // all message:sent events
+on('message:sent', handler, { conversationId })      // filtered to one conversation
+on('iteration', handler, { conversationId })
 ```
 
-The filter parameter is applied client-side — events not matching the filter are not delivered to that handler. The Events view uses `useEventStream` directly without filters (it wants everything). `useConversation` uses it with a `conversationId` filter.
+**Lifecycle safety:** when called inside a Vue component's `setup()` context, subscriptions are automatically cleaned up on `onUnmounted` — the composable detects the component context via `getCurrentInstance()` and registers cleanup itself. Callers do not need to manage unsubscribe closures manually. This eliminates the class of leak present in `ParticipantsView` today.
+
+The Events view uses `useEventStream` directly with no filters (it wants the full participant-scoped stream). `useConversation` uses it with a `conversationId` filter.
 
 ### 5.3 `useConversation(id: string | null)`
 
 The stateful composable for a single conversation thread. Accepts a `conversationId` or `null` for the draft state.
 
 When given a real `conversationId`:
-1. Loads the full conversation via `get_conversation` tool through `POST /api/execute` on mount — this is the source of truth for initial state
+1. Loads the full conversation via `get_conversation` tool through `POST /api/execute` on mount — this is the authoritative initial state, not the event stream
 2. Subscribes to `useEventStream` filtered to that `conversationId` for: `message:sent`, `iteration`, `tool:call`, `tool:result`, `approval:requested`, `approval:resolved`
-3. Appends new messages to local state as events arrive — the event stream is only used for updates after initial load
+3. Appends incoming events to local state — the event stream is a source of updates only, never a source of truth
 
-When `id` is `null` (draft state): exposes no messages, no subscriptions.
+When `id` is `null` (draft state): returns empty state, no subscriptions.
 
 **Thinking indicator logic:**
 - Show animated "thinking..." when: the user just sent a message in this tab, OR an `iteration` event fires for this `conversationId`
 - Hide thinking when: `message:sent` (assistant role) fires, OR `approval:requested` fires for this `conversationId`
-- On initial load: if the last message in the chain is `role: 'user'` with no subsequent assistant reply and no `pending_approval` tool results, show a static indeterminate "..." indicator — the agent may be processing or may have died mid-flight; we cannot distinguish after a restart
+- On initial load: if the last message in the active chain is `role: 'user'` with no subsequent assistant reply and no `pending_approval` tool results, show a static indeterminate "..." indicator — the agent may be processing or may have died mid-flight; we cannot distinguish after a restart
 
 ---
 
@@ -215,8 +247,9 @@ A `textarea` with auto-expand (up to ~4 lines), then scrolls. Send button to the
 
 ### Unit / component tests
 - `useWebSocket` — connection lifecycle, reconnect backoff, auth handshake
+- `useEventStream` — filter parameter behaviour, auto-cleanup on unmount, no handler leak across multiple mounts
 - `useConversation` — initial load, event appending, thinking indicator state transitions
-- `useEventStream` — filter parameter behaviour
+- `isRelevantToParticipant` — all event types, operator flag, boundary cases
 - `SearchableCombobox` — filtering, keyboard navigation, selection
 - `ApprovalCard` — renders pending state, submits correctly, shows outcome after resolution
 - `MessageBubble` — own vs other alignment, timestamp formatting
@@ -235,7 +268,8 @@ A `textarea` with auto-expand (up to ~4 lines), then scrolls. Send button to the
 ## 14. Future Improvements (Noted, Not Scheduled)
 
 - "New messages" nudge button when scrolled up in a long thread
-- Server-side event stream filtering by `conversationId` / event type
+- Server-side event subscription protocol — client declares which event types / conversationIds it wants, eliminating remaining client-side fan-out entirely
+- Event metadata / scope fields on `LegionEventMap` so `isRelevantToParticipant` can be replaced with a data-driven routing layer rather than a domain switch
 - Global sidebar badge for pending approvals
 - Shortcut from Participants view to start a conversation with a specific agent
 - `message:processing` event emitted by `MessageRouter` for a clean "started" signal (currently inferred from `iteration` i=0)
