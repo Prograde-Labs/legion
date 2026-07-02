@@ -167,10 +167,11 @@ export class WebConnector implements Connector {
             socket.send(JSON.stringify({ type: 'connected', participantId: pid }));
 
             // Bridge EventBus events
+            if (!participantId) return;
             const handler = (event: string, payload: unknown) => {
               if (
                 socket.readyState === WebSocket.OPEN &&
-                isRelevantToParticipant(event, payload, participantId, isOperator)
+                isRelevantToParticipant(event, payload, participantId!, isOperator)
               ) {
                 socket.send(JSON.stringify({ type: 'event', event, data: payload }));
               }

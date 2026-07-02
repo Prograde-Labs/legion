@@ -4,7 +4,7 @@ import AppLayout from '../components/layout/AppLayout.vue';
 import EventDetailPanel from '../components/events/EventDetailPanel.vue';
 import TypeBadge from '../components/common/TypeBadge.vue';
 import StatusDot from '../components/common/StatusDot.vue';
-import { useEventStream } from '../composables/useEventStream.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 
 interface LiveEvent {
   id: string;
@@ -14,7 +14,9 @@ interface LiveEvent {
   time: string;
 }
 
-const { subscribe } = useEventStream();
+const { connect, onMessage } = useWebSocket();
+connect();
+
 const events = ref<LiveEvent[]>([]);
 const selected = ref<LiveEvent | null>(null);
 const paused = ref(false);
@@ -22,13 +24,15 @@ const filters = ref(new Set(['message:sent', 'tool:call', 'tool:result', 'error'
 const search = ref('');
 
 let idSeq = 0;
-const off = subscribe((evt) => {
+const off = onMessage((raw) => {
+  const msg = raw as { type: string; event: string; data: unknown };
+  if (msg.type !== 'event') return;
   if (paused.value) return;
   const le: LiveEvent = {
     id: String(idSeq++),
     type: 'event',
-    event: evt.event,
-    data: evt.data,
+    event: msg.event,
+    data: msg.data,
     time: new Date().toLocaleTimeString(),
   };
   events.value.unshift(le);
@@ -75,7 +79,7 @@ function summary(e: LiveEvent): string {
 
 <template>
   <AppLayout>
-    <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full">
       <!-- Toolbar -->
       <div
         class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-600 bg-navy-900 flex-wrap"

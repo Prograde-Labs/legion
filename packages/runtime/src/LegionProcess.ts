@@ -302,6 +302,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         pendingApprovalRegistry,
         messageRouter: router,
         serviceManager,
+        conversationStore: store,
       };
       return router.send({
         senderId: msg.senderId,
@@ -389,6 +390,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         pendingApprovalRegistry,
         messageRouter: router,
         serviceManager,
+        conversationStore: store,
       };
 
       const result = await toolRegistry.execute(toolName, args, toolCtx) as ToolResult;

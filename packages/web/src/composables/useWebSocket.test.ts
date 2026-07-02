@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useWebSocket } from './useWebSocket.js';
+
 
 // We test the public interface only — not the internal WebSocket construction
 describe('useWebSocket', () => {

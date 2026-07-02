@@ -4,7 +4,6 @@ import { useExecute } from '../../composables/useExecute.js';
 import { useConversation } from '../../composables/useConversation.js';
 import MessageBubble from './MessageBubble.vue';
 import ApprovalCard from './ApprovalCard.vue';
-import ToolCallBlock from './ToolCallBlock.vue';
 import type { MessageData } from '@legion/types';
 
 const props = defineProps<{
@@ -98,32 +97,34 @@ function isOwnMessage(msg: MessageData): boolean {
           :sender-name="isOwnMessage(msg) ? 'you' : (recipientName ?? msg.senderId)"
         >
           <template v-if="msg.toolCalls?.length" #tools>
-            <ToolCallBlock
+            <!-- Compact tool call indicators -->
+            <div
               v-for="tc in msg.toolCalls"
-              :key="tc.toolCallId"
-              :tool-call="tc"
-              :tool-result="msg.toolResults?.find(tr => tr.toolCallId === tc.toolCallId) ?? null"
-            />
+              :key="tc.id"
+              class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
+            >
+              {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
+            </div>
             <!-- Approval card for pending_approval tool results -->
             <ApprovalCard
               v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'pending_approval')"
-              :key="tr.toolCallId"
-              :approval-id="(tr.result as any).approvalId"
-              :tool-name="tr.toolName"
-              :args="msg.toolCalls?.find(tc => tc.toolCallId === tr.toolCallId)?.args ?? {}"
+              :key="tr.id"
+              :approval-id="tr.result.approvalId ?? ''"
+              :tool-name="tr.name"
+              :args="msg.toolCalls?.find(tc => tc.id === tr.id)?.arguments ?? {}"
               :resolved="false"
               :decision="null"
             />
             <!-- Resolved approval cards -->
             <ApprovalCard
               v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'rejected')"
-              :key="`resolved-${tr.toolCallId}`"
+              :key="`resolved-${tr.id}`"
               :approval-id="''"
-              :tool-name="tr.toolName"
+              :tool-name="tr.name"
               :args="{}"
               :resolved="true"
               decision="reject"
-              :resolved-message="(tr.result as any).message"
+              :resolved-message="tr.result.message"
             />
           </template>
         </MessageBubble>

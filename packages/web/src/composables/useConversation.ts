@@ -1,21 +1,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useEventStream } from './useEventStream.js';
-import type { ConversationData, MessageData } from '@legion/types';
+import type { MessageData } from '@legion/types';
 
-function buildActiveChain(data: ConversationData): MessageData[] {
-  const messages = data.messages;
-  const chain: MessageData[] = [];
-  let currentId: string | null = data.activeBranchHead;
-
-  while (currentId) {
-    const msg = messages[currentId];
-    if (!msg || msg.status !== 'active') break;
-    chain.unshift(msg);
-    currentId = msg.parentId;
-  }
-
-  return chain;
+// Shape returned by the get_conversation tool (messages already as ordered array)
+interface ConversationResponse {
+  id: string;
+  title?: string;
+  messages: MessageData[];
 }
 
 export function useConversation(conversationId: string | null) {
@@ -23,7 +15,7 @@ export function useConversation(conversationId: string | null) {
   const { on } = useEventStream();
 
   const messages = ref<MessageData[]>([]);
-  const loading = ref(true);
+  const loading = ref(conversationId !== null);
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
   const iterationFired = ref(false);  // set when iteration event arrives
@@ -32,9 +24,7 @@ export function useConversation(conversationId: string | null) {
     if (isThinkingLocal.value || iterationFired.value) return true;
     // Indeterminate: last message is user with no assistant reply
     const last = messages.value.at(-1);
-    return !!last && last.role === 'user' && !iterationFired.value && !isThinkingLocal.value
-      ? 'indeterminate'
-      : false;
+    return !!last && last.role === 'user' ? 'indeterminate' : false;
   });
 
   async function load() {
@@ -42,8 +32,8 @@ export function useConversation(conversationId: string | null) {
     loading.value = true;
     error.value = null;
     try {
-      const data = await execute<ConversationData>('get_conversation', { conversationId });
-      messages.value = buildActiveChain(data);
+      const data = await execute<ConversationResponse>('get_conversation', { conversationId });
+      messages.value = data.messages;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -56,17 +46,23 @@ export function useConversation(conversationId: string | null) {
   }
 
   if (conversationId) {
-    on('message:sent', (payload) => {
-      // Reload conversation to get the new message in correct chain order
+    on('message:sent', () => {
+      // Outgoing user message confirmed — keep thinking indicator active.
       void load();
-      // If assistant message arrived, clear thinking state
-      if ((payload as any).role === 'assistant') {
-        isThinkingLocal.value = false;
-        iterationFired.value = false;
-      }
+    }, { conversationId });
+
+    // message:delivered fires when the agent's async reply is persisted and
+    // delivered back to the operator. This is the primary "reply arrived" signal.
+    on('message:delivered', () => {
+      isThinkingLocal.value = false;
+      iterationFired.value = false;
+      void load();
     }, { conversationId });
 
     on('iteration', () => {
+      // iteration events are scoped to the agent's participantId on the server,
+      // so the operator only receives them if they ARE the agent (not typical).
+      // We still set iterationFired in case the scope rules change.
       iterationFired.value = true;
     }, { conversationId });
 

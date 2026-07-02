@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useExecute } from '../composables/useExecute.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useEventStream } from '../composables/useEventStream.js';
+import AppLayout from '../components/layout/AppLayout.vue';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
 import SearchableCombobox from '../components/common/SearchableCombobox.vue';
@@ -59,7 +60,8 @@ async function loadConversations() {
   const filter = listMode.value === 'mine' && myParticipantId.value
     ? { participantId: myParticipantId.value }
     : {};
-  conversations.value = await execute<ConversationMeta[]>('list_conversations', filter);
+  const result = await execute<{ conversations: ConversationMeta[] }>('list_conversations', filter);
+  conversations.value = result.conversations;
 }
 
 async function loadParticipants() {
@@ -105,6 +107,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <AppLayout>
   <div class="flex h-full">
     <!-- Left: conversation list -->
     <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
@@ -136,6 +139,7 @@ onMounted(async () => {
       <!-- Thread pane -->
       <ConversationThread
         v-if="activeId || isDraft"
+        :key="activeId ?? 'draft'"
         :conversation-id="activeId"
         :mode="threadMode"
         :my-participant-id="myParticipantId ?? ''"
@@ -150,4 +154,5 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+  </AppLayout>
 </template>

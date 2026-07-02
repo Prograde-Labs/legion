@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { defineComponent, onMounted } from 'vue';
+import { defineComponent } from 'vue';
 import { mount } from '@vue/test-utils';
 
 beforeEach(() => vi.restoreAllMocks());

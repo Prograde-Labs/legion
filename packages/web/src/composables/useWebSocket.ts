@@ -45,7 +45,7 @@ function scheduleReconnect(): void {
 export function useWebSocket() {
   return {
     connect() {
-      if (!ws || ws.readyState > WebSocket.OPEN) connect();
+      if (!ws || ws.readyState !== WebSocket.OPEN) connect();
     },
     disconnect() {
       if (reconnectTimer !== null) {
