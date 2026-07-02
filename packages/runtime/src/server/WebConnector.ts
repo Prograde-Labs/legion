@@ -13,6 +13,7 @@ import type {
 } from '@legion/core';
 import { verifyToken } from './auth.js';
 import type { JwtSecret } from './auth.js';
+import { isRelevantToParticipant } from './event-filter.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerExecuteRoute } from './routes/execute.js';
@@ -154,6 +155,7 @@ export class WebConnector implements Connector {
             if (socket.readyState !== WebSocket.OPEN) return;
             clearTimeout(authTimer);
             participantId = pid;
+            const isOperator = this.deps.collective.get(pid)?.operator === true;
 
             // Track connection
             ctx.registry.setActive(pid, this.name);
@@ -166,7 +168,10 @@ export class WebConnector implements Connector {
 
             // Bridge EventBus events
             const handler = (event: string, payload: unknown) => {
-              if (socket.readyState === WebSocket.OPEN) {
+              if (
+                socket.readyState === WebSocket.OPEN &&
+                isRelevantToParticipant(event, payload, participantId, isOperator)
+              ) {
                 socket.send(JSON.stringify({ type: 'event', event, data: payload }));
               }
             };
