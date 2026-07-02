@@ -8,7 +8,7 @@ import { useExecute } from '../composables/useExecute.js';
 import StatusDot from '../components/common/StatusDot.vue';
 
 const { execute } = useExecute();
-const { subscribe } = useEventStream();
+const { on } = useEventStream();
 
 const participants = ref<BaseParticipant[]>([]);
 const allTools = ref<string[]>([]);
@@ -28,11 +28,11 @@ async function load() {
   }
 }
 
+on('participant:active', () => load());
+on('participant:retired', () => load());
+
 onMounted(async () => {
   await load();
-  subscribe((evt) => {
-    if (evt.event === 'participant:active' || evt.event === 'participant:retired') load();
-  });
 });
 
 function openCreate() {
