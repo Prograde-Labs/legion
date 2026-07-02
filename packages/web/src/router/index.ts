@@ -15,6 +15,11 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/conversations/new',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/conversations/:id',
     component: () => import('../views/ConversationsView.vue'),
     meta: { requiresAuth: true },
