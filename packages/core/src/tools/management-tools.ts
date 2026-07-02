@@ -1,4 +1,4 @@
-import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig, ConversationSummary, ConversationData, MessageData } from '@legion/types';
+import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig } from '@legion/types';
 import { getActiveChain } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
@@ -238,29 +238,30 @@ export const listToolsTool: Tool = {
 
 export const listConversationsTool: Tool = {
   name: 'list_conversations',
-  description: 'List conversation summaries.',
-  parameters: { type: 'object', properties: {}, required: [] },
-  async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
-    const storage = context.storage;
-    if (!storage) return { status: 'error', error: 'storage unavailable' };
-    const keys = await storage.list('conversations/');
-    const conversations = await Promise.all(
-      keys.map((k: string) => storage.readJson<ConversationData>(`conversations/${k}`)),
-    );
-    const summaries: ConversationSummary[] = conversations.filter((c): c is ConversationData => Boolean(c)).map((c) => {
-      const participantIds = Array.from(new Set(
-        Object.values(c.messages ?? {}).map((m: MessageData) => m.senderId),
-      ));
-      return {
-        id: c.id,
-        participantIds,
-        status: 'active',
-        messageCount: Object.keys(c.messages ?? {}).length,
-        createdAt: new Date(c.createdAt).getTime(),
-        updatedAt: new Date(c.updatedAt).getTime(),
-      };
-    });
-    return { status: 'success', data: summaries };
+  description: 'List conversations. Pass participantId to filter to conversations involving that participant.',
+  parameters: {
+    type: 'object',
+    properties: {
+      participantId: {
+        type: 'string',
+        description: 'Only return conversations where this participant is a sender or recipient.',
+      },
+      since: {
+        type: 'string',
+        description: 'ISO 8601 timestamp — only return conversations updated after this time.',
+      },
+    },
+  },
+  async execute(args: { participantId?: string; since?: string }, context: ToolContext): Promise<ToolResult> {
+    try {
+      const conversations = await context.conversationStore!.list({
+        participantId: args.participantId,
+        since: args.since,
+      });
+      return { status: 'success', data: { conversations } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
   },
 };
 

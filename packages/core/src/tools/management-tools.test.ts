@@ -62,6 +62,7 @@ async function invokeManagementTool(
 ): Promise<unknown> {
   const tool = deps.toolRegistry.get(name);
   if (!tool) throw new Error(`Tool not found: ${name}`);
+  const conversationStore = new FileConversationStore(deps.storage);
   const context = {
     participant: deps.collective.getOrThrow('operator'),
     collective: deps.collective,
@@ -70,6 +71,7 @@ async function invokeManagementTool(
     toolRegistry: deps.toolRegistry,
     providerRegistry: deps.providerRegistry,
     runtimeRegistry: deps.runtimeRegistry,
+    conversationStore,
   } as unknown as ToolContext;
   return await tool.execute(args, context);
 }
@@ -297,21 +299,70 @@ describe('list_conversations', () => {
     const storage = new MemoryStorage();
     const deps = await buildTestDeps({ storage });
     const result = await invokeManagementTool('list_conversations', {}, deps);
-    expect((result as { status: string; data: unknown[] }).data).toEqual([]);
+    expect((result as { status: string; data: { conversations: unknown[] } }).data.conversations).toEqual([]);
   });
 
   it('returns summaries for stored conversations', async () => {
     const storage = new MemoryStorage();
-    await storage.writeJson('conversations/conv-1.json', {
-      id: 'conv-1',
-      participantIds: ['a', 'b'],
-      status: 'active',
-      messageCount: 3,
-      createdAt: 1000,
-      updatedAt: 2000,
+    const conversationStore = new FileConversationStore(storage);
+    const conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {
+        m1: {
+          id: 'm1',
+          parentId: null,
+          conversationId: '',
+          senderId: 'a',
+          recipientId: 'b',
+          role: 'user',
+          content: 'hi',
+          status: 'active',
+          timestamp: new Date().toISOString(),
+        },
+      },
     });
     const deps = await buildTestDeps({ storage });
     const result = await invokeManagementTool('list_conversations', {}, deps);
-    expect((result as { status: string; data: { id: string }[] }).data[0]?.id).toBe('conv-1');
+    expect((result as { status: string; data: { conversations: { id: string }[] } }).data.conversations[0]?.id).toBe(conv.id);
+  });
+
+  it('filters by participantId', async () => {
+    const storage = new MemoryStorage();
+    const conversationStore = new FileConversationStore(storage);
+
+    const conv1 = await conversationStore.create();
+    await conversationStore.appendMessage(conv1.id, {
+      id: 'm1',
+      parentId: null,
+      conversationId: conv1.id,
+      senderId: 'operator',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+
+    const conv2 = await conversationStore.create();
+    await conversationStore.appendMessage(conv2.id, {
+      id: 'm2',
+      parentId: null,
+      conversationId: conv2.id,
+      senderId: 'agent-1',
+      recipientId: 'agent-2',
+      role: 'user',
+      content: 'internal',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+
+    const deps = await buildTestDeps({ storage });
+    const result = await invokeManagementTool('list_conversations', { participantId: 'operator' }, deps);
+    expect(result.status).toBe('success');
+    const conversations = (result as { status: string; data: { conversations: { id: string; participants: string[] }[] } }).data.conversations;
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].id).toBe(conv1.id);
+    expect(conversations[0].participants).toContain('operator');
   });
 });
