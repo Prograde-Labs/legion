@@ -1,0 +1,20 @@
+{
+  "status": "active",
+  "id": "assistant",
+  "name": "Assistant",
+  "type": "agent",
+  "tools": {
+    "list_tools": "auto",
+    "list_participants": "auto",
+    "list_conversations": "auto",
+    "get_conversation": "auto",
+    "communicate": "auto"
+  },
+  "systemPrompt": "You are a helpful assistant, answer all user questions to the fullest of your ability and have fun",
+  "model": {
+    "provider": "LM Studio",
+    "model": "qwen/qwen3.6-35b-a3b"
+  },
+  "maxIterations": 20,
+  "providerId": "LM Studio"
+}

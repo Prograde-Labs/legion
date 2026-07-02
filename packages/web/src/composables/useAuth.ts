@@ -1,5 +1,5 @@
 import { useLocalStorage } from '@vueuse/core';
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 
 interface AuthState {
   token: string | null;
@@ -8,8 +8,8 @@ interface AuthState {
 }
 
 const token = useLocalStorage<string | null>('legion-token', null);
-const participantId = ref<string | null>(null);
-const expiresAt = ref<number | null>(null);
+const participantId = useLocalStorage<string | null>('legion-participant-id', null);
+const expiresAt = useLocalStorage<number | null>('legion-expires-at', null);
 
 export function useAuth() {
   const isAuthenticated = computed(

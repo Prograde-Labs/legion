@@ -1,0 +1,35 @@
+{
+  "id": "operator",
+  "name": "Operator",
+  "type": "user",
+  "tools": {
+    "communicate": "auto",
+    "create_agent": "auto",
+    "modify_agent": "auto",
+    "retire_agent": "auto",
+    "list_participants": "auto",
+    "list_tools": "auto",
+    "list_conversations": "auto",
+    "get_conversation": "auto",
+    "set_tool_policy": "auto",
+    "set_credential": "auto",
+    "list_providers": "auto",
+    "configure_provider": "auto",
+    "list_credentials": "auto",
+    "set_credential_with_meta": "auto",
+    "approval_response": "auto"
+  },
+  "operator": true,
+  "protected": true,
+  "status": "active",
+  "approvalAuthority": {
+    "tools": "*",
+    "participants": "*"
+  },
+  "identities": [
+    {
+      "connector": "web",
+      "externalId": "operator"
+    }
+  ]
+}
