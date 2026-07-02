@@ -44,6 +44,7 @@ export interface ConversationMeta {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  participants: string[];
 }
 
 export interface ConversationFilter {

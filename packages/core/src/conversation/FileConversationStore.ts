@@ -78,22 +78,27 @@ export class FileConversationStore implements ConversationStore {
       const id = file.slice(0, -'.json'.length);
       const conversation = await this.load(id);
       if (!conversation) continue;
-      if (filter?.since && conversation.updatedAt < filter.since) continue;
-      if (
-        filter?.participantId &&
-        !Object.values(conversation.messages).some(
-          (m) => m.senderId === filter.participantId || m.recipientId === filter.participantId,
-        )
-      ) {
-        continue;
+
+      const messages = Object.values(conversation.messages);
+      const participantSet = new Set<string>();
+      for (const msg of messages) {
+        if (msg.senderId) participantSet.add(msg.senderId);
+        if (msg.recipientId) participantSet.add(msg.recipientId);
       }
-      metas.push({
-        id: conversation.id,
+
+      const meta: ConversationMeta = {
+        id,
         title: conversation.title,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
-        messageCount: Object.keys(conversation.messages).length,
-      });
+        messageCount: messages.length,
+        participants: [...participantSet],
+      };
+
+      if (filter?.since && meta.updatedAt < filter.since) continue;
+      if (filter?.participantId && !participantSet.has(filter.participantId)) continue;
+
+      metas.push(meta);
     }
     return metas;
   }

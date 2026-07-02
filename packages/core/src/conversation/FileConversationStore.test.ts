@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { FileStorage } from '../storage/FileStorage.js';
 import { FileConversationStore } from './FileConversationStore.js';
 
@@ -91,5 +92,29 @@ describe('FileConversationStore', () => {
     const metas = await store.list();
     expect(metas.length).toBe(2);
     expect(metas.find((m) => m.id === a.id)?.title).toBe('A');
+  });
+
+  it('list() includes participants from both senderId and recipientId', async () => {
+    const storage = new MemoryStorage();
+    const store = new FileConversationStore(storage);
+    const conv = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await store.appendMessage(conv.id, {
+      id: 'm1',
+      parentId: null,
+      conversationId: conv.id,
+      senderId: 'agent-1',
+      recipientId: 'operator',
+      role: 'user',
+      content: 'hello',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    const list = await store.list();
+    expect(list[0].participants).toContain('agent-1');
+    expect(list[0].participants).toContain('operator');
   });
 });
