@@ -1,40 +1,81 @@
 <script setup lang="ts">
-import type { ConversationSummary } from '@legion/types';
-defineProps<{ conversations: ConversationSummary[]; activeId: string | null }>();
-const emit = defineEmits<{ select: [id: string] }>();
-function ago(ts: number) {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return `${Math.floor(s / 3600)}h ago`;
-}
+import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import type { ConversationMeta } from '@legion/types';
+
+const props = defineProps<{
+  conversations: ConversationMeta[];
+  activeId: string | null;
+  myParticipantId: string;
+  mode: 'mine' | 'all';
+  pendingApprovalIds?: Set<string>;
+}>();
+
+const emit = defineEmits<{
+  select: [id: string];
+  'update:mode': [mode: 'mine' | 'all'];
+}>();
+
+const router = useRouter();
 </script>
+
 <template>
-  <div class="w-60 shrink-0 border-r border-navy-600 bg-navy-900/50 flex flex-col">
-    <div class="px-4 py-3 border-b border-navy-600 flex items-center justify-between">
-      <span class="text-sm font-semibold text-slate-100">Conversations</span>
-      <span class="text-[9px] text-navy-500">{{ conversations.length }} total</span>
-    </div>
-    <div class="flex-1 overflow-y-auto">
+  <div class="flex flex-col h-full">
+    <!-- Header -->
+    <div class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0">
+      <span class="text-xs uppercase tracking-wider text-slate-500">Conversations</span>
       <button
-        v-for="c in conversations"
-        :key="c.id"
-        @click="emit('select', c.id)"
-        :class="[
-          'w-full text-left px-4 py-3 border-b border-navy-900 hover:bg-navy-800/40',
-          activeId === c.id ? 'bg-navy-800/60 border-l-2 border-cyan-400 !pl-[14px]' : '',
-        ]"
+        class="text-xs px-2 py-0.5 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700"
+        @click="router.push('/conversations/new')"
       >
-        <div class="flex items-center gap-2 mb-1">
-          <StatusDot :status="c.status === 'active' ? 'live' : 'complete'" />
-          <span class="font-mono text-[11px] text-slate-100 truncate">{{ c.id }}</span>
-          <span class="ml-auto text-[9px] text-navy-500 shrink-0">{{ ago(c.updatedAt) }}</span>
-        </div>
-        <p class="text-[10px] text-navy-400 pl-4 truncate">{{ c.participantIds.join(' · ') }}</p>
+        + New
       </button>
+    </div>
+
+    <!-- Mine / All toggle -->
+    <div class="flex gap-1 px-3 py-2 border-b border-navy-800 flex-shrink-0">
+      <button
+        class="text-xs px-3 py-0.5 rounded-full transition-colors"
+        :class="mode === 'mine' ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500 border border-navy-700 hover:text-slate-300'"
+        @click="emit('update:mode', 'mine')"
+      >
+        Mine
+      </button>
+      <button
+        class="text-xs px-3 py-0.5 rounded-full transition-colors"
+        :class="mode === 'all' ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500 border border-navy-700 hover:text-slate-300'"
+        @click="emit('update:mode', 'all')"
+      >
+        All
+      </button>
+    </div>
+
+    <!-- Conversation list -->
+    <div class="flex-1 overflow-y-auto">
+      <div
+        v-for="conv in conversations"
+        :key="conv.id"
+        class="relative px-3 py-2.5 cursor-pointer border-b border-navy-900 hover:bg-navy-850 transition-colors"
+        :class="conv.id === activeId ? 'bg-navy-800 border-l-2 border-l-cyan-600' : ''"
+        @click="emit('select', conv.id)"
+      >
+        <!-- Amber dot for pending approval -->
+        <div
+          v-if="props.pendingApprovalIds?.has(conv.id)"
+          class="absolute right-2.5 top-3 w-2 h-2 rounded-full bg-amber-400"
+        />
+
+        <div class="text-sm text-slate-200 truncate pr-4">
+          {{ conv.participants.filter(p => p !== myParticipantId).join(', ') || conv.id }}
+        </div>
+        <div class="text-xs text-slate-600 mt-0.5 font-mono truncate">
+          {{ conv.id }}
+        </div>
+      </div>
+
+      <div v-if="conversations.length === 0" class="px-3 py-6 text-xs text-slate-600 text-center">
+        No conversations yet
+      </div>
     </div>
   </div>
 </template>
-<script lang="ts">
-import StatusDot from '../common/StatusDot.vue';
-</script>
