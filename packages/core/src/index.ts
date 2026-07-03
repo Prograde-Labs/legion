@@ -28,6 +28,7 @@ export * from './runtime/MessageRouter.js';
 export * from './tools/communicate-tool.js';
 export * from './providers/Provider.js';
 export * from './providers/ProviderRegistry.js';
+export * from './providers/ProviderStore.js';
 export * from './providers/OpenAICompatibleProvider.js';
 export * from './runtime/AgentRuntime.js';
 export * from './tools/approval-response-tool.js';
