@@ -70,15 +70,21 @@ function escapeHtml(str: string): string {
   return str.replace(/[&<>"']/g, (c) => ESC[c] ?? c);
 }
 
+const SANITIZE_OPTIONS = {
+  USE_PROFILES: { html: true },
+  ALLOW_DATA_ATTR: true,
+  SANITIZE_NAMED_PROPS: true,
+};
+
 export function render(content: string): string {
   if (!_md) {
     // Fallback: plain escaped text before init completes (or if init failed).
     return `<p>${escapeHtml(content)}</p>`;
   }
 
-  return DOMPurify.sanitize(_md.render(content), {
-    USE_PROFILES: { html: true },
-    ALLOW_DATA_ATTR: true,
-    SANITIZE_NAMED_PROPS: true,
-  });
+  try {
+    return DOMPurify.sanitize(_md.render(content), SANITIZE_OPTIONS);
+  } catch {
+    return `<p>${escapeHtml(content)}</p>`;
+  }
 }
