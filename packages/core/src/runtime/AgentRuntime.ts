@@ -194,7 +194,10 @@ export class AgentRuntime implements Runtime {
         }
 
         // 'auto': execute immediately — ToolRegistry emits tool:call/tool:result
-        const result = await context.toolRegistry.execute(tc.name, tc.arguments, context);
+        const result = await context.toolRegistry.execute(tc.name, tc.arguments, {
+          ...context,
+          toolCallId: tc.id,
+        });
         toolResults.push({ id: tc.id, name: tc.name, result });
       }
 
@@ -297,7 +300,10 @@ export class AgentRuntime implements Runtime {
         tool: tr.name,
         callId: tr.id,
       });
-      const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, context);
+      const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, {
+        ...context,
+        toolCallId: tr.id,
+      });
       updatedResults[i] = { ...tr, result };
       context.eventBus.emit('approval:resolved', {
         conversationId: context.conversationId,
