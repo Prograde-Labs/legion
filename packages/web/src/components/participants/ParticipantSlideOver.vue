@@ -29,13 +29,47 @@ watch(
     if (!open) return;
     tab.value = 'basic';
     if (props.participantId) {
-      const list = await execute<{ id: string; name: string }[]>('list_participants', {});
-      const p = list.find((x) => x.id === props.participantId);
-      if (p) name.value = p.name;
+      // Edit mode: load full config via get_participant
+      try {
+        const p = await execute<Record<string, unknown>>('get_participant', { id: props.participantId });
+        name.value = (p.name as string) ?? '';
+        const modelCfg = p.model as { provider: string; model: string } | undefined;
+        providerId.value = modelCfg?.provider ?? '';
+        model.value = modelCfg?.model ?? '';
+        systemPrompt.value = (p.systemPrompt as string) ?? '';
+        maxIterations.value = (p.maxIterations as number) ?? 20;
+
+        // Reconstruct defaultPolicy + overrides from the tools map
+        const tools = (p.tools as Record<string, string>) ?? {};
+        const toolEntries = Object.entries(tools);
+        // Determine the most common policy as the default
+        const policyCounts: Record<string, number> = {};
+        for (const [, policy] of toolEntries) {
+          const uiPolicy = policy === 'auto' ? 'allow' : policy === 'requires_approval' ? 'require-approval' : 'deny';
+          policyCounts[uiPolicy] = (policyCounts[uiPolicy] ?? 0) + 1;
+        }
+        const sorted = Object.entries(policyCounts).sort((a, b) => b[1] - a[1]);
+        defaultPolicy.value = (sorted[0]?.[0] as 'allow' | 'require-approval' | 'deny') ?? 'allow';
+
+        // Overrides are tools that differ from the default
+        const defaultRuntime = defaultPolicy.value === 'allow' ? 'auto'
+          : defaultPolicy.value === 'require-approval' ? 'requires_approval' : 'deny';
+        overrides.value = toolEntries
+          .filter(([, policy]) => policy !== defaultRuntime)
+          .map(([tool, policy]) => ({
+            tool,
+            source: 'built-in',
+            enabled: policy !== 'deny',
+            requireApproval: policy === 'requires_approval',
+          }));
+      } catch {
+        // Fallback: empty form
+      }
     } else {
+      // New mode: reset + default provider
       name.value = '';
       model.value = '';
-      providerId.value = '';
+      providerId.value = props.providers[0]?.name ?? '';
       systemPrompt.value = '';
       maxIterations.value = 20;
       defaultPolicy.value = 'allow';
@@ -57,21 +91,20 @@ async function save() {
       await execute('modify_agent', {
         id: props.participantId,
         name: name.value,
-        model: model.value,
+        model: { provider: providerId.value, model: model.value },
         systemPrompt: systemPrompt.value,
         maxIterations: maxIterations.value,
+        defaultPolicy: defaultPolicy.value,
         toolPolicies,
       });
     } else {
       const id = name.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || `agent-${Date.now()}`;
-      const modelConfig = providerId.value && model.value
-        ? { provider: providerId.value, model: model.value }
-        : undefined;
       await execute('create_agent', {
         id,
         name: name.value,
         systemPrompt: systemPrompt.value || 'You are a helpful agent.',
-        model: modelConfig ?? { provider: props.providers[0]?.name ?? '', model: '' },
+        model: { provider: providerId.value, model: model.value },
+        defaultPolicy: defaultPolicy.value,
         toolPolicies,
       });
     }
