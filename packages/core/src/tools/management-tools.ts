@@ -347,6 +347,33 @@ export const listConversationsTool: Tool = {
   },
 };
 
+export const deleteConversationTool: Tool = {
+  name: 'delete_conversation',
+  description: 'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: {
+        type: 'string',
+        description: 'The conversation to delete.',
+      },
+    },
+    required: ['conversationId'],
+  },
+  async execute(args: { conversationId: string }, context: ToolContext): Promise<ToolResult> {
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    const { conversationId } = args;
+    try {
+      await context.conversationStore.delete(conversationId);
+      return { status: 'success', data: { deleted: true } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
 export const managementTools: Tool[] = [
   createAgentTool,
   retireAgentTool,
@@ -358,6 +385,7 @@ export const managementTools: Tool[] = [
   modifyAgentTool,
   listToolsTool,
   listConversationsTool,
+  deleteConversationTool,
 ];
 
 export function createManagementTools(deps: {

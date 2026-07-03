@@ -12,6 +12,7 @@ import {
   setCredentialTool,
   modifyAgentTool,
   listConversationsTool,
+  deleteConversationTool,
   managementTools,
 } from './management-tools.js';
 import type { ToolContext } from './Tool.js';
@@ -591,5 +592,59 @@ describe('list_conversations', () => {
     expect(conversations).toHaveLength(1);
     expect(conversations[0].id).toBe(conv1.id);
     expect(conversations[0].participants).toContain('operator');
+  });
+});
+
+describe('delete_conversation', () => {
+  it('removes a conversation from the store', async () => {
+    const { context, conversationStore } = await makeContext();
+    const conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const result = await deleteConversationTool.execute({ conversationId: conv.id }, context);
+    expect(result.status).toBe('success');
+    expect(await conversationStore.exists(conv.id)).toBe(false);
+  });
+
+  it('cascades to sub-threads', async () => {
+    const { context, conversationStore } = await makeContext();
+    const parent = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const child = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-1',
+    });
+    const result = await deleteConversationTool.execute({ conversationId: parent.id }, context);
+    expect(result.status).toBe('success');
+    expect(await conversationStore.exists(parent.id)).toBe(false);
+    expect(await conversationStore.exists(child.id)).toBe(false);
+    const all = await conversationStore.list({ includeSubThreads: true });
+    expect(all.map((c) => c.id)).not.toContain(child.id);
+  });
+
+  it('returns success when the id does not exist', async () => {
+    const { context } = await makeContext();
+    const result = await deleteConversationTool.execute({ conversationId: 'conv-missing' }, context);
+    expect(result.status).toBe('success');
+  });
+
+  it('returns success data shape { deleted: true }', async () => {
+    const { context, conversationStore } = await makeContext();
+    const conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const result = await deleteConversationTool.execute({ conversationId: conv.id }, context);
+    expect(result.status).toBe('success');
+    expect((result as { data: { deleted: boolean } }).data).toEqual({ deleted: true });
   });
 });
