@@ -11,7 +11,7 @@ import { EventBus } from '../events/EventBus.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
-import { ProviderRegistry } from '../providers/ProviderRegistry.js';
+import { ProviderStore } from '../providers/ProviderStore.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
@@ -20,6 +20,16 @@ import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 
 // ── Test helper ──────────────────────────────────────────────────────────────
+
+class MockProviderStore extends ProviderStore {
+  constructor(private mockProviders: Map<string, Provider>) {
+    super(new MemoryStorage());
+  }
+
+  override async get(name: string): Promise<Provider | null> {
+    return this.mockProviders.get(name) ?? null;
+  }
+}
 
 async function makeSetup(providerResponses: ProviderResponse[]) {
   const storage = new MemoryStorage();
@@ -71,8 +81,7 @@ async function makeSetup(providerResponses: ProviderResponse[]) {
       return resp ?? { content: '[no more responses]', toolCalls: [], stopReason: 'stop' };
     },
   };
-  const providerRegistry = new ProviderRegistry();
-  providerRegistry.register('test', mockProvider);
+  const providerStore = new MockProviderStore(new Map([['test', mockProvider]]));
 
   const context = {
     participant: collective.getOrThrow('agent-1'),
@@ -89,17 +98,17 @@ async function makeSetup(providerResponses: ProviderResponse[]) {
     pendingApprovalRegistry: new PendingApprovalRegistry(),
   } as unknown as RuntimeContext;
 
-  return { context, thread, eventBus, inbound, providerRegistry };
+  return { context, thread, eventBus, inbound, providerStore };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('AgentRuntime', () => {
   it('returns the provider text response when no tools are called', async () => {
-    const { context, inbound, providerRegistry } = await makeSetup([
+    const { context, inbound, providerStore } = await makeSetup([
       { content: 'I am happy to help!', toolCalls: [], stopReason: 'stop' },
     ]);
-    const runtime = new AgentRuntime('agent-1', providerRegistry);
+    const runtime = new AgentRuntime('agent-1', providerStore);
     const result = await runtime.handle(inbound, context);
     expect(result).toEqual({ kind: 'response', content: 'I am happy to help!' });
     // No extra messages persisted — only the inbound message
@@ -107,7 +116,7 @@ describe('AgentRuntime', () => {
   });
 
   it('executes a tool call turn, persists it, and returns the follow-up text', async () => {
-    const { context, inbound, providerRegistry } = await makeSetup([
+    const { context, inbound, providerStore } = await makeSetup([
       {
         content: null,
         toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello world' } }],
@@ -115,7 +124,7 @@ describe('AgentRuntime', () => {
       },
       { content: 'Done echoing!', toolCalls: [], stopReason: 'stop' },
     ]);
-    const runtime = new AgentRuntime('agent-1', providerRegistry);
+    const runtime = new AgentRuntime('agent-1', providerStore);
     const result = await runtime.handle(inbound, context);
 
     expect(result).toEqual({ kind: 'response', content: 'Done echoing!' });
@@ -132,7 +141,7 @@ describe('AgentRuntime', () => {
   });
 
   it('emits iteration, tool:call, and tool:result events in the correct order', async () => {
-    const { context, inbound, providerRegistry, eventBus } = await makeSetup([
+    const { context, inbound, providerStore, eventBus } = await makeSetup([
       {
         content: null,
         toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'x' } }],
@@ -140,7 +149,7 @@ describe('AgentRuntime', () => {
       },
       { content: 'Finished.', toolCalls: [], stopReason: 'stop' },
     ]);
-    const runtime = new AgentRuntime('agent-1', providerRegistry);
+    const runtime = new AgentRuntime('agent-1', providerStore);
     const events: string[] = [];
     eventBus.on('iteration', () => events.push('iteration'));
     eventBus.on('tool:call', () => events.push('tool:call'));
@@ -199,8 +208,7 @@ describe('AgentRuntime', () => {
         };
       },
     };
-    const reg = new ProviderRegistry();
-    reg.register('test', loopingProvider);
+    const providerStore = new MockProviderStore(new Map([['test', loopingProvider]]));
     const context = {
       participant: collective.getOrThrow('agent-1'),
       conversationId: conv.id,
@@ -216,19 +224,32 @@ describe('AgentRuntime', () => {
       pendingApprovalRegistry: new PendingApprovalRegistry(),
     } as unknown as RuntimeContext;
 
-    const runtime = new AgentRuntime('agent-1', reg);
+    const runtime = new AgentRuntime('agent-1', providerStore);
     const result = await runtime.handle(inbound, context);
     expect((result as { kind: string; content: string }).content).toMatch(/maximum iteration/i);
     expect((result as { kind: string; content: string }).content).toContain('2');
   });
 
   it('returns an error message when no provider is registered for the agent model', async () => {
-    const emptyReg = new ProviderRegistry();
+    const emptyStore = new MockProviderStore(new Map());
     const { context, inbound } = await makeSetup([]);
-    const runtime = new AgentRuntime('agent-1', emptyReg);
+    const runtime = new AgentRuntime('agent-1', emptyStore);
     const result = await runtime.handle(inbound, context);
     expect((result as { kind: string; content: string }).content).toMatch(/no provider/i);
     expect((result as { kind: string; content: string }).content).toMatch(/test/); // provider name from model config
+  });
+
+  it('returns a graceful error response when the provider throws', async () => {
+    const throwingProvider: Provider = {
+      async complete() {
+        throw new TypeError('fetch failed');
+      },
+    };
+    const providerStore = new MockProviderStore(new Map([['test', throwingProvider]]));
+    const { context, inbound } = await makeSetup([]);
+    const runtime = new AgentRuntime('agent-1', providerStore);
+    const result = await runtime.handle(inbound, context);
+    expect(result).toEqual({ kind: 'response', content: '[AgentRuntime error: fetch failed]' });
   });
 });
 
@@ -277,8 +298,7 @@ describe('AgentRuntime: auth – deny policy', () => {
         };
       },
     };
-    const providerRegistry = new ProviderRegistry();
-    providerRegistry.register('scripted', provider);
+    const providerStore = new MockProviderStore(new Map([['scripted', provider]]));
 
     const echoTool: Tool = {
       name: 'echo',
@@ -323,7 +343,7 @@ describe('AgentRuntime: auth – deny policy', () => {
       timestamp: new Date().toISOString(),
     };
 
-    const runtime = new AgentRuntime('agent-1', providerRegistry);
+    const runtime = new AgentRuntime('agent-1', providerStore);
     const result = await runtime.handle(incoming, context);
 
     expect(result.kind).toBe('response');
@@ -383,8 +403,7 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
         };
       },
     };
-    const providerRegistry = new ProviderRegistry();
-    providerRegistry.register('scripted', provider);
+    const providerStore = new MockProviderStore(new Map([['scripted', provider]]));
 
     const toolRegistry = new ToolRegistry();
     toolRegistry.register({
@@ -431,7 +450,7 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     };
 
     return {
-      runtime: new AgentRuntime('agent-1', providerRegistry),
+      runtime: new AgentRuntime('agent-1', providerStore),
       incoming,
       context,
       thread,

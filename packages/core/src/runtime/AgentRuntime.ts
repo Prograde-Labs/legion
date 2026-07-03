@@ -1,6 +1,6 @@
 import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
-import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
+import type { ProviderStore } from '../providers/ProviderStore.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
@@ -45,7 +45,7 @@ function buildProviderMessages(chain: MessageData[], systemPrompt: string): Prov
 export class AgentRuntime implements Runtime {
   constructor(
     private participantId: string,
-    private providerRegistry: ProviderRegistry,
+    private providerStore: ProviderStore,
   ) {}
 
   async handle(_incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult> {
@@ -53,7 +53,7 @@ export class AgentRuntime implements Runtime {
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
 
-    const provider = this.providerRegistry.get(agent.model.provider);
+    const provider = await this.providerStore.get(agent.model.provider);
     if (!provider) {
       return {
         kind: 'response',
@@ -103,139 +103,147 @@ export class AgentRuntime implements Runtime {
         parameters: tool.parameters,
       }));
 
-    for (let i = 0; i < maxIterations; i++) {
-      context.eventBus.emit('iteration', {
-        conversationId: context.conversationId,
-        participantId: this.participantId,
-        iteration: i,
-      });
-
-      const response = await provider.complete(messages, providerTools, agent.model);
-
-      if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
-        return { kind: 'response', content: response.content ?? '' };
-      }
-
-      const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
-        id: tc.id,
-        name: tc.name,
-        arguments: tc.arguments,
-      }));
-
-      const toolResults: ToolCallResult[] = [];
-      const pendingApprovals: PendingApproval[] = [];
-
-      for (const tc of response.toolCalls) {
-        const authResult = context.authEngine.authorize(
-          this.participantId,
-          tc.name,
-          tc.arguments,
-          agent.tools,
-        );
-
-        if (authResult.reason === 'deny') {
-          // Denied tools bypass ToolRegistry — emit events here
-          context.eventBus.emit('tool:call', {
-            conversationId: context.conversationId,
-            participantId: this.participantId,
-            tool: tc.name,
-            callId: tc.id,
-          });
-          toolResults.push({
-            id: tc.id,
-            name: tc.name,
-            result: { status: 'error', error: `Tool '${tc.name}' is denied for this agent` },
-          });
-          context.eventBus.emit('tool:result', {
-            conversationId: context.conversationId,
-            participantId: this.participantId,
-            tool: tc.name,
-            callId: tc.id,
-            status: 'error',
-          });
-          continue;
-        }
-
-        if (authResult.reason === 'requires_approval') {
-          const { approvalId } = await context.pendingApprovalRegistry.create({
-            conversationId: context.conversationId,
-            requesterId: this.participantId,
-            tool: tc.name,
-            args: tc.arguments,
-          });
-          const pending = context.pendingApprovalRegistry.get(approvalId)!;
-          pendingApprovals.push(pending);
-          toolResults.push({
-            id: tc.id,
-            name: tc.name,
-            result: { status: 'pending_approval', approvalId },
-          });
-          // Approval-required tools bypass ToolRegistry — emit events here
-          context.eventBus.emit('tool:call', {
-            conversationId: context.conversationId,
-            participantId: this.participantId,
-            tool: tc.name,
-            callId: tc.id,
-          });
-          context.eventBus.emit('tool:result', {
-            conversationId: context.conversationId,
-            participantId: this.participantId,
-            tool: tc.name,
-            callId: tc.id,
-            status: 'pending_approval',
-          });
-          context.eventBus.emit('approval:requested', {
-            conversationId: context.conversationId,
-            participantId: this.participantId,
-            tool: tc.name,
-            approvalId,
-          });
-          continue;
-        }
-
-        // 'auto': execute immediately — ToolRegistry emits tool:call/tool:result
-        const result = await context.toolRegistry.execute(tc.name, tc.arguments, {
-          ...context,
-          toolCallId: tc.id,
+    try {
+      for (let i = 0; i < maxIterations; i++) {
+        context.eventBus.emit('iteration', {
+          conversationId: context.conversationId,
+          participantId: this.participantId,
+          iteration: i,
         });
-        toolResults.push({ id: tc.id, name: tc.name, result });
-      }
 
-      // Persist the tool-call turn to the conversation.
-      await context.conversation.append({
-        senderId: this.participantId,
-        recipientId: this.participantId,
-        role: 'assistant',
-        content: response.content ?? '',
-        toolCalls: toolCallData,
-        toolResults,
-      });
+        const response = await provider.complete(messages, providerTools, agent.model);
 
-      // If any approvals are pending, return early.
-      if (pendingApprovals.length > 0) {
-        return { kind: 'pending_approval', approvalRequests: pendingApprovals };
-      }
+        if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
+          return { kind: 'response', content: response.content ?? '' };
+        }
 
-      // All tools executed — advance the local message history.
-      messages.push({
-        role: 'assistant',
-        content: response.content ?? null,
-        toolCalls: response.toolCalls,
-      });
-      for (const tr of toolResults) {
+        const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.arguments,
+        }));
+
+        const toolResults: ToolCallResult[] = [];
+        const pendingApprovals: PendingApproval[] = [];
+
+        for (const tc of response.toolCalls) {
+          const authResult = context.authEngine.authorize(
+            this.participantId,
+            tc.name,
+            tc.arguments,
+            agent.tools,
+          );
+
+          if (authResult.reason === 'deny') {
+            // Denied tools bypass ToolRegistry — emit events here
+            context.eventBus.emit('tool:call', {
+              conversationId: context.conversationId,
+              participantId: this.participantId,
+              tool: tc.name,
+              callId: tc.id,
+            });
+            toolResults.push({
+              id: tc.id,
+              name: tc.name,
+              result: { status: 'error', error: `Tool '${tc.name}' is denied for this agent` },
+            });
+            context.eventBus.emit('tool:result', {
+              conversationId: context.conversationId,
+              participantId: this.participantId,
+              tool: tc.name,
+              callId: tc.id,
+              status: 'error',
+            });
+            continue;
+          }
+
+          if (authResult.reason === 'requires_approval') {
+            const { approvalId } = await context.pendingApprovalRegistry.create({
+              conversationId: context.conversationId,
+              requesterId: this.participantId,
+              tool: tc.name,
+              args: tc.arguments,
+            });
+            const pending = context.pendingApprovalRegistry.get(approvalId)!;
+            pendingApprovals.push(pending);
+            toolResults.push({
+              id: tc.id,
+              name: tc.name,
+              result: { status: 'pending_approval', approvalId },
+            });
+            // Approval-required tools bypass ToolRegistry — emit events here
+            context.eventBus.emit('tool:call', {
+              conversationId: context.conversationId,
+              participantId: this.participantId,
+              tool: tc.name,
+              callId: tc.id,
+            });
+            context.eventBus.emit('tool:result', {
+              conversationId: context.conversationId,
+              participantId: this.participantId,
+              tool: tc.name,
+              callId: tc.id,
+              status: 'pending_approval',
+            });
+            context.eventBus.emit('approval:requested', {
+              conversationId: context.conversationId,
+              participantId: this.participantId,
+              tool: tc.name,
+              approvalId,
+            });
+            continue;
+          }
+
+          // 'auto': execute immediately — ToolRegistry emits tool:call/tool:result
+          const result = await context.toolRegistry.execute(tc.name, tc.arguments, {
+            ...context,
+            toolCallId: tc.id,
+          });
+          toolResults.push({ id: tc.id, name: tc.name, result });
+        }
+
+        // Persist the tool-call turn to the conversation.
+        await context.conversation.append({
+          senderId: this.participantId,
+          recipientId: this.participantId,
+          role: 'assistant',
+          content: response.content ?? '',
+          toolCalls: toolCallData,
+          toolResults,
+        });
+
+        // If any approvals are pending, return early.
+        if (pendingApprovals.length > 0) {
+          return { kind: 'pending_approval', approvalRequests: pendingApprovals };
+        }
+
+        // All tools executed — advance the local message history.
         messages.push({
-          role: 'tool',
-          content: JSON.stringify(tr.result),
-          toolCallId: tr.id,
-          name: tr.name,
+          role: 'assistant',
+          content: response.content ?? null,
+          toolCalls: response.toolCalls,
         });
+        for (const tr of toolResults) {
+          messages.push({
+            role: 'tool',
+            content: JSON.stringify(tr.result),
+            toolCallId: tr.id,
+            name: tr.name,
+          });
+        }
       }
-    }
 
-    return {
-      kind: 'response',
-      content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
-    };
+      return {
+        kind: 'response',
+        content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        kind: 'response',
+        content: `[AgentRuntime error: ${msg}]`,
+      };
+    }
   }
 
   /**

@@ -20,8 +20,7 @@ import {
   AgentRuntime,
   MockRuntime,
   ServiceManager,
-  ProviderRegistry,
-  OpenAICompatibleProvider,
+  ProviderStore,
   // Global tools
   communicateTool,
   approvalResponseTool,
@@ -139,18 +138,17 @@ export class LegionProcess {
     // Register service runtime factory using the cached ServiceRuntime instances
     runtimeRegistry.registerFactory('service', (id) => serviceManager.getRuntime(id));
 
-    // Build provider registry from workspace config
-    const providerRegistry = new ProviderRegistry();
+    // Populate provider store from workspace config
     if (workspaceConfig.providers) {
       for (const [name, config] of Object.entries(workspaceConfig.providers)) {
-        const provider = new OpenAICompatibleProvider(config.baseUrl, config.apiKeyEnv ?? config.credentialKey);
-        providerRegistry.register(name, provider);
+        await storage.writeJson(`providers/${name}.json`, { ...config, name });
       }
     }
+    const providerStore = new ProviderStore(storage);
 
     // Register agent factory
     runtimeRegistry.registerFactory('agent', (id) => {
-      return new AgentRuntime(id, providerRegistry);
+      return new AgentRuntime(id, providerStore);
     });
 
     // ── Step 9: Initialise web connector ─────────────────────────────────────

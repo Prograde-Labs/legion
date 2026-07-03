@@ -10,7 +10,8 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MessageRouter } from './MessageRouter.js';
 import { AgentRuntime } from './AgentRuntime.js';
-import { ProviderRegistry } from '../providers/ProviderRegistry.js';
+import { ProviderStore } from '../providers/ProviderStore.js';
+import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ApprovalLog } from '../auth/ApprovalLog.js';
@@ -19,6 +20,20 @@ import { approvalResponseTool } from '../tools/approval-response-tool.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
 import type { RuntimeContext } from './Runtime.js';
 import type { JSONSchema } from '@legion/types';
+
+class MockProviderStore extends ProviderStore {
+  constructor(private mockProviders: Map<string, Provider>) {
+    super(new MemoryStorage());
+  }
+
+  register(name: string, provider: Provider): void {
+    this.mockProviders.set(name, provider);
+  }
+
+  override async get(name: string): Promise<Provider | null> {
+    return this.mockProviders.get(name) ?? null;
+  }
+}
 
 /** A provider that cycles through a scripted sequence of responses. */
 function scriptedProvider(turns: ProviderResponse[]): Provider {
@@ -79,12 +94,13 @@ async function setup(dir: string) {
   const pendingApprovalRegistry = new PendingApprovalRegistry(storage);
   const approvalLog = new ApprovalLog();
   const authEngine = new AuthEngine();
-  const providerRegistry = new ProviderRegistry();
+  const mockProviders = new Map<string, Provider>();
+  const providerStore = new MockProviderStore(mockProviders);
   const runtimeRegistry = new RuntimeRegistry();
 
   const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
 
-  runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
+  runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerStore));
   runtimeRegistry.registerFactory('user', (_id) => ({
     async handle() {
       return { kind: 'void' as const };
@@ -118,7 +134,7 @@ async function setup(dir: string) {
     pendingApprovalRegistry,
     approvalLog,
     authEngine,
-    providerRegistry,
+    providerStore,
     router,
     makeContext,
   };
@@ -134,10 +150,10 @@ describe('Approval flow integration', () => {
   });
 
   it('approve path: operator approves → B resumes and completes', async () => {
-    const { providerRegistry, router, makeContext, store, pendingApprovalRegistry } =
+    const { providerStore, router, makeContext, store, pendingApprovalRegistry } =
       await setup(dir);
 
-    providerRegistry.register(
+    providerStore.register(
       'scripted',
       scriptedProvider([
         {
@@ -199,11 +215,11 @@ describe('Approval flow integration', () => {
   });
 
   it('reject path: operator rejects → B resumes with rejection message in context', async () => {
-    const { providerRegistry, router, makeContext, store } = await setup(dir);
+    const { providerStore, router, makeContext, store } = await setup(dir);
 
     let secondCallSeen = false;
 
-    providerRegistry.register('scripted', {
+    providerStore.register('scripted', {
       async complete(msgs) {
         const hasToolResult = msgs.some((m) => m.role === 'tool');
         if (!hasToolResult) {

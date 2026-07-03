@@ -5,8 +5,7 @@ import { EventBus } from '../events/EventBus.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
-import { ProviderRegistry } from '../providers/ProviderRegistry.js';
-import { OpenAICompatibleProvider } from '../providers/OpenAICompatibleProvider.js';
+import { ProviderStore } from '../providers/ProviderStore.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
@@ -43,12 +42,18 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
     const eventBus = new EventBus();
     const toolRegistry = new ToolRegistry();
 
-    const providerRegistry = new ProviderRegistry();
-    providerRegistry.register('openai-compatible', new OpenAICompatibleProvider());
+    const providerStorage = new MemoryStorage();
+    await providerStorage.writeJson('providers/openai-compatible.json', {
+      name: 'openai-compatible',
+      type: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKeyEnv: 'OPENAI_API_KEY',
+    });
+    const providerStore = new ProviderStore(providerStorage);
 
     const runtimeRegistry = new RuntimeRegistry();
     runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
-    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerStore));
 
     const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
 
@@ -120,12 +125,18 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
       },
     });
 
-    const providerRegistry = new ProviderRegistry();
-    providerRegistry.register('openai-compatible', new OpenAICompatibleProvider());
+    const providerStorage = new MemoryStorage();
+    await providerStorage.writeJson('providers/openai-compatible.json', {
+      name: 'openai-compatible',
+      type: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKeyEnv: 'OPENAI_API_KEY',
+    });
+    const providerStore = new ProviderStore(providerStorage);
 
     const runtimeRegistry = new RuntimeRegistry();
     runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
-    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerRegistry));
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerStore));
 
     const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
 
