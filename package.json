@@ -25,7 +25,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --build --force",
     "start": "node packages/runtime/bin/legion.js",
-    "dev": "tsx --watch --tsconfig tsconfig.dev.json packages/runtime/bin/legion.js --dev",
+    "dev": "tsx watch --tsconfig tsconfig.dev.json --exclude '**/*.timestamp-*.mjs' packages/runtime/bin/legion.js --dev",
     "test:e2e": "playwright test --config packages/e2e/playwright.config.ts"
   },
   "devDependencies": {
