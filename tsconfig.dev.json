@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@legion/types": ["packages/types/src/index.ts"],
+      "@legion/core": ["packages/core/src/index.ts"]
+    }
+  }
+}
