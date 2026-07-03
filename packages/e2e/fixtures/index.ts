@@ -46,9 +46,10 @@ export const test = base.extend<Fixtures>({
     // Inject token into localStorage BEFORE the SPA scripts run.
     // @vueuse/core's useLocalStorage reads from localStorage on first call;
     // addInitScript runs before any page script on every navigation.
-    await page.addInitScript((t: string) => {
+    await page.addInitScript(({ t, pid }: { t: string; pid: string }) => {
       (window as Record<string, unknown>).localStorage.setItem('legion-token', t);
-    }, token);
+      (window as Record<string, unknown>).localStorage.setItem('legion-participant-id', pid);
+    }, { t: token, pid: participantId });
 
     await use({ page, token, participantId });
   },
