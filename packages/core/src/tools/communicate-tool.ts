@@ -29,7 +29,7 @@ export const communicateTool: Tool = {
       senderId: context.participant.id,
       recipientId: to,
       message,
-      conversationId: conversationId ?? context.conversationId,
+      conversationId,
       replyTo,
       context: { ...context, communicationDepth: (context.communicationDepth ?? 0) + 1 },
     });

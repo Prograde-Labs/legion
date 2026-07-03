@@ -53,6 +53,8 @@ export interface ToolContext {
   communicationDepth: number;
   toolRegistry: ToolRegistryLike;
   callingParticipantId?: string;
+  /** The LLM tool-call id currently being executed, for parent linking in delegation. */
+  toolCallId?: string;
   credentialStore?: CredentialStore;
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;

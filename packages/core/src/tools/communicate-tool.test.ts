@@ -91,6 +91,48 @@ describe('communicate tool', () => {
     expect(result.status).toBe('error');
   });
 
+  it('creates a new conversation when no conversationId is supplied (does not join caller conversation)', async () => {
+    const { context } = await setup(dir);
+    // Pre-create the caller's 'seed' conversation so the implicit-join bug
+    // would actually return 'seed' (and thus be detectable).
+    const store = new FileConversationStore(new FileStorage(dir));
+    await store.save({
+      id: 'seed',
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const result = await communicateTool.execute({ to: 'agent-b', message: 'hi B' }, context);
+    expect(result.status).toBe('success');
+    const convId = (result.data as { conversationId: string }).conversationId;
+    expect(convId).not.toBe('seed');
+    // A new conversation should have been created
+    expect(convId).toMatch(/^conv-/);
+  });
+
+  it('joins explicit conversationId when supplied', async () => {
+    const { context } = await setup(dir);
+    // Pre-create 'explicit-conv' so the router joins it instead of creating a new one.
+    const store = new FileConversationStore(new FileStorage(dir));
+    await store.save({
+      id: 'explicit-conv',
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const result = await communicateTool.execute(
+      { to: 'agent-b', message: 'hi', conversationId: 'explicit-conv' },
+      context,
+    );
+    expect(result.status).toBe('success');
+    const convId = (result.data as { conversationId: string }).conversationId;
+    expect(convId).toBe('explicit-conv');
+  });
+
   it('surfaces pending_approval result when the recipient runtime returns one', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/agent-a.json', {
