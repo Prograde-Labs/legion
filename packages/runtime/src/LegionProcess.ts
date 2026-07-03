@@ -38,6 +38,10 @@ import type { ConversationData, ToolResult } from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 
+export interface StartOptions {
+  dev?: boolean;
+}
+
 /** The assembled Legion runtime. Returned by `LegionProcess.start()`. */
 export class LegionProcess {
   private constructor(
@@ -55,7 +59,7 @@ export class LegionProcess {
    * Start the Legion process from `workspaceRoot`.
    * Follows the 11-step startup sequence from spec §8.
    */
-  static async start(workspaceRoot: string): Promise<LegionProcess> {
+  static async start(workspaceRoot: string, options: StartOptions = {}): Promise<LegionProcess> {
     // ── Step 1: Read workspace config ────────────────────────────────────────
     const workspaceConfig = await loadWorkspaceConfig(workspaceRoot);
     const legionRoot = join(workspaceRoot, '.legion');
@@ -165,17 +169,26 @@ export class LegionProcess {
       throw new Error(`Invalid PORT env var: "${process.env.PORT}" — must be a number`);
     }
     const webConnectorConfig = { ...(workspaceConfig.server ?? {}), port };
-    // Derive web dist path from this file's compiled location, not from workspaceRoot.
-    // Compiled location: packages/runtime/dist/LegionProcess.js
-    // Web dist:          packages/web/dist/
     const _dirname = fileURLToPath(new URL('.', import.meta.url));
-    const webDistPath = join(_dirname, '..', '..', 'web', 'dist');
+
+    const dev = options.dev ?? false;
+    // In dev mode, point Vite at the web package source root (contains index.html + src/).
+    // In production, serve the pre-built static files from web/dist/.
+    const webSrcPath = dev
+      ? join(_dirname, '..', '..', '..', 'web')          // packages/runtime/src/ → packages/web/
+      : undefined;
+    const webDistPath = dev
+      ? undefined
+      : join(_dirname, '..', '..', 'web', 'dist');        // packages/runtime/dist/ → packages/web/dist/
+
     const webConnector = new WebConnector({
       collective,
       credentials,
       eventBus,
       serverConfig: webConnectorConfig,
       webDistPath,
+      webSrcPath,
+      dev,
     });
 
     connectorRegistry.register(webConnector);
