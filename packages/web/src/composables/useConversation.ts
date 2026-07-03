@@ -29,6 +29,7 @@ export function useConversation(conversationId: string | null) {
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
   const iterationFired = ref(false);  // set when iteration event arrives
+  let loadSeq = 0; // prevents stale concurrent load() responses from overwriting newer data
 
   const isThinking = computed(() => {
     if (isThinkingLocal.value || iterationFired.value) return true;
@@ -41,14 +42,21 @@ export function useConversation(conversationId: string | null) {
     if (!conversationId) return;
     loading.value = true;
     error.value = null;
+    const seq = ++loadSeq;
     try {
       const data = await execute<ConversationResponse>('get_conversation', { conversationId });
+      // Discard if a newer load() has already started
+      if (seq !== loadSeq) return;
       messages.value = data.messages;
       subThreads.value = data.subThreads ?? {};
     } catch (err) {
-      error.value = err instanceof Error ? err.message : String(err);
+      if (seq === loadSeq) {
+        error.value = err instanceof Error ? err.message : String(err);
+      }
     } finally {
-      loading.value = false;
+      if (seq === loadSeq) {
+        loading.value = false;
+      }
     }
   }
 

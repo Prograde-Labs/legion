@@ -7,6 +7,15 @@ import ToolCallBlock, { type ToolCallEntry, type MessageEntry } from './ToolCall
 import ApprovalCard from './ApprovalCard.vue';
 import type { MessageData } from '@legion/types';
 
+const textareaEl = ref<HTMLTextAreaElement | null>(null);
+
+function autoResize() {
+  const el = textareaEl.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 const props = defineProps<{
   conversationId: string | null;
   mode: 'read' | 'chat';
@@ -38,6 +47,8 @@ async function send(targetId: string) {
   sending.value = true;
   const text = composerText.value.trim();
   composerText.value = '';
+  await nextTick();
+  autoResize();
   markSent();
   try {
     const result = await execute<{ conversationId: string }>('communicate', {
@@ -53,10 +64,12 @@ async function send(targetId: string) {
 }
 
 function onKeydown(e: KeyboardEvent, targetId: string) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     void send(targetId);
   }
+  // Shift+Enter falls through to default behavior (newline)
+  nextTick(() => autoResize());
 }
 
 // Scroll to bottom when new messages arrive
@@ -194,11 +207,13 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
     <div v-if="mode === 'chat'" class="px-4 py-3 border-t border-navy-800 flex-shrink-0">
       <div class="flex gap-2 items-end">
         <textarea
+          ref="textareaEl"
           v-model="composerText"
           rows="1"
           :placeholder="recipientName ? `Message ${recipientName}...` : 'Type a message...'"
-          class="flex-1 bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-700 max-h-24 overflow-y-auto"
+          class="flex-1 bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-700 max-h-48 overflow-y-auto"
           @keydown="(e) => onKeydown(e, recipientId ?? recipientName ?? '')"
+          @input="autoResize"
         />
         <button
           :disabled="!canSend || sending"
@@ -209,7 +224,7 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           Send
         </button>
       </div>
-      <div class="text-xs text-slate-700 mt-1">Ctrl+Enter to send</div>
+      <div class="text-xs text-slate-700 mt-1">Enter to send · Shift+Enter for new line</div>
     </div>
   </div>
 </template>

@@ -14,16 +14,17 @@ defineProps<{
     class="flex flex-col gap-1"
     :class="isOwn ? 'items-end' : 'items-start'"
   >
-    <div
-      class="max-w-[72%] px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words"
-      :class="
-        isOwn
-          ? 'bg-cyan-700 text-white rounded-[12px_12px_3px_12px]'
-          : 'bg-navy-800 text-slate-200 rounded-[12px_12px_12px_3px]'
-      "
-    >
-      {{ message.content }}
-    </div>
+  <div
+    v-if="message.content?.trim()"
+    class="max-w-[72%] px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words"
+    :class="
+      isOwn
+        ? 'bg-cyan-700 text-white rounded-[12px_12px_3px_12px]'
+        : 'bg-navy-800 text-slate-200 rounded-[12px_12px_12px_3px]'
+    "
+  >
+    {{ message.content?.trim() }}
+  </div>
 
     <!-- Tool calls / approval cards slot — rendered beneath the bubble -->
     <div v-if="$slots.tools" class="max-w-[72%] flex flex-col gap-1.5">
