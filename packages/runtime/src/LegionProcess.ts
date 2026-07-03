@@ -175,7 +175,7 @@ export class LegionProcess {
     // In dev mode, point Vite at the web package source root (contains index.html + src/).
     // In production, serve the pre-built static files from web/dist/.
     const webSrcPath = dev
-      ? join(_dirname, '..', '..', '..', 'web')          // packages/runtime/src/ → packages/web/
+      ? join(_dirname, '..', '..', 'web')          // packages/runtime/src/ → packages/web/
       : undefined;
     const webDistPath = dev
       ? undefined
