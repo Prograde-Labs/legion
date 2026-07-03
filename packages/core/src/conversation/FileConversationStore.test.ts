@@ -117,4 +117,71 @@ describe('FileConversationStore', () => {
     expect(list[0].participants).toContain('agent-1');
     expect(list[0].participants).toContain('operator');
   });
+
+  it('create persists parentConversationId and parentToolCallId', async () => {
+    const conv = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: 'parent-conv',
+      parentToolCallId: 'tc-1',
+    });
+    expect(conv.parentConversationId).toBe('parent-conv');
+    expect(conv.parentToolCallId).toBe('tc-1');
+
+    const loaded = await store.load(conv.id);
+    expect(loaded?.parentConversationId).toBe('parent-conv');
+    expect(loaded?.parentToolCallId).toBe('tc-1');
+  });
+
+  it('listByParent returns only child conversations', async () => {
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const child1 = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-a',
+    });
+    const child2 = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-b',
+    });
+    await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    const children = await store.listByParent(parent.id);
+    expect(children).toHaveLength(2);
+    expect(children.map((c) => c.id).sort()).toEqual([child1.id, child2.id].sort());
+  });
+
+  it('list excludes sub-threads by default', async () => {
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-1',
+    });
+
+    const metas = await store.list();
+    const ids = metas.map((m) => m.id);
+    expect(ids).toContain(parent.id);
+    expect(ids).toHaveLength(1);
+  });
 });

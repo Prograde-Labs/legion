@@ -79,6 +79,7 @@ export class FileConversationStore implements ConversationStore {
       const id = file.slice(0, -'.json'.length);
       const conversation = await this.load(id);
       if (!conversation) continue;
+      if (!filter?.includeSubThreads && conversation.parentConversationId) continue;
 
       const messages = Object.values(conversation.messages);
       const participantSet = new Set<string>();
@@ -94,6 +95,8 @@ export class FileConversationStore implements ConversationStore {
         updatedAt: conversation.updatedAt,
         messageCount: messages.length,
         participants: [...participantSet],
+        parentConversationId: conversation.parentConversationId,
+        parentToolCallId: conversation.parentToolCallId,
       };
 
       if (filter?.since && meta.updatedAt < filter.since) continue;
@@ -106,5 +109,19 @@ export class FileConversationStore implements ConversationStore {
 
   async exists(conversationId: string): Promise<boolean> {
     return this.storage.exists(this.key(conversationId));
+  }
+
+  async listByParent(parentId: string): Promise<ConversationData[]> {
+    const files = await this.storage.list('conversations');
+    const results: ConversationData[] = [];
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const id = file.slice(0, -'.json'.length);
+      const conversation = await this.load(id);
+      if (conversation?.parentConversationId === parentId) {
+        results.push(conversation);
+      }
+    }
+    return results;
   }
 }

@@ -36,6 +36,8 @@ export interface ConversationData {
   title?: string;
   activeBranchHead: string;
   messages: Record<string, MessageData>;
+  parentConversationId?: string;
+  parentToolCallId?: string;
 }
 
 export interface ConversationMeta {
@@ -45,11 +47,14 @@ export interface ConversationMeta {
   updatedAt: string;
   messageCount: number;
   participants: string[];
+  parentConversationId?: string;
+  parentToolCallId?: string;
 }
 
 export interface ConversationFilter {
   participantId?: string;
   since?: string;
+  includeSubThreads?: boolean;
 }
 
 export interface ConversationSummary {
