@@ -47,8 +47,12 @@ export const test = base.extend<Fixtures>({
     // @vueuse/core's useLocalStorage reads from localStorage on first call;
     // addInitScript runs before any page script on every navigation.
     await page.addInitScript(({ t, pid }: { t: string; pid: string }) => {
-      (window as Record<string, unknown>).localStorage.setItem('legion-token', t);
-      (window as Record<string, unknown>).localStorage.setItem('legion-participant-id', pid);
+      const storage = (globalThis as unknown as {
+        localStorage: { setItem(key: string, value: string): void };
+      }).localStorage;
+
+      storage.setItem('legion-token', t);
+      storage.setItem('legion-participant-id', pid);
     }, { t: token, pid: participantId });
 
     await use({ page, token, participantId });
