@@ -23,8 +23,12 @@ export interface WebConnectorDeps {
   credentials: CredentialStore;
   eventBus: EventBus;
   serverConfig?: ServerConfig;
-  /** Absolute path to built SPA files (packages/web/dist). Optional; skipped if absent. */
+  /** Absolute path to built SPA files (packages/web/dist). Used in production. */
   webDistPath?: string;
+  /** Absolute path to the web package root (packages/web). Used in dev mode. */
+  webSrcPath?: string;
+  /** When true, serve the SPA via Vite middleware with HMR instead of static files. */
+  dev?: boolean;
 }
 
 /** Auth timeout for WebSocket connections: close if no auth message within this window. */
@@ -34,6 +38,7 @@ export class WebConnector implements Connector {
   readonly name = 'web';
 
   private app?: FastifyInstance;
+  private viteServer?: import('vite').ViteDevServer;
   /** Fresh random secret per process — sessions invalidated on restart. */
   private readonly jwtSecret: JwtSecret = crypto.getRandomValues(new Uint8Array(32));
   /** participantId → active WS sockets (for outbound deliver()). */
@@ -48,16 +53,52 @@ export class WebConnector implements Connector {
     // ── Plugins ──────────────────────────────────────────────────────────────
     await app.register(websocketPlugin);
 
-    const { webDistPath } = this.deps;
-    if (webDistPath && existsSync(webDistPath)) {
-      await app.register(staticPlugin, {
-        root: webDistPath,
-        wildcard: false,
+    if (this.deps.dev) {
+      // ── Dev mode: Vite middleware with HMR ───────────────────────────────
+      const { webSrcPath } = this.deps;
+      if (!webSrcPath) {
+        throw new Error('[WebConnector] dev mode requires webSrcPath');
+      }
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        root: webSrcPath,
+        server: { middlewareMode: true },
+        appType: 'spa',
       });
-      // SPA client-side routing fallback
-      app.setNotFoundHandler((_req, reply) => {
-        void reply.sendFile('index.html');
+      this.viteServer = vite;
+      // Register Vite middleware — must come AFTER Fastify routes so API routes take priority
+      app.addHook('onRequest', async (req, reply) => {
+        // Skip Fastify-handled routes
+        if (
+          req.url.startsWith('/api/') ||
+          req.url.startsWith('/ws') ||
+          req.url === '/health'
+        ) {
+          return;
+        }
+        await new Promise<void>((resolve, reject) => {
+          vite.middlewares(req.raw, reply.raw, (err?: unknown) => {
+            if (err) reject(err as Error);
+            else resolve();
+          });
+        });
+        // Vite has handled the response — prevent Fastify from sending a 404
+        reply.hijack();
       });
+      console.log('  [dev] Vite HMR middleware active');
+    } else {
+      // ── Production: serve pre-built static files ─────────────────────────
+      const { webDistPath } = this.deps;
+      if (webDistPath && existsSync(webDistPath)) {
+        await app.register(staticPlugin, {
+          root: webDistPath,
+          wildcard: false,
+        });
+        // SPA client-side routing fallback
+        app.setNotFoundHandler((_req, reply) => {
+          void reply.sendFile('index.html');
+        });
+      }
     }
 
     // ── HTTP routes ───────────────────────────────────────────────────────────
@@ -116,6 +157,8 @@ export class WebConnector implements Connector {
 
   async stop(): Promise<void> {
     this.connections.clear();
+    await this.viteServer?.close();
+    this.viteServer = undefined;
     await this.app?.close();
     this.app = undefined;
   }
