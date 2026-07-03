@@ -100,13 +100,27 @@ export class LegionProcess {
 
     const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
 
+    // ── Step 5b: Migrate providers from config.json → .legion/providers/ ──────
+    if (workspaceConfig.providers) {
+      for (const [name, config] of Object.entries(workspaceConfig.providers)) {
+        const fileKey = `providers/${name}.json`;
+        const alreadyExists = await storage.exists(fileKey);
+        if (!alreadyExists) {
+          await storage.writeJson(fileKey, { ...config, name });
+        }
+      }
+    }
+
+    // ── Step 5c: Create ProviderStore ────────────────────────────────────────
+    const providerStore = new ProviderStore(storage);
+
     // ── Step 6: Register global tools ────────────────────────────────────────
     toolRegistry.register(communicateTool);
     toolRegistry.register(approvalResponseTool);
     for (const tool of managementTools) {
       toolRegistry.register(tool);
     }
-    const runtimeTools = createRuntimeTools({ storage, credStore: credentials });
+    const runtimeTools = createRuntimeTools({ storage, providerStore, credStore: credentials });
     for (const tool of runtimeTools) {
       toolRegistry.register(tool);
     }
@@ -137,14 +151,6 @@ export class LegionProcess {
 
     // Register service runtime factory using the cached ServiceRuntime instances
     runtimeRegistry.registerFactory('service', (id) => serviceManager.getRuntime(id));
-
-    // Populate provider store from workspace config
-    if (workspaceConfig.providers) {
-      for (const [name, config] of Object.entries(workspaceConfig.providers)) {
-        await storage.writeJson(`providers/${name}.json`, { ...config, name });
-      }
-    }
-    const providerStore = new ProviderStore(storage);
 
     // Register agent factory
     runtimeRegistry.registerFactory('agent', (id) => {
