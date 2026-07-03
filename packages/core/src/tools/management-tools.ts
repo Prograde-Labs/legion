@@ -11,6 +11,35 @@ function requireCollective(context: ToolContext): NonNullable<ToolContext['colle
   return context.collective;
 }
 
+/** Map UI policy vocabulary to runtime ToolPolicy. */
+function normalizePolicy(p: string): ToolPolicy {
+  if (p === 'allow') return 'auto';
+  if (p === 'require-approval') return 'requires_approval';
+  return p as ToolPolicy;
+}
+
+/** Compose the full tools map from defaultPolicy + per-tool overrides. */
+function composeTools(
+  defaultPolicy: string | undefined,
+  toolPolicies: Record<string, string> | undefined,
+  allToolNames: string[],
+  existing?: Record<string, ToolPolicy>,
+): Record<string, ToolPolicy> {
+  const dp = normalizePolicy(defaultPolicy ?? 'auto');
+  const overrides: Record<string, ToolPolicy> = {};
+  if (toolPolicies) {
+    for (const [tool, policy] of Object.entries(toolPolicies)) {
+      overrides[tool] = normalizePolicy(policy);
+    }
+  }
+  const tools: Record<string, ToolPolicy> = {};
+  const names = new Set([...allToolNames, ...Object.keys(overrides), ...(existing ? Object.keys(existing) : [])]);
+  for (const name of names) {
+    tools[name] = overrides[name] ?? existing?.[name] ?? dp;
+  }
+  return tools;
+}
+
 export const createAgentTool: Tool = {
   name: 'create_agent',
   description: 'Create a new agent participant in the collective.',
@@ -21,43 +50,38 @@ export const createAgentTool: Tool = {
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
       model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
+      defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
+      toolPolicies: { type: 'object' },
       tools: { type: 'object' },
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, systemPrompt, model, tools } = args as {
+    const { id, name, systemPrompt, model, defaultPolicy, toolPolicies, tools } = args as {
       id: string;
       name: string;
       systemPrompt: string;
       model: ModelConfig;
+      defaultPolicy?: string;
+      toolPolicies?: Record<string, string>;
       tools?: Record<string, ToolPolicy>;
-    };
-    const config: AgentConfig = {
-      id,
-      name,
-      type: 'agent',
-      tools: tools ?? {},
-      systemPrompt,
-      model,
-      maxIterations: 20,
-      providerId: typeof model === 'string' ? 'default' : (model.provider ?? 'default'),
-      status: 'active',
     };
     try {
       const collective = requireCollective(context);
+      const allToolNames = context.toolRegistry.listAll();
+      const composedTools = tools ?? composeTools(defaultPolicy, toolPolicies, allToolNames);
+      const config: AgentConfig = {
+        id,
+        name,
+        type: 'agent',
+        tools: composedTools,
+        systemPrompt,
+        model,
+        maxIterations: 20,
+        providerId: model.provider ?? 'default',
+        status: 'active',
+      };
       await collective.add(config);
-      const agentStorage = collective.storageForWriting;
-      const providerId = typeof model === 'string' ? 'default' : (model.provider ?? 'default');
-      if (agentStorage) {
-        await agentStorage.writeJson(`agents/${id}.json`, {
-          name: id,
-          model: typeof model === 'string' ? model : (model.model ?? 'gpt-4o'),
-          systemPrompt: systemPrompt ?? '',
-          maxIterations: 20,
-          providerId,
-        });
-      }
       return { status: 'success', data: { id } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
@@ -208,41 +232,56 @@ export const setCredentialTool: Tool = {
 
 export const modifyAgentTool: Tool = {
   name: 'modify_agent',
-  description: 'Update an existing agent — name, model, system prompt, max iterations.',
+  description: 'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
   parameters: {
     type: 'object',
     properties: {
       id: { type: 'string', description: 'Participant ID' },
       name: { type: 'string' },
-      model: { type: 'string' },
+      model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
-      providerId: { type: 'string' },
+      defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
+      toolPolicies: { type: 'object' },
     },
     required: ['id'],
-  },
-  async execute(rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
-    const args = rawArgs as Partial<AgentConfig> & { id: string };
+  } as JSONSchema,
+  async execute(args, context: ToolContext): Promise<ToolResult> {
+    const { id, name, model, systemPrompt, maxIterations, defaultPolicy, toolPolicies } = args as {
+      id: string;
+      name?: string;
+      model?: ModelConfig | string;
+      systemPrompt?: string;
+      maxIterations?: number;
+      defaultPolicy?: string;
+      toolPolicies?: Record<string, string>;
+    };
     try {
       const collective = requireCollective(context);
-      const storage = collective.storageForWriting;
-      if (!storage) return { status: 'error', error: 'Storage unavailable' };
-      const existing = await storage.readJson<AgentConfig>(`agents/${args.id}.json`);
-      if (!existing) return { status: 'error', error: `Agent config not found for ${args.id}` };
-      const updatedModel: ModelConfig = typeof args.model === 'string'
-        ? { provider: existing.providerId, model: args.model }
-        : (args.model ?? existing.model);
-      const updated: AgentConfig = {
-        ...existing,
-        name: args.name ?? existing.name,
+      const existing = collective.get(id);
+      if (!existing) return { status: 'error', error: `Agent not found: ${id}` };
+      if (existing.type !== 'agent') return { status: 'error', error: `Participant ${id} is not an agent` };
+
+      const agent = existing as AgentConfig;
+      // Handle both string (legacy) and object (ModelConfig) model arg
+      const updatedModel: ModelConfig = typeof model === 'string'
+        ? { provider: agent.model.provider, model }
+        : (model ?? agent.model);
+      const allToolNames = context.toolRegistry.listAll();
+      const composedTools = (defaultPolicy || toolPolicies)
+        ? composeTools(defaultPolicy, toolPolicies, allToolNames, defaultPolicy ? undefined : agent.tools)
+        : agent.tools;
+
+      await collective.update(id, {
+        name: name ?? agent.name,
         model: updatedModel,
-        systemPrompt: args.systemPrompt ?? existing.systemPrompt,
-        maxIterations: args.maxIterations ?? existing.maxIterations,
-        providerId: args.providerId ?? existing.providerId,
-      };
-      if (args.name !== undefined) collective.modify(args.id, { name: args.name });
-      await storage.writeJson(`agents/${args.id}.json`, updated);
-      return { status: 'success', data: collective.getOrThrow(args.id) };
+        providerId: updatedModel.provider ?? 'default',
+        systemPrompt: systemPrompt ?? agent.systemPrompt,
+        maxIterations: maxIterations ?? agent.maxIterations,
+        tools: composedTools,
+      });
+
+      return { status: 'success', data: collective.getOrThrow(id) };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }

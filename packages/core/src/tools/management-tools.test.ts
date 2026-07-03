@@ -241,17 +241,8 @@ describe('management tools', () => {
     expect(result.status).toBe('error');
   });
 
-  it('create_agent writes agent config to storage', async () => {
-    const storage = new MemoryStorage();
-    const collective = await Collective.load(storage);
-    await collective.seedDefaultsIfEmpty();
-    const conversationStore = new FileConversationStore(storage);
-    const context = {
-      participant: collective.getOrThrow('operator'),
-      collective,
-      conversationStore,
-      workspaceRoot: '/tmp',
-    } as unknown as ToolContext;
+  it('create_agent persists agent config to collective (not agents/ file)', async () => {
+    const { context, collective, storage } = await makeContext();
     await createAgentTool.execute(
       {
         id: 'bot-1',
@@ -262,17 +253,65 @@ describe('management tools', () => {
       },
       context,
     );
-    const ids = await storage.list('agents/');
-    expect(ids.length).toBe(1);
-    const config = await storage.readJson<{ model: string }>(`agents/${ids[0]}`);
-    expect(config?.model).toBe('gpt-4o');
+    // Collective record should exist with full config
+    const p = collective.get('bot-1') as any;
+    expect(p).toBeDefined();
+    expect(p.model).toEqual({ provider: 'openai', model: 'gpt-4o' });
+    // No agents/ file should be written
+    const agentsFiles = await storage.list('agents/');
+    expect(agentsFiles).toHaveLength(0);
+  });
+
+  it('create_agent persists to collective only (no agents/ file)', async () => {
+    const { context, collective, storage } = await makeContext();
+    const result = await createAgentTool.execute(
+      {
+        id: 'src-agent',
+        name: 'Source Agent',
+        systemPrompt: 'You are helpful.',
+        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        defaultPolicy: 'auto',
+        toolPolicies: { communicate: 'auto' },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+
+    // Collective record exists
+    const p = collective.get('src-agent');
+    expect(p).toBeDefined();
+    expect(p!.name).toBe('Source Agent');
+    expect((p as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
+
+    // No agents/ file should be written
+    const agentsFile = await storage.readJson('agents/src-agent.json').catch(() => null);
+    expect(agentsFile).toBeNull();
+  });
+
+  it('create_agent composes tools from defaultPolicy + toolPolicies', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      {
+        id: 'policy-agent',
+        name: 'Policy Agent',
+        systemPrompt: 'You are helpful.',
+        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        defaultPolicy: 'require-approval',
+        toolPolicies: { communicate: 'allow' },
+      },
+      context,
+    );
+    const p = collective.get('policy-agent') as any;
+    // communicate should be 'auto' (allow → auto mapping)
+    expect(p.tools['communicate']).toBe('auto');
+    // Other tools should default to 'requires_approval'
+    expect(p.tools['list_participants']).toBe('requires_approval');
   });
 });
 
 describe('modify_agent', () => {
-  it('updates model and systemPrompt in storage', async () => {
-    const storage = new MemoryStorage();
-    const deps = await buildTestDeps({ storage });
+  it('updates model and systemPrompt in collective record', async () => {
+    const deps = await buildTestDeps({});
     const createResult = (await invokeManagementTool(
       'create_agent',
       {
@@ -280,7 +319,7 @@ describe('modify_agent', () => {
         name: 'bot-1',
         model: { provider: 'openai', model: 'gpt-4o' },
         systemPrompt: '',
-        tools: {},
+        defaultPolicy: 'auto',
       },
       deps,
     )) as { status: string; data: { id: string } };
@@ -289,16 +328,51 @@ describe('modify_agent', () => {
       'modify_agent',
       {
         id,
-        model: 'gpt-4o-mini',
+        model: { provider: 'openai', model: 'gpt-4o-mini' },
         systemPrompt: 'Be concise.',
       },
       deps,
     );
-    const config = await storage.readJson<{ model: { provider: string; model: string }; systemPrompt: string }>(
-      `agents/${id}.json`,
+    const p = deps.collective.get(id) as any;
+    expect(p.model).toEqual({ provider: 'openai', model: 'gpt-4o-mini' });
+    expect(p.systemPrompt).toBe('Be concise.');
+  });
+
+  it('modify_agent updates the collective record (not agents/ file)', async () => {
+    const { context, collective } = await makeContext();
+    // Create first
+    await createAgentTool.execute(
+      {
+        id: 'mod-agent',
+        name: 'Before',
+        systemPrompt: 'Original prompt.',
+        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        defaultPolicy: 'auto',
+      },
+      context,
     );
-    expect(config?.model).toEqual({ provider: 'openai', model: 'gpt-4o-mini' });
-    expect(config?.systemPrompt).toBe('Be concise.');
+    // Modify
+    const result = await modifyAgentTool.execute(
+      {
+        id: 'mod-agent',
+        name: 'After',
+        model: { provider: 'anthropic', model: 'claude-3' },
+        systemPrompt: 'Updated prompt.',
+        maxIterations: 10,
+        defaultPolicy: 'deny',
+        toolPolicies: { communicate: 'allow' },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+
+    const p = collective.get('mod-agent') as any;
+    expect(p.name).toBe('After');
+    expect(p.model).toEqual({ provider: 'anthropic', model: 'claude-3' });
+    expect(p.systemPrompt).toBe('Updated prompt.');
+    expect(p.maxIterations).toBe(10);
+    expect(p.tools['communicate']).toBe('auto'); // override
+    expect(p.tools['list_participants']).toBe('deny'); // default
   });
 
   it('updates name in Collective', async () => {
@@ -327,6 +401,37 @@ describe('modify_agent', () => {
     const deps = await buildTestDeps({});
     const result = await invokeManagementTool('modify_agent', { id: 'no-such' }, deps);
     expect((result as { status: string }).status).toBe('error');
+  });
+
+  it('modify_agent with new defaultPolicy re-baselines all non-overridden tools', async () => {
+    const { context, collective } = await makeContext();
+    // Create with defaultPolicy 'auto'
+    await createAgentTool.execute(
+      {
+        id: 'rebase-agent',
+        name: 'Rebase Agent',
+        systemPrompt: 'Test.',
+        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        defaultPolicy: 'auto',
+      },
+      context,
+    );
+    // All tools should be 'auto'
+    let p = collective.get('rebase-agent') as any;
+    expect(p.tools['communicate']).toBe('auto');
+    expect(p.tools['list_participants']).toBe('auto');
+
+    // Modify with new defaultPolicy 'deny' — should re-baseline
+    await modifyAgentTool.execute(
+      {
+        id: 'rebase-agent',
+        defaultPolicy: 'deny',
+      },
+      context,
+    );
+    p = collective.get('rebase-agent') as any;
+    expect(p.tools['communicate']).toBe('deny');
+    expect(p.tools['list_participants']).toBe('deny');
   });
 });
 
