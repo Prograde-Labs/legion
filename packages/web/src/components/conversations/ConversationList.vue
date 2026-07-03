@@ -13,6 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   'update:mode': [mode: 'mine' | 'all'];
+  delete: [id: string];
 }>();
 
 const router = useRouter();
@@ -54,7 +55,7 @@ const router = useRouter();
       <div
         v-for="conv in conversations"
         :key="conv.id"
-        class="relative px-3 py-2.5 cursor-pointer border-b border-navy-900 hover:bg-navy-850 transition-colors"
+        class="relative px-3 py-2.5 cursor-pointer border-b border-navy-900 hover:bg-navy-850 transition-colors group"
         :class="conv.id === activeId ? 'bg-navy-800 border-l-2 border-l-cyan-600' : ''"
         @click="emit('select', conv.id)"
       >
@@ -64,7 +65,19 @@ const router = useRouter();
           class="absolute right-2.5 top-3 w-2 h-2 rounded-full bg-amber-400"
         />
 
-        <div class="text-sm text-slate-200 truncate pr-4">
+        <!-- Delete button (visible on hover) -->
+        <button
+          type="button"
+          class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-red-400"
+          title="Delete conversation"
+          @click.stop="emit('delete', conv.id)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+        </button>
+
+        <div class="text-sm text-slate-200 truncate pr-8">
           {{ conv.participants.filter(p => p !== myParticipantId).join(', ') || conv.id }}
         </div>
         <div class="text-xs text-slate-600 mt-0.5 font-mono truncate">
