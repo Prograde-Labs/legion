@@ -9,6 +9,7 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "verbatimModuleSyntax": true,
+    "types": ["vite/client", "web-bluetooth"],
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
