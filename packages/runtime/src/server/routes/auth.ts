@@ -17,7 +17,7 @@ export async function registerAuthRoutes(
   /**
    * POST /api/auth/login
    * Body: { name: string; password: string }
-   * Returns: { token: string; participantId: string }
+   * Returns: { token: string; participantId: string; expiresAt: number }
    */
   app.post<{ Body: { name?: string; password?: string } }>(
     '/api/auth/login',
@@ -40,8 +40,8 @@ export async function registerAuthRoutes(
         return reply.status(401).send({ error: 'Invalid name or password' });
       }
 
-      const token = await signToken(participant.id, jwtSecret);
-      return reply.send({ token, participantId: participant.id });
+      const { token, expiresAt } = await signToken(participant.id, jwtSecret);
+      return reply.send({ token, participantId: participant.id, expiresAt });
     },
   );
 

@@ -2,12 +2,18 @@ import { SignJWT, jwtVerify } from 'jose';
 
 export type JwtSecret = Uint8Array;
 
-export async function signToken(participantId: string, secret: JwtSecret): Promise<string> {
-  return new SignJWT({ sub: participantId })
+export async function signToken(
+  participantId: string,
+  secret: JwtSecret,
+): Promise<{ token: string; expiresAt: number }> {
+  const iat = Math.floor(Date.now() / 1000);
+  const expiresAt = iat + 8 * 3600;
+  const token = await new SignJWT({ sub: participantId })
     .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('8h')
+    .setIssuedAt(iat)
+    .setExpirationTime(expiresAt)
     .sign(secret);
+  return { token, expiresAt };
 }
 
 export async function verifyToken(
