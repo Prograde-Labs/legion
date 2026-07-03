@@ -18,5 +18,7 @@ export interface ConversationStore {
   updateHead(conversationId: string, newHeadId: string): Promise<void>;
   list(filter?: ConversationFilter): Promise<ConversationMeta[]>;
   listByParent(parentId: string): Promise<ConversationData[]>;
+  /** Delete a conversation and all of its descendants. Idempotent: no error if the id does not exist. */
+  delete(conversationId: string): Promise<void>;
   exists(conversationId: string): Promise<boolean>;
 }

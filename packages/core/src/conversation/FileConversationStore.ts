@@ -124,4 +124,14 @@ export class FileConversationStore implements ConversationStore {
     }
     return results;
   }
+
+  async delete(conversationId: string): Promise<void> {
+    const conversation = await this.load(conversationId);
+    if (!conversation) return;
+    const children = await this.listByParent(conversationId);
+    for (const child of children) {
+      await this.delete(child.id);
+    }
+    await this.storage.delete(this.key(conversationId));
+  }
 }

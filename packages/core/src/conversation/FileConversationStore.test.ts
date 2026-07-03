@@ -184,4 +184,46 @@ describe('FileConversationStore', () => {
     expect(ids).toContain(parent.id);
     expect(ids).toHaveLength(1);
   });
+
+  it('delete removes a childless conversation', async () => {
+    const created = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    expect(await store.exists(created.id)).toBe(true);
+    await store.delete(created.id);
+    expect(await store.exists(created.id)).toBe(false);
+    expect(await store.load(created.id)).toBeNull();
+  });
+
+  it('delete cascades to direct children', async () => {
+    const parent = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const child = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, parentConversationId: parent.id, parentToolCallId: 'tc-a' });
+    await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    await store.delete(parent.id);
+    expect(await store.exists(parent.id)).toBe(false);
+    expect(await store.exists(child.id)).toBe(false);
+    const remaining = await store.list({ includeSubThreads: true });
+    expect(remaining.map((m) => m.id)).not.toContain(parent.id);
+    expect(remaining.map((m) => m.id)).not.toContain(child.id);
+  });
+
+  it('delete cascades recursively to grandchildren', async () => {
+    const root = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const child = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, parentConversationId: root.id, parentToolCallId: 'tc-1' });
+    const grandchild = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, parentConversationId: child.id, parentToolCallId: 'tc-2' });
+    await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    await store.delete(root.id);
+    expect(await store.exists(root.id)).toBe(false);
+    expect(await store.exists(child.id)).toBe(false);
+    expect(await store.exists(grandchild.id)).toBe(false);
+  });
+
+  it('delete is idempotent when the id does not exist', async () => {
+    await expect(store.delete('conv-missing')).resolves.toBeUndefined();
+  });
+
+  it('delete leaves unrelated conversations intact', async () => {
+    const a = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const b = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    await store.delete(a.id);
+    expect(await store.exists(b.id)).toBe(true);
+  });
 });
