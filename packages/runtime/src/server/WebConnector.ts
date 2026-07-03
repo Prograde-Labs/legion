@@ -66,14 +66,10 @@ export class WebConnector implements Connector {
         appType: 'spa',
       });
       this.viteServer = vite;
-      // Register Vite middleware — must come AFTER Fastify routes so API routes take priority
+      // onRequest fires before route handlers; URL guard lets API routes fall through to Fastify
       app.addHook('onRequest', async (req, reply) => {
         // Skip Fastify-handled routes
-        if (
-          req.url.startsWith('/api/') ||
-          req.url.startsWith('/ws') ||
-          req.url === '/health'
-        ) {
+        if (req.url.startsWith('/api/')) {
           return;
         }
         await new Promise<void>((resolve, reject) => {
