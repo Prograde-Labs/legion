@@ -66,20 +66,24 @@ export class WebConnector implements Connector {
         appType: 'spa',
       });
       this.viteServer = vite;
-      // onRequest fires before route handlers; URL guard lets API routes fall through to Fastify
       app.addHook('onRequest', async (req, reply) => {
-        // Skip Fastify-handled routes
-        if (req.url.startsWith('/api/')) {
+        // onRequest fires before route handlers; URL guard lets API routes fall through to Fastify
+        if (req.url.startsWith('/api/') || req.url === '/ws') {
           return;
         }
         await new Promise<void>((resolve, reject) => {
+          // Vite calls res.end() (no next()) when it handles the request.
+          // Vite calls next() when it does NOT handle the request.
           vite.middlewares(req.raw, reply.raw, (err?: unknown) => {
             if (err) reject(err as Error);
             else resolve();
           });
         });
-        // Vite has handled the response — prevent Fastify from sending a 404
-        reply.hijack();
+        // Only hijack if Vite actually sent the response (wrote headers).
+        // If Vite called next() without handling, headersSent is false — let Fastify route it.
+        if (reply.raw.headersSent) {
+          reply.hijack();
+        }
       });
       console.log('  [dev] Vite HMR middleware active');
     } else {
