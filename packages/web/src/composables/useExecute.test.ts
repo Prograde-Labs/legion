@@ -7,6 +7,10 @@ vi.mock('./useAuth.js', () => ({
   }>(),
 }));
 
+vi.mock('../router/index.js', () => ({
+  router: { push: vi.fn() },
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -25,7 +29,7 @@ describe('useExecute', () => {
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ result: ['p1', 'p2'], conversationId: 'c1' }),
+      json: async () => ({ result: { status: 'success', data: ['p1', 'p2'] } }),
     } as Response);
 
     const { execute } = useExecute();
@@ -53,5 +57,26 @@ describe('useExecute', () => {
 
     const { execute } = useExecute();
     await expect(execute('list_participants', {})).rejects.toThrow('Forbidden');
+  });
+
+  it('calls logout and redirects to /login on 401', async () => {
+    const { useExecute } = await import('./useExecute.js');
+    const { useAuth } = (await import('./useAuth.js')) as unknown as {
+      useAuth: ReturnType<typeof vi.fn>;
+    };
+    const { router } = await import('../router/index.js');
+
+    const logout = vi.fn();
+    useAuth.mockReturnValue({
+      getToken: () => 'tok-dead',
+      logout,
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ status: 401 } as Response);
+
+    const { execute } = useExecute();
+    await expect(execute('list_participants', {})).rejects.toThrow('Unauthorized');
+    expect(logout).toHaveBeenCalled();
+    expect(router.push).toHaveBeenCalledWith('/login');
   });
 });

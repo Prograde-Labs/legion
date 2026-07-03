@@ -1,4 +1,5 @@
 import { useAuth } from './useAuth.js';
+import { router } from '../router/index.js';
 import type { ToolResult } from '@legion/types';
 
 export function useExecute() {
@@ -15,6 +16,7 @@ export function useExecute() {
     });
     if (res.status === 401) {
       logout();
+      router.push('/login');
       throw new Error('Unauthorized');
     }
     if (!res.ok) throw new Error(await res.text());

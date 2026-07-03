@@ -1,4 +1,5 @@
 import { useAuth } from './useAuth.js';
+import { router } from '../router/index.js';
 
 type MessageHandler = (data: unknown) => void;
 
@@ -7,6 +8,7 @@ const handlers = new Set<MessageHandler>();
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let backoff = 1000;
+let stoppedByAuth = false;
 
 function connect(): void {
   const { getToken } = useAuth();
@@ -29,22 +31,34 @@ function connect(): void {
     }
   });
 
-  ws.addEventListener('close', () => scheduleReconnect());
+  ws.addEventListener('close', (evt) => {
+    if (evt.code === 4401) {
+      stoppedByAuth = true;
+      const { logout } = useAuth();
+      logout();
+      router.push('/login');
+      return;
+    }
+    scheduleReconnect();
+  });
   ws.addEventListener('error', () => ws?.close());
 }
 
 function scheduleReconnect(): void {
+  if (stoppedByAuth) return;
   if (reconnectTimer !== null) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    backoff = Math.min(backoff * 2, 30_000);
-    connect();
-  }, backoff);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (stoppedByAuth) return;
+      backoff = Math.min(backoff * 2, 30_000);
+      connect();
+    }, backoff);
 }
 
 export function useWebSocket() {
   return {
     connect() {
+      stoppedByAuth = false;
       if (!ws || ws.readyState !== WebSocket.OPEN) connect();
     },
     disconnect() {
@@ -52,6 +66,7 @@ export function useWebSocket() {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
+      stoppedByAuth = false;
       ws?.close();
       ws = null;
     },
