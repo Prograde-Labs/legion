@@ -17,22 +17,48 @@ const rendered = computed(() => {
   return render(props.content);
 });
 
+const copyResetTimeouts = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+
+function resetCopyButton(btn: HTMLButtonElement): void {
+  const timeout = copyResetTimeouts.get(btn);
+  if (timeout) {
+    clearTimeout(timeout);
+    copyResetTimeouts.delete(btn);
+  }
+  btn.textContent = 'Copy';
+}
+
 function onRootClick(e: MouseEvent): void {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-copy-code]');
+  if (!(e.target instanceof Element)) return;
+
+  const btn = e.target.closest<HTMLButtonElement>('[data-copy-code]');
   if (!btn) return;
 
   const pre = btn.closest('.code-block')?.querySelector('pre');
   if (!pre) return;
 
   const text = pre.textContent ?? '';
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => {
-      btn.textContent = 'Copy';
-    }, 2000);
-  }).catch(() => {
-    btn.textContent = 'Copy';
-  });
+  try {
+    if (!navigator.clipboard) {
+      resetCopyButton(btn);
+      return;
+    }
+
+    navigator.clipboard.writeText(text).then(() => {
+      const timeout = copyResetTimeouts.get(btn);
+      if (timeout) clearTimeout(timeout);
+
+      btn.textContent = 'Copied!';
+      copyResetTimeouts.set(btn, setTimeout(() => {
+        btn.textContent = 'Copy';
+        copyResetTimeouts.delete(btn);
+      }, 2000));
+    }).catch(() => {
+      resetCopyButton(btn);
+    });
+  } catch {
+    resetCopyButton(btn);
+  }
 }
 </script>
 
