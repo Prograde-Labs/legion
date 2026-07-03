@@ -31,10 +31,10 @@ test.describe('POST /api/execute — management tools', () => {
   });
 
   test('list_conversations returns empty array on fresh workspace', async ({ api }) => {
-    const { result } = await api.execute(token, 'list_conversations');
+    const { result } = await api.execute<{ conversations: unknown[] }>(token, 'list_conversations');
     expect(result.status).toBe('success');
-    expect(Array.isArray(result.data)).toBe(true);
-    expect(result.data!).toHaveLength(0);
+    expect(Array.isArray(result.data!.conversations)).toBe(true);
+    expect(result.data!.conversations).toHaveLength(0);
   });
 
   test('list_providers returns empty array on fresh workspace', async ({ api }) => {

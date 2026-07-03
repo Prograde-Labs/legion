@@ -6,9 +6,9 @@ test.describe('ConversationsView', () => {
     await page.goto('/#/conversations');
 
     // The sidebar exists
-    await expect(page.locator('.w-60').getByText('Conversations')).toBeVisible();
+    await expect(page.locator('main').getByText('Conversations').first()).toBeVisible();
     // No conversation selected — right panel shows placeholder
-    await expect(page.getByText('Select a conversation')).toBeVisible();
+    await expect(page.getByText('Select a conversation or start a new one')).toBeVisible();
   });
 
   test.describe('with a conversation', () => {
@@ -55,26 +55,26 @@ test.describe('ConversationsView', () => {
       await page.goto('/#/conversations');
 
       // Wait for the specific conversation to appear (use full ID for uniqueness)
-      await expect(page.locator('.w-60 button').filter({ hasText: conversationId })).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText(conversationId).first()).toBeVisible({ timeout: 5000 });
     });
 
     test('clicking a conversation loads the thread panel', async ({ authPage }) => {
       const { page } = authPage;
       await page.goto('/#/conversations');
 
-      const convButton = page.locator('.w-60 button').first();
-      await expect(convButton).toBeVisible();
-      await convButton.click();
+      const convEntry = page.getByText(conversationId).first();
+      await expect(convEntry).toBeVisible();
+      await convEntry.click();
 
       // Thread panel no longer shows placeholder
-      await expect(page.getByText('Select a conversation')).not.toBeVisible();
+      await expect(page.getByText('Select a conversation or start a new one')).not.toBeVisible();
     });
 
     test('URL updates to /conversations/:id after selecting conversation', async ({ authPage }) => {
       const { page } = authPage;
       await page.goto('/#/conversations');
 
-      await page.locator('.w-60 button').first().click();
+      await page.getByText(conversationId).first().click();
       await expect(page).toHaveURL(/#\/conversations\//);
     });
 
@@ -91,11 +91,10 @@ test.describe('ConversationsView', () => {
       await page.goto('/#/conversations');
 
       // Click first conversation, then second
-      const buttons = page.locator('.w-60 button');
-      await buttons.first().click();
+      await page.getByText(conversationId).first().click();
       const firstUrl = page.url();
 
-      await buttons.nth(1).click();
+      await page.getByText(secondConvId).first().click();
       const secondUrl = page.url();
 
       expect(firstUrl).not.toBe(secondUrl);
@@ -105,7 +104,7 @@ test.describe('ConversationsView', () => {
       const { page } = authPage;
       await page.goto('/#/conversations');
 
-      await page.locator('.w-60 button').first().click();
+      await page.getByText(conversationId).first().click();
       await expect(page).toHaveURL(/#\/conversations\//);
 
       // Navigate away and back to base conversations route
@@ -115,18 +114,18 @@ test.describe('ConversationsView', () => {
       await page.goto('/#/conversations');
 
       // No conversation selected — back to placeholder
-      await expect(page.getByText('Select a conversation')).toBeVisible();
+      await expect(page.getByText('Select a conversation or start a new one')).toBeVisible();
     });
 
     test('navigating away and back does not duplicate conversations in sidebar', async ({ authPage }) => {
       const { page } = authPage;
       await page.goto('/#/conversations');
-      const initialCount = await page.locator('.w-60 button').count();
+      const initialCount = await page.locator('main .font-mono').count();
 
       await page.goto('/#/participants');
       await page.goto('/#/conversations');
 
-      const afterCount = await page.locator('.w-60 button').count();
+      const afterCount = await page.locator('main .font-mono').count();
       expect(afterCount).toBe(initialCount);
     });
   });
