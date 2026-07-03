@@ -12,6 +12,7 @@ const MANAGEMENT_TOOLS = [
   'list_tools',
   'list_conversations',
   'get_conversation',
+  'delete_conversation',
   'set_tool_policy',
   'set_credential',
   // runtime / config tools (registered by WebConnector layer)

@@ -12,6 +12,7 @@
     "list_tools": "auto",
     "list_conversations": "auto",
     "get_conversation": "auto",
+    "delete_conversation": "auto",
     "set_tool_policy": "auto",
     "set_credential": "auto",
     "list_providers": "auto",
