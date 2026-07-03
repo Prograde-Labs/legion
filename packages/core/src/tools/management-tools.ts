@@ -100,6 +100,30 @@ export const listParticipantsTool: Tool = {
   },
 };
 
+export const getParticipantTool: Tool = {
+  name: 'get_participant',
+  description: 'Get a single participant full configuration by id.',
+  parameters: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Participant ID' },
+    },
+    required: ['id'],
+  },
+  async execute(args, context): Promise<ToolResult> {
+    const { id } = args as { id: string };
+    try {
+      const participant = requireCollective(context).get(id);
+      if (!participant) {
+        return { status: 'error', error: `Participant not found: ${id}` };
+      }
+      return { status: 'success', data: participant };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
 export const setToolPolicyTool: Tool = {
   name: 'set_tool_policy',
   description: "Set a participant's policy for a specific tool.",
@@ -269,6 +293,7 @@ export const managementTools: Tool[] = [
   createAgentTool,
   retireAgentTool,
   listParticipantsTool,
+  getParticipantTool,
   setToolPolicyTool,
   getConversationTool,
   setCredentialTool,

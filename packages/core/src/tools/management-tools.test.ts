@@ -6,9 +6,12 @@ import {
   createAgentTool,
   retireAgentTool,
   listParticipantsTool,
+  getParticipantTool,
   getConversationTool,
   setToolPolicyTool,
   setCredentialTool,
+  modifyAgentTool,
+  listConversationsTool,
   managementTools,
 } from './management-tools.js';
 import type { ToolContext } from './Tool.js';
@@ -21,13 +24,25 @@ async function makeContext() {
   const collective = await Collective.load(storage);
   await collective.seedDefaultsIfEmpty();
   const conversationStore = new FileConversationStore(storage);
+  const toolRegistry = new ToolRegistry();
+  // Register mock tools so composeTools has tool names to work with
+  for (const name of ['communicate', 'list_participants', 'list_tools', 'get_participant', 'list_conversations', 'get_conversation']) {
+    toolRegistry.register({
+      name,
+      description: `mock ${name}`,
+      parameters: { type: 'object', properties: {} },
+      execute: async () => ({ status: 'success', data: null }),
+    });
+  }
   const context = {
     participant: collective.getOrThrow('operator'),
     collective,
     conversationStore,
+    storage,
+    toolRegistry,
     workspaceRoot: '/tmp',
   } as unknown as ToolContext;
-  return { context, collective, conversationStore };
+  return { context, collective, conversationStore, storage, toolRegistry };
 }
 
 interface TestDeps {
@@ -192,6 +207,37 @@ describe('management tools', () => {
       { participantId: 'operator', secret: 'x' },
       context,
     );
+    expect(result.status).toBe('error');
+  });
+
+  it('get_participant returns full config for an agent', async () => {
+    const { context } = await makeContext();
+    // Create an agent via the tool
+    await createAgentTool.execute(
+      {
+        id: 'test-agent',
+        name: 'Test Agent',
+        systemPrompt: 'You are a test agent.',
+        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        toolPolicies: { communicate: 'auto' },
+        defaultPolicy: 'auto',
+      },
+      context,
+    );
+
+    const result = await getParticipantTool.execute({ id: 'test-agent' }, context);
+    expect(result.status).toBe('success');
+    const data = result.data as Record<string, unknown>;
+    expect(data.id).toBe('test-agent');
+    expect(data.name).toBe('Test Agent');
+    expect(data.type).toBe('agent');
+    expect((data as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
+    expect((data as any).systemPrompt).toBe('You are a test agent.');
+  });
+
+  it('get_participant returns error for unknown id', async () => {
+    const { context } = await makeContext();
+    const result = await getParticipantTool.execute({ id: 'nonexistent' }, context);
     expect(result.status).toBe('error');
   });
 

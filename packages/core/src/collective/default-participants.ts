@@ -8,6 +8,7 @@ const MANAGEMENT_TOOLS = [
   'modify_agent',
   'retire_agent',
   'list_participants',
+  'get_participant',
   'list_tools',
   'list_conversations',
   'get_conversation',
