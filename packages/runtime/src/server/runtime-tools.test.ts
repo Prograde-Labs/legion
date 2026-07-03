@@ -7,7 +7,9 @@ function makeProviderStore(initial: ProviderConfig[] = []) {
   const store = new Map<string, ProviderConfig>(initial.map((c) => [c.name, c]));
   return {
     list: async () => Array.from(store.values()),
-    save: async (config: ProviderConfig) => { store.set(config.name, config); },
+    save: async (config: ProviderConfig) => {
+      store.set(config.name, config);
+    },
     get: async (name: string) => store.get(name) ?? null,
     _store: store,
   };
@@ -29,12 +31,14 @@ describe('list_providers', () => {
 
   it('returns stored provider configs', async () => {
     const { storage, credStore } = makeDeps();
-    const providerStore = makeProviderStore([{
-      name: 'openai',
-      type: 'openai-compatible',
-      baseUrl: 'https://api.openai.com/v1',
-      defaultModel: 'gpt-4o',
-    }]);
+    const providerStore = makeProviderStore([
+      {
+        name: 'openai',
+        type: 'openai-compatible',
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: 'gpt-4o',
+      },
+    ]);
     const tools = createRuntimeTools({ storage, providerStore, credStore });
     const list = tools.find((t) => t.name === 'list_providers')!;
     const result = (await list.execute({})) as { status: string; data: { name: string }[] };
@@ -81,7 +85,9 @@ describe('set_credential_with_meta', () => {
     const storage = new MemoryStorage();
     let storedValue = '';
     const credStore = {
-      set: async (key: string, value: string) => { storedValue = value; },
+      set: async (key: string, value: string) => {
+        storedValue = value;
+      },
       list: async () => [] as string[],
     };
     const providerStore = makeProviderStore();
@@ -90,7 +96,9 @@ describe('set_credential_with_meta', () => {
     const result = await tool.execute({ key: 'TEST_KEY', value: 'secret1234', usedBy: ['openai'] });
     expect(result).toEqual({ status: 'success', data: { key: 'TEST_KEY' } });
     expect(storedValue).toBe('secret1234');
-    const meta = await storage.readJson<{ maskedValue: string; usedBy: string[] }>('credential-meta/TEST_KEY.json');
+    const meta = await storage.readJson<{ maskedValue: string; usedBy: string[] }>(
+      'credential-meta/TEST_KEY.json',
+    );
     expect(meta?.maskedValue).toBe('••••1234');
     expect(meta?.usedBy).toEqual(['openai']);
   });

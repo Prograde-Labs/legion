@@ -134,7 +134,11 @@ describe('MessageRouter: synchronous send', () => {
     });
     // Second send with context.conversationId = parent, no explicit conversationId
     // (simulates an agent in the parent conversation calling communicate)
-    const childContext = { ...baseContext, conversationId: parent.conversationId, toolCallId: 'tc-42' };
+    const childContext = {
+      ...baseContext,
+      conversationId: parent.conversationId,
+      toolCallId: 'tc-42',
+    };
     const child = await router.send({
       senderId: 'op',
       recipientId: 'mock-1',
@@ -194,6 +198,67 @@ describe('MessageRouter: fire-and-forget', () => {
       (m) => m.recipientId === 'op' && m.role === 'assistant',
     );
     expect(toOp?.content).toBe('hello back');
+  });
+
+  it('catches runtime errors in fire-and-forget and persists an error message', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/throwing.json', {
+      id: 'throwing',
+      name: 'Throwing',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        throw new Error('provider boom');
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    let delivered: { recipientId: string } | null = null;
+    eventBus.on('message:delivered', (p) => (delivered = { recipientId: p.recipientId }));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'throwing',
+      message: 'hello',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+
+    expect(delivered).toEqual({ recipientId: 'op' });
+    const conv = await store.load(result.conversationId);
+    const toOp = Object.values(conv!.messages).find(
+      (m) => m.recipientId === 'op' && m.role === 'assistant',
+    );
+    expect(toOp?.content).toMatch(/provider boom/);
   });
 });
 

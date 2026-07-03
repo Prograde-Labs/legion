@@ -57,7 +57,9 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       execute: async (): Promise<ToolResult> => {
         try {
           const keys = await storage.list('credential-meta/');
-          const infos = await Promise.all(keys.map((k) => storage.readJson<CredentialInfo>(`credential-meta/${k}`)));
+          const infos = await Promise.all(
+            keys.map((k) => storage.readJson<CredentialInfo>(`credential-meta/${k}`)),
+          );
           return { status: 'success', data: infos.filter(Boolean) };
         } catch (err) {
           return { status: 'error', error: err instanceof Error ? err.message : String(err) };

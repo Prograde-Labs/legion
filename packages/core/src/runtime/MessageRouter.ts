@@ -40,7 +40,10 @@ export class MessageRouter implements MessageRouterPort {
     const next = new Promise<void>((res) => {
       release = res;
     });
-    this.locks.set(conversationId, prev.then(() => next));
+    this.locks.set(
+      conversationId,
+      prev.then(() => next),
+    );
     return prev.then(async () => {
       try {
         return await fn();
@@ -177,8 +180,13 @@ export class MessageRouter implements MessageRouterPort {
       return { conversationId: thread.id, status: 'dispatched' };
     }
 
-    const result = await runtime.handle(inbound, runtimeContext);
-    return await this.handleRuntimeResult(result, thread, recipient.id, opts.senderId);
+    try {
+      const result = await runtime.handle(inbound, runtimeContext);
+      return await this.handleRuntimeResult(result, thread, recipient.id, opts.senderId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { conversationId: thread.id, status: 'error', error: msg };
+    }
   }
 
   /**
@@ -218,8 +226,13 @@ export class MessageRouter implements MessageRouterPort {
     const runtime = this.registry.build(participant.type, participant.id);
     const runtimeContext = this.buildRuntimeContext(thread, participant.id, toolContext, 0);
 
-    const result = await runtime.handle(lastIncoming, runtimeContext);
-    return await this.handleRuntimeResult(result, thread, participant.id, lastIncoming.senderId);
+    try {
+      const result = await runtime.handle(lastIncoming, runtimeContext);
+      return await this.handleRuntimeResult(result, thread, participant.id, lastIncoming.senderId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { conversationId: thread.id, status: 'error', error: msg };
+    }
   }
 
   private async handleRuntimeResult(
@@ -250,19 +263,35 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     opts: SendOptions,
   ): Promise<void> {
-    const result = await runtime.handle(inbound, runtimeContext);
-    if (result.kind !== 'response') return;
-    const replyTarget = opts.replyTo!;
-    const responseMsg = await thread.append({
-      senderId: opts.recipientId,
-      recipientId: replyTarget,
-      role: 'assistant',
-      content: result.content,
-    });
-    this.eventBus.emit('message:delivered', {
-      conversationId: thread.id,
-      recipientId: replyTarget,
-      messageId: responseMsg.id,
-    });
+    try {
+      const result = await runtime.handle(inbound, runtimeContext);
+      if (result.kind !== 'response') return;
+      const replyTarget = opts.replyTo!;
+      const responseMsg = await thread.append({
+        senderId: opts.recipientId,
+        recipientId: replyTarget,
+        role: 'assistant',
+        content: result.content,
+      });
+      this.eventBus.emit('message:delivered', {
+        conversationId: thread.id,
+        recipientId: replyTarget,
+        messageId: responseMsg.id,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const replyTarget = opts.replyTo!;
+      const responseMsg = await thread.append({
+        senderId: opts.recipientId,
+        recipientId: replyTarget,
+        role: 'assistant',
+        content: `[Runtime error: ${msg}]`,
+      });
+      this.eventBus.emit('message:delivered', {
+        conversationId: thread.id,
+        recipientId: replyTarget,
+        messageId: responseMsg.id,
+      });
+    }
   }
 }

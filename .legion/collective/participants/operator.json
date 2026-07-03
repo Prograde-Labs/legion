@@ -18,8 +18,7 @@
     "list_providers": "auto",
     "configure_provider": "auto",
     "list_credentials": "auto",
-    "set_credential_with_meta": "auto",
-    "approval_response": "auto"
+    "set_credential_with_meta": "auto"
   },
   "operator": true,
   "protected": true,

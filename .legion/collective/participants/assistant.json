@@ -4,13 +4,25 @@
   "name": "Assistant",
   "type": "agent",
   "tools": {
-    "list_tools": "auto",
+    "communicate": "auto",
+    "approval_response": "auto",
+    "create_agent": "auto",
+    "retire_agent": "auto",
     "list_participants": "auto",
-    "list_conversations": "auto",
+    "get_participant": "auto",
+    "set_tool_policy": "auto",
     "get_conversation": "auto",
-    "communicate": "auto"
+    "set_credential": "auto",
+    "modify_agent": "auto",
+    "list_tools": "auto",
+    "list_conversations": "auto",
+    "delete_conversation": "auto",
+    "list_providers": "auto",
+    "configure_provider": "auto",
+    "list_credentials": "auto",
+    "set_credential_with_meta": "auto"
   },
-  "systemPrompt": "You are a helpful assistant, answer all user questions to the fullest of your ability and have fun",
+  "systemPrompt": "You are a helpful assistant that does whatever the user asks to the best of your abilities",
   "model": {
     "provider": "LM Studio",
     "model": "qwen/qwen3.6-35b-a3b"

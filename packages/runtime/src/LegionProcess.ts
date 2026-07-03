@@ -397,7 +397,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
       };
 
-      const result = await toolRegistry.execute(toolName, args, toolCtx) as ToolResult;
+      const result = (await toolRegistry.execute(toolName, args, toolCtx)) as ToolResult;
       return { result, conversationId };
     },
 

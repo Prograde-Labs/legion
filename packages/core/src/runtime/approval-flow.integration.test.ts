@@ -150,8 +150,7 @@ describe('Approval flow integration', () => {
   });
 
   it('approve path: operator approves → B resumes and completes', async () => {
-    const { providerStore, router, makeContext, store, pendingApprovalRegistry } =
-      await setup(dir);
+    const { providerStore, router, makeContext, store, pendingApprovalRegistry } = await setup(dir);
 
     providerStore.register(
       'scripted',
