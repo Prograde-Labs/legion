@@ -8,6 +8,7 @@
     "modify_agent": "auto",
     "retire_agent": "auto",
     "list_participants": "auto",
+    "get_participant": "auto",
     "list_tools": "auto",
     "list_conversations": "auto",
     "get_conversation": "auto",
