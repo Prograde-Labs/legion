@@ -1,13 +1,14 @@
 import type { CredentialInfo, ProviderConfig, ToolResult } from '@legion/types';
-import type { Storage, Tool } from '@legion/core';
+import type { Storage, Tool, ProviderStore } from '@legion/core';
 
 interface RuntimeToolDeps {
   storage: Storage;
+  providerStore: ProviderStore;
   credStore: { set(key: string, value: string): Promise<void>; list(): Promise<string[]> };
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
-  const { storage, credStore } = deps;
+  const { storage, providerStore, credStore } = deps;
 
   return [
     {
@@ -16,9 +17,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       parameters: { type: 'object', properties: {}, required: [] },
       execute: async (): Promise<ToolResult> => {
         try {
-          const keys = await storage.list('providers/');
-          const configs = await Promise.all(keys.map((k) => storage.readJson<ProviderConfig>(`providers/${k}`)));
-          return { status: 'success', data: configs.filter(Boolean) };
+          const configs = await providerStore.list();
+          return { status: 'success', data: configs };
         } catch (err) {
           return { status: 'error', error: err instanceof Error ? err.message : String(err) };
         }
@@ -42,7 +42,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       execute: async (rawArgs: unknown): Promise<ToolResult> => {
         try {
           const args = rawArgs as ProviderConfig;
-          await storage.writeJson(`providers/${args.name}.json`, args);
+          await providerStore.save(args);
           return { status: 'success', data: args };
         } catch (err) {
           return { status: 'error', error: err instanceof Error ? err.message : String(err) };
