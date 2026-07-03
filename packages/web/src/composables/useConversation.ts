@@ -3,11 +3,20 @@ import { useExecute } from './useExecute.js';
 import { useEventStream } from './useEventStream.js';
 import type { MessageData } from '@legion/types';
 
+export interface SubThreadData {
+  id: string;
+  title?: string;
+  messages: MessageData[];
+  parentConversationId?: string;
+  parentToolCallId?: string;
+}
+
 // Shape returned by the get_conversation tool (messages already as ordered array)
 interface ConversationResponse {
   id: string;
   title?: string;
   messages: MessageData[];
+  subThreads?: Record<string, SubThreadData>;
 }
 
 export function useConversation(conversationId: string | null) {
@@ -15,6 +24,7 @@ export function useConversation(conversationId: string | null) {
   const { on } = useEventStream();
 
   const messages = ref<MessageData[]>([]);
+  const subThreads = ref<Record<string, SubThreadData>>({});
   const loading = ref(conversationId !== null);
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
@@ -34,6 +44,7 @@ export function useConversation(conversationId: string | null) {
     try {
       const data = await execute<ConversationResponse>('get_conversation', { conversationId });
       messages.value = data.messages;
+      subThreads.value = data.subThreads ?? {};
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -84,5 +95,5 @@ export function useConversation(conversationId: string | null) {
     onMounted(() => { void load(); });
   }
 
-  return { messages, loading, error, isThinking, load, markSent };
+  return { messages, subThreads, loading, error, isThinking, load, markSent };
 }

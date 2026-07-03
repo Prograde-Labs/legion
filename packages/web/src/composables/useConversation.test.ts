@@ -9,12 +9,11 @@ vi.mock('./useExecute.js', () => ({
   useExecute: vi.fn(() => ({
     execute: vi.fn().mockResolvedValue({
       id: 'c1',
-      messages: {
-        'm1': { id: 'm1', parentId: null, senderId: 'operator', recipientId: 'agent-1', role: 'user', content: 'hi', status: 'active' },
-        'm2': { id: 'm2', parentId: 'm1', senderId: 'agent-1', recipientId: 'operator', role: 'assistant', content: 'hello', status: 'active' },
-      },
-      activeBranchHead: 'm2',
-      schemaVersion: '2.0',
+      messages: [
+        { id: 'm1', parentId: null, conversationId: 'c1', senderId: 'operator', recipientId: 'agent-1', role: 'user', content: 'hi', status: 'active', timestamp: '2026-01-01T00:00:00Z' },
+        { id: 'm2', parentId: 'm1', conversationId: 'c1', senderId: 'agent-1', recipientId: 'operator', role: 'assistant', content: 'hello', status: 'active', timestamp: '2026-01-01T00:00:01Z' },
+      ],
+      subThreads: {},
     }),
   })),
 }));

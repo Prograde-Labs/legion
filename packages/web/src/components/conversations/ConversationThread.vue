@@ -3,6 +3,7 @@ import { ref, computed, nextTick, watch } from 'vue';
 import { useExecute } from '../../composables/useExecute.js';
 import { useConversation } from '../../composables/useConversation.js';
 import MessageBubble from './MessageBubble.vue';
+import ToolCallBlock, { type ToolCallEntry, type MessageEntry } from './ToolCallBlock.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import type { MessageData } from '@legion/types';
 
@@ -17,7 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{ sent: [conversationId: string] }>();
 
 const { execute } = useExecute();
-const { messages, loading, isThinking, markSent } = useConversation(props.conversationId);
+const { messages, subThreads, loading, isThinking, markSent } = useConversation(props.conversationId);
 
 const composerText = ref('');
 const sending = ref(false);
@@ -64,6 +65,27 @@ watch(messages, async () => {
 function isOwnMessage(msg: MessageData): boolean {
   return msg.senderId === props.myParticipantId;
 }
+
+function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
+  const st = subThreads.value[toolCallId];
+  if (!st) return null;
+  const entries: MessageEntry[] = st.messages.map((m) => ({
+    id: m.id,
+    author: m.senderId,
+    authorColour: '#f59e0b',
+    content: m.content,
+    timestamp: new Date(m.timestamp).toLocaleTimeString(),
+  }));
+  return {
+    id: toolCallId,
+    tool: 'communicate',
+    type: 'delegation',
+    args: undefined,
+    result: undefined,
+    timestamp: '',
+    subThread: entries,
+  };
+}
 </script>
 
 <template>
@@ -97,14 +119,19 @@ function isOwnMessage(msg: MessageData): boolean {
           :sender-name="isOwnMessage(msg) ? 'you' : (recipientName ?? msg.senderId)"
         >
           <template v-if="msg.toolCalls?.length" #tools>
-            <!-- Compact tool call indicators -->
-            <div
-              v-for="tc in msg.toolCalls"
-              :key="tc.id"
-              class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
-            >
-              {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
-            </div>
+            <!-- Tool call indicators: nested sub-thread for delegations, compact for others -->
+            <template v-for="tc in msg.toolCalls" :key="tc.id">
+              <ToolCallBlock
+                v-if="subThreadForToolCall(tc.id)"
+                :entry="subThreadForToolCall(tc.id)!"
+              />
+              <div
+                v-else
+                class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
+              >
+                {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
+              </div>
+            </template>
             <!-- Approval card for pending_approval tool results -->
             <ApprovalCard
               v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'pending_approval')"
