@@ -180,7 +180,7 @@ export const setToolPolicyTool: Tool = {
 
 export const getConversationTool: Tool = {
   name: 'get_conversation',
-  description: 'Load a conversation and its active message chain.',
+  description: 'Load a conversation, its active message chain, and any sub-threads.',
   parameters: {
     type: 'object',
     properties: { conversationId: { type: 'string' } },
@@ -194,12 +194,31 @@ export const getConversationTool: Tool = {
     const conversation = await context.conversationStore.load(conversationId);
     if (!conversation)
       return { status: 'error', error: `Conversation not found: ${conversationId}` };
+
+    // Find sub-threads (child conversations linked to this one)
+    const subThreadList = await context.conversationStore.listByParent(conversationId);
+    const subThreads: Record<string, unknown> = {};
+    for (const st of subThreadList) {
+      if (st.parentToolCallId) {
+        subThreads[st.parentToolCallId] = {
+          id: st.id,
+          title: st.title,
+          messages: getActiveChain(st),
+          parentConversationId: st.parentConversationId,
+          parentToolCallId: st.parentToolCallId,
+        };
+      }
+    }
+
     return {
       status: 'success',
       data: {
         id: conversation.id,
         title: conversation.title,
         messages: getActiveChain(conversation),
+        parentConversationId: conversation.parentConversationId,
+        parentToolCallId: conversation.parentToolCallId,
+        subThreads,
       },
     };
   },

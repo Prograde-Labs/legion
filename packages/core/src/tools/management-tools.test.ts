@@ -478,6 +478,82 @@ describe('list_conversations', () => {
     expect((result as { status: string; data: { conversations: { id: string }[] } }).data.conversations[0]?.id).toBe(conv.id);
   });
 
+  it('get_conversation includes subThreads keyed by parentToolCallId', async () => {
+    const { context, conversationStore } = await makeContext();
+    // Create a parent conversation with a message
+    const parent = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await conversationStore.appendMessage(parent.id, {
+      id: 'msg-1',
+      parentId: null,
+      conversationId: parent.id,
+      senderId: 'op',
+      recipientId: 'agent-a',
+      role: 'user',
+      content: 'hello',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    await conversationStore.updateHead(parent.id, 'msg-1');
+
+    // Create a child sub-thread
+    const child = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-delegate',
+    });
+    await conversationStore.appendMessage(child.id, {
+      id: 'child-msg-1',
+      parentId: null,
+      conversationId: child.id,
+      senderId: 'agent-a',
+      recipientId: 'agent-b',
+      role: 'user',
+      content: 'delegated question',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    await conversationStore.updateHead(child.id, 'child-msg-1');
+
+    const result = await getConversationTool.execute({ conversationId: parent.id }, context);
+    expect(result.status).toBe('success');
+    const data = result.data as { id: string; subThreads: Record<string, { id: string; messages: unknown[] }> };
+    expect(data.id).toBe(parent.id);
+    expect(data.subThreads).toBeDefined();
+    expect(data.subThreads['tc-delegate']).toBeDefined();
+    expect(data.subThreads['tc-delegate'].id).toBe(child.id);
+    expect(data.subThreads['tc-delegate'].messages).toHaveLength(1);
+  });
+
+  it('list_conversations excludes sub-threads', async () => {
+    const { context, conversationStore } = await makeContext();
+    const parent = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-1',
+    });
+
+    const result = await listConversationsTool.execute({}, context);
+    expect(result.status).toBe('success');
+    const data = result.data as { conversations: { id: string }[] };
+    const ids = data.conversations.map((c) => c.id);
+    expect(ids).toContain(parent.id);
+    // The child should not appear
+    expect(ids).toHaveLength(1);
+  });
+
   it('filters by participantId', async () => {
     const storage = new MemoryStorage();
     const conversationStore = new FileConversationStore(storage);
