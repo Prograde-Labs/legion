@@ -122,6 +122,44 @@ describe('MessageRouter: synchronous send', () => {
     });
     expect(sent).toBe(2);
   });
+
+  it('stamps parentConversationId and parentToolCallId on child when caller has a conversation', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    // First send creates a parent conversation
+    const parent = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+    // Second send with context.conversationId = parent, no explicit conversationId
+    // (simulates an agent in the parent conversation calling communicate)
+    const childContext = { ...baseContext, conversationId: parent.conversationId, toolCallId: 'tc-42' };
+    const child = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'delegate',
+      context: childContext,
+    });
+    expect(child.conversationId).not.toBe(parent.conversationId);
+
+    const childConv = await store.load(child.conversationId);
+    expect(childConv?.parentConversationId).toBe(parent.conversationId);
+    expect(childConv?.parentToolCallId).toBe('tc-42');
+  });
+
+  it('does not stamp parent link when caller has no conversation (empty string)', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'first',
+      context: { ...baseContext, conversationId: '' },
+    });
+    const conv = await store.load(result.conversationId);
+    expect(conv?.parentConversationId).toBeUndefined();
+    expect(conv?.parentToolCallId).toBeUndefined();
+  });
 });
 
 describe('MessageRouter: fire-and-forget', () => {

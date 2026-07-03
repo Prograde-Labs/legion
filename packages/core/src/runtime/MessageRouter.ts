@@ -54,7 +54,10 @@ export class MessageRouter implements MessageRouterPort {
     });
   }
 
-  private async getThread(conversationId?: string): Promise<ConversationThread> {
+  private async getThread(
+    conversationId?: string,
+    parent?: { parentConversationId: string; parentToolCallId?: string },
+  ): Promise<ConversationThread> {
     if (conversationId) {
       const existing = await this.store.load(conversationId);
       if (existing) return new ConversationThread(existing, this.store);
@@ -63,6 +66,8 @@ export class MessageRouter implements MessageRouterPort {
       schemaVersion: '2.0',
       activeBranchHead: '',
       messages: {},
+      parentConversationId: parent?.parentConversationId,
+      parentToolCallId: parent?.parentToolCallId,
     });
     this.eventBus.emit('conversation:created', { conversationId: created.id });
     return new ConversationThread(created, this.store);
@@ -131,7 +136,17 @@ export class MessageRouter implements MessageRouterPort {
       };
     }
 
-    const thread = await this.getThread(opts.conversationId);
+    // When no explicit conversationId is provided, create a new conversation.
+    // If the caller is itself in a real conversation, stamp the parent link.
+    const parentConvId = opts.context.conversationId;
+    const parentLink =
+      !opts.conversationId && parentConvId && parentConvId !== ''
+        ? {
+            parentConversationId: parentConvId,
+            parentToolCallId: opts.context.toolCallId as string | undefined,
+          }
+        : undefined;
+    const thread = await this.getThread(opts.conversationId, parentLink);
 
     const inbound = await thread.append({
       senderId: opts.senderId,
