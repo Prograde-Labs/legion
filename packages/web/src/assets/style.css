@@ -9,3 +9,135 @@
   --color-navy-500: #2d4a6a;
   --color-navy-400: #4b6a8a;
 }
+
+/* ─── Markdown prose styles ─────────────────────────────────────────────── */
+/* All colors are inherited from the parent bubble context.                  */
+/* Only structural/spacing styles are set here.                              */
+
+.md-content p {
+  margin: 0 0 0.5em;
+}
+.md-content p:last-child {
+  margin-bottom: 0;
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.75em 0 0.25em;
+}
+.md-content h1 { font-size: 1.25em; }
+.md-content h2 { font-size: 1.1em; }
+.md-content h3,
+.md-content h4,
+.md-content h5,
+.md-content h6 { font-size: 1em; }
+
+.md-content ul,
+.md-content ol {
+  margin: 0.25em 0 0.5em;
+  padding-left: 1.5em;
+}
+.md-content ul { list-style-type: disc; }
+.md-content ol { list-style-type: decimal; }
+.md-content li { margin: 0.15em 0; }
+
+/* Inline code — semi-transparent darker overlay readable on both
+   navy-800 (agent) and cyan-700 (own) bubble backgrounds */
+.md-content code:not(pre code) {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 3px;
+  padding: 0.15em 0.35em;
+  font-size: 0.875em;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+}
+
+/* Code block wrapper (injected by markdown.ts fence override) */
+.md-content .code-block {
+  position: relative;
+  margin: 0.5em 0;
+}
+.md-content .code-block:last-child {
+  margin-bottom: 0;
+}
+
+/* Shiki renders <pre class="shiki ..."><code>...</code></pre> with inline token styles */
+.md-content pre.shiki {
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  font-size: 0.8em;
+  line-height: 1.6;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  margin: 0;
+}
+
+/* Copy button */
+.md-content .copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  line-height: 1.6;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.md-content .copy-btn:hover {
+  background: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Blockquote */
+.md-content blockquote {
+  border-left: 3px solid rgba(255, 255, 255, 0.2);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  opacity: 0.8;
+}
+
+/* Links */
+.md-content a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Tables */
+.md-content table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.875em;
+  width: 100%;
+}
+.md-content th,
+.md-content td {
+  padding: 0.3em 0.6em;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  text-align: left;
+}
+.md-content th {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Horizontal rule */
+.md-content hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  margin: 0.75em 0;
+}
+
+.md-content strong { font-weight: 700; }
+.md-content em { font-style: italic; }
