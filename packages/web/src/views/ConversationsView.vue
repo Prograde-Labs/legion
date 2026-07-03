@@ -23,7 +23,6 @@ const pendingApprovalIds = ref<Set<string>>(new Set());
 const isDraft = computed(() => route.path === '/conversations/new');
 const activeId = computed(() => isDraft.value ? null : (route.params.id as string | undefined) ?? null);
 
-// Resolved recipient for existing conversations or draft
 const draftRecipientId = ref<string | null>(null);
 const draftRecipientName = ref<string | null>(null);
 
@@ -56,6 +55,10 @@ const agentOptions = computed(() =>
     .map((p) => ({ value: p.id, label: p.name })),
 );
 
+// --- Delete flow ---
+const pendingDeleteId = ref<string | null>(null);
+const deleting = ref(false);
+
 async function loadConversations() {
   const filter = listMode.value === 'mine' && myParticipantId.value
     ? { participantId: myParticipantId.value }
@@ -84,14 +87,35 @@ function onMessageSent(conversationId: string) {
   void loadConversations();
 }
 
-// Refresh list when mode changes
+function requestDelete(id: string) {
+  pendingDeleteId.value = id;
+}
+
+async function confirmDelete() {
+  const id = pendingDeleteId.value;
+  if (!id) return;
+  deleting.value = true;
+  try {
+    await execute('delete_conversation', { conversationId: id });
+    if (id === activeId.value) {
+      await router.push('/conversations');
+    }
+    await loadConversations();
+  } finally {
+    deleting.value = false;
+    pendingDeleteId.value = null;
+  }
+}
+
+function cancelDelete() {
+  pendingDeleteId.value = null;
+}
+
 watch(listMode, loadConversations);
 
-// Subscribe to conversation events to keep list fresh
 const { on } = useEventStream();
 on('conversation:created', () => void loadConversations());
 
-// Track pending approvals for amber dot
 on('approval:requested', (payload) => {
   pendingApprovalIds.value = new Set([...pendingApprovalIds.value, (payload as any).conversationId]);
 });
@@ -119,6 +143,7 @@ onMounted(async () => {
         :pending-approval-ids="pendingApprovalIds"
         @select="selectConversation"
         @update:mode="listMode = $event"
+        @delete="requestDelete"
       />
     </div>
 
@@ -146,11 +171,46 @@ onMounted(async () => {
         :recipient-id="recipientId ?? undefined"
         :recipient-name="recipientName ?? undefined"
         @sent="onMessageSent"
+        @delete="requestDelete"
       />
 
       <!-- No selection -->
       <div v-else class="flex-1 flex items-center justify-center text-slate-600 text-sm">
         Select a conversation or start a new one
+      </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div
+      v-if="pendingDeleteId"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      @click.self="cancelDelete"
+    >
+      <div class="bg-navy-900 border border-navy-700 rounded-lg shadow-xl max-w-sm w-full mx-4">
+        <div class="px-4 py-3 border-b border-navy-800">
+          <span class="text-sm font-medium text-slate-200">Delete conversation?</span>
+        </div>
+        <div class="px-4 py-4 text-sm text-slate-400">
+          This will permanently delete this conversation and any nested delegations. This cannot be undone.
+        </div>
+        <div class="px-4 py-3 flex justify-end gap-2 border-t border-navy-800">
+          <button
+            type="button"
+            class="text-xs px-3 py-1.5 rounded border border-navy-700 text-slate-400 hover:text-slate-200 hover:bg-navy-800 transition-colors"
+            :disabled="deleting"
+            @click="cancelDelete"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+            :disabled="deleting"
+            @click="confirmDelete"
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   </div>
