@@ -28,6 +28,7 @@ export function ensureReady(): Promise<void> {
         ],
         engine: createJavaScriptRegexEngine(),
       });
+      const loadedLanguages = new Set(highlighter.getLoadedLanguages());
 
       const md = new MarkdownIt({
         html: false,
@@ -36,14 +37,21 @@ export function ensureReady(): Promise<void> {
         breaks: true,
       });
 
-      md.use(fromHighlighter(highlighter, { theme: 'github-dark' }));
+      md.use(fromHighlighter(highlighter, {
+        theme: 'github-dark',
+      }));
 
       // Wrap Shiki's fence output with a .code-block div + copy button.
       // This must happen AFTER fromHighlighter() replaces the fence rule.
       const shikiFence = md.renderer.rules['fence'];
       if (shikiFence) {
-        md.renderer.rules['fence'] = (...args) => {
-          const shikiHtml = shikiFence(...args);
+        md.renderer.rules['fence'] = (tokens, idx, options, env, self) => {
+          const token = tokens[idx];
+          const lang = token?.info.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+          const shikiHtml = isLoadedLanguage(lang, loadedLanguages, highlighter.resolveLangAlias)
+            ? shikiFence(tokens, idx, options, env, self)
+            : renderPlainCodeBlock(token?.content ?? '', lang);
+
           return `<div class="code-block">${shikiHtml}<button type="button" class="copy-btn" data-copy-code>Copy</button></div>`;
         };
       }
@@ -68,6 +76,30 @@ const ESC: Record<string, string> = {
 
 function escapeHtml(str: string): string {
   return str.replace(/[&<>"']/g, (c) => ESC[c] ?? c);
+}
+
+function escapeSanitizedText(str: string): string {
+  return escapeHtml(str).replace(/&/g, '&amp;');
+}
+
+function isLoadedLanguage(
+  lang: string,
+  loadedLanguages: Set<string>,
+  resolveAlias: (lang: string) => string,
+): boolean {
+  if (!lang) return false;
+
+  try {
+    return loadedLanguages.has(lang) || loadedLanguages.has(resolveAlias(lang));
+  } catch {
+    return false;
+  }
+}
+
+function renderPlainCodeBlock(code: string, lang: string): string {
+  const langClass = lang ? ` class="language-${escapeHtml(lang)}"` : '';
+
+  return `<pre class="shiki github-dark" style="background-color:#24292e;color:#e1e4e8" tabindex="0"><code${langClass}>${escapeSanitizedText(code)}</code></pre>\n`;
 }
 
 const SANITIZE_OPTIONS = {
