@@ -39,7 +39,7 @@ The centerpiece is **agent-to-agent delegation as sub-threads** (Part C): when a
 
 Confirmed by reproducing on a known-fresh server process (PID verified new after restart):
 
-1. **Agent-to-agent stall (#1, Critical).** operator → assistant → (`communicate`) → researcher. The assistant appends "What is N+N?" addressed to the researcher, then the conversation freezes at 3 messages: no LM Studio connection, no error, no response. The researcher works perfectly when called directly (returns real answers). The differentiator is that `communicate-tool.ts:32` defaults the target's `conversationId` to the caller's current conversation, so the researcher's `AgentRuntime` builds provider messages from the **parent's polluted history** (system + operator msg + the assistant's `list_participants` tool-call turn + the question). That payload stalls the provider call. Lock deadlock is ruled out: the operator→assistant call creates the conversation without holding its lock, so no shared lock is contended.
+1. **Agent-to-agent stall (#1, Critical).** operator → assistant → (`communicate`) → researcher. The assistant appends "What is N+N?" addressed to the researcher, then the conversation freezes at 3 messages: no LM Studio connection, no error, no response. The researcher works perfectly when called directly (returns real answers). The differentiator is that `communicate-tool.ts:32` computes `conversationId: conversationId ?? context.conversationId`, silently merging the delegated message into the caller's current conversation, so the researcher's `AgentRuntime` builds provider messages from the **parent's polluted history** (system + operator msg + the assistant's `list_participants` tool-call turn + the question). That payload stalls the provider call. This implicit-join is itself the core design defect (see §7.2), not merely the stall's proximate cause. Lock deadlock is ruled out: the operator→assistant call creates the conversation without holding its lock, so no shared lock is contended.
 
 2. **Phantom sessions (#2, High).** `routes/auth.ts:44` returns `{token, participantId}` — never `expiresAt`. `useAuth.ts:29` reads the missing field (always `null`), so `isAuthenticated` treats the session as non-expiring and never decodes the JWT `exp`. After the 8h expiry — or any server restart (per-process random JWT secret) — the UI looks logged in while every request 401s.
 
@@ -118,16 +118,24 @@ Both fields are optional; top-level conversations leave them unset.
 
 ### 7.2 Delegation rule (backend)
 
-In the `communicate` tool / `MessageRouter`, when **the sender is an agent** (`context.participant.type === 'agent'`) **and no explicit `conversationId` argument is supplied**, the router creates a **new child conversation** instead of joining the caller's current conversation:
-- The child is seeded only with the delegated message → the target agent's `AgentRuntime` builds a **clean** provider context (system prompt + the single question). This is the direct-call scenario that already works, and eliminates the stall.
-- The child records `parentConversationId = context.conversationId` and `parentToolCallId = <the communicate tool call id>`.
-- The call remains synchronous (no `replyTo`): the target's response returns as the `communicate` tool result, so the delegating agent summarizes it back to the operator exactly as today.
+**Core correction.** `communicate` must never join the caller's *current* conversation implicitly. The present behavior — `communicate-tool.ts:32` computes `conversationId: conversationId ?? context.conversationId` — is a genuine deviation from Legion's model: an unaddressed send silently merges into whatever thread the caller happens to be in. The rule is corrected universally, independent of participant type:
 
-Human→agent chat is unchanged: the operator's `communicate` (fire-and-forget with `replyTo`) continues to create/join top-level conversations.
+- **Explicit `conversationId` argument supplied** → join that conversation (opt-in continuation).
+- **No `conversationId` argument** → **always create a new conversation.** The tool no longer substitutes `context.conversationId`.
 
-Explicit `conversationId` passed by an agent still joins that thread (opt-in continuation).
+This holds for every caller (agent, user, service). It is not scoped to agents.
 
-The `parentToolCallId` must be threaded from `AgentRuntime`'s tool-execution loop (which knows the current tool call id) into the `communicate` tool context so the router can stamp it on the child. This is passed via the tool context rather than tool arguments (the LLM does not supply it).
+**Parent linking.** When a new conversation is created this way *and the caller is itself currently in a conversation* (`context.conversationId` is a non-empty, real conversation id), the new conversation records:
+- `parentConversationId = context.conversationId`
+- `parentToolCallId = <the communicate tool call id>`
+
+so the UI can nest it under the originating tool call. When the caller has no current conversation (e.g. the operator's first web message, where `context.conversationId` is the ephemeral `''`), the new conversation is top-level with no parent link — unchanged from today.
+
+**Effect on the stall.** The target agent is now seeded only with the delegated message, so its `AgentRuntime` builds a **clean** provider context (system prompt + the single question) — the direct-call scenario that already works. This eliminates the stall and is a direct consequence of the corrected rule, not a special case.
+
+**Sync semantics unchanged.** With no `replyTo`, the target's response returns as the `communicate` tool result, so the delegating agent summarizes it back to its own caller exactly as today. Human→agent chat (operator `communicate` with `replyTo`) is unaffected in behavior; it simply stops relying on the implicit-join that never applied to it anyway.
+
+**Threading `parentToolCallId`.** `AgentRuntime`'s tool-execution loop knows the current tool call id; it passes that id into the `communicate` tool's context so the router can stamp it on the child. It travels via the tool context, not tool arguments (the LLM does not supply it).
 
 ### 7.3 Listing & fetching
 
@@ -179,6 +187,6 @@ Each verification uses the `verification-before-completion` discipline: run the 
 
 ## 10. Risks & Mitigations
 
-- **Delegation rule breadth.** Scoping the new-child behavior to "sender is an agent AND no explicit `conversationId`" avoids changing human→agent chat. Explicit `conversationId` remains an escape hatch for same-thread continuation.
+- **Delegation rule breadth.** The corrected rule applies to all callers: no `conversationId` → new conversation, always. This is intentionally universal (§7.2) rather than scoped to agents. Human→agent chat is unaffected because the operator's first message already had an ephemeral (`''`) context and follow-ups pass an explicit `conversationId`; explicit `conversationId` remains the escape hatch for same-thread continuation. Any code path that *relied* on the implicit-join is being corrected deliberately.
 - **`get_conversation` payload growth** from inlined sub-threads. Acceptable at current scale; sub-threads are typically short. Can move to lazy fetch later if needed.
 - **Config source-of-truth switch (#4).** Leaving stale `agents/*.json` in place avoids destroying data; the runtime simply ignores them.
