@@ -1,4 +1,9 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/index.js';
+
+function conversationEntry(page: Page, conversationId: string) {
+  return page.locator('main .w-52').getByText(conversationId, { exact: true });
+}
 
 test.describe('ConversationsView', () => {
   test('loads with empty state when no conversations exist', async ({ authPage }) => {
@@ -55,14 +60,14 @@ test.describe('ConversationsView', () => {
       await page.goto('/#/conversations');
 
       // Wait for the specific conversation to appear (use full ID for uniqueness)
-      await expect(page.getByText(conversationId).first()).toBeVisible({ timeout: 5000 });
+      await expect(conversationEntry(page, conversationId)).toBeVisible({ timeout: 5000 });
     });
 
     test('clicking a conversation loads the thread panel', async ({ authPage }) => {
       const { page } = authPage;
       await page.goto('/#/conversations');
 
-      const convEntry = page.getByText(conversationId).first();
+      const convEntry = conversationEntry(page, conversationId);
       await expect(convEntry).toBeVisible();
       await convEntry.click();
 
@@ -74,7 +79,7 @@ test.describe('ConversationsView', () => {
       const { page } = authPage;
       await page.goto('/#/conversations');
 
-      await page.getByText(conversationId).first().click();
+      await conversationEntry(page, conversationId).click();
       await expect(page).toHaveURL(/#\/conversations\//);
     });
 
@@ -91,10 +96,12 @@ test.describe('ConversationsView', () => {
       await page.goto('/#/conversations');
 
       // Click first conversation, then second
-      await page.getByText(conversationId).first().click();
+      await conversationEntry(page, conversationId).click();
+      await expect(page.getByText('hello from e2e test')).toBeVisible();
       const firstUrl = page.url();
 
-      await page.getByText(secondConvId).first().click();
+      await conversationEntry(page, secondConvId).click();
+      await expect(page.getByText('second message')).toBeVisible();
       const secondUrl = page.url();
 
       expect(firstUrl).not.toBe(secondUrl);
@@ -104,7 +111,7 @@ test.describe('ConversationsView', () => {
       const { page } = authPage;
       await page.goto('/#/conversations');
 
-      await page.getByText(conversationId).first().click();
+      await conversationEntry(page, conversationId).click();
       await expect(page).toHaveURL(/#\/conversations\//);
 
       // Navigate away and back to base conversations route
@@ -120,13 +127,12 @@ test.describe('ConversationsView', () => {
     test('navigating away and back does not duplicate conversations in sidebar', async ({ authPage }) => {
       const { page } = authPage;
       await page.goto('/#/conversations');
-      const initialCount = await page.locator('main .font-mono').count();
+      await expect(conversationEntry(page, conversationId)).toHaveCount(1);
 
       await page.goto('/#/participants');
       await page.goto('/#/conversations');
 
-      const afterCount = await page.locator('main .font-mono').count();
-      expect(afterCount).toBe(initialCount);
+      await expect(conversationEntry(page, conversationId)).toHaveCount(1);
     });
   });
 });
