@@ -19,7 +19,21 @@ const loadError = ref<string | null>(null);
 
 async function load() {
   try {
-    participants.value = await execute<BaseParticipant[]>('list_participants', {});
+    const list = await execute<{ id: string; name: string; type: string; status: string }[]>('list_participants', {});
+    // Fetch full config for each participant to get model/provider
+    const fullConfigs = await Promise.all(
+      list.map((p) =>
+        execute<Record<string, unknown>>('get_participant', { id: p.id }).catch(() => null),
+      ),
+    );
+    participants.value = list.map((p, i) => {
+      const full = fullConfigs[i];
+      return {
+        ...p,
+        model: (full?.model as { model?: string })?.model,
+        providerId: (full?.model as { provider?: string })?.provider,
+      };
+    }) as any;
     allTools.value = await execute<string[]>('list_tools', {});
     providers.value = await execute<{ name: string }[]>('list_providers', {});
     loadError.value = null;
