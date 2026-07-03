@@ -18,14 +18,30 @@ const rendered = computed(() => {
 });
 
 const copyResetTimeouts = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+const copyOperations = new WeakMap<HTMLButtonElement, symbol>();
 
-function resetCopyButton(btn: HTMLButtonElement): void {
+function clearCopyResetTimeout(btn: HTMLButtonElement): void {
   const timeout = copyResetTimeouts.get(btn);
   if (timeout) {
     clearTimeout(timeout);
     copyResetTimeouts.delete(btn);
   }
+}
+
+function resetCopyButton(btn: HTMLButtonElement): void {
+  clearCopyResetTimeout(btn);
   btn.textContent = 'Copy';
+}
+
+function beginCopyOperation(btn: HTMLButtonElement): symbol {
+  clearCopyResetTimeout(btn);
+  const operation = Symbol('copy-operation');
+  copyOperations.set(btn, operation);
+  return operation;
+}
+
+function isCurrentCopyOperation(btn: HTMLButtonElement, operation: symbol): boolean {
+  return copyOperations.get(btn) === operation;
 }
 
 function onRootClick(e: MouseEvent): void {
@@ -38,26 +54,36 @@ function onRootClick(e: MouseEvent): void {
   if (!pre) return;
 
   const text = pre.textContent ?? '';
+  const operation = beginCopyOperation(btn);
   try {
     if (!navigator.clipboard) {
       resetCopyButton(btn);
+      copyOperations.delete(btn);
       return;
     }
 
     navigator.clipboard.writeText(text).then(() => {
-      const timeout = copyResetTimeouts.get(btn);
-      if (timeout) clearTimeout(timeout);
+      if (!isCurrentCopyOperation(btn, operation)) return;
 
       btn.textContent = 'Copied!';
       copyResetTimeouts.set(btn, setTimeout(() => {
+        if (!isCurrentCopyOperation(btn, operation)) return;
+
         btn.textContent = 'Copy';
         copyResetTimeouts.delete(btn);
+        copyOperations.delete(btn);
       }, 2000));
     }).catch(() => {
+      if (!isCurrentCopyOperation(btn, operation)) return;
+
       resetCopyButton(btn);
+      copyOperations.delete(btn);
     });
   } catch {
-    resetCopyButton(btn);
+    if (isCurrentCopyOperation(btn, operation)) {
+      resetCopyButton(btn);
+      copyOperations.delete(btn);
+    }
   }
 }
 </script>
