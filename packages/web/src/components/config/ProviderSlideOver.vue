@@ -7,7 +7,6 @@ import { useExecute } from '../../composables/useExecute.js';
 const props = defineProps<{
   open: boolean;
   provider: ProviderConfig | null;
-  credentialKeys: string[];
 }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 const { execute } = useExecute();
@@ -15,9 +14,10 @@ const { execute } = useExecute();
 const name = ref('');
 const type = ref<ProviderConfig['type']>('openai-compatible');
 const baseUrl = ref('');
-const defaultModel = ref('');
-const credentialKey = ref('');
+const apiKey = ref('');
+const priority = ref(10);
 const saving = ref(false);
+const apiKeyPlaceholder = ref('');
 
 watch(
   () => props.open,
@@ -26,21 +26,27 @@ watch(
     name.value = props.provider?.name ?? '';
     type.value = props.provider?.type ?? 'openai-compatible';
     baseUrl.value = props.provider?.baseUrl ?? '';
-    defaultModel.value = props.provider?.defaultModel ?? '';
-    credentialKey.value = props.provider?.credentialKey ?? '';
+    priority.value = props.provider?.priority ?? 10;
+    apiKey.value = '';
+    apiKeyPlaceholder.value = props.provider?.apiKey ? '••••••••' : '';
   },
 );
 
 async function save() {
   saving.value = true;
   try {
-    await execute('configure_provider', {
+    const payload: ProviderConfig = {
       name: name.value,
       type: type.value,
-      baseUrl: baseUrl.value || undefined,
-      defaultModel: defaultModel.value,
-      credentialKey: credentialKey.value || undefined,
-    });
+      priority: priority.value,
+    };
+    if (baseUrl.value) payload.baseUrl = baseUrl.value;
+    if (apiKey.value) {
+      payload.apiKey = apiKey.value;
+    } else if (props.provider?.apiKey) {
+      payload.apiKey = props.provider.apiKey;
+    }
+    await execute('save_provider', payload);
     emit('saved');
     emit('close');
   } finally {
@@ -57,9 +63,7 @@ async function save() {
   >
     <div class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Name</label
-        >
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Name</label>
         <input
           v-model="name"
           :readonly="!!provider"
@@ -68,9 +72,7 @@ async function save() {
         <p class="text-[10px] text-navy-500 mt-1">Cannot change after creation.</p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Type</label
-        >
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Type</label>
         <select
           v-model="type"
           class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
@@ -82,34 +84,34 @@ async function save() {
         </select>
       </div>
       <div v-if="type === 'openai-compatible'">
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Base URL</label
-        >
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Base URL</label>
         <input
           v-model="baseUrl"
+          placeholder="https://api.openai.com/v1"
           class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Default model</label
-        >
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">API Key</label>
         <input
-          v-model="defaultModel"
+          v-model="apiKey"
+          type="password"
+          :placeholder="apiKeyPlaceholder || 'sk-...'"
           class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
         />
+        <p v-if="provider?.apiKey" class="text-[10px] text-navy-500 mt-1">
+          Leave blank to keep existing key.
+        </p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Credential key</label
-        >
-        <select
-          v-model="credentialKey"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono"
-        >
-          <option value="">— none —</option>
-          <option v-for="k in credentialKeys" :key="k" :value="k">{{ k }}</option>
-        </select>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Priority</label>
+        <input
+          v-model.number="priority"
+          type="number"
+          min="1"
+          class="w-20 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none"
+        />
+        <p class="text-[10px] text-navy-500 mt-1">Lower number = higher priority (used for auto-routing).</p>
       </div>
     </div>
     <template #footer>

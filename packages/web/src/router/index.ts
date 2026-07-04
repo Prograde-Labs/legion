@@ -34,11 +34,6 @@ const routes = [
     component: () => import('../views/ConfigView.vue'),
     meta: { requiresAuth: true },
   },
-  {
-    path: '/config/credentials',
-    component: () => import('../views/ConfigView.vue'),
-    meta: { requiresAuth: true },
-  },
 ];
 
 export const router = createRouter({ history: createWebHashHistory(), routes });

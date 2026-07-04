@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import SlideOver from '../common/SlideOver.vue';
 import ToolPolicyEditor, { type ToolOverride } from './ToolPolicyEditor.vue';
 import { useExecute } from '../../composables/useExecute.js';
@@ -8,7 +8,7 @@ const props = defineProps<{
   open: boolean;
   participantId: string | null;
   availableTools: string[];
-  providers: { name: string }[];
+  availableModels: Array<{ id: string; name?: string; provider: string }>;
 }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 const { execute } = useExecute();
@@ -16,12 +16,24 @@ const { execute } = useExecute();
 const tab = ref<'basic' | 'tools'>('basic');
 const name = ref('');
 const model = ref('');
-const providerId = ref('');
+const modelSearch = ref('');
+const selectedModel = ref('');
+const showModelDropdown = ref(false);
 const systemPrompt = ref('');
 const maxIterations = ref(20);
 const defaultPolicy = ref<'allow' | 'require-approval' | 'deny'>('allow');
 const overrides = ref<ToolOverride[]>([]);
 const saving = ref(false);
+
+const filteredModels = computed(() =>
+  props.availableModels.filter(
+    (m) =>
+      !modelSearch.value ||
+      m.id.toLowerCase().includes(modelSearch.value.toLowerCase()) ||
+      (m.name ?? '').toLowerCase().includes(modelSearch.value.toLowerCase()) ||
+      m.provider.toLowerCase().includes(modelSearch.value.toLowerCase()),
+  ),
+);
 
 watch(
   () => props.open,
@@ -29,20 +41,17 @@ watch(
     if (!open) return;
     tab.value = 'basic';
     if (props.participantId) {
-      // Edit mode: load full config via get_participant
       try {
         const p = await execute<Record<string, unknown>>('get_participant', { id: props.participantId });
         name.value = (p.name as string) ?? '';
-        const modelCfg = p.model as { provider: string; model: string } | undefined;
-        providerId.value = modelCfg?.provider ?? '';
+        const modelCfg = p.model as { model: string } | undefined;
+        selectedModel.value = modelCfg?.model ?? '';
         model.value = modelCfg?.model ?? '';
         systemPrompt.value = (p.systemPrompt as string) ?? '';
         maxIterations.value = (p.maxIterations as number) ?? 20;
 
-        // Reconstruct defaultPolicy + overrides from the tools map
         const tools = (p.tools as Record<string, string>) ?? {};
         const toolEntries = Object.entries(tools);
-        // Determine the most common policy as the default
         const policyCounts: Record<string, number> = {};
         for (const [, policy] of toolEntries) {
           const uiPolicy = policy === 'auto' ? 'allow' : policy === 'requires_approval' ? 'require-approval' : 'deny';
@@ -51,7 +60,6 @@ watch(
         const sorted = Object.entries(policyCounts).sort((a, b) => b[1] - a[1]);
         defaultPolicy.value = (sorted[0]?.[0] as 'allow' | 'require-approval' | 'deny') ?? 'allow';
 
-        // Overrides are tools that differ from the default
         const defaultRuntime = defaultPolicy.value === 'allow' ? 'auto'
           : defaultPolicy.value === 'require-approval' ? 'requires_approval' : 'deny';
         overrides.value = toolEntries
@@ -66,10 +74,9 @@ watch(
         // Fallback: empty form
       }
     } else {
-      // New mode: reset + default provider
       name.value = '';
       model.value = '';
-      providerId.value = props.providers[0]?.name ?? '';
+      selectedModel.value = '';
       systemPrompt.value = '';
       maxIterations.value = 20;
       defaultPolicy.value = 'allow';
@@ -91,7 +98,7 @@ async function save() {
       await execute('modify_agent', {
         id: props.participantId,
         name: name.value,
-        model: { provider: providerId.value, model: model.value },
+        model: { model: selectedModel.value || model.value },
         systemPrompt: systemPrompt.value,
         maxIterations: maxIterations.value,
         defaultPolicy: defaultPolicy.value,
@@ -103,7 +110,7 @@ async function save() {
         id,
         name: name.value,
         systemPrompt: systemPrompt.value || 'You are a helpful agent.',
-        model: { provider: providerId.value, model: model.value },
+        model: { model: selectedModel.value || model.value },
         defaultPolicy: defaultPolicy.value,
         toolPolicies,
       });
@@ -129,7 +136,6 @@ async function retire() {
     :title="participantId ? 'Edit agent' : 'New agent'"
     @close="emit('close')"
   >
-    <!-- Tabs -->
     <div class="flex border-b border-navy-600 bg-navy-900">
       <button
         v-for="t in ['basic', 'tools'] as const"
@@ -146,7 +152,6 @@ async function retire() {
       </button>
     </div>
 
-    <!-- Basic tab -->
     <div v-if="tab === 'basic'" class="p-5 space-y-4">
       <div>
         <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
@@ -159,24 +164,47 @@ async function retire() {
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Provider</label
-        >
-        <select
-          v-model="providerId"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
-        >
-          <option v-for="p in providers" :key="p.name" :value="p.name">{{ p.name }}</option>
-        </select>
-      </div>
-      <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
-          >Model</label
-        >
-        <input
-          v-model="model"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none focus:border-cyan-400/40"
-        />
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Model</label>
+        <div v-if="selectedModel && !showModelDropdown" class="flex items-center gap-2">
+          <span class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono">
+            {{ selectedModel }}
+          </span>
+          <button
+            @click="showModelDropdown = true; modelSearch = ''"
+            class="text-[10px] text-navy-400 hover:text-slate-200 border border-navy-600 rounded px-2 py-1.5"
+          >
+            Change
+          </button>
+        </div>
+        <div v-else class="space-y-1">
+          <input
+            v-model="modelSearch"
+            placeholder="Search models… or type model ID"
+            @focus="showModelDropdown = true"
+            class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none focus:border-cyan-400/40"
+          />
+          <div v-if="showModelDropdown" class="border border-navy-600 rounded bg-navy-950 max-h-48 overflow-y-auto">
+            <button
+              v-if="modelSearch && !filteredModels.some((m) => m.id === modelSearch)"
+              @click="selectedModel = modelSearch; model = modelSearch; showModelDropdown = false"
+              class="w-full text-left px-3 py-2 text-xs text-navy-400 hover:bg-navy-800 font-mono border-b border-navy-700"
+            >
+              Use "{{ modelSearch }}" (not in discovery list)
+            </button>
+            <button
+              v-for="m in filteredModels"
+              :key="m.id"
+              @click="selectedModel = m.id; model = m.id; modelSearch = ''; showModelDropdown = false"
+              class="w-full text-left px-3 py-2 hover:bg-navy-800"
+            >
+              <span class="text-xs font-mono text-slate-100">{{ m.id }}</span>
+              <span class="text-[10px] text-navy-500 ml-2">{{ m.provider }}</span>
+            </button>
+            <p v-if="filteredModels.length === 0 && !modelSearch" class="px-3 py-2 text-[10px] text-navy-600 italic">
+              No models discovered. Configure providers first.
+            </p>
+          </div>
+        </div>
       </div>
       <div>
         <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
@@ -200,7 +228,6 @@ async function retire() {
       </div>
     </div>
 
-    <!-- Tools tab -->
     <ToolPolicyEditor
       v-else
       :default-policy="defaultPolicy"

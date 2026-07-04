@@ -12,7 +12,7 @@ const { on } = useEventStream();
 
 const participants = ref<BaseParticipant[]>([]);
 const allTools = ref<string[]>([]);
-const providers = ref<{ name: string }[]>([]);
+const availableModels = ref<Array<{ id: string; name?: string; provider: string }>>([]);
 const slideOpen = ref(false);
 const editingId = ref<string | null>(null);
 const loadError = ref<string | null>(null);
@@ -20,7 +20,6 @@ const loadError = ref<string | null>(null);
 async function load() {
   try {
     const list = await execute<{ id: string; name: string; type: string; status: string }[]>('list_participants', {});
-    // Fetch full config for each participant to get model/provider
     const fullConfigs = await Promise.all(
       list.map((p) =>
         execute<Record<string, unknown>>('get_participant', { id: p.id }).catch(() => null),
@@ -31,11 +30,11 @@ async function load() {
       return {
         ...p,
         model: (full?.model as { model?: string })?.model,
-        providerId: (full?.model as { provider?: string })?.provider,
       };
     }) as any;
     allTools.value = await execute<string[]>('list_tools', {});
-    providers.value = await execute<{ name: string }[]>('list_providers', {});
+    const raw = await execute<Array<{ provider: string; model: { id: string; name?: string } }>>('list_models', {});
+    availableModels.value = raw.map((r) => ({ id: r.model.id, name: r.model.name, provider: r.provider }));
     loadError.value = null;
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);
@@ -89,11 +88,6 @@ function openEdit(id: string) {
           >
             Model
           </th>
-          <th
-            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
-          >
-            Provider
-          </th>
           <th />
         </tr>
       </thead>
@@ -115,9 +109,7 @@ function openEdit(id: string) {
             </div>
           </td>
           <td class="px-4 py-2.5 text-slate-100 font-medium">{{ p.name }}</td>
-          <!-- BaseParticipant doesn't include model/providerId; using any for these runtime fields -->
           <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).model ?? '—' }}</td>
-          <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).providerId ?? '—' }}</td>
           <td class="px-4 py-2.5 text-right">
             <button
               v-if="p.status === 'active'"
@@ -135,7 +127,7 @@ function openEdit(id: string) {
       :open="slideOpen"
       :participant-id="editingId"
       :available-tools="allTools"
-      :providers="providers"
+      :available-models="availableModels"
       @close="slideOpen = false"
       @saved="load"
     />
