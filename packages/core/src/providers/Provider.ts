@@ -1,4 +1,4 @@
-import type { JSONSchema, ModelConfig } from '@legion/types';
+import type { JSONSchema, ModelConfig, ProviderModel } from '@legion/types';
 
 /**
  * A message in the LLM conversation thread.
@@ -40,9 +40,8 @@ export interface ProviderResponse {
 }
 
 /**
- * Custom LLM provider interface. Implementations are constructor-injected
- * into AgentRuntime via ProviderRegistry. `model` carries per-model config
- * (base URL, api key env var name, temperature, etc.) from WorkspaceConfig.
+ * LLM provider interface. Implementations are constructed by SystemProviderStore
+ * and resolved by ModelRouter.
  */
 export interface Provider {
   complete(
@@ -50,4 +49,11 @@ export interface Provider {
     tools: ProviderTool[],
     model: ModelConfig,
   ): Promise<ProviderResponse>;
+
+  /**
+   * Optional: return all models this provider can serve.
+   * Providers that do not implement this cannot be auto-resolved by ModelRouter —
+   * they must be referenced explicitly via RoutingConfig.
+   */
+  listModels?(): Promise<ProviderModel[]>;
 }

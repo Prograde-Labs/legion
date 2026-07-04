@@ -3,7 +3,7 @@ import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { ProviderError } from '../errors/LegionError.js';
 import type { ModelConfig } from '@legion/types';
 
-const MODEL: ModelConfig = { provider: 'openai-compatible', model: 'gpt-4o-mini' };
+const MODEL: ModelConfig = { model: 'gpt-4o-mini' };
 
 function makeOkResponse(body: unknown) {
   return {
@@ -35,7 +35,7 @@ describe('OpenAICompatibleProvider', () => {
     vi.unstubAllGlobals();
   });
 
-  it('sends a well-formed chat completion request and maps a text response', async () => {
+  it('uses constructor base URL and API key for chat completion requests', async () => {
     fetchMock.mockResolvedValue(
       makeOkResponse({
         choices: [
@@ -48,12 +48,16 @@ describe('OpenAICompatibleProvider', () => {
       }),
     );
 
-    const provider = new OpenAICompatibleProvider();
+    const provider = new OpenAICompatibleProvider('https://example.test/v1/', 'constructor-key');
     const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('/chat/completions');
+    expect(url).toBe('https://example.test/v1/chat/completions');
+    expect(init.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer constructor-key',
+    });
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body['model']).toBe('gpt-4o-mini');
     expect((body['messages'] as unknown[]).length).toBe(1);
@@ -64,6 +68,27 @@ describe('OpenAICompatibleProvider', () => {
     expect(result.toolCalls).toEqual([]);
     expect(result.usage?.promptTokens).toBe(10);
     expect(result.usage?.completionTokens).toBe(5);
+  });
+
+  it('does not read API keys from environment variables', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'env-key');
+    fetchMock.mockResolvedValue(
+      makeOkResponse({
+        choices: [
+          {
+            message: { role: 'assistant', content: 'Hello!', tool_calls: null },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider('https://example.test/v1');
+    await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.headers).not.toMatchObject({ Authorization: 'Bearer env-key' });
+    expect((init.headers as Record<string, string>)['Authorization']).toBeUndefined();
   });
 
   it('maps a tool_calls response to ProviderToolCall[]', async () => {
@@ -137,5 +162,38 @@ describe('OpenAICompatibleProvider', () => {
     const provider = new OpenAICompatibleProvider();
     await expect(provider.complete([], [], MODEL)).rejects.toThrow(ProviderError);
     await expect(provider.complete([], [], MODEL)).rejects.toThrow(/401/);
+  });
+
+  it('lists model IDs from the models endpoint with known metadata merged in', async () => {
+    fetchMock.mockResolvedValue(
+      makeOkResponse({
+        data: [{ id: 'gpt-4o' }, { id: 'local-model' }],
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider('https://example.test/v1/', 'constructor-key');
+    const models = await provider.listModels();
+
+    expect(fetchMock).toHaveBeenCalledWith('https://example.test/v1/models', {
+      headers: { Authorization: 'Bearer constructor-key' },
+    });
+    expect(models).toEqual([
+      expect.objectContaining({ id: 'gpt-4o', capabilities: ['vision', 'tools', 'json_mode'] }),
+      { id: 'local-model' },
+    ]);
+  });
+
+  it('returns an empty model list on non-ok responses', async () => {
+    fetchMock.mockResolvedValue(makeErrResponse(500, 'nope'));
+    const provider = new OpenAICompatibleProvider('https://example.test/v1');
+
+    await expect(provider.listModels()).resolves.toEqual([]);
+  });
+
+  it('returns an empty model list on fetch errors', async () => {
+    fetchMock.mockRejectedValue(new Error('network down'));
+    const provider = new OpenAICompatibleProvider('https://example.test/v1');
+
+    await expect(provider.listModels()).resolves.toEqual([]);
   });
 });

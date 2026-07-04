@@ -1,5 +1,5 @@
 import { ProviderError } from '../errors/LegionError.js';
-import type { ModelConfig } from '@legion/types';
+import type { ModelConfig, ProviderModel } from '@legion/types';
 import type {
   Provider,
   ProviderMessage,
@@ -10,9 +10,6 @@ import type {
 } from './Provider.js';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_API_KEY_ENV = 'OPENAI_API_KEY';
-
-// ── Internal OpenAI Chat Completions wire types ──────────────────────────────
 
 interface OAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -36,7 +33,57 @@ interface OAIChatResponse {
   usage?: { prompt_tokens: number; completion_tokens: number };
 }
 
-// ────────────────────────────────────────────────────────────────────────────
+interface OAIModelsResponse {
+  data?: unknown;
+}
+
+const KNOWN_MODEL_METADATA: Record<string, Omit<ProviderModel, 'id'>> = {
+  'gpt-4o': {
+    name: 'GPT-4o',
+    contextWindow: 128000,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'gpt-4o-mini': {
+    name: 'GPT-4o mini',
+    contextWindow: 128000,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'gpt-4-turbo': {
+    name: 'GPT-4 Turbo',
+    contextWindow: 128000,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'gpt-3.5-turbo': {
+    name: 'GPT-3.5 Turbo',
+    contextWindow: 16385,
+    capabilities: ['tools', 'json_mode'],
+  },
+  o1: {
+    name: 'o1',
+    contextWindow: 200000,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'o1-mini': {
+    name: 'o1 mini',
+    contextWindow: 128000,
+    capabilities: ['tools', 'json_mode'],
+  },
+  'claude-opus-4-5': {
+    name: 'Claude Opus 4.5',
+    contextWindow: 200000,
+    capabilities: ['vision', 'tools'],
+  },
+  'claude-sonnet-4-5': {
+    name: 'Claude Sonnet 4.5',
+    contextWindow: 200000,
+    capabilities: ['vision', 'tools'],
+  },
+  'claude-haiku-4-5': {
+    name: 'Claude Haiku 4.5',
+    contextWindow: 200000,
+    capabilities: ['vision', 'tools'],
+  },
+};
 
 function toOAIMessage(msg: ProviderMessage): OAIMessage {
   const out: OAIMessage = { role: msg.role, content: msg.content };
@@ -52,28 +99,23 @@ function toOAIMessage(msg: ProviderMessage): OAIMessage {
   return out;
 }
 
+function authHeaders(apiKey?: string): Record<string, string> {
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
 export class OpenAICompatibleProvider implements Provider {
   constructor(
-    private defaultBaseUrl = DEFAULT_BASE_URL,
-    private defaultApiKeyEnv = DEFAULT_API_KEY_ENV,
-  ) {}
+    private baseUrl = DEFAULT_BASE_URL,
+    private apiKey?: string,
+  ) {
+    this.baseUrl = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+  }
 
   async complete(
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,
   ): Promise<ProviderResponse> {
-    // Base URL: per-model override → OPENAI_BASE_URL env var → constructor default.
-    const baseUrl = (
-      model.baseUrl ??
-      process.env['OPENAI_BASE_URL'] ??
-      this.defaultBaseUrl
-    ).replace(/\/$/, '');
-
-    // API key: read the env var named by model.apiKeyEnv (or the constructor default).
-    const apiKeyEnv = model.apiKeyEnv ?? this.defaultApiKeyEnv;
-    const apiKey = process.env[apiKeyEnv];
-
     const body: Record<string, unknown> = {
       model: model.model,
       messages: messages.map(toOAIMessage),
@@ -88,11 +130,11 @@ export class OpenAICompatibleProvider implements Provider {
       body['tool_choice'] = 'auto';
     }
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        ...authHeaders(this.apiKey),
       },
       body: JSON.stringify(body),
     });
@@ -133,5 +175,26 @@ export class OpenAICompatibleProvider implements Provider {
           }
         : undefined,
     };
+  }
+
+  async listModels(): Promise<ProviderModel[]> {
+    try {
+      const res = await fetch(`${this.baseUrl}/models`, {
+        headers: authHeaders(this.apiKey),
+      });
+      if (!res.ok) return [];
+
+      const data = (await res.json()) as OAIModelsResponse;
+      if (!Array.isArray(data.data)) return [];
+
+      return data.data.flatMap((item): ProviderModel[] => {
+        if (!item || typeof item !== 'object') return [];
+        const id = (item as { id?: unknown }).id;
+        if (typeof id !== 'string' || id.length === 0) return [];
+        return [{ id, ...KNOWN_MODEL_METADATA[id] }];
+      });
+    } catch {
+      return [];
+    }
   }
 }
