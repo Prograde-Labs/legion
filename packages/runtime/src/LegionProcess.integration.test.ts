@@ -1,9 +1,126 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LegionProcess } from './LegionProcess.js';
 
 const LIVE = Boolean(process.env['LEGION_INTEGRATION']);
+
+describe('LegionProcess config and runtime tools', () => {
+  let workspaceRoot: string;
+  let homeRoot: string;
+  let process_: LegionProcess | undefined;
+  let originalHome: string | undefined;
+  let originalBootstrapPassword: string | undefined;
+
+  beforeEach(async () => {
+    workspaceRoot = await mkdtemp(join(tmpdir(), 'legion-process-workspace-'));
+    homeRoot = await mkdtemp(join(tmpdir(), 'legion-process-home-'));
+    originalHome = process.env['HOME'];
+    originalBootstrapPassword = process.env['LEGION_BOOTSTRAP_PASSWORD'];
+    process.env['HOME'] = homeRoot;
+    process.env['LEGION_BOOTSTRAP_PASSWORD'] = 'test-password';
+  });
+
+  afterEach(async () => {
+    await process_?.stop();
+    process_ = undefined;
+    if (originalHome === undefined) delete process.env['HOME'];
+    else process.env['HOME'] = originalHome;
+    if (originalBootstrapPassword === undefined) delete process.env['LEGION_BOOTSTRAP_PASSWORD'];
+    else process.env['LEGION_BOOTSTRAP_PASSWORD'] = originalBootstrapPassword;
+    await rm(workspaceRoot, { recursive: true, force: true });
+    await rm(homeRoot, { recursive: true, force: true });
+  });
+
+  it('loads system/local routing, gitignores local config, and saves routing through runtime tools', async () => {
+    await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
+    await mkdir(join(homeRoot, '.config', 'legion'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.json'),
+      JSON.stringify({ version: '2', server: { port: 0, host: '127.0.0.1' } }),
+    );
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.local.json'),
+      JSON.stringify({ server: { port: 0 }, routing: { models: { workspaceOld: ['local'] } } }),
+    );
+    await writeFile(
+      join(homeRoot, '.config', 'legion', 'config.json'),
+      JSON.stringify({ custom: 'keep-system-field', routing: { models: { systemOld: ['system'] } } }),
+    );
+
+    process_ = await LegionProcess.start(workspaceRoot);
+    const web = process_.connectors.get('web') as unknown as { app: { inject: (opts: unknown) => Promise<{ statusCode: number; payload: string }> } };
+    const login = await web.app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { name: 'Operator', password: 'test-password' },
+    });
+    expect(login.statusCode).toBe(200);
+    const { token } = JSON.parse(login.payload) as { token: string };
+
+    const initialRouting = await web.app.inject({
+      method: 'POST',
+      url: '/api/execute',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { tool: 'get_routing', args: {} },
+    });
+    expect(JSON.parse(initialRouting.payload).result).toEqual({
+      status: 'success',
+      data: {
+        system: { models: { systemOld: ['system'] } },
+        workspace: { models: { workspaceOld: ['local'] } },
+      },
+    });
+
+    const saveWorkspace = await web.app.inject({
+      method: 'POST',
+      url: '/api/execute',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        tool: 'save_routing',
+        args: { scope: 'workspace', routing: { models: { workspaceNew: ['local-new'] } } },
+      },
+    });
+    expect(JSON.parse(saveWorkspace.payload).result).toEqual({
+      status: 'success',
+      data: { scope: 'workspace' },
+    });
+
+    const saveSystem = await web.app.inject({
+      method: 'POST',
+      url: '/api/execute',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        tool: 'save_routing',
+        args: { scope: 'system', routing: { models: { systemNew: ['system-new'] } } },
+      },
+    });
+    expect(JSON.parse(saveSystem.payload).result).toEqual({
+      status: 'success',
+      data: { scope: 'system' },
+    });
+
+    const updatedRouting = await web.app.inject({
+      method: 'POST',
+      url: '/api/execute',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { tool: 'get_routing', args: {} },
+    });
+    expect(JSON.parse(updatedRouting.payload).result).toEqual({
+      status: 'success',
+      data: {
+        system: { models: { systemNew: ['system-new'] } },
+        workspace: { models: { workspaceNew: ['local-new'] } },
+      },
+    });
+
+    await expect(readFile(join(workspaceRoot, '.legion', '.gitignore'), 'utf8')).resolves.toContain('config.local.json');
+    await expect(readFile(join(workspaceRoot, '.legion', 'config.local.json'), 'utf8')).resolves.toContain('workspaceNew');
+    await expect(readFile(join(workspaceRoot, '.legion', 'config.local.json'), 'utf8')).resolves.toContain('"server"');
+    await expect(readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8')).resolves.toContain('systemNew');
+    await expect(readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8')).resolves.toContain('keep-system-field');
+  });
+});
 
 describe.skipIf(!LIVE)('LegionProcess (integration)', () => {
   let workspaceRoot: string;

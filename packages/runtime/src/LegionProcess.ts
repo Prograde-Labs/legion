@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   // Core engine
@@ -20,7 +21,8 @@ import {
   AgentRuntime,
   MockRuntime,
   ServiceManager,
-  ProviderStore,
+  SystemProviderStore,
+  ModelRouter,
   // Global tools
   communicateTool,
   approvalResponseTool,
@@ -34,7 +36,7 @@ import {
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
-import type { ConversationData, ToolResult } from '@legion/types';
+import type { ConversationData, LocalConfig, RoutingConfig, SystemConfig, ToolResult } from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 
@@ -60,9 +62,16 @@ export class LegionProcess {
    * Follows the 11-step startup sequence from spec §8.
    */
   static async start(workspaceRoot: string, options: StartOptions = {}): Promise<LegionProcess> {
-    // ── Step 1: Read workspace config ────────────────────────────────────────
+    // ── Step 1: Read system, workspace, and workspace-local config ───────────
+    const systemConfigDir = join(homedir(), '.config', 'legion');
+    const systemConfig = await loadSystemConfig();
     const workspaceConfig = await loadWorkspaceConfig(workspaceRoot);
+    const localConfig = await loadLocalConfig(workspaceRoot);
+    const { routing: _localRouting, ...localWorkspaceConfig } = localConfig;
+    const mergedConfig = deepMerge(workspaceConfig, localWorkspaceConfig) as WorkspaceConfig;
+    delete (mergedConfig as LocalConfig).routing;
     const legionRoot = join(workspaceRoot, '.legion');
+    await ensureGitignored(legionRoot, 'config.local.json');
 
     // ── Step 2: Load collective; seed bootstrap operator if empty ────────────
     const storage = new FileStorage(legionRoot);
@@ -84,6 +93,7 @@ export class LegionProcess {
           '\n  └─────────────────────────────────────────────────────────────────┘\n',
       );
     }
+    await ensureBootstrapRuntimeToolPolicies(collective);
 
     // ── Step 3: Initialise ConversationStore and CredentialStore ─────────────
     const store = new FileConversationStore(storage);
@@ -104,19 +114,20 @@ export class LegionProcess {
 
     const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
 
-    // ── Step 5b: Migrate providers from config.json → .legion/providers/ ──────
-    if (workspaceConfig.providers) {
-      for (const [name, config] of Object.entries(workspaceConfig.providers)) {
-        const fileKey = `providers/${name}.json`;
-        const alreadyExists = await storage.exists(fileKey);
-        if (!alreadyExists) {
-          await storage.writeJson(fileKey, { ...config, name });
-        }
-      }
-    }
-
-    // ── Step 5c: Create ProviderStore ────────────────────────────────────────
-    const providerStore = new ProviderStore(storage);
+    // ── Step 5b: Create system provider store + model router ─────────────────
+    const systemStorage = new FileStorage(systemConfigDir);
+    const systemStore = new SystemProviderStore(systemStorage);
+    const systemRouting = deepMerge({}, systemConfig.routing ?? {}) as RoutingConfig;
+    const workspaceRouting = deepMerge({}, localConfig.routing ?? {}) as RoutingConfig;
+    const modelRouter = new ModelRouter(systemStore, systemRouting, workspaceRouting);
+    const saveSystemRouting = async (routing: RoutingConfig): Promise<void> => {
+      const current = await loadSystemConfig();
+      await writeJsonFile(join(systemConfigDir, 'config.json'), { ...current, routing });
+    };
+    const saveWorkspaceRouting = async (routing: RoutingConfig): Promise<void> => {
+      const current = await loadLocalConfig(workspaceRoot);
+      await writeJsonFile(join(legionRoot, 'config.local.json'), { ...current, routing });
+    };
 
     // ── Step 6: Register global tools ────────────────────────────────────────
     toolRegistry.register(communicateTool);
@@ -124,13 +135,19 @@ export class LegionProcess {
     for (const tool of managementTools) {
       toolRegistry.register(tool);
     }
-    const runtimeTools = createRuntimeTools({ storage, providerStore, credStore: credentials });
+    const runtimeTools = createRuntimeTools({
+      systemStore,
+      systemRouting,
+      workspaceRouting,
+      saveSystemRouting,
+      saveWorkspaceRouting,
+    });
     for (const tool of runtimeTools) {
       toolRegistry.register(tool);
     }
 
     // ── Step 7: Load MCP tool sources ────────────────────────────────────────
-    const mcpSources = await loadMCPSources(workspaceConfig.mcpServers ?? [], toolRegistry);
+    const mcpSources = await loadMCPSources(mergedConfig.mcpServers ?? [], toolRegistry);
 
     // ── Step 8: Create ServiceManager + register service runtime factory ─────
     const serviceManager = new ServiceManager({
@@ -142,7 +159,7 @@ export class LegionProcess {
       messageRouter: router,
       eventBus,
       storage,
-      workspaceConfig,
+      workspaceConfig: mergedConfig,
       workspaceRoot,
     });
 
@@ -158,17 +175,17 @@ export class LegionProcess {
 
     // Register agent factory
     runtimeRegistry.registerFactory('agent', (id) => {
-      return new AgentRuntime(id, providerStore);
+      return new AgentRuntime(id, modelRouter);
     });
 
     // ── Step 9: Initialise web connector ─────────────────────────────────────
     const port = process.env.PORT
       ? parseInt(process.env.PORT, 10)
-      : (workspaceConfig.server?.port ?? 3000);
+      : (mergedConfig.server?.port ?? 3000);
     if (isNaN(port)) {
       throw new Error(`Invalid PORT env var: "${process.env.PORT}" — must be a number`);
     }
-    const webConnectorConfig = { ...(workspaceConfig.server ?? {}), port };
+    const webConnectorConfig = { ...(mergedConfig.server ?? {}), port };
     const _dirname = fileURLToPath(new URL('.', import.meta.url));
 
     const dev = options.dev ?? false;
@@ -203,7 +220,7 @@ export class LegionProcess {
       pendingApprovalRegistry,
       eventBus,
       storage,
-      config: workspaceConfig,
+      config: mergedConfig,
       workspaceRoot,
       serviceManager,
     });
@@ -259,6 +276,54 @@ export class LegionProcess {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const RUNTIME_TOOL_NAMES = [
+  'list_providers',
+  'save_provider',
+  'delete_provider',
+  'list_models',
+  'get_routing',
+  'save_routing',
+] as const;
+
+const OLD_RUNTIME_TOOL_NAMES = [
+  'configure_provider',
+  'list_credentials',
+  'set_credential_with_meta',
+] as const;
+
+async function ensureBootstrapRuntimeToolPolicies(collective: Collective): Promise<void> {
+  const operator = collective.get(BOOTSTRAP_OPERATOR_ID);
+  if (!operator) return;
+
+  const tools = { ...operator.tools };
+  let changed = false;
+  for (const name of RUNTIME_TOOL_NAMES) {
+    if (!(name in tools)) {
+      tools[name] = 'auto';
+      changed = true;
+    }
+  }
+  for (const name of OLD_RUNTIME_TOOL_NAMES) {
+    if (name in tools) {
+      delete tools[name];
+      changed = true;
+    }
+  }
+
+  if (changed) await collective.update(BOOTSTRAP_OPERATOR_ID, { tools });
+}
+
+/** Read and parse `~/.config/legion/config.json`. Returns empty config on errors. */
+async function loadSystemConfig(): Promise<SystemConfig> {
+  const configPath = join(homedir(), '.config', 'legion', 'config.json');
+  try {
+    const raw = await readFile(configPath, 'utf-8');
+    return JSON.parse(raw) as SystemConfig;
+  } catch {
+    return {};
+  }
+}
+
 /** Read and parse `.legion/config.json`. Returns a default config if the file is absent. */
 async function loadWorkspaceConfig(workspaceRoot: string): Promise<WorkspaceConfig> {
   const configPath = join(workspaceRoot, '.legion', 'config.json');
@@ -268,6 +333,56 @@ async function loadWorkspaceConfig(workspaceRoot: string): Promise<WorkspaceConf
   } catch {
     return { version: '2' };
   }
+}
+
+/** Read and parse `.legion/config.local.json`. Returns empty config on errors. */
+async function loadLocalConfig(workspaceRoot: string): Promise<LocalConfig> {
+  const configPath = join(workspaceRoot, '.legion', 'config.local.json');
+  try {
+    const raw = await readFile(configPath, 'utf-8');
+    return JSON.parse(raw) as LocalConfig;
+  } catch {
+    return {};
+  }
+}
+
+async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+}
+
+function deepMerge<T extends object>(base: T, override: object): T {
+  const result: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(override)) {
+    const existing = result[key];
+    if (isPlainObject(existing) && isPlainObject(value)) {
+      result[key] = deepMerge(existing, value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result as T;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function ensureGitignored(legionRoot: string, filename: string): Promise<void> {
+  await mkdir(legionRoot, { recursive: true });
+  const gitignorePath = join(legionRoot, '.gitignore');
+  let existing = '';
+  try {
+    existing = await readFile(gitignorePath, 'utf-8');
+  } catch {
+    // Missing or unreadable .gitignore gets replaced with required local ignore.
+  }
+
+  const lines = existing.split(/\r?\n/).map((line) => line.trim());
+  if (lines.includes(filename)) return;
+
+  const prefix = existing.length === 0 || existing.endsWith('\n') ? existing : `${existing}\n`;
+  await writeFile(gitignorePath, `${prefix}${filename}\n`, 'utf-8');
 }
 
 interface ConnectorContextDeps {

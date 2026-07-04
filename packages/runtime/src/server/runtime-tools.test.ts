@@ -1,105 +1,190 @@
-import { MemoryStorage } from '@legion/core';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion/types';
 import { describe, expect, it } from 'vitest';
 import { createRuntimeTools } from './runtime-tools.js';
 
-function makeProviderStore(initial: ProviderConfig[] = []) {
+type ProviderStub = { listModels?: () => Promise<ProviderModel[]> };
+
+function makeSystemStore(
+  initial: ProviderConfig[] = [],
+  providers: Record<string, ProviderStub | Error | null> = {},
+) {
   const store = new Map<string, ProviderConfig>(initial.map((c) => [c.name, c]));
   return {
     list: async () => Array.from(store.values()),
     save: async (config: ProviderConfig) => {
       store.set(config.name, config);
     },
-    get: async (name: string) => store.get(name) ?? null,
+    delete: async (name: string) => {
+      store.delete(name);
+    },
+    get: async (name: string) => {
+      const provider = providers[name];
+      if (provider instanceof Error) throw provider;
+      return provider ?? null;
+    },
     _store: store,
   };
 }
 
-function makeDeps() {
-  const storage = new MemoryStorage();
-  const providerStore = makeProviderStore();
-  const credStore = { set: async () => {}, list: async () => [] as string[] };
-  return { storage, providerStore, credStore };
+function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> = {}) {
+  const systemRouting: RoutingConfig = { models: { existing: ['system-provider'] } };
+  const workspaceRouting: RoutingConfig = { models: { local: ['workspace-provider'] } };
+  return {
+    systemStore: makeSystemStore(),
+    systemRouting,
+    workspaceRouting,
+    saveSystemRouting: async (routing: RoutingConfig) => {
+      Object.assign(systemRouting, routing);
+    },
+    saveWorkspaceRouting: async (routing: RoutingConfig) => {
+      Object.assign(workspaceRouting, routing);
+    },
+    ...overrides,
+  };
 }
 
-describe('list_providers', () => {
-  it('returns empty array when none configured', async () => {
+function tool(tools: ReturnType<typeof createRuntimeTools>, name: string) {
+  const found = tools.find((t) => t.name === name);
+  if (!found) throw new Error(`Tool not found: ${name}`);
+  return found;
+}
+
+describe('runtime tools', () => {
+  it('exposes only provider and routing tools', () => {
     const tools = createRuntimeTools(makeDeps());
-    const list = tools.find((t) => t.name === 'list_providers')!;
-    expect(await list.execute({})).toEqual({ status: 'success', data: [] });
-  });
-
-  it('returns stored provider configs', async () => {
-    const { storage, credStore } = makeDeps();
-    const providerStore = makeProviderStore([
-      {
-        name: 'openai',
-        type: 'openai-compatible',
-        baseUrl: 'https://api.openai.com/v1',
-        defaultModel: 'gpt-4o',
-      },
+    expect(tools.map((t) => t.name)).toEqual([
+      'list_providers',
+      'save_provider',
+      'delete_provider',
+      'list_models',
+      'get_routing',
+      'save_routing',
     ]);
-    const tools = createRuntimeTools({ storage, providerStore, credStore });
-    const list = tools.find((t) => t.name === 'list_providers')!;
-    const result = (await list.execute({})) as { status: string; data: { name: string }[] };
-    expect(result.data[0]?.name).toBe('openai');
+    expect(tools.some((t) => t.name === 'set_credential_with_meta')).toBe(false);
+    expect(tools.some((t) => t.name === 'list_credentials')).toBe(false);
+    expect(tools.some((t) => t.name === 'configure_provider')).toBe(false);
   });
-});
 
-describe('configure_provider', () => {
-  it('saves provider config via providerStore', async () => {
-    const { storage, credStore } = makeDeps();
-    const providerStore = makeProviderStore();
-    const tools = createRuntimeTools({ storage, providerStore, credStore });
-    const cfg = tools.find((t) => t.name === 'configure_provider')!;
-    await cfg.execute({
+  it('list_providers returns system provider configs', async () => {
+    const systemStore = makeSystemStore([
+      { name: 'openai', type: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', priority: 1 },
+    ]);
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+    await expect(tool(tools, 'list_providers').execute({})).resolves.toEqual({
+      status: 'success',
+      data: [{ name: 'openai', type: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', priority: 1 }],
+    });
+  });
+
+  it('save_provider saves and returns provider config', async () => {
+    const systemStore = makeSystemStore();
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+    const config: ProviderConfig = {
       name: 'local',
       type: 'openai-compatible',
       baseUrl: 'http://localhost:11434/v1',
-      defaultModel: 'llama3.2',
-    });
-    expect(providerStore._store.get('local')?.name).toBe('local');
-  });
-});
-
-describe('list_credentials', () => {
-  it('returns masked credential info', async () => {
-    const storage = new MemoryStorage();
-    await storage.writeJson('credential-meta/OPENAI_API_KEY.json', {
-      key: 'OPENAI_API_KEY',
-      maskedValue: 'sk-••••3f2a',
-      usedBy: ['openai'],
-      updatedAt: 1000,
-    });
-    const credStore = { set: async () => {}, list: async () => ['OPENAI_API_KEY'] };
-    const providerStore = makeProviderStore();
-    const tools = createRuntimeTools({ storage, providerStore, credStore });
-    const list = tools.find((t) => t.name === 'list_credentials')!;
-    const result = (await list.execute({})) as { status: string; data: { key: string }[] };
-    expect(result.data[0]?.key).toBe('OPENAI_API_KEY');
-  });
-});
-
-describe('set_credential_with_meta', () => {
-  it('sets credential and writes metadata', async () => {
-    const storage = new MemoryStorage();
-    let storedValue = '';
-    const credStore = {
-      set: async (key: string, value: string) => {
-        storedValue = value;
-      },
-      list: async () => [] as string[],
+      apiKey: 'secret',
+      priority: 10,
     };
-    const providerStore = makeProviderStore();
-    const tools = createRuntimeTools({ storage, providerStore, credStore });
-    const tool = tools.find((t) => t.name === 'set_credential_with_meta')!;
-    const result = await tool.execute({ key: 'TEST_KEY', value: 'secret1234', usedBy: ['openai'] });
-    expect(result).toEqual({ status: 'success', data: { key: 'TEST_KEY' } });
-    expect(storedValue).toBe('secret1234');
-    const meta = await storage.readJson<{ maskedValue: string; usedBy: string[] }>(
-      'credential-meta/TEST_KEY.json',
+
+    await expect(tool(tools, 'save_provider').execute(config)).resolves.toEqual({
+      status: 'success',
+      data: config,
+    });
+    expect(systemStore._store.get('local')).toEqual(config);
+  });
+
+  it('delete_provider deletes and returns provider name', async () => {
+    const systemStore = makeSystemStore([
+      { name: 'local', type: 'openai-compatible', priority: 10 },
+    ]);
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(tool(tools, 'delete_provider').execute({ name: 'local' })).resolves.toEqual({
+      status: 'success',
+      data: { name: 'local' },
+    });
+    expect(systemStore._store.has('local')).toBe(false);
+  });
+
+  it('list_models discovers models and skips throwing or non-discoverable providers', async () => {
+    const systemStore = makeSystemStore(
+      [
+        { name: 'good', type: 'openai-compatible', priority: 1 },
+        { name: 'throws-get', type: 'copilot', priority: 2 },
+        { name: 'no-list', type: 'openai-compatible', priority: 3 },
+        { name: 'throws-list', type: 'openai-compatible', priority: 4 },
+      ],
+      {
+        good: { listModels: async () => [{ id: 'gpt-4o', name: 'GPT-4o' }] },
+        'throws-get': new Error('not implemented'),
+        'no-list': {},
+        'throws-list': { listModels: async () => { throw new Error('network'); } },
+      },
     );
-    expect(meta?.maskedValue).toBe('••••1234');
-    expect(meta?.usedBy).toEqual(['openai']);
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(tool(tools, 'list_models').execute({})).resolves.toEqual({
+      status: 'success',
+      data: [{ provider: 'good', model: { id: 'gpt-4o', name: 'GPT-4o' } }],
+    });
+  });
+
+  it('list_models filters by providerName', async () => {
+    const systemStore = makeSystemStore(
+      [
+        { name: 'one', type: 'openai-compatible', priority: 1 },
+        { name: 'two', type: 'openai-compatible', priority: 2 },
+      ],
+      {
+        one: { listModels: async () => [{ id: 'one-model' }] },
+        two: { listModels: async () => [{ id: 'two-model' }] },
+      },
+    );
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(tool(tools, 'list_models').execute({ providerName: 'two' })).resolves.toEqual({
+      status: 'success',
+      data: [{ provider: 'two', model: { id: 'two-model' } }],
+    });
+  });
+
+  it('get_routing returns system and workspace routing objects', async () => {
+    const deps = makeDeps();
+    const tools = createRuntimeTools(deps);
+
+    await expect(tool(tools, 'get_routing').execute({})).resolves.toEqual({
+      status: 'success',
+      data: { system: deps.systemRouting, workspace: deps.workspaceRouting },
+    });
+  });
+
+  it('save_routing persists selected scope and updates in-memory get_routing refs', async () => {
+    const saved: { system?: RoutingConfig; workspace?: RoutingConfig } = {};
+    const deps = makeDeps({
+      saveSystemRouting: async (routing: RoutingConfig) => {
+        saved.system = routing;
+      },
+      saveWorkspaceRouting: async (routing: RoutingConfig) => {
+        saved.workspace = routing;
+      },
+    });
+    const tools = createRuntimeTools(deps);
+
+    await expect(
+      tool(tools, 'save_routing').execute({
+        scope: 'workspace',
+        routing: { models: { claude: ['anthropic'] } },
+      }),
+    ).resolves.toEqual({ status: 'success', data: { scope: 'workspace' } });
+
+    expect(saved.workspace).toEqual({ models: { claude: ['anthropic'] } });
+    await expect(tool(tools, 'get_routing').execute({})).resolves.toEqual({
+      status: 'success',
+      data: {
+        system: { models: { existing: ['system-provider'] } },
+        workspace: { models: { claude: ['anthropic'] } },
+      },
+    });
   });
 });

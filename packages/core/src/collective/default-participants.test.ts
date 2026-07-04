@@ -16,5 +16,13 @@ describe('createDefaultParticipants', () => {
     expect(operator.identities).toEqual([{ connector: 'web', externalId: BOOTSTRAP_OPERATOR_ID }]);
     expect(operator.tools['create_agent']).toBe('auto');
     expect(operator.tools['communicate']).toBe('auto');
+    expect(operator.tools['save_provider']).toBe('auto');
+    expect(operator.tools['delete_provider']).toBe('auto');
+    expect(operator.tools['list_models']).toBe('auto');
+    expect(operator.tools['get_routing']).toBe('auto');
+    expect(operator.tools['save_routing']).toBe('auto');
+    expect(operator.tools['configure_provider']).toBeUndefined();
+    expect(operator.tools['list_credentials']).toBeUndefined();
+    expect(operator.tools['set_credential_with_meta']).toBeUndefined();
   });
 });

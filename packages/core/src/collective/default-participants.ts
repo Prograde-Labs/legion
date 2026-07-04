@@ -17,9 +17,11 @@ const MANAGEMENT_TOOLS = [
   'set_credential',
   // runtime / config tools (registered by WebConnector layer)
   'list_providers',
-  'configure_provider',
-  'list_credentials',
-  'set_credential_with_meta',
+  'save_provider',
+  'delete_provider',
+  'list_models',
+  'get_routing',
+  'save_routing',
 ] as const;
 
 export function createDefaultParticipants(): ParticipantConfig[] {
