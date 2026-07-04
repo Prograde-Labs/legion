@@ -34,9 +34,11 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
     systemRouting,
     workspaceRouting,
     saveSystemRouting: async (routing: RoutingConfig) => {
+      Object.keys(systemRouting).forEach(k => delete systemRouting[k]);
       Object.assign(systemRouting, routing);
     },
     saveWorkspaceRouting: async (routing: RoutingConfig) => {
+      Object.keys(workspaceRouting).forEach(k => delete workspaceRouting[k]);
       Object.assign(workspaceRouting, routing);
     },
     ...overrides,
@@ -184,6 +186,35 @@ describe('runtime tools', () => {
       data: {
         system: { models: { existing: ['system-provider'] } },
         workspace: { models: { claude: ['anthropic'] } },
+      },
+    });
+  });
+
+  it('save_routing persists system scope and updates in-memory refs', async () => {
+    const saved: { system?: RoutingConfig; workspace?: RoutingConfig } = {};
+    const deps = makeDeps({
+      saveSystemRouting: async (routing: RoutingConfig) => {
+        saved.system = routing;
+      },
+      saveWorkspaceRouting: async (routing: RoutingConfig) => {
+        saved.workspace = routing;
+      },
+    });
+    const tools = createRuntimeTools(deps);
+
+    await expect(
+      tool(tools, 'save_routing').execute({
+        scope: 'system',
+        routing: { models: { gpt4o: ['openai'] } },
+      }),
+    ).resolves.toEqual({ status: 'success', data: { scope: 'system' } });
+
+    expect(saved.system).toEqual({ models: { gpt4o: ['openai'] } });
+    await expect(tool(tools, 'get_routing').execute({})).resolves.toEqual({
+      status: 'success',
+      data: {
+        system: { models: { gpt4o: ['openai'] } },
+        workspace: { models: { local: ['workspace-provider'] } },
       },
     });
   });

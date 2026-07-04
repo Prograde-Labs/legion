@@ -67,9 +67,8 @@ export class LegionProcess {
     const systemConfig = await loadSystemConfig();
     const workspaceConfig = await loadWorkspaceConfig(workspaceRoot);
     const localConfig = await loadLocalConfig(workspaceRoot);
-    const { routing: _localRouting, ...localWorkspaceConfig } = localConfig;
+    const { routing: localRouting, ...localWorkspaceConfig } = localConfig;
     const mergedConfig = deepMerge(workspaceConfig, localWorkspaceConfig) as WorkspaceConfig;
-    delete (mergedConfig as LocalConfig).routing;
     const legionRoot = join(workspaceRoot, '.legion');
     await ensureGitignored(legionRoot, 'config.local.json');
 
@@ -122,11 +121,11 @@ export class LegionProcess {
     const modelRouter = new ModelRouter(systemStore, systemRouting, workspaceRouting);
     const saveSystemRouting = async (routing: RoutingConfig): Promise<void> => {
       const current = await loadSystemConfig();
-      await writeJsonFile(join(systemConfigDir, 'config.json'), { ...current, routing });
+      await writeJsonFile(join(systemConfigDir, 'config.json'), deepMerge(current, { routing }));
     };
     const saveWorkspaceRouting = async (routing: RoutingConfig): Promise<void> => {
       const current = await loadLocalConfig(workspaceRoot);
-      await writeJsonFile(join(legionRoot, 'config.local.json'), { ...current, routing });
+      await writeJsonFile(join(legionRoot, 'config.local.json'), deepMerge(current, { routing }));
     };
 
     // ── Step 6: Register global tools ────────────────────────────────────────
@@ -375,7 +374,7 @@ async function ensureGitignored(legionRoot: string, filename: string): Promise<v
   try {
     existing = await readFile(gitignorePath, 'utf-8');
   } catch {
-    // Missing or unreadable .gitignore gets replaced with required local ignore.
+    // Missing or unreadable .gitignore gets appended to with required local ignore.
   }
 
   const lines = existing.split(/\r?\n/).map((line) => line.trim());

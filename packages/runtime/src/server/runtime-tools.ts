@@ -115,11 +115,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       description: 'Return system and workspace routing configuration.',
       parameters: { type: 'object', properties: {}, required: [] },
       execute: async (): Promise<ToolResult> => {
-        try {
-          return { status: 'success', data: { system: systemRouting, workspace: workspaceRouting } };
-        } catch (err) {
-          return toErrorResult(err);
-        }
+        return { status: 'success', data: { system: systemRouting, workspace: workspaceRouting } };
       },
     },
 
