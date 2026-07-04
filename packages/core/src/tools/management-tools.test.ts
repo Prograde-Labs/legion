@@ -285,6 +285,32 @@ describe('management tools', () => {
     expect(agentsFile).toBeNull();
   });
 
+  it('create_agent ignores stale extra model fields', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createAgentTool.execute(
+      {
+        id: 'clean-model-agent',
+        name: 'Clean Model Agent',
+        systemPrompt: 'You are helpful.',
+        model: {
+          model: 'gpt-4o',
+          temperature: 0.2,
+          maxTokens: 100,
+          provider: 'openai',
+          defaultModel: 'gpt-3.5',
+        },
+      },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect((collective.get('clean-model-agent') as any).model).toEqual({
+      model: 'gpt-4o',
+      temperature: 0.2,
+      maxTokens: 100,
+    });
+  });
+
   it('create_agent composes tools from defaultPolicy + toolPolicies', async () => {
     const { context, collective } = await makeContext();
     await createAgentTool.execute(
@@ -398,6 +424,39 @@ describe('modify_agent', () => {
     const deps = await buildTestDeps({});
     const result = await invokeManagementTool('modify_agent', { id: 'no-such' }, deps);
     expect((result as { status: string }).status).toBe('error');
+  });
+
+  it('modify_agent string shorthand removes stale extra model fields', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'stale-model-agent',
+      name: 'Stale Model Agent',
+      type: 'agent',
+      systemPrompt: 'Original prompt.',
+      model: {
+        model: 'old-model',
+        temperature: 0.4,
+        maxTokens: 200,
+        provider: 'old-provider',
+        defaultModel: 'old-default',
+      } as any,
+      tools: {},
+      maxIterations: 20,
+      status: 'active',
+    });
+
+    const result = await invokeManagementTool(
+      'modify_agent',
+      { id: 'stale-model-agent', model: 'new-model' },
+      deps,
+    );
+
+    expect((result as { status: string }).status).toBe('success');
+    expect((deps.collective.get('stale-model-agent') as any).model).toEqual({
+      model: 'new-model',
+      temperature: 0.4,
+      maxTokens: 200,
+    });
   });
 
   it('modify_agent with new defaultPolicy re-baselines all non-overridden tools', async () => {

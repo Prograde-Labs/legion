@@ -1,7 +1,7 @@
 import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
-import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
+import type { Provider, ProviderMessage, ProviderTool } from '../providers/Provider.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 
@@ -53,7 +53,16 @@ export class AgentRuntime implements Runtime {
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
 
-    const provider = await this.router.resolve(agent.model.model);
+    let provider: Provider | null;
+    try {
+      provider = await this.router.resolve(agent.model.model);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        kind: 'response',
+        content: `[AgentRuntime error: ${msg}]`,
+      };
+    }
     if (!provider) {
       return {
         kind: 'response',

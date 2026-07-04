@@ -11,6 +11,13 @@ function requireCollective(context: ToolContext): NonNullable<ToolContext['colle
   return context.collective;
 }
 
+function sanitizeModelConfig(model: ModelConfig): ModelConfig {
+  const sanitized: ModelConfig = { model: model.model };
+  if (model.temperature !== undefined) sanitized.temperature = model.temperature;
+  if (model.maxTokens !== undefined) sanitized.maxTokens = model.maxTokens;
+  return sanitized;
+}
+
 /** Map UI policy vocabulary to runtime ToolPolicy. */
 function normalizePolicy(p: string): ToolPolicy {
   if (p === 'allow') return 'auto';
@@ -76,7 +83,7 @@ export const createAgentTool: Tool = {
         type: 'agent',
         tools: composedTools,
         systemPrompt,
-        model,
+        model: sanitizeModelConfig(model),
         maxIterations: 20,
         status: 'active',
       };
@@ -283,8 +290,12 @@ export const modifyAgentTool: Tool = {
       const agent = existing as AgentConfig;
       // Handle string shorthand by keeping existing model options and changing only id.
       const updatedModel: ModelConfig = typeof model === 'string'
-        ? { ...agent.model, model }
-        : (model ?? agent.model);
+        ? sanitizeModelConfig({
+            model,
+            temperature: agent.model.temperature,
+            maxTokens: agent.model.maxTokens,
+          })
+        : sanitizeModelConfig(model ?? agent.model);
       const allToolNames = context.toolRegistry.listAll();
       const composedTools = (defaultPolicy || toolPolicies)
         ? composeTools(defaultPolicy, toolPolicies, allToolNames, defaultPolicy ? undefined : agent.tools)

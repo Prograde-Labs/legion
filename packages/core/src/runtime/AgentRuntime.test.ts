@@ -237,6 +237,19 @@ describe('AgentRuntime', () => {
     expect((result as { kind: string; content: string }).content).toMatch(/test-model/);
   });
 
+  it('returns a graceful error response when model resolution throws', async () => {
+    const throwingRouter = {
+      async resolve() {
+        throw new Error('resolve failed');
+      },
+    } as ModelRouter;
+    const { context, inbound } = await makeSetup([]);
+    const runtime = new AgentRuntime('agent-1', throwingRouter);
+    const result = await runtime.handle(inbound, context);
+
+    expect(result).toEqual({ kind: 'response', content: '[AgentRuntime error: resolve failed]' });
+  });
+
   it('returns a graceful error response when the provider throws', async () => {
     const throwingProvider: Provider = {
       async complete() {
