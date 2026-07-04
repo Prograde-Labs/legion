@@ -33,6 +33,13 @@ export class ConfigError extends LegionError {
   }
 }
 
+export class NotImplementedError extends LegionError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotImplementedError';
+  }
+}
+
 export class ConversationNotFoundError extends LegionError {
   constructor(conversationId: string, messageId?: string) {
     const msg = messageId
