@@ -245,12 +245,13 @@ Sync wrapper — internally calls `start()`, buffers all output, awaits exit.
 
 Defaults: `signal: 'SIGTERM'`, `graceMs: 5000`.
 
-1. Look up entry. Error if not found or not running.
-2. If `SIGTERM`: send SIGTERM, wait up to `graceMs`. If still alive: send SIGKILL.
-3. If `SIGKILL`: immediate.
-4. Set `status: 'killed'`, persist meta, `exited` event fires naturally from `child.on('exit')`.
+Caller-initiated stop of a single named process. `stop()` owns the full lifecycle: it sends the signal, waits for the OS `exit` event to fire, lets the `child.on('exit')` handler write the final `meta.json` and emit `exited`, then returns. The promise does not resolve until that handler has completed. This is safe because `stop()` controls the wait — it is stopping exactly one process and can afford to block until it is truly done.
 
-Note: the `exit` event from the child is the canonical status update path — `stop()` doesn't directly mutate status to killed; it sends the signal and the `child.on('exit')` handler does the final write. This avoids double-write races.
+1. Look up entry. Error if not found or not running.
+2. If `SIGTERM`: send SIGTERM, await `child.on('exit')` up to `graceMs`. If still alive after grace: send SIGKILL, await exit.
+3. If `SIGKILL`: send SIGKILL immediately, await exit.
+4. The `child.on('exit')` handler (not `stop()` itself) sets `status:'killed'`, persists `meta.json`, emits `exited` on the per-process emitter, closes the log stream. This is the single canonical write path — `stop()` never mutates status directly, avoiding double-write races.
+5. Return after the exit handler completes.
 
 #### `writeInput(id: string, data: string, eof?: boolean): Promise<void>`
 
@@ -285,17 +286,20 @@ Attaches `cb` to `entry.emitter` for the given event. Returns an unsubscribe fun
 
 1. Look up entry (live map or disk). Error if `status === 'running'` — must stop first.
 2. Remove from live map (if present).
-3. Delete `.legion/processes/<id>/` directory recursively.
+3. Delete `meta.json`, `output.log`, and the `.legion/processes/<id>/` directory itself.
 
 #### `shutdown(): Promise<void>`
 
-Called from Legion's SIGINT/SIGTERM handler.
+Called from Legion's SIGINT/SIGTERM handler. Unlike `stop()`, which stops one process and can await its clean exit, `shutdown()` must stop all running processes simultaneously while Legion itself is terminating. Node's event loop may not fully drain — exit handlers may not complete before the process dies. Therefore `shutdown()` is best-effort: it attempts to write final metadata, but makes no guarantee. Any entries that don't get written are handled by `reconcileOnStartup()` on the next start.
 
-1. For each live `status:'running'` entry: send SIGTERM.
-2. Wait up to 3000ms (configurable grace).
-3. For any still-alive entries: send SIGKILL.
-4. For all killed/exited during shutdown: set `status:'killed'` (if not already exited cleanly), persist meta, close log stream.
-5. Clear live map. Best-effort — if Legion crashes mid-shutdown, `reconcileOnStartup` handles stale entries on next start.
+1. Collect all live `status:'running'` entries.
+2. Send SIGTERM to all simultaneously.
+3. Wait up to 3000ms for the group (via `Promise.allSettled` on per-process exit promises).
+4. For any still-alive entries: send SIGKILL.
+5. For each entry that exited during shutdown: write `meta.json` with final status directly (not via the exit handler, which may not fire in time) — `status:'killed'` if signalled, `status:'exited'` if it exited cleanly. Close log streams.
+6. Clear live map.
+
+If Legion crashes (SIGKILL, OOM, panic) before `shutdown()` completes or is called at all, entries remain on disk with `status:'running'`. `reconcileOnStartup()` sweeps these to `abandoned` on the next start. The two mechanisms — `shutdown()` best-effort writes + `reconcileOnStartup()` sweep — together ensure no entry is permanently stuck as `running`.
 
 ---
 
