@@ -219,6 +219,7 @@ export class LegionProcess {
       collective,
       credentials,
       eventBus,
+      processManager,
       serverConfig: webConnectorConfig,
       webDistPath,
       webSrcPath,
