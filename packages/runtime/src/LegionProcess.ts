@@ -409,7 +409,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
         conversationStore: store,
       };
-
+      
       const result = (await toolRegistry.execute(toolName, args, toolCtx)) as ToolResult;
       return { result, conversationId };
     },

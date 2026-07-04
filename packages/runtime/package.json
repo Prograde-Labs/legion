@@ -19,9 +19,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@legion/core": "*",
     "@fastify/static": "^8.0.0",
     "@fastify/websocket": "^11.0.0",
+    "@legion/core": "*",
     "fastify": "^5.0.0",
     "jose": "^5.0.0"
   },
@@ -29,6 +29,7 @@
     "@types/node": "^20.14.0",
     "@types/ws": "^8.5.0",
     "typescript": "^5.5.0",
+    "vite": "^5.4.21",
     "vitest": "^2.0.0",
     "ws": "^8.17.0"
   }

@@ -10,6 +10,8 @@ dist/
 .legion/conversations/
 .legion/services/
 .legion/credentials.json
+.legion/config.json
+.legion/providers/
 
 ## Playwright mcp
 .playwright-mcp
