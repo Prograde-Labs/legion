@@ -16,27 +16,27 @@
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `packages/types/src/process.ts` | `ProcessStatus`, `ProcessMeta`, `ProcessHandle`, `ExecuteResult`, `ProcessOutputChunk` |
-| `packages/core/src/process/RingBuffer.ts` | Bounded chunk ring buffer, ~1 MiB cap |
-| `packages/core/src/process/RingBuffer.test.ts` | Unit tests for `RingBuffer` |
-| `packages/core/src/process/process-storage.ts` | `readMeta`, `writeMeta`, `openLogStream`, `listProcessIds` helpers |
-| `packages/core/src/process/process-storage.test.ts` | Unit tests for storage helpers |
-| `packages/core/src/process/ProcessEntry.ts` | Internal per-process handle: metadata + `EventEmitter` + `RingBuffer` + log stream |
-| `packages/core/src/process/ProcessManager.ts` | Owns live map, `start`, `execute`, `stop`, `shutdown`, `reconcileOnStartup`, `delete`, `subscribe`, `readOutput`, `list`, `get`, `writeInput` |
-| `packages/core/src/process/ProcessManager.test.ts` | Unit tests with fake spawner injection |
-| `packages/core/src/process/process-tools.ts` | 8 `Tool` objects: `execute_command`, `start_process`, `list_processes`, `get_process`, `read_process_output`, `write_process_input`, `stop_process`, `delete_process` |
-| `packages/core/src/process/process-tools.test.ts` | Unit tests for each tool (mock `ProcessManager`) |
+| File                                                | Responsibility                                                                                                                                                        |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/types/src/process.ts`                     | `ProcessStatus`, `ProcessMeta`, `ProcessHandle`, `ExecuteResult`, `ProcessOutputChunk`                                                                                |
+| `packages/core/src/process/RingBuffer.ts`           | Bounded chunk ring buffer, ~1 MiB cap                                                                                                                                 |
+| `packages/core/src/process/RingBuffer.test.ts`      | Unit tests for `RingBuffer`                                                                                                                                           |
+| `packages/core/src/process/process-storage.ts`      | `readMeta`, `writeMeta`, `openLogStream`, `listProcessIds` helpers                                                                                                    |
+| `packages/core/src/process/process-storage.test.ts` | Unit tests for storage helpers                                                                                                                                        |
+| `packages/core/src/process/ProcessEntry.ts`         | Internal per-process handle: metadata + `EventEmitter` + `RingBuffer` + log stream                                                                                    |
+| `packages/core/src/process/ProcessManager.ts`       | Owns live map, `start`, `execute`, `stop`, `shutdown`, `reconcileOnStartup`, `delete`, `subscribe`, `readOutput`, `list`, `get`, `writeInput`                         |
+| `packages/core/src/process/ProcessManager.test.ts`  | Unit tests with fake spawner injection                                                                                                                                |
+| `packages/core/src/process/process-tools.ts`        | 8 `Tool` objects: `execute_command`, `start_process`, `list_processes`, `get_process`, `read_process_output`, `write_process_input`, `stop_process`, `delete_process` |
+| `packages/core/src/process/process-tools.test.ts`   | Unit tests for each tool (mock `ProcessManager`)                                                                                                                      |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `packages/types/src/index.ts` | Add `export * from './process.js';` |
-| `packages/core/src/index.ts` | Add `export * from './process/ProcessManager.js';` |
-| `packages/core/package.json` | Add `node-pty` dependency |
-| `packages/runtime/src/LegionProcess.ts` | Construct `ProcessManager`, call `reconcileOnStartup`, register process tools, pass to `WebConnector` deps, call `shutdown()` in `stop()` |
+| File                                          | Change                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/types/src/index.ts`                 | Add `export * from './process.js';`                                                                                                               |
+| `packages/core/src/index.ts`                  | Add `export * from './process/ProcessManager.js';`                                                                                                |
+| `packages/core/package.json`                  | Add `node-pty` dependency                                                                                                                         |
+| `packages/runtime/src/LegionProcess.ts`       | Construct `ProcessManager`, call `reconcileOnStartup`, register process tools, pass to `WebConnector` deps, call `shutdown()` in `stop()`         |
 | `packages/runtime/src/server/WebConnector.ts` | Extend `WebConnectorDeps` with `processManager`, handle `subscribe_process`/`unsubscribe_process` WS messages, relay per-process events to socket |
 
 ---
@@ -44,11 +44,13 @@
 ## Task 1: Add `node-pty` dependency
 
 **Files:**
+
 - Modify: `packages/core/package.json`
 
 - [ ] **Step 1: Add `node-pty` to core dependencies**
 
 Edit `packages/core/package.json`. The full file currently reads:
+
 ```json
 {
   "name": "@legion/core",
@@ -68,6 +70,7 @@ Edit `packages/core/package.json`. The full file currently reads:
 ```
 
 Add `node-pty`:
+
 ```json
 {
   "name": "@legion/core",
@@ -116,6 +119,7 @@ git commit -m "chore: add node-pty dependency to core"
 ## Task 2: Process types (`packages/types`)
 
 **Files:**
+
 - Create: `packages/types/src/process.ts`
 - Modify: `packages/types/src/index.ts`
 
@@ -189,6 +193,7 @@ export interface SpawnConfig {
 - [ ] **Step 2: Export from `packages/types/src/index.ts`**
 
 Current content of `packages/types/src/index.ts`:
+
 ```typescript
 export * from './tool.js';
 export * from './conversation.js';
@@ -198,6 +203,7 @@ export * from './events.js';
 ```
 
 Add process exports:
+
 ```typescript
 export * from './tool.js';
 export * from './conversation.js';
@@ -227,6 +233,7 @@ git commit -m "feat(types): add process management types"
 ## Task 3: `RingBuffer`
 
 **Files:**
+
 - Create: `packages/core/src/process/RingBuffer.ts`
 - Create: `packages/core/src/process/RingBuffer.test.ts`
 
@@ -261,9 +268,9 @@ describe('RingBuffer', () => {
   it('drops oldest chunks when full', () => {
     // cap = 10 bytes
     const rb = new RingBuffer(10);
-    rb.push(Buffer.from('12345'));  // 5 bytes, fits
-    rb.push(Buffer.from('67890'));  // 5 bytes, total 10, fits
-    rb.push(Buffer.from('ABCDE'));  // 5 bytes, total 15 > 10 → drop oldest
+    rb.push(Buffer.from('12345')); // 5 bytes, fits
+    rb.push(Buffer.from('67890')); // 5 bytes, total 10, fits
+    rb.push(Buffer.from('ABCDE')); // 5 bytes, total 15 > 10 → drop oldest
     // After drop: '67890' dropped next if still over, then 'ABCDE' only chunk
     // Actually: drop oldest until byteSize <= maxBytes
     // After adding ABCDE (15 bytes): drop '12345' → 10 bytes (≤ 10, stop)
@@ -353,6 +360,7 @@ git commit -m "feat(core): add RingBuffer for process output capture"
 ## Task 4: Process storage helpers
 
 **Files:**
+
 - Create: `packages/core/src/process/process-storage.ts`
 - Create: `packages/core/src/process/process-storage.test.ts`
 
@@ -414,7 +422,12 @@ describe('process-storage', () => {
   });
 
   it('writeMeta persists all nullable fields correctly', async () => {
-    const meta: ProcessMeta = { ...BASE_META, exitCode: 0, exitedAt: '2026-01-01T00:01:00.000Z', status: 'exited' };
+    const meta: ProcessMeta = {
+      ...BASE_META,
+      exitCode: 0,
+      exitedAt: '2026-01-01T00:01:00.000Z',
+      status: 'exited',
+    };
     await writeMeta(storage, meta);
     const result = await readMeta(storage, 'proc-test-1');
     expect(result?.exitCode).toBe(0);
@@ -471,9 +484,7 @@ export async function readMeta(storage: Storage, id: string): Promise<ProcessMet
 export async function listProcessIds(storage: Storage): Promise<string[]> {
   const keys = await storage.list('');
   // Keys look like 'proc-<uuid>/meta.json' — extract the id prefix
-  return keys
-    .filter((k) => k.endsWith('/meta.json'))
-    .map((k) => k.replace(/\/meta\.json$/, ''));
+  return keys.filter((k) => k.endsWith('/meta.json')).map((k) => k.replace(/\/meta\.json$/, ''));
 }
 ```
 
@@ -497,6 +508,7 @@ git commit -m "feat(core): add process storage helpers"
 ## Task 5: `ProcessEntry` type
 
 **Files:**
+
 - Create: `packages/core/src/process/ProcessEntry.ts`
 
 No tests needed — this is a plain internal data type, not logic. It gets exercised by `ProcessManager` tests.
@@ -549,6 +561,7 @@ git commit -m "feat(core): add ProcessEntry internal type"
 ## Task 6: `ProcessManager` — core logic
 
 **Files:**
+
 - Create: `packages/core/src/process/ProcessManager.ts`
 - Create: `packages/core/src/process/ProcessManager.test.ts`
 
@@ -797,10 +810,7 @@ describe('ProcessManager.start', () => {
     // We need the id first — start returns it. Listen on 'started' via a global spy.
     // Instead, subscribe via manager after start but before async events fire.
 
-    const handleP = manager.start(
-      { command: 'sleep', args: ['10'], cwd: dir },
-      'user-1',
-    );
+    const handleP = manager.start({ command: 'sleep', args: ['10'], cwd: dir }, 'user-1');
     const handle = await handleP;
 
     expect(handle.command).toBe('sleep');
@@ -829,11 +839,14 @@ describe('ProcessManager.start', () => {
       return badChild;
     });
     const storage = new FileStorage(dir);
-    const manager = new ProcessManager({ storage, workspaceRoot: dir, spawn: spawnFn as any, ptySpawn: vi.fn() as any });
+    const manager = new ProcessManager({
+      storage,
+      workspaceRoot: dir,
+      spawn: spawnFn as any,
+      ptySpawn: vi.fn() as any,
+    });
 
-    await expect(
-      manager.start({ command: 'does-not-exist' }, 'user-1'),
-    ).rejects.toThrow('ENOENT');
+    await expect(manager.start({ command: 'does-not-exist' }, 'user-1')).rejects.toThrow('ENOENT');
 
     await rm(dir, { recursive: true, force: true });
   });
@@ -1537,6 +1550,7 @@ git commit -m "feat(core): add ProcessManager with start/stop/execute/shutdown/l
 ## Task 7: Process tools
 
 **Files:**
+
 - Create: `packages/core/src/process/process-tools.ts`
 - Create: `packages/core/src/process/process-tools.test.ts`
 
@@ -1641,7 +1655,10 @@ describe('process tools', () => {
   describe('start_process', () => {
     it('calls pm.start and returns handle', async () => {
       const ctx = makeCtx();
-      const result = await getTool('start_process').execute({ command: 'sleep', args: ['10'] }, ctx);
+      const result = await getTool('start_process').execute(
+        { command: 'sleep', args: ['10'] },
+        ctx,
+      );
       expect((result as any).status).toBe('success');
       expect((result as any).data.id).toBe('proc-test');
     });
@@ -1690,7 +1707,10 @@ describe('process tools', () => {
 
     it('returns base64 when decode:base64', async () => {
       const ctx = makeCtx();
-      const result = await getTool('read_process_output').execute({ id: 'proc-test', decode: 'base64' }, ctx);
+      const result = await getTool('read_process_output').execute(
+        { id: 'proc-test', decode: 'base64' },
+        ctx,
+      );
       expect((result as any).data.data).toBe(Buffer.from('hi').toString('base64'));
     });
   });
@@ -1976,6 +1996,7 @@ git commit -m "feat(core): add 8 process management tools"
 ## Task 8: Export from `packages/core` barrel
 
 **Files:**
+
 - Modify: `packages/core/src/index.ts`
 
 - [ ] **Step 1: Add export**
@@ -2009,6 +2030,7 @@ git commit -m "feat(core): export ProcessManager and process tools"
 ## Task 9: Wire `ProcessManager` into `LegionProcess`
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts`
 
 - [ ] **Step 1: Import `ProcessManager` and `processTools` at top of `LegionProcess.ts`**
@@ -2059,7 +2081,7 @@ const toolCtx: ToolContext = {
   messageRouter: router,
   serviceManager,
   conversationStore: store,
-  processManager,   // add this line
+  processManager, // add this line
 };
 ```
 
@@ -2068,16 +2090,19 @@ Also update the second `toolCtx` literal in the `submit` path (around line 429-4
 - [ ] **Step 5: Store `processManager` as a class field and call `shutdown()` in `stop()`**
 
 Add a private field:
+
 ```typescript
 private processManager: ProcessManager | undefined;
 ```
 
 Set it during `start()`:
+
 ```typescript
 this.processManager = processManager;
 ```
 
 In `LegionProcess.stop()` (around line 256), add at the top:
+
 ```typescript
 if (this.processManager) {
   await this.processManager.shutdown().catch(() => undefined);
@@ -2123,6 +2148,7 @@ git commit -m "feat(runtime): wire ProcessManager into LegionProcess"
 ## Task 10: WebSocket process subscriptions
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/WebConnector.ts`
 
 - [ ] **Step 1: Extend `WebConnectorDeps` with `processManager`**
@@ -2184,56 +2210,56 @@ if (msg.type === 'auth' && !participantId) { ... }
 Add after:
 
 ```typescript
-      if (msg.type === 'subscribe_process' && participantId) {
-        const processId = (msg as any).processId as string;
-        if (!processId) return;
+if (msg.type === 'subscribe_process' && participantId) {
+  const processId = (msg as any).processId as string;
+  if (!processId) return;
 
-        const handle = this.deps.processManager.get(processId);
-        if (!handle) {
-          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'not_found' }));
-          return;
-        }
-        if (handle.status !== 'running') {
-          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }));
-          return;
-        }
+  const handle = this.deps.processManager.get(processId);
+  if (!handle) {
+    socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'not_found' }));
+    return;
+  }
+  if (handle.status !== 'running') {
+    socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }));
+    return;
+  }
 
-        // Detach previous subscription for same processId (idempotent re-subscribe)
-        detachProcessSub(processId);
+  // Detach previous subscription for same processId (idempotent re-subscribe)
+  detachProcessSub(processId);
 
-        const send = (type: string, payload: Record<string, unknown>): void => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type, processId, ...payload }));
-          }
-        };
+  const send = (type: string, payload: Record<string, unknown>): void => {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type, processId, ...payload }));
+    }
+  };
 
-        const offOutput = this.deps.processManager.subscribe(processId, 'output', (evt: any) => {
-          send('process:output', {
-            stream: evt.stream,
-            data: (evt.data as Buffer).toString('base64'),
-          });
-        });
+  const offOutput = this.deps.processManager.subscribe(processId, 'output', (evt: any) => {
+    send('process:output', {
+      stream: evt.stream,
+      data: (evt.data as Buffer).toString('base64'),
+    });
+  });
 
-        const offExited = this.deps.processManager.subscribe(processId, 'exited', (evt: any) => {
-          send('process:exited', { exitCode: evt.exitCode, signal: evt.signal ?? null });
-          detachProcessSub(processId);
-        });
+  const offExited = this.deps.processManager.subscribe(processId, 'exited', (evt: any) => {
+    send('process:exited', { exitCode: evt.exitCode, signal: evt.signal ?? null });
+    detachProcessSub(processId);
+  });
 
-        const offError = this.deps.processManager.subscribe(processId, 'error', (evt: any) => {
-          send('process:error', { error: evt.error });
-        });
+  const offError = this.deps.processManager.subscribe(processId, 'error', (evt: any) => {
+    send('process:error', { error: evt.error });
+  });
 
-        processSubs.set(processId, [offOutput, offExited, offError]);
-        socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'subscribed' }));
-        return;
-      }
+  processSubs.set(processId, [offOutput, offExited, offError]);
+  socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'subscribed' }));
+  return;
+}
 
-      if (msg.type === 'unsubscribe_process' && participantId) {
-        const processId = (msg as any).processId as string;
-        if (processId) detachProcessSub(processId);
-        socket.send(JSON.stringify({ type: 'unsubscribe_ack', processId }));
-        return;
-      }
+if (msg.type === 'unsubscribe_process' && participantId) {
+  const processId = (msg as any).processId as string;
+  if (processId) detachProcessSub(processId);
+  socket.send(JSON.stringify({ type: 'unsubscribe_ack', processId }));
+  return;
+}
 ```
 
 - [ ] **Step 3: Clean up all process subscriptions on socket close**
@@ -2241,21 +2267,21 @@ Add after:
 In `socket.on('close', ...)`:
 
 ```typescript
-    socket.on('close', () => {
-      clearTimeout(authTimer);
-      if (participantId) {
-        ctx.registry.clearActive(participantId, this.name);
-        this.connections.get(participantId)?.delete(socket);
-        if (this.connections.get(participantId)?.size === 0) {
-          this.connections.delete(participantId);
-        }
-      }
-      anyOff?.();
-      // Detach all process subscriptions for this socket
-      for (const processId of processSubs.keys()) {
-        detachProcessSub(processId);
-      }
-    });
+socket.on('close', () => {
+  clearTimeout(authTimer);
+  if (participantId) {
+    ctx.registry.clearActive(participantId, this.name);
+    this.connections.get(participantId)?.delete(socket);
+    if (this.connections.get(participantId)?.size === 0) {
+      this.connections.delete(participantId);
+    }
+  }
+  anyOff?.();
+  // Detach all process subscriptions for this socket
+  for (const processId of processSubs.keys()) {
+    detachProcessSub(processId);
+  }
+});
 ```
 
 - [ ] **Step 4: Pass `processManager` when constructing `WebConnector` in `LegionProcess.ts`**
@@ -2384,6 +2410,7 @@ curl -s -X POST http://localhost:3000/api/execute \
 ```
 
 Expected:
+
 - `execute_command` returns `{status:'success', data:{exitCode:0, stdout:'hello from legion\n', ...}}`
 - `start_process` returns `{status:'success', data:{id:'proc-...', status:'running', ...}}`
 - `list_processes` returns both entries
@@ -2402,34 +2429,34 @@ git commit -m "feat: process management — execute_command, start_process, 6 mo
 
 ### Spec coverage check
 
-| Spec requirement | Task |
-|---|---|
-| `ProcessStatus`, `ProcessMeta`, `ProcessHandle`, `ExecuteResult`, `ProcessOutputChunk`, `SpawnConfig` types | Task 2 |
-| `RingBuffer` — chunk-based, 1 MiB cap, `push`, `tail`, `byteSize` | Task 3 |
-| `process-storage` — `readMeta`, `writeMeta`, `listProcessIds` | Task 4 |
-| `ProcessEntry` internal type | Task 5 |
-| `ProcessManager` constructor with injectable spawner | Task 6a |
-| `reconcileOnStartup` sweeps stale `running` → `abandoned` | Task 6a |
-| `start` — pipe + PTY, spawn error handling, meta persist, emitter | Task 6b |
-| `get` | Task 6b |
-| `stop` — SIGTERM → grace → SIGKILL, awaits exit handler | Task 6c |
-| `writeInput` — pipe stdin, PTY write, EOF | Task 6c |
-| `subscribe` — per-process emitter, returns unsub | Task 6c |
-| `execute` — sync wrapper, captures stdout/stderr, timeout | Task 6d |
-| `list` — disk + live overlay, filter, sort, paginate | Task 6d |
-| `readOutput` — ring tail + log file seek | Task 6d |
-| `delete` — refuses running, removes files + dir | Task 6d |
-| `shutdown` — SIGTERM all, grace, SIGKILL, best-effort meta writes, clear map | Task 6d |
-| 8 process tools | Task 7 |
-| Core barrel export | Task 8 |
-| `LegionProcess` wiring — construct, reconcile, register tools, smuggle ctx, shutdown hook | Task 9 |
-| WS `subscribe_process` / `unsubscribe_process` | Task 10 |
-| `subscribe_ack` statuses: `subscribed`, `not_found`, `dead` | Task 10 |
-| Auto-detach on process exit or socket close | Task 10 |
-| base64 encoding of `process:output` data | Task 10 |
-| `node-pty` dependency | Task 1 |
-| Auth: process tools not seeded in bootstrap policy | Covered by existing AuthEngine default `requires_approval` — no task needed |
-| Prune/retention: explicitly not in v1 | Correctly absent |
+| Spec requirement                                                                                            | Task                                                                        |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `ProcessStatus`, `ProcessMeta`, `ProcessHandle`, `ExecuteResult`, `ProcessOutputChunk`, `SpawnConfig` types | Task 2                                                                      |
+| `RingBuffer` — chunk-based, 1 MiB cap, `push`, `tail`, `byteSize`                                           | Task 3                                                                      |
+| `process-storage` — `readMeta`, `writeMeta`, `listProcessIds`                                               | Task 4                                                                      |
+| `ProcessEntry` internal type                                                                                | Task 5                                                                      |
+| `ProcessManager` constructor with injectable spawner                                                        | Task 6a                                                                     |
+| `reconcileOnStartup` sweeps stale `running` → `abandoned`                                                   | Task 6a                                                                     |
+| `start` — pipe + PTY, spawn error handling, meta persist, emitter                                           | Task 6b                                                                     |
+| `get`                                                                                                       | Task 6b                                                                     |
+| `stop` — SIGTERM → grace → SIGKILL, awaits exit handler                                                     | Task 6c                                                                     |
+| `writeInput` — pipe stdin, PTY write, EOF                                                                   | Task 6c                                                                     |
+| `subscribe` — per-process emitter, returns unsub                                                            | Task 6c                                                                     |
+| `execute` — sync wrapper, captures stdout/stderr, timeout                                                   | Task 6d                                                                     |
+| `list` — disk + live overlay, filter, sort, paginate                                                        | Task 6d                                                                     |
+| `readOutput` — ring tail + log file seek                                                                    | Task 6d                                                                     |
+| `delete` — refuses running, removes files + dir                                                             | Task 6d                                                                     |
+| `shutdown` — SIGTERM all, grace, SIGKILL, best-effort meta writes, clear map                                | Task 6d                                                                     |
+| 8 process tools                                                                                             | Task 7                                                                      |
+| Core barrel export                                                                                          | Task 8                                                                      |
+| `LegionProcess` wiring — construct, reconcile, register tools, smuggle ctx, shutdown hook                   | Task 9                                                                      |
+| WS `subscribe_process` / `unsubscribe_process`                                                              | Task 10                                                                     |
+| `subscribe_ack` statuses: `subscribed`, `not_found`, `dead`                                                 | Task 10                                                                     |
+| Auto-detach on process exit or socket close                                                                 | Task 10                                                                     |
+| base64 encoding of `process:output` data                                                                    | Task 10                                                                     |
+| `node-pty` dependency                                                                                       | Task 1                                                                      |
+| Auth: process tools not seeded in bootstrap policy                                                          | Covered by existing AuthEngine default `requires_approval` — no task needed |
+| Prune/retention: explicitly not in v1                                                                       | Correctly absent                                                            |
 
 ### Placeholder scan
 
