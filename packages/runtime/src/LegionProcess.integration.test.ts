@@ -197,10 +197,8 @@ describe.skipIf(!LIVE)('LegionProcess (integration)', () => {
     process_ = await LegionProcess.start(workspaceRoot);
     console.log = origLog;
 
-    // Extract password from logged output
-    const passwordLine = logged.find((l) => l.includes('Bootstrap operator password:'));
-    expect(passwordLine).toBeDefined();
-    const password = passwordLine!.match(/password:\s+([^\s│]+)/)?.[1];
+    // Extract password from current boxed bootstrap output.
+    const password = logged.join('\n').match(/Password:\s+([^\s│]+)/)?.[1];
     expect(password).toBeTruthy();
 
     // Login
