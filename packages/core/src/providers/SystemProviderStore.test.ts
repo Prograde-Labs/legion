@@ -47,7 +47,10 @@ describe('SystemProviderStore', () => {
 
   it('get() throws NotImplementedError for copilot', async () => {
     const storage = new MemoryStorage();
-    await storage.writeJson('providers/copilot.json', providerConfig({ name: 'copilot', type: 'copilot' }));
+    await storage.writeJson(
+      'providers/copilot.json',
+      providerConfig({ name: 'copilot', type: 'copilot' }),
+    );
     const store = new SystemProviderStore(storage);
 
     await expect(store.get('copilot')).rejects.toMatchObject({ name: 'NotImplementedError' });
@@ -55,7 +58,10 @@ describe('SystemProviderStore', () => {
 
   it('get() throws NotImplementedError for codex', async () => {
     const storage = new MemoryStorage();
-    await storage.writeJson('providers/codex.json', providerConfig({ name: 'codex', type: 'codex' }));
+    await storage.writeJson(
+      'providers/codex.json',
+      providerConfig({ name: 'codex', type: 'codex' }),
+    );
     const store = new SystemProviderStore(storage);
 
     await expect(store.get('codex')).rejects.toMatchObject({ name: 'NotImplementedError' });

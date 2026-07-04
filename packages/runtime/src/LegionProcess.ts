@@ -36,7 +36,13 @@ import {
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
-import type { ConversationData, LocalConfig, RoutingConfig, SystemConfig, ToolResult } from '@legion/types';
+import type {
+  ConversationData,
+  LocalConfig,
+  RoutingConfig,
+  SystemConfig,
+  ToolResult,
+} from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 
@@ -191,11 +197,9 @@ export class LegionProcess {
     // In dev mode, point Vite at the web package source root (contains index.html + src/).
     // In production, serve the pre-built static files from web/dist/.
     const webSrcPath = dev
-      ? join(_dirname, '..', '..', 'web')          // packages/runtime/src/ → packages/web/
+      ? join(_dirname, '..', '..', 'web') // packages/runtime/src/ → packages/web/
       : undefined;
-    const webDistPath = dev
-      ? undefined
-      : join(_dirname, '..', '..', 'web', 'dist');        // packages/runtime/dist/ → packages/web/dist/
+    const webDistPath = dev ? undefined : join(_dirname, '..', '..', 'web', 'dist'); // packages/runtime/dist/ → packages/web/dist/
 
     const webConnector = new WebConnector({
       collective,
@@ -523,7 +527,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
         conversationStore: store,
       };
-      
+
       const result = (await toolRegistry.execute(toolName, args, toolCtx)) as ToolResult;
       return { result, conversationId };
     },

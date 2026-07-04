@@ -32,13 +32,19 @@ function removeRow(index: number) {
 function moveProviderUp(rowIndex: number, provIndex: number) {
   if (provIndex === 0) return;
   const providers = rows.value[rowIndex].providers;
-  [providers[provIndex - 1], providers[provIndex]] = [providers[provIndex], providers[provIndex - 1]];
+  [providers[provIndex - 1], providers[provIndex]] = [
+    providers[provIndex],
+    providers[provIndex - 1],
+  ];
 }
 
 function moveProviderDown(rowIndex: number, provIndex: number) {
   const providers = rows.value[rowIndex].providers;
   if (provIndex === providers.length - 1) return;
-  [providers[provIndex], providers[provIndex + 1]] = [providers[provIndex + 1], providers[provIndex]];
+  [providers[provIndex], providers[provIndex + 1]] = [
+    providers[provIndex + 1],
+    providers[provIndex],
+  ];
 }
 
 function addProvider(rowIndex: number, providerName: string) {
@@ -88,13 +94,11 @@ async function save() {
         </button>
       </div>
       <div class="space-y-1">
-        <div
-          v-for="(prov, provIndex) in row.providers"
-          :key="prov"
-          class="flex items-center gap-1"
-        >
+        <div v-for="(prov, provIndex) in row.providers" :key="prov" class="flex items-center gap-1">
           <span class="text-[10px] text-navy-400 w-4">{{ provIndex + 1 }}.</span>
-          <span class="flex-1 text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded">
+          <span
+            class="flex-1 text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded"
+          >
             {{ prov }}
           </span>
           <button
@@ -124,7 +128,12 @@ async function save() {
       </div>
       <select
         v-if="availableForRow(rowIndex).length > 0"
-        @change="(e) => { addProvider(rowIndex, (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }"
+        @change="
+          (e) => {
+            addProvider(rowIndex, (e.target as HTMLSelectElement).value);
+            (e.target as HTMLSelectElement).value = '';
+          }
+        "
         class="w-full bg-navy-900 border border-navy-600 rounded px-2 py-1 text-[10px] text-navy-400"
       >
         <option value="">+ Add provider…</option>

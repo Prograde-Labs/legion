@@ -63,7 +63,9 @@ async function save() {
   >
     <div class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Name</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Name</label
+        >
         <input
           v-model="name"
           :readonly="!!provider"
@@ -72,7 +74,9 @@ async function save() {
         <p class="text-[10px] text-navy-500 mt-1">Cannot change after creation.</p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Type</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Type</label
+        >
         <select
           v-model="type"
           class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
@@ -84,7 +88,9 @@ async function save() {
         </select>
       </div>
       <div v-if="type === 'openai-compatible'">
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Base URL</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Base URL</label
+        >
         <input
           v-model="baseUrl"
           placeholder="https://api.openai.com/v1"
@@ -92,7 +98,9 @@ async function save() {
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">API Key</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >API Key</label
+        >
         <input
           v-model="apiKey"
           type="password"
@@ -104,14 +112,18 @@ async function save() {
         </p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Priority</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Priority</label
+        >
         <input
           v-model.number="priority"
           type="number"
           min="1"
           class="w-20 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none"
         />
-        <p class="text-[10px] text-navy-500 mt-1">Lower number = higher priority (used for auto-routing).</p>
+        <p class="text-[10px] text-navy-500 mt-1">
+          Lower number = higher priority (used for auto-routing).
+        </p>
       </div>
     </div>
     <template #footer>

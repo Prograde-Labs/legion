@@ -42,7 +42,9 @@ watch(
     tab.value = 'basic';
     if (props.participantId) {
       try {
-        const p = await execute<Record<string, unknown>>('get_participant', { id: props.participantId });
+        const p = await execute<Record<string, unknown>>('get_participant', {
+          id: props.participantId,
+        });
         name.value = (p.name as string) ?? '';
         const modelCfg = p.model as { model: string } | undefined;
         selectedModel.value = modelCfg?.model ?? '';
@@ -54,14 +56,23 @@ watch(
         const toolEntries = Object.entries(tools);
         const policyCounts: Record<string, number> = {};
         for (const [, policy] of toolEntries) {
-          const uiPolicy = policy === 'auto' ? 'allow' : policy === 'requires_approval' ? 'require-approval' : 'deny';
+          const uiPolicy =
+            policy === 'auto'
+              ? 'allow'
+              : policy === 'requires_approval'
+                ? 'require-approval'
+                : 'deny';
           policyCounts[uiPolicy] = (policyCounts[uiPolicy] ?? 0) + 1;
         }
         const sorted = Object.entries(policyCounts).sort((a, b) => b[1] - a[1]);
         defaultPolicy.value = (sorted[0]?.[0] as 'allow' | 'require-approval' | 'deny') ?? 'allow';
 
-        const defaultRuntime = defaultPolicy.value === 'allow' ? 'auto'
-          : defaultPolicy.value === 'require-approval' ? 'requires_approval' : 'deny';
+        const defaultRuntime =
+          defaultPolicy.value === 'allow'
+            ? 'auto'
+            : defaultPolicy.value === 'require-approval'
+              ? 'requires_approval'
+              : 'deny';
         overrides.value = toolEntries
           .filter(([, policy]) => policy !== defaultRuntime)
           .map(([tool, policy]) => ({
@@ -105,7 +116,11 @@ async function save() {
         toolPolicies,
       });
     } else {
-      const id = name.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || `agent-${Date.now()}`;
+      const id =
+        name.value
+          .toLowerCase()
+          .replace(/\s+/g, '-')
+          .replace(/[^a-z0-9-]/g, '') || `agent-${Date.now()}`;
       await execute('create_agent', {
         id,
         name: name.value,
@@ -164,13 +179,20 @@ async function retire() {
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Model</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Model</label
+        >
         <div v-if="selectedModel && !showModelDropdown" class="flex items-center gap-2">
-          <span class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono">
+          <span
+            class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono"
+          >
             {{ selectedModel }}
           </span>
           <button
-            @click="showModelDropdown = true; modelSearch = ''"
+            @click="
+              showModelDropdown = true;
+              modelSearch = '';
+            "
             class="text-[10px] text-navy-400 hover:text-slate-200 border border-navy-600 rounded px-2 py-1.5"
           >
             Change
@@ -183,10 +205,17 @@ async function retire() {
             @focus="showModelDropdown = true"
             class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none focus:border-cyan-400/40"
           />
-          <div v-if="showModelDropdown" class="border border-navy-600 rounded bg-navy-950 max-h-48 overflow-y-auto">
+          <div
+            v-if="showModelDropdown"
+            class="border border-navy-600 rounded bg-navy-950 max-h-48 overflow-y-auto"
+          >
             <button
               v-if="modelSearch && !filteredModels.some((m) => m.id === modelSearch)"
-              @click="selectedModel = modelSearch; model = modelSearch; showModelDropdown = false"
+              @click="
+                selectedModel = modelSearch;
+                model = modelSearch;
+                showModelDropdown = false;
+              "
               class="w-full text-left px-3 py-2 text-xs text-navy-400 hover:bg-navy-800 font-mono border-b border-navy-700"
             >
               Use "{{ modelSearch }}" (not in discovery list)
@@ -194,13 +223,21 @@ async function retire() {
             <button
               v-for="m in filteredModels"
               :key="m.id"
-              @click="selectedModel = m.id; model = m.id; modelSearch = ''; showModelDropdown = false"
+              @click="
+                selectedModel = m.id;
+                model = m.id;
+                modelSearch = '';
+                showModelDropdown = false;
+              "
               class="w-full text-left px-3 py-2 hover:bg-navy-800"
             >
               <span class="text-xs font-mono text-slate-100">{{ m.id }}</span>
               <span class="text-[10px] text-navy-500 ml-2">{{ m.provider }}</span>
             </button>
-            <p v-if="filteredModels.length === 0 && !modelSearch" class="px-3 py-2 text-[10px] text-navy-600 italic">
+            <p
+              v-if="filteredModels.length === 0 && !modelSearch"
+              class="px-3 py-2 text-[10px] text-navy-600 italic"
+            >
               No models discovered. Configure providers first.
             </p>
           </div>

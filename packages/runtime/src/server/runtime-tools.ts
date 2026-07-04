@@ -10,13 +10,8 @@ interface RuntimeToolDeps {
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
-  const {
-    systemStore,
-    systemRouting,
-    workspaceRouting,
-    saveSystemRouting,
-    saveWorkspaceRouting,
-  } = deps;
+  const { systemStore, systemRouting, workspaceRouting, saveSystemRouting, saveWorkspaceRouting } =
+    deps;
 
   return [
     {
@@ -132,7 +127,10 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       },
       execute: async (rawArgs: unknown): Promise<ToolResult> => {
         try {
-          const { scope, routing } = rawArgs as { scope: 'system' | 'workspace'; routing: RoutingConfig };
+          const { scope, routing } = rawArgs as {
+            scope: 'system' | 'workspace';
+            routing: RoutingConfig;
+          };
           if (scope === 'system') {
             await saveSystemRouting(routing);
             replaceRouting(systemRouting, routing);
