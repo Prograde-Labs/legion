@@ -1,6 +1,6 @@
 import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
-import type { ProviderStore } from '../providers/ProviderStore.js';
+import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
@@ -45,7 +45,7 @@ function buildProviderMessages(chain: MessageData[], systemPrompt: string): Prov
 export class AgentRuntime implements Runtime {
   constructor(
     private participantId: string,
-    private providerStore: ProviderStore,
+    private router: ModelRouter,
   ) {}
 
   async handle(_incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult> {
@@ -53,11 +53,11 @@ export class AgentRuntime implements Runtime {
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
 
-    const provider = await this.providerStore.get(agent.model.provider);
+    const provider = await this.router.resolve(agent.model.model);
     if (!provider) {
       return {
         kind: 'response',
-        content: `[AgentRuntime error: no provider registered for '${agent.model.provider}']`,
+        content: `[AgentRuntime error: no provider available for model '${agent.model.model}']`,
       };
     }
 

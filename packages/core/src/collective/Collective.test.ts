@@ -21,7 +21,7 @@ function seedStorage() {
     type: 'agent',
     tools: { communicate: 'auto' },
     systemPrompt: 'You help.',
-    model: { provider: 'openai-compatible', model: 'gpt-4o-mini' },
+    model: { model: 'gpt-4o-mini' },
     status: 'active',
   };
   return { storage, operator, agent };

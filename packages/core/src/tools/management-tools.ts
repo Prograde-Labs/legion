@@ -49,7 +49,7 @@ export const createAgentTool: Tool = {
       id: { type: 'string' },
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
-      model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
+      model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
       toolPolicies: { type: 'object' },
       tools: { type: 'object' },
@@ -78,7 +78,6 @@ export const createAgentTool: Tool = {
         systemPrompt,
         model,
         maxIterations: 20,
-        providerId: model.provider ?? 'default',
         status: 'active',
       };
       await collective.add(config);
@@ -257,7 +256,7 @@ export const modifyAgentTool: Tool = {
     properties: {
       id: { type: 'string', description: 'Participant ID' },
       name: { type: 'string' },
-      model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
+      model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
       defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
@@ -282,9 +281,9 @@ export const modifyAgentTool: Tool = {
       if (existing.type !== 'agent') return { status: 'error', error: `Participant ${id} is not an agent` };
 
       const agent = existing as AgentConfig;
-      // Handle both string (legacy) and object (ModelConfig) model arg
+      // Handle string shorthand by keeping existing model options and changing only id.
       const updatedModel: ModelConfig = typeof model === 'string'
-        ? { provider: agent.model.provider, model }
+        ? { ...agent.model, model }
         : (model ?? agent.model);
       const allToolNames = context.toolRegistry.listAll();
       const composedTools = (defaultPolicy || toolPolicies)
@@ -294,7 +293,6 @@ export const modifyAgentTool: Tool = {
       await collective.update(id, {
         name: name ?? agent.name,
         model: updatedModel,
-        providerId: updatedModel.provider ?? 'default',
         systemPrompt: systemPrompt ?? agent.systemPrompt,
         maxIterations: maxIterations ?? agent.maxIterations,
         tools: composedTools,

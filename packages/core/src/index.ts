@@ -29,6 +29,7 @@ export * from './tools/communicate-tool.js';
 export * from './providers/Provider.js';
 export * from './providers/SystemProviderStore.js';
 export * from './providers/OpenAICompatibleProvider.js';
+export * from './providers/ModelRouter.js';
 export * from './runtime/AgentRuntime.js';
 export * from './tools/approval-response-tool.js';
 export * from './service/LegionService.js';

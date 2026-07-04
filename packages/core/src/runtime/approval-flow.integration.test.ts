@@ -10,28 +10,25 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MessageRouter } from './MessageRouter.js';
 import { AgentRuntime } from './AgentRuntime.js';
-import { ProviderStore } from '../providers/ProviderStore.js';
-import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ApprovalLog } from '../auth/ApprovalLog.js';
 import { communicateTool } from '../tools/communicate-tool.js';
 import { approvalResponseTool } from '../tools/approval-response-tool.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
+import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext } from './Runtime.js';
 import type { JSONSchema } from '@legion/types';
 
-class MockProviderStore extends ProviderStore {
-  constructor(private mockProviders: Map<string, Provider>) {
-    super(new MemoryStorage());
+class MockModelRouter {
+  constructor(private mockProviders: Map<string, Provider>) {}
+
+  register(modelId: string, provider: Provider): void {
+    this.mockProviders.set(modelId, provider);
   }
 
-  register(name: string, provider: Provider): void {
-    this.mockProviders.set(name, provider);
-  }
-
-  override async get(name: string): Promise<Provider | null> {
-    return this.mockProviders.get(name) ?? null;
+  async resolve(modelId: string): Promise<Provider | null> {
+    return this.mockProviders.get(modelId) ?? null;
   }
 }
 
@@ -58,7 +55,7 @@ async function setup(dir: string) {
     status: 'active',
     tools: { communicate: 'auto', echo: 'requires_approval' },
     systemPrompt: 'You are a helpful assistant.',
-    model: { provider: 'scripted', model: 'test' },
+    model: { model: 'test' },
   });
 
   // Operator: user type, broad approval authority
@@ -95,12 +92,12 @@ async function setup(dir: string) {
   const approvalLog = new ApprovalLog();
   const authEngine = new AuthEngine();
   const mockProviders = new Map<string, Provider>();
-  const providerStore = new MockProviderStore(mockProviders);
+  const modelRouter = new MockModelRouter(mockProviders);
   const runtimeRegistry = new RuntimeRegistry();
 
   const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
 
-  runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerStore));
+  runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter as ModelRouter));
   runtimeRegistry.registerFactory('user', (_id) => ({
     async handle() {
       return { kind: 'void' as const };
@@ -134,7 +131,7 @@ async function setup(dir: string) {
     pendingApprovalRegistry,
     approvalLog,
     authEngine,
-    providerStore,
+    modelRouter,
     router,
     makeContext,
   };
@@ -150,10 +147,10 @@ describe('Approval flow integration', () => {
   });
 
   it('approve path: operator approves → B resumes and completes', async () => {
-    const { providerStore, router, makeContext, store, pendingApprovalRegistry } = await setup(dir);
+    const { modelRouter, router, makeContext, store, pendingApprovalRegistry } = await setup(dir);
 
-    providerStore.register(
-      'scripted',
+    modelRouter.register(
+      'test',
       scriptedProvider([
         {
           content: null,
@@ -214,11 +211,11 @@ describe('Approval flow integration', () => {
   });
 
   it('reject path: operator rejects → B resumes with rejection message in context', async () => {
-    const { providerStore, router, makeContext, store } = await setup(dir);
+    const { modelRouter, router, makeContext, store } = await setup(dir);
 
     let secondCallSeen = false;
 
-    providerStore.register('scripted', {
+    modelRouter.register('test', {
       async complete(msgs) {
         const hasToolResult = msgs.some((m) => m.role === 'tool');
         if (!hasToolResult) {

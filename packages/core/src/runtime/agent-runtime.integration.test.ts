@@ -5,7 +5,8 @@ import { EventBus } from '../events/EventBus.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
-import { ProviderStore } from '../providers/ProviderStore.js';
+import { SystemProviderStore } from '../providers/SystemProviderStore.js';
+import { ModelRouter } from '../providers/ModelRouter.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
@@ -32,7 +33,7 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
       name: 'Assistant',
       type: 'agent',
       systemPrompt: 'You are a helpful assistant. Always respond in exactly one short sentence.',
-      model: { provider: 'openai-compatible', model },
+      model: { model },
       tools: {},
       status: 'active',
     });
@@ -47,13 +48,19 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
       name: 'openai-compatible',
       type: 'openai-compatible',
       baseUrl: 'https://api.openai.com/v1',
-      apiKeyEnv: 'OPENAI_API_KEY',
+      apiKey: process.env['OPENAI_API_KEY'],
+      priority: 0,
     });
-    const providerStore = new ProviderStore(providerStorage);
+    const providerStore = new SystemProviderStore(providerStorage);
+    const modelRouter = new ModelRouter(
+      providerStore,
+      { models: { [model]: ['openai-compatible'] } },
+      {},
+    );
 
     const runtimeRegistry = new RuntimeRegistry();
     runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
-    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerStore));
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
 
     const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
 
@@ -101,7 +108,7 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
       systemPrompt:
         'You are a test agent. When asked to echo something, call the echo tool with ' +
         'that text, then report the result.',
-      model: { provider: 'openai-compatible', model },
+      model: { model },
       tools: { echo: 'auto' },
       status: 'active',
     });
@@ -130,13 +137,19 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
       name: 'openai-compatible',
       type: 'openai-compatible',
       baseUrl: 'https://api.openai.com/v1',
-      apiKeyEnv: 'OPENAI_API_KEY',
+      apiKey: process.env['OPENAI_API_KEY'],
+      priority: 0,
     });
-    const providerStore = new ProviderStore(providerStorage);
+    const providerStore = new SystemProviderStore(providerStorage);
+    const modelRouter = new ModelRouter(
+      providerStore,
+      { models: { [model]: ['openai-compatible'] } },
+      {},
+    );
 
     const runtimeRegistry = new RuntimeRegistry();
     runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
-    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, providerStore));
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
 
     const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
 
