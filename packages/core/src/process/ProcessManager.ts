@@ -263,6 +263,14 @@ export class ProcessManager {
     }
   }
 
+  private killChild(child: ChildProcess | IPty, signal: 'SIGTERM' | 'SIGKILL', tty: boolean): void {
+    if (tty) {
+      (child as IPty).kill(signal);
+    } else {
+      (child as ChildProcess).kill!(signal);
+    }
+  }
+
   async stop(
     id: string,
     opts?: { signal?: 'SIGTERM' | 'SIGKILL'; graceMs?: number },
@@ -274,6 +282,7 @@ export class ProcessManager {
     const signal = opts?.signal ?? 'SIGTERM';
     const graceMs = opts?.graceMs ?? 5000;
     const child = entry.child!;
+    const tty = entry.meta.tty;
 
     // Wait for exit event (canonical write path)
     const exitPromise = new Promise<void>((resolve) => {
@@ -281,20 +290,46 @@ export class ProcessManager {
     });
 
     if (signal === 'SIGKILL') {
-      (child as ChildProcess).kill?.('SIGKILL') ?? (child as IPty).kill?.('SIGKILL');
-      await exitPromise;
+      this.killChild(child, 'SIGKILL', tty);
+      // Safety: don't hang forever if the child is already dead and won't emit 'exit'
+      const result = await Promise.race([
+        exitPromise.then(() => 'exited' as const),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 3000)),
+      ]);
+      if (result === 'timeout') {
+        entry.meta.status = 'killed';
+        entry.meta.exitedAt = nowIso();
+        await writeMeta(this.storage, entry.meta).catch(() => undefined);
+        entry.logStream?.end();
+        entry.logStream = null;
+        entry.child = null;
+        this.live.delete(id);
+      }
       return;
     }
 
     // SIGTERM → grace → SIGKILL
-    (child as ChildProcess).kill?.('SIGTERM') ?? (child as IPty).kill?.('SIGTERM');
+    this.killChild(child, 'SIGTERM', tty);
     const grace = new Promise<'timeout'>((resolve) =>
       setTimeout(() => resolve('timeout'), graceMs),
     );
     const result = await Promise.race([exitPromise.then(() => 'exited' as const), grace]);
     if (result === 'timeout') {
-      (child as ChildProcess).kill?.('SIGKILL') ?? (child as IPty).kill?.('SIGKILL');
-      await exitPromise;
+      this.killChild(child, 'SIGKILL', tty);
+      // Safety: don't hang forever if the child is already dead and won't emit 'exit'
+      const killResult = await Promise.race([
+        exitPromise.then(() => 'exited' as const),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 3000)),
+      ]);
+      if (killResult === 'timeout') {
+        entry.meta.status = 'killed';
+        entry.meta.exitedAt = nowIso();
+        await writeMeta(this.storage, entry.meta).catch(() => undefined);
+        entry.logStream?.end();
+        entry.logStream = null;
+        entry.child = null;
+        this.live.delete(id);
+      }
     }
   }
 
@@ -361,25 +396,31 @@ export class ProcessManager {
     let timedOut = false;
     let exitCode: number | null = null;
 
-    if (timeoutMs === 0) {
-      ({ exitCode } = await exitPromise);
-    } else {
-      const timeoutP = new Promise<'timeout'>((resolve) =>
-        setTimeout(() => resolve('timeout'), timeoutMs),
-      );
-      const result = await Promise.race([
-        exitPromise.then((r) => ({ ...r, _tag: 'exited' as const })),
-        timeoutP,
-      ]);
-      if (result === 'timeout') {
-        timedOut = true;
-        await this.stop(handle.id, { signal: 'SIGTERM', graceMs: 5000 });
+    try {
+      if (timeoutMs === 0) {
+        ({ exitCode } = await exitPromise);
       } else {
-        exitCode = result.exitCode;
+        const timeoutP = new Promise<'timeout'>((resolve) =>
+          setTimeout(() => resolve('timeout'), timeoutMs),
+        );
+        const result = await Promise.race([
+          exitPromise.then((r) => ({ ...r, _tag: 'exited' as const })),
+          timeoutP,
+        ]);
+        if (result === 'timeout') {
+          timedOut = true;
+          try {
+            await this.stop(handle.id, { signal: 'SIGTERM', graceMs: 5000 });
+          } catch {
+            // process may have exited between race and stop — best effort
+          }
+        } else {
+          exitCode = result.exitCode;
+        }
       }
+    } finally {
+      offOut();
     }
-
-    offOut();
 
     return {
       processId: handle.id,
@@ -483,7 +524,7 @@ export class ProcessManager {
     // SIGTERM all
     for (const entry of running) {
       try {
-        (entry.child as ChildProcess).kill?.('SIGTERM') ?? (entry.child as IPty).kill?.('SIGTERM');
+        this.killChild(entry.child!, 'SIGTERM', entry.meta.tty);
       } catch {
         // best-effort
       }
@@ -506,8 +547,7 @@ export class ProcessManager {
     for (const entry of running) {
       if (entry.meta.status === 'running') {
         try {
-          (entry.child as ChildProcess).kill?.('SIGKILL') ??
-            (entry.child as IPty).kill?.('SIGKILL');
+          this.killChild(entry.child!, 'SIGKILL', entry.meta.tty);
         } catch {
           // best-effort
         }

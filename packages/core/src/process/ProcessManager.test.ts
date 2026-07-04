@@ -47,6 +47,64 @@ async function makeManager(fakeChild?: FakeChild) {
   return { manager, storage, dir, child };
 }
 
+// ── Fake PTY ────────────────────────────────────────────────────────────────
+
+class FakePty extends EventEmitter {
+  readonly pid = 8888;
+  readonly cols = 80;
+  readonly rows = 24;
+  readonly process = '';
+  handleFlowControl = false;
+  killed = false;
+  private exitEmitted = false;
+
+  onData(cb: (data: string) => void): { dispose(): void } {
+    this.on('data', cb);
+    return { dispose: () => this.off('data', cb) };
+  }
+
+  onExit(cb: (e: { exitCode: number; signal?: number }) => void): { dispose(): void } {
+    this.on('exit', cb);
+    return { dispose: () => this.off('exit', cb) };
+  }
+
+  resize(_columns: number, _rows: number): void {}
+
+  clear(): void {}
+
+  write(_data: string | Buffer): void {}
+
+  kill(signal?: string): void {
+    if (this.exitEmitted) return;
+    this.killed = true;
+    this.exitEmitted = true;
+    setImmediate(() =>
+      this.emit('exit', {
+        exitCode: signal === 'SIGKILL' ? undefined : 0,
+        signal: signal === 'SIGKILL' ? 9 : undefined,
+      }),
+    );
+  }
+
+  pause(): void {}
+
+  resume(): void {}
+}
+
+async function makePtyManager(fakePty?: FakePty) {
+  const dir = await mkdtemp(join(tmpdir(), 'legion-pm-pty-'));
+  const storage = new FileStorage(join(dir, '.legion'));
+  const ptyChild = fakePty ?? new FakePty();
+  const ptySpawn = vi.fn().mockReturnValue(ptyChild);
+  const manager = new ProcessManager({
+    storage,
+    workspaceRoot: dir,
+    spawn: vi.fn() as any,
+    ptySpawn: ptySpawn as any,
+  });
+  return { manager, storage, dir, ptyChild };
+}
+
 // ── reconcileOnStartup ───────────────────────────────────────────────────────
 
 describe('ProcessManager.reconcileOnStartup', () => {
@@ -323,6 +381,48 @@ describe('ProcessManager.shutdown', () => {
     await manager.shutdown();
 
     expect(child.killed).toBe(true);
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+// ── PTY mode ──────────────────────────────────────────────────────────────────
+
+describe('ProcessManager PTY mode', () => {
+  it('start with tty:true uses ptySpawn and emits combined output', async () => {
+    const { manager, ptyChild, dir } = await makePtyManager();
+    const handle = await manager.start(
+      { command: 'bash', args: [], cwd: dir, tty: true },
+      'user-1',
+    );
+    expect(handle.tty).toBe(true);
+    expect(handle.pid).toBe(8888);
+
+    const received: Buffer[] = [];
+    manager.subscribe(handle.id, 'output', (evt: any) => received.push(evt.data));
+
+    (ptyChild as any).emit('data', 'hello pty');
+    expect(received).toHaveLength(1);
+    expect(received[0].toString()).toBe('hello pty');
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('stop kills PTY once (not double)', async () => {
+    const { manager, ptyChild, dir } = await makePtyManager();
+    const handle = await manager.start(
+      { command: 'bash', args: [], cwd: dir, tty: true },
+      'user-1',
+    );
+
+    let killCount = 0;
+    const origKill = ptyChild.kill.bind(ptyChild);
+    ptyChild.kill = (signal?: string) => {
+      killCount++;
+      origKill(signal);
+    };
+
+    await manager.stop(handle.id);
+    expect(killCount).toBe(1); // not 2 (the bug would call kill twice)
     await rm(dir, { recursive: true, force: true });
   });
 });
