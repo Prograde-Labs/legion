@@ -1,8 +1,5 @@
 export interface ModelConfig {
-  provider: string; // e.g. 'openai-compatible' | 'anthropic'
   model: string;
-  baseUrl?: string;
-  apiKeyEnv?: string; // name of env var holding the key
   temperature?: number;
   maxTokens?: number;
 }
@@ -50,16 +47,23 @@ export interface ProviderConfig {
   name: string;
   type: 'openai-compatible' | 'anthropic' | 'copilot' | 'codex';
   baseUrl?: string;
-  defaultModel: string;
-  credentialKey?: string;
-  apiKeyEnv?: string; // alias for credentialKey, used by OpenAICompatibleProvider
+  apiKey?: string;
+  priority: number;
 }
 
-export interface CredentialInfo {
-  key: string;
-  maskedValue: string;
-  usedBy: string[];
-  updatedAt: number;
+export interface ProviderModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  inputCostPer1kTokens?: number;
+  outputCostPer1kTokens?: number;
+  capabilities?: ('vision' | 'tools' | 'json_mode')[];
+}
+
+export interface RoutingConfig {
+  models?: Record<string, string[]>;
+  // key: model id, value: ordered provider names (highest priority first)
+  // e.g. { "claude-sonnet-4-5": ["Copilot", "My Anthropic"] }
 }
 
 export interface LoggingConfig {
@@ -73,7 +77,15 @@ export interface WorkspaceConfig {
   server?: ServerConfig;
   connectors?: ConnectorConfig[];
   mcpServers?: MCPServerConfig[];
-  defaultModel?: ModelConfig;
-  providers?: Record<string, ProviderConfig>;
   logging?: LoggingConfig;
+}
+
+/** Shape of .legion/config.local.json — gitignored, overrides WorkspaceConfig + adds routing. */
+export interface LocalConfig extends Partial<WorkspaceConfig> {
+  routing?: RoutingConfig;
+}
+
+/** Shape of ~/.config/legion/config.json — system-level defaults. */
+export interface SystemConfig {
+  routing?: RoutingConfig;
 }
