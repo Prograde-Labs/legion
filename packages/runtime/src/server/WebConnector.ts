@@ -252,6 +252,13 @@ export class WebConnector implements Connector {
           return;
         }
 
+        // Authorization: only the process owner or operators can subscribe
+        const isOperator = this.deps.collective.get(participantId)?.operator === true;
+        if (handle.startedByParticipantId !== participantId && !isOperator) {
+          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'forbidden' }));
+          return;
+        }
+
         // Detach previous subscription for same processId (idempotent re-subscribe)
         detachProcessSub(processId);
 
@@ -275,9 +282,27 @@ export class WebConnector implements Connector {
 
         const offError = this.deps.processManager.subscribe(processId, 'error', (evt: any) => {
           send('process:error', { error: evt.error });
+          detachProcessSub(processId);
         });
 
         processSubs.set(processId, [offOutput, offExited, offError]);
+
+        // Re-check status after subscribing — if the process exited between
+        // the initial get() and subscribe(), the 'exited' event already fired
+        // and our listener missed it. Detach and notify.
+        const latestHandle = this.deps.processManager.get(processId);
+        if (!latestHandle || latestHandle.status !== 'running') {
+          detachProcessSub(processId);
+          send('process:exited', {
+            exitCode: latestHandle?.exitCode ?? null,
+            signal: null,
+          });
+          socket.send(
+            JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }),
+          );
+          return;
+        }
+
         socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'subscribed' }));
         return;
       }
