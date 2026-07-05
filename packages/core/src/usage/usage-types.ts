@@ -31,14 +31,14 @@ export interface UsageReport {
   groups?: UsageGroup[];
 }
 
-export const EMPTY_TOTALS: MessageUsageTotals = {
+export const EMPTY_TOTALS: Readonly<MessageUsageTotals> = Object.freeze({
   input: 0,
   output: 0,
   reasoning: 0,
-  cache: { read: 0, write: 0 },
+  cache: Object.freeze({ read: 0, write: 0 }),
   cost: 0,
   messageCount: 0,
-};
+});
 
 export function addUsageToTotals(
   totals: MessageUsageTotals,
