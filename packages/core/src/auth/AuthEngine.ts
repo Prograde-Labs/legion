@@ -1,52 +1,21 @@
 import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
 
-export interface AuthEngineOptions {
-  toolPolicies?: Record<string, ToolPolicy>;
-  defaultPolicy?: ToolPolicy;
-}
-
 export interface AuthResult {
   authorized: boolean;
-  reason?: 'auto' | 'deny' | 'requires_approval';
+  reason?: 'auto' | 'requires_approval' | 'hidden';
 }
 
-const BUILTIN_DEFAULT: ToolPolicy = 'requires_approval';
-
 export class AuthEngine {
-  private toolPolicies: Record<string, ToolPolicy>;
-  private defaultPolicy?: ToolPolicy;
-
-  constructor(options: AuthEngineOptions = {}) {
-    this.toolPolicies = options.toolPolicies ?? {};
-    this.defaultPolicy = options.defaultPolicy;
-  }
-
-  private resolvePolicy(
-    tool: string,
-    participantPolicies?: Record<string, ToolPolicy>,
-  ): ToolPolicy {
-    if (participantPolicies && tool in participantPolicies) return participantPolicies[tool];
-    if (tool in this.toolPolicies) return this.toolPolicies[tool];
-    if (this.defaultPolicy) return this.defaultPolicy;
-    return BUILTIN_DEFAULT;
-  }
-
   authorize(
     _participantId: string,
     tool: string,
     _args: unknown,
     participantPolicies?: Record<string, ToolPolicy>,
   ): AuthResult {
-    const policy = this.resolvePolicy(tool, participantPolicies);
-    switch (policy) {
-      case 'auto':
-        return { authorized: true, reason: 'auto' };
-      case 'deny':
-        return { authorized: false, reason: 'deny' };
-      case 'requires_approval':
-      default:
-        return { authorized: false, reason: 'requires_approval' };
-    }
+    const policy = participantPolicies?.[tool];
+    if (policy === 'auto') return { authorized: true, reason: 'auto' };
+    if (policy === 'requires_approval') return { authorized: false, reason: 'requires_approval' };
+    return { authorized: false, reason: 'hidden' };
   }
 
   hasAuthority(
