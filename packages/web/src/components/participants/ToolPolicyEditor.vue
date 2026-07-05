@@ -30,7 +30,10 @@ function setEnabled(tool: string, enabled: boolean) {
   const existing = props.overrides.find((o) => o.tool === tool);
   if (enabled) {
     if (existing) {
-      emit('update:overrides', props.overrides.map((o) => (o.tool === tool ? { ...o, enabled: true } : o)));
+      emit(
+        'update:overrides',
+        props.overrides.map((o) => (o.tool === tool ? { ...o, enabled: true } : o)),
+      );
     } else {
       emit('update:overrides', [
         ...props.overrides,
@@ -39,7 +42,10 @@ function setEnabled(tool: string, enabled: boolean) {
     }
   } else {
     // Remove from overrides entirely — absent = hidden
-    emit('update:overrides', props.overrides.filter((o) => o.tool !== tool));
+    emit(
+      'update:overrides',
+      props.overrides.filter((o) => o.tool !== tool),
+    );
   }
 }
 
