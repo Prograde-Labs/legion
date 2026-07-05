@@ -22,15 +22,15 @@ Design principle: usage lives **in the conversation tree** as part of `MessageDa
 
 ## Decisions
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Granularity | Per-message usage on `MessageData` | One assistant message = one LLM API call in Legion's model. Aggregates derived by walking tree. No new store. |
-| Pricing source | models.dev (default), `PricingSource` interface | No lock-in. Providers can override via `pricingSource?()` hook. Same source as OpenCode. |
-| Token buckets | input, output, reasoning, cache.read, cache.write | Matches OpenCode's proven schema. Reasoning split out because pricing for it is unsettled. |
-| Cost math | `decimal.js`, per-million-token rates | Avoids floating-point drift on sums. Same approach as OpenCode. |
-| Tool surface | `query_usage` + `list_models` | `query_usage` covers all aggregate needs via `groupBy`. No `get_message_usage` — usage already on messages returned by `get_conversation`. |
-| Aggregates | Derived on demand, not stored | Consistent with "stored in the structure of the conversation." If slow later, add projection index without changing tool API. |
-| Migration | Non-breaking, optional fields | `MessageData.usage?` optional. Old conversations load fine. `ProviderResponse.usage` shape change is internal, one consumer. |
+| Decision       | Choice                                            | Rationale                                                                                                                                  |
+| -------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Granularity    | Per-message usage on `MessageData`                | One assistant message = one LLM API call in Legion's model. Aggregates derived by walking tree. No new store.                              |
+| Pricing source | models.dev (default), `PricingSource` interface   | No lock-in. Providers can override via `pricingSource?()` hook. Same source as OpenCode.                                                   |
+| Token buckets  | input, output, reasoning, cache.read, cache.write | Matches OpenCode's proven schema. Reasoning split out because pricing for it is unsettled.                                                 |
+| Cost math      | `decimal.js`, per-million-token rates             | Avoids floating-point drift on sums. Same approach as OpenCode.                                                                            |
+| Tool surface   | `query_usage` + `list_models`                     | `query_usage` covers all aggregate needs via `groupBy`. No `get_message_usage` — usage already on messages returned by `get_conversation`. |
+| Aggregates     | Derived on demand, not stored                     | Consistent with "stored in the structure of the conversation." If slow later, add projection index without changing tool API.              |
+| Migration      | Non-breaking, optional fields                     | `MessageData.usage?` optional. Old conversations load fine. `ProviderResponse.usage` shape change is internal, one consumer.               |
 
 ---
 
@@ -200,6 +200,7 @@ OpenAI's `usage` object on chat completion responses:
 ```
 
 Key facts verified from OpenAI's prompt caching guide:
+
 - `prompt_tokens_details.cached_tokens` is **always present** (may be 0). It is a breakdown of `prompt_tokens` — `prompt_tokens` **includes** cached tokens.
 - `completion_tokens_details.reasoning_tokens` is a breakdown of `completion_tokens` — reasoning tokens are **included** in `completion_tokens`.
 - OpenAI has **no cache-write field** — caching is automatic and free to write.
@@ -252,11 +253,10 @@ Single normalization + costing point. Pure function, no I/O except pricing fetch
 export class UsageCalculator {
   constructor(
     private defaultPricingSource: PricingSource,
-    private providers: ProviderLookup,  // providerId -> Provider (for pricingSource override)
+    private providers: ProviderLookup, // providerId -> Provider (for pricingSource override)
   ) {}
 
   // ProviderLookup = Map<string, Provider> | (providerId: string) => Provider | undefined
-
 
   async compute(
     providerId: string,
@@ -272,16 +272,31 @@ export class UsageCalculator {
     const output = Math.max(0, raw.outputTokens - reasoning);
 
     // 2. Cost: provider override wins, else pricing source
-    const cost = providerCostOverride ?? await this.computeFromPricing(
-      providerId, modelId, { input, output, reasoning, cacheRead, cacheWrite },
-    );
+    const cost =
+      providerCostOverride ??
+      (await this.computeFromPricing(providerId, modelId, {
+        input,
+        output,
+        reasoning,
+        cacheRead,
+        cacheWrite,
+      }));
 
-    return { input, output, reasoning, cache: { read: cacheRead, write: cacheWrite }, cost, modelId, providerId };
+    return {
+      input,
+      output,
+      reasoning,
+      cache: { read: cacheRead, write: cacheWrite },
+      cost,
+      modelId,
+      providerId,
+    };
   }
 }
 ```
 
 Costing math (when no override):
+
 - Tiered-pricing lookup by context size (`inputTokens` pre-adjustment, before cache subtraction).
 - `decimal.js` arithmetic: `sum(bucket.tokens * rate / 1_000_000)`.
 - Reasoning charged at output rate (TODO marker — models.dev lacks reasoning-specific pricing, same approach as OpenCode).
@@ -342,6 +357,7 @@ Usage lives on `MessageData`, so existing tools that return messages (`get_conve
 ```
 
 **Returns:**
+
 ```typescript
 {
   totals: MessageUsageTotals,
@@ -354,6 +370,7 @@ Usage lives on `MessageData`, so existing tools that return messages (`get_conve
 ```
 
 Where:
+
 ```typescript
 interface MessageUsageTotals {
   input: number;
@@ -466,6 +483,7 @@ None otherwise — models.dev is just HTTPS fetch, no SDK needed.
 ### Testing
 
 **Unit tests:**
+
 - `ModelsDevPricingSource` — mock fetch, verify caching (24h TTL), fallback map, prefix stripping (`us.`, `eu.`), case-insensitive match, returns `undefined` for unknown model.
 - `UsageCalculator` — given `ProviderUsage` + `ModelPricing`, verify:
   - Cache subtraction from input (the footgun)
@@ -485,11 +503,13 @@ None otherwise — models.dev is just HTTPS fetch, no SDK needed.
 - `OpenAICompatibleProvider` — mock API response with `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`, verify extracted `ProviderUsage`
 
 **Integration test (`LEGION_INTEGRATION=1`):**
+
 - `query_usage` end-to-end via `POST /api/execute` against mock provider (existing `mock-provider` already returns `usage: { prompt_tokens, completion_tokens }` — expand to include cache/reasoning fields).
 - Verify usage appears on assistant message in `get_conversation` response.
 - Verify `query_usage` aggregates match the messages.
 
 **E2E (`packages/e2e`):**
+
 - Existing mock provider returns richer usage. Add assertion that `query_usage` returns non-zero cost after a conversation.
 
 ---
