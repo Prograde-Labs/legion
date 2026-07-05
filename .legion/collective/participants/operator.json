@@ -15,10 +15,13 @@
     "delete_conversation": "auto",
     "set_tool_policy": "auto",
     "set_credential": "auto",
+    "approval_response": "auto",
     "list_providers": "auto",
-    "configure_provider": "auto",
-    "list_credentials": "auto",
-    "set_credential_with_meta": "auto"
+    "save_provider": "auto",
+    "delete_provider": "auto",
+    "list_models": "auto",
+    "get_routing": "auto",
+    "save_routing": "auto"
   },
   "operator": true,
   "protected": true,

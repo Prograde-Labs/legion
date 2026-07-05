@@ -15,6 +15,7 @@ const MANAGEMENT_TOOLS = [
   'delete_conversation',
   'set_tool_policy',
   'set_credential',
+  'approval_response',
   // runtime / config tools (registered by WebConnector layer)
   'list_providers',
   'save_provider',
