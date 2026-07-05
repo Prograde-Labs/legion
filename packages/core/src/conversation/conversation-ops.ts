@@ -16,7 +16,12 @@ export function createConversation(title?: string): ConversationData {
 }
 
 export type NewMessageInput = Pick<MessageData, 'senderId' | 'recipientId' | 'role' | 'content'> &
-  Partial<Pick<MessageData, 'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id'>>;
+  Partial<
+    Pick<
+      MessageData,
+      'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'
+    >
+  >;
 
 export function createMessage(
   conversationId: string,
@@ -36,6 +41,7 @@ export function createMessage(
     status: 'active',
     toolCalls: input.toolCalls,
     toolResults: input.toolResults,
+    usage: input.usage,
     timestamp: nowIso(),
   };
 }

@@ -1,7 +1,19 @@
-import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
+import type {
+  AgentConfig,
+  MessageData,
+  MessageUsage,
+  ToolCallData,
+  ToolCallResult,
+} from '@legion/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
-import type { Provider, ProviderMessage, ProviderTool } from '../providers/Provider.js';
+import type {
+  Provider,
+  ProviderMessage,
+  ProviderResponse,
+  ProviderTool,
+} from '../providers/Provider.js';
+import type { UsageCalculator } from '../providers/UsageCalculator.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 
@@ -46,6 +58,7 @@ export class AgentRuntime implements Runtime {
   constructor(
     private participantId: string,
     private router: ModelRouter,
+    private usageCalculator?: UsageCalculator,
   ) {}
 
   async handle(_incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult> {
@@ -123,6 +136,16 @@ export class AgentRuntime implements Runtime {
         const response = await provider.complete(messages, providerTools, agent.model);
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
+          const usage = await this.computeUsage(agent, response);
+          if (usage) {
+            await context.conversation.append({
+              senderId: this.participantId,
+              recipientId: this.participantId,
+              role: 'assistant',
+              content: response.content ?? '',
+              usage,
+            });
+          }
           return { kind: 'response', content: response.content ?? '' };
         }
 
@@ -199,6 +222,7 @@ export class AgentRuntime implements Runtime {
           toolResults.push({ id: tc.id, name: tc.name, result });
         }
 
+        const usage = await this.computeUsage(agent, response);
         // Persist the tool-call turn to the conversation.
         await context.conversation.append({
           senderId: this.participantId,
@@ -207,6 +231,7 @@ export class AgentRuntime implements Runtime {
           content: response.content ?? '',
           toolCalls: toolCallData,
           toolResults,
+          usage,
         });
 
         // If any approvals are pending, return early.
@@ -328,5 +353,18 @@ export class AgentRuntime implements Runtime {
       updatedResults,
     );
     return null;
+  }
+
+  private async computeUsage(
+    agent: AgentConfig,
+    response: ProviderResponse,
+  ): Promise<MessageUsage | undefined> {
+    if (!response.usage || !this.usageCalculator) return undefined;
+    return this.usageCalculator.compute(
+      'unknown',
+      agent.model.model,
+      response.usage,
+      response.cost,
+    );
   }
 }
