@@ -30,13 +30,27 @@ export interface ProviderTool {
 
 export type ProviderStopReason = 'stop' | 'tool_calls' | 'max_tokens';
 
+/** Raw usage from the provider API. inputTokens includes cached tokens on OpenAI/AI SDK v6. */
+export interface ProviderUsage {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+}
+
 export interface ProviderResponse {
   /** Final assistant text, or null if the LLM only produced tool calls. */
   content: string | null;
   /** Non-empty when stopReason === 'tool_calls'. */
   toolCalls: ProviderToolCall[];
   stopReason: ProviderStopReason;
-  usage?: { promptTokens: number; completionTokens: number };
+  usage?: ProviderUsage;
+  /**
+   * Provider may override cost calculation (e.g. Copilot nano-AIU).
+   * If absent, UsageCalculator computes it via PricingSource.
+   */
+  cost?: number;
 }
 
 /**
