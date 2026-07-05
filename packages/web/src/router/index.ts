@@ -25,6 +25,16 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/processes',
+    component: () => import('../views/ProcessesView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/processes/:id',
+    component: () => import('../views/ProcessesView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/events',
     component: () => import('../views/EventStreamView.vue'),
     meta: { requiresAuth: true },
