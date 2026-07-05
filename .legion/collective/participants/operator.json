@@ -22,7 +22,14 @@
     "delete_provider": "auto",
     "list_models": "auto",
     "get_routing": "auto",
-    "save_routing": "auto"
+    "save_routing": "auto",
+    "start_process": "auto",
+    "list_processes": "auto",
+    "get_process": "auto",
+    "read_process_output": "auto",
+    "write_process_input": "auto",
+    "stop_process": "auto",
+    "delete_process": "auto"
   },
   "operator": true,
   "protected": true,
