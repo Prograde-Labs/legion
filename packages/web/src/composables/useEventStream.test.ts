@@ -49,7 +49,11 @@ describe('useEventStream on()', () => {
     const { on } = useEventStream();
     const off = on('message:sent', (payload) => received.push(payload));
 
-    ws._emit({ type: 'event', event: 'message:sent', data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' } });
+    ws._emit({
+      type: 'event',
+      event: 'message:sent',
+      data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' },
+    });
     expect(received).toHaveLength(1);
 
     off();
@@ -64,10 +68,18 @@ describe('useEventStream on()', () => {
     const { on } = useEventStream();
     const off = on('message:sent', (p) => received.push(p), { conversationId: 'c1' });
 
-    ws._emit({ type: 'event', event: 'message:sent', data: { conversationId: 'c2', senderId: 'op', recipientId: 'ag' } });
+    ws._emit({
+      type: 'event',
+      event: 'message:sent',
+      data: { conversationId: 'c2', senderId: 'op', recipientId: 'ag' },
+    });
     expect(received).toHaveLength(0);
 
-    ws._emit({ type: 'event', event: 'message:sent', data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' } });
+    ws._emit({
+      type: 'event',
+      event: 'message:sent',
+      data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' },
+    });
     expect(received).toHaveLength(1);
 
     off();
@@ -89,11 +101,19 @@ describe('useEventStream on()', () => {
     });
 
     const wrapper = mount(TestComponent);
-    ws._emit({ type: 'event', event: 'iteration', data: { conversationId: 'c1', participantId: 'ag', iteration: 0 } });
+    ws._emit({
+      type: 'event',
+      event: 'iteration',
+      data: { conversationId: 'c1', participantId: 'ag', iteration: 0 },
+    });
     expect(received).toHaveLength(1);
 
     await wrapper.unmount();
-    ws._emit({ type: 'event', event: 'iteration', data: { conversationId: 'c1', participantId: 'ag', iteration: 1 } });
+    ws._emit({
+      type: 'event',
+      event: 'iteration',
+      data: { conversationId: 'c1', participantId: 'ag', iteration: 1 },
+    });
     // handler should have been removed — no new events
     expect(received).toHaveLength(1);
   });

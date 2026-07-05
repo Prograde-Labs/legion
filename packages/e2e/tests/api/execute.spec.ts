@@ -8,9 +8,12 @@ test.describe('POST /api/execute — management tools', () => {
   });
 
   test('list_participants returns array with at least the operator', async ({ api }) => {
-    const { result } = await api.execute<{ id: string; name: string; type: string; status: string }>(
-      token, 'list_participants',
-    );
+    const { result } = await api.execute<{
+      id: string;
+      name: string;
+      type: string;
+      status: string;
+    }>(token, 'list_participants');
     expect(result.status).toBe('success');
     expect(Array.isArray(result.data)).toBe(true);
     const operator = result.data!.find((p) => p.id === 'operator');
@@ -20,9 +23,7 @@ test.describe('POST /api/execute — management tools', () => {
   });
 
   test('list_tools returns array of tool names, count > 0', async ({ api }) => {
-    const { result } = await api.execute<string[]>(
-      token, 'list_tools',
-    );
+    const { result } = await api.execute<string[]>(token, 'list_tools');
     expect(result.status).toBe('success');
     expect(Array.isArray(result.data)).toBe(true);
     expect(result.data!.length).toBeGreaterThan(0);
@@ -51,7 +52,9 @@ test.describe('POST /api/execute — management tools', () => {
     expect(result.data!).toHaveLength(0);
   });
 
-  test('set_credential_with_meta stores credential, appears in list_credentials', async ({ api }) => {
+  test('set_credential_with_meta stores credential, appears in list_credentials', async ({
+    api,
+  }) => {
     const setResult = await api.execute(token, 'set_credential_with_meta', {
       key: 'test-cred',
       value: 'sk-test-value',
@@ -64,7 +67,10 @@ test.describe('POST /api/execute — management tools', () => {
     expect(cred).toBeDefined();
   });
 
-  test('configure_provider stores provider, appears in list_providers', async ({ api, connInfo }) => {
+  test('configure_provider stores provider, appears in list_providers', async ({
+    api,
+    connInfo,
+  }) => {
     const configResult = await api.execute(token, 'configure_provider', {
       name: 'mock-llm',
       type: 'openai-compatible',
@@ -80,19 +86,18 @@ test.describe('POST /api/execute — management tools', () => {
   });
 
   test('create_agent returns new participant with id, name, type: "agent"', async ({ api }) => {
-    const { result } = await api.execute<{ id: string }>(
-      token, 'create_agent', {
-        id: 'e2e-agent',
-        name: 'e2e-agent',
-        systemPrompt: 'you are helpful',
-        model: { provider: 'mock-llm', model: 'mock-model' },
-      },
-    );
+    const { result } = await api.execute<{ id: string }>(token, 'create_agent', {
+      id: 'e2e-agent',
+      name: 'e2e-agent',
+      systemPrompt: 'you are helpful',
+      model: { provider: 'mock-llm', model: 'mock-model' },
+    });
     expect(result.status).toBe('success');
     expect(typeof result.data!.id).toBe('string');
 
     const listResult = await api.execute<{ id: string; name: string; type: string }[]>(
-      token, 'list_participants',
+      token,
+      'list_participants',
     );
     const agent = listResult.result.data!.find((p) => p.id === 'e2e-agent');
     expect(agent).toBeDefined();
@@ -103,28 +108,28 @@ test.describe('POST /api/execute — management tools', () => {
   test('modify_agent returns updated participant', async ({ api }) => {
     // Find the e2e-agent created in previous test
     const listResult = await api.execute<{ id: string; name: string }[]>(
-      token, 'list_participants',
+      token,
+      'list_participants',
     );
     const agent = listResult.result.data!.find((p) => p.name === 'e2e-agent');
     expect(agent).toBeDefined();
 
-    const { result } = await api.execute<{ id: string; name: string }>(
-      token, 'modify_agent', {
-        id: agent!.id,
-        name: 'e2e-agent',
-        model: 'mock-model-v2',
-        systemPrompt: 'you are helpful',
-        maxIterations: 5,
-        tools: {},
-      },
-    );
+    const { result } = await api.execute<{ id: string; name: string }>(token, 'modify_agent', {
+      id: agent!.id,
+      name: 'e2e-agent',
+      model: 'mock-model-v2',
+      systemPrompt: 'you are helpful',
+      maxIterations: 5,
+      tools: {},
+    });
     expect(result.status).toBe('success');
     expect(result.data!.id).toBe(agent!.id);
   });
 
   test('retire_agent causes participant status to become "retired"', async ({ api }) => {
     const listResult = await api.execute<{ id: string; name: string; status: string }[]>(
-      token, 'list_participants',
+      token,
+      'list_participants',
     );
     const agent = listResult.result.data!.find((p) => p.name === 'e2e-agent');
     expect(agent).toBeDefined();
@@ -132,7 +137,8 @@ test.describe('POST /api/execute — management tools', () => {
     await api.execute(token, 'retire_agent', { id: agent!.id });
 
     const afterList = await api.execute<{ id: string; status: string }[]>(
-      token, 'list_participants',
+      token,
+      'list_participants',
     );
     const retired = afterList.result.data!.find((p) => p.id === agent!.id);
     expect(retired!.status).toBe('retired');

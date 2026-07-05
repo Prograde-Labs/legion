@@ -44,7 +44,9 @@ export function startMockProvider(port: number): Promise<MockProvider> {
           res.end(chatResponse());
         } else {
           res.writeHead(404);
-          res.end(JSON.stringify({ error: { message: 'not found', type: 'invalid_request_error' } }));
+          res.end(
+            JSON.stringify({ error: { message: 'not found', type: 'invalid_request_error' } }),
+          );
         }
       });
     });
@@ -54,9 +56,7 @@ export function startMockProvider(port: number): Promise<MockProvider> {
       resolve({
         server,
         stop: () =>
-          new Promise<void>((res, rej) =>
-            server.close((err) => (err ? rej(err) : res())),
-          ),
+          new Promise<void>((res, rej) => server.close((err) => (err ? rej(err) : res()))),
       });
     });
   });

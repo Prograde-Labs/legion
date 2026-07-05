@@ -46,13 +46,19 @@ export class EventBus {
     const set = this.handlers.get(event);
     if (set) {
       for (const handler of [...set]) {
-        try { handler(payload); } catch (err) {
+        try {
+          handler(payload);
+        } catch (err) {
           this.onError?.(event, err);
         }
       }
     }
     for (const handler of [...this.anyHandlers]) {
-      try { handler(event as string, payload); } catch { /* isolate */ }
+      try {
+        handler(event as string, payload);
+      } catch {
+        /* isolate */
+      }
     }
   }
 }

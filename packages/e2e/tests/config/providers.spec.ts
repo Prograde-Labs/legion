@@ -33,7 +33,9 @@ test.describe('Config — Providers tab', () => {
     await slideOver.getByRole('textbox').nth(2).fill('mock-model');
 
     await page.getByRole('button', { name: 'Save' }).click();
-    await expect(page.getByText('Add provider', { exact: true })).not.toBeVisible({ timeout: 3000 });
+    await expect(page.getByText('Add provider', { exact: true })).not.toBeVisible({
+      timeout: 3000,
+    });
 
     // Provider row appears in table
     await expect(page.getByRole('row').filter({ hasText: 'ui-mock-provider' })).toBeVisible();
@@ -62,7 +64,9 @@ test.describe('Config — Providers tab', () => {
     await slideOver.getByRole('textbox').nth(2).fill('mock-model-v2');
     await page.getByRole('button', { name: 'Save' }).click();
 
-    await expect(page.getByRole('row').filter({ hasText: 'ui-mock-provider' }).getByText('mock-model-v2')).toBeVisible();
+    await expect(
+      page.getByRole('row').filter({ hasText: 'ui-mock-provider' }).getByText('mock-model-v2'),
+    ).toBeVisible();
   });
 
   test('provider with no credential shows "none" indicator', async ({ authPage }) => {
@@ -74,7 +78,9 @@ test.describe('Config — Providers tab', () => {
     await expect(row.getByText('none')).toBeVisible();
   });
 
-  test('switching between Providers and Credentials tabs does not lose state', async ({ authPage }) => {
+  test('switching between Providers and Credentials tabs does not lose state', async ({
+    authPage,
+  }) => {
     const { page } = authPage;
     await page.goto('/#/config');
 

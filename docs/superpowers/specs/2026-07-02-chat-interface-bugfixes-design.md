@@ -62,6 +62,7 @@ Confirmed by reproducing on a known-fresh server process (PID verified new after
 ### 5.2 Client honors expiry
 
 `useAuth.ts`:
+
 - Persist `expiresAt` from the login response (already wired; now non-null).
 - `isAuthenticated` returns `false` once `Date.now() >= expiresAt * 1000`.
 - Defense-in-depth: if `expiresAt` is absent for any reason, decode the JWT payload's `exp` claim client-side and use it. A token with no usable expiry that fails verification is handled by the 401 path below.
@@ -91,6 +92,7 @@ Confirmed by reproducing on a known-fresh server process (PID verified new after
 A new management tool `get_participant` returns a single participant's full configuration: `id`, `name`, `type`, `status`, and (for agents) `model` (`{provider, model}`), `systemPrompt`, `maxIterations`, and `tools` (the policy map). Added to the operator's `auto` tool policy.
 
 This powers:
+
 - The **Edit** slide-over, which loads the full config on open (fixing #6's stale-data bug).
 - The **Participants table** Model/Provider columns (incidentally fixes display bug #7).
 
@@ -113,6 +115,7 @@ This powers:
 ### 7.1 Schema: parent link
 
 `ConversationData` and `ConversationMeta` (`packages/types/src/conversation.ts`) gain:
+
 - `parentConversationId?: string` — the conversation this sub-thread was spawned from.
 - `parentToolCallId?: string` — the `communicate` tool-call id in the parent that created this sub-thread, so the UI can nest the sub-thread under the exact tool call.
 
@@ -120,14 +123,15 @@ Both fields are optional; top-level conversations leave them unset.
 
 ### 7.2 Delegation rule (backend)
 
-**Core correction.** `communicate` must never join the caller's *current* conversation implicitly. The present behavior — `communicate-tool.ts:32` computes `conversationId: conversationId ?? context.conversationId` — is a genuine deviation from Legion's model: an unaddressed send silently merges into whatever thread the caller happens to be in. The rule is corrected universally, independent of participant type:
+**Core correction.** `communicate` must never join the caller's _current_ conversation implicitly. The present behavior — `communicate-tool.ts:32` computes `conversationId: conversationId ?? context.conversationId` — is a genuine deviation from Legion's model: an unaddressed send silently merges into whatever thread the caller happens to be in. The rule is corrected universally, independent of participant type:
 
 - **Explicit `conversationId` argument supplied** → join that conversation (opt-in continuation).
 - **No `conversationId` argument** → **always create a new conversation.** The tool no longer substitutes `context.conversationId`.
 
 This holds for every caller (agent, user, service). It is not scoped to agents.
 
-**Parent linking.** When a new conversation is created this way *and the caller is itself currently in a conversation* (`context.conversationId` is a non-empty, real conversation id), the new conversation records:
+**Parent linking.** When a new conversation is created this way _and the caller is itself currently in a conversation_ (`context.conversationId` is a non-empty, real conversation id), the new conversation records:
+
 - `parentConversationId = context.conversationId`
 - `parentToolCallId = <the communicate tool call id>`
 
@@ -147,6 +151,7 @@ so the UI can nest it under the originating tool call. When the caller has no cu
 ### 7.4 Frontend: nested rendering
 
 Wire the existing-but-orphaned `ToolCallBlock.vue` / `SubThreadBlock.vue`:
+
 - In `ConversationThread.vue` chat mode, when a message has a `communicate` tool call that produced a sub-thread, render a collapsible delegation block (`ToolCallBlock` with a `subThread`) showing the child conversation's messages nested with the amber left-border treatment from the mockup.
 - `useConversation.ts` maps the `subThreads` returned by `get_conversation` onto the corresponding tool calls.
 - Collapsed by default; expandable to reveal the delegated exchange.
@@ -172,6 +177,7 @@ Each verification uses the `verification-before-completion` discipline: run the 
 ## 9. Affected Files (indicative)
 
 **Backend:**
+
 - `packages/runtime/src/server/routes/auth.ts` — return `expiresAt`.
 - `packages/core/src/tools/management-tools.ts` — `create_agent`/`modify_agent` source-of-truth; new `get_participant`.
 - `packages/core/src/collective/default-participants.ts` — operator `get_participant` policy.
@@ -180,6 +186,7 @@ Each verification uses the `verification-before-completion` discipline: run the 
 - `packages/types/src/conversation.ts` — `parentConversationId`, `parentToolCallId`, sub-thread response shape.
 
 **Frontend:**
+
 - `packages/web/src/composables/useAuth.ts`, `useExecute.ts`, `useWebSocket.ts` — session/expiry/redirect.
 - `packages/web/src/components/participants/ParticipantSlideOver.vue` — provider default, full-config load, default policy.
 - `packages/web/src/views/ParticipantsView.vue` — Model/Provider columns from `get_participant`/list.
@@ -189,6 +196,6 @@ Each verification uses the `verification-before-completion` discipline: run the 
 
 ## 10. Risks & Mitigations
 
-- **Delegation rule breadth.** The corrected rule applies to all callers: no `conversationId` → new conversation, always. This is intentionally universal (§7.2) rather than scoped to agents. Human→agent chat is unaffected because the operator's first message already had an ephemeral (`''`) context and follow-ups pass an explicit `conversationId`; explicit `conversationId` remains the escape hatch for same-thread continuation. Any code path that *relied* on the implicit-join is being corrected deliberately.
+- **Delegation rule breadth.** The corrected rule applies to all callers: no `conversationId` → new conversation, always. This is intentionally universal (§7.2) rather than scoped to agents. Human→agent chat is unaffected because the operator's first message already had an ephemeral (`''`) context and follow-ups pass an explicit `conversationId`; explicit `conversationId` remains the escape hatch for same-thread continuation. Any code path that _relied_ on the implicit-join is being corrected deliberately.
 - **`get_conversation` payload growth** from inlined sub-threads. Acceptable at current scale; sub-threads are typically short. Can move to lazy fetch later if needed.
 - **Config source-of-truth switch (#4).** Leaving stale `agents/*.json` in place avoids destroying data; the runtime simply ignores them.

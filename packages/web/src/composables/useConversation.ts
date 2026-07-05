@@ -28,7 +28,7 @@ export function useConversation(conversationId: string | null) {
   const loading = ref(conversationId !== null);
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
-  const iterationFired = ref(false);  // set when iteration event arrives
+  const iterationFired = ref(false); // set when iteration event arrives
   let loadSeq = 0; // prevents stale concurrent load() responses from overwriting newer data
 
   const isThinking = computed(() => {
@@ -65,42 +65,68 @@ export function useConversation(conversationId: string | null) {
   }
 
   if (conversationId) {
-    on('message:sent', () => {
-      // Outgoing user message confirmed — keep thinking indicator active.
-      void load();
-    }, { conversationId });
+    on(
+      'message:sent',
+      () => {
+        // Outgoing user message confirmed — keep thinking indicator active.
+        void load();
+      },
+      { conversationId },
+    );
 
     // message:delivered fires when the agent's async reply is persisted and
     // delivered back to the operator. This is the primary "reply arrived" signal.
-    on('message:delivered', () => {
-      isThinkingLocal.value = false;
-      iterationFired.value = false;
+    on(
+      'message:delivered',
+      () => {
+        isThinkingLocal.value = false;
+        iterationFired.value = false;
+        void load();
+      },
+      { conversationId },
+    );
+
+    on(
+      'iteration',
+      () => {
+        // iteration events are scoped to the agent's participantId on the server,
+        // so the operator only receives them if they ARE the agent (not typical).
+        // We still set iterationFired in case the scope rules change.
+        iterationFired.value = true;
+      },
+      { conversationId },
+    );
+
+    on(
+      'approval:requested',
+      () => {
+        isThinkingLocal.value = false;
+        iterationFired.value = false;
+        void load(); // reload to get the pending_approval tool result
+      },
+      { conversationId },
+    );
+
+    on(
+      'approval:resolved',
+      () => {
+        iterationFired.value = true; // agent will resume
+        void load();
+      },
+      { conversationId },
+    );
+
+    on(
+      'tool:result',
+      () => {
+        void load(); // keep tool call blocks in sync
+      },
+      { conversationId },
+    );
+
+    onMounted(() => {
       void load();
-    }, { conversationId });
-
-    on('iteration', () => {
-      // iteration events are scoped to the agent's participantId on the server,
-      // so the operator only receives them if they ARE the agent (not typical).
-      // We still set iterationFired in case the scope rules change.
-      iterationFired.value = true;
-    }, { conversationId });
-
-    on('approval:requested', () => {
-      isThinkingLocal.value = false;
-      iterationFired.value = false;
-      void load(); // reload to get the pending_approval tool result
-    }, { conversationId });
-
-    on('approval:resolved', () => {
-      iterationFired.value = true; // agent will resume
-      void load();
-    }, { conversationId });
-
-    on('tool:result', () => {
-      void load(); // keep tool call blocks in sync
-    }, { conversationId });
-
-    onMounted(() => { void load(); });
+    });
   }
 
   return { messages, subThreads, loading, error, isThinking, load, markSent };

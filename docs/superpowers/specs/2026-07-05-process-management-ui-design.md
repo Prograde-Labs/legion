@@ -14,20 +14,20 @@ A `/processes` section in the Legion SPA lets operators start, monitor, and cont
 
 ## Decisions
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Layout | Split view: list sidebar left, detail right | Mirrors ConversationsView; keeps list visible while watching output |
-| Routing | `/processes` + `/processes/:id` | Same route, same component — `activeId` derived from `route.params.id` |
-| Empty / default state | Inline `ProcessStartForm` in right pane | Mirrors `/conversations/new`; no wasted click to get a form |
-| Process mode | Always `start_process` (async) | Both async and `execute_command` produce `ProcessEntry`; UI treats them uniformly |
-| Detail layout | Terminal-first: header bar → scrollback → sticky stdin footer | Output space maximised; metadata in header, not sidebar |
-| Terminal style | Classic: cyan prompt, slate stdout, green success, red stderr, cursor blink | Familiar, colour-coded by stream |
-| ANSI rendering | `ansi_up` library | Zero deps, single TS file, stateful streaming API handles chunk boundaries, 256-colour + truecolor, MIT, actively maintained (v6.0.6 May 2025) |
-| Output data model | `chunks: Ref<string[]>` in `useProcess` | Preserves `AnsiUp` stateful streaming; composable stays UI-free |
-| `AnsiOutput.vue` | Owns `AnsiUp` instance, scroll-lock, `<pre>` DOM | UI concern isolated to component; matches `MarkdownContent.vue` pattern |
-| `ProcessDetail` lifecycle | `:key="processId"` — destroy/recreate on id change | Matches `ConversationThread` pattern; `useProcess` stays simple |
-| List refresh | Poll every 5 s + manual `refresh()` on form submit | No process lifecycle EventBus events in v1; simple and reliable |
-| ANSI scroll-lock | Auto-scroll to bottom unless user scrolled up (50 px threshold) | Standard terminal UX |
+| Decision                  | Choice                                                                      | Rationale                                                                                                                                      |
+| ------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layout                    | Split view: list sidebar left, detail right                                 | Mirrors ConversationsView; keeps list visible while watching output                                                                            |
+| Routing                   | `/processes` + `/processes/:id`                                             | Same route, same component — `activeId` derived from `route.params.id`                                                                         |
+| Empty / default state     | Inline `ProcessStartForm` in right pane                                     | Mirrors `/conversations/new`; no wasted click to get a form                                                                                    |
+| Process mode              | Always `start_process` (async)                                              | Both async and `execute_command` produce `ProcessEntry`; UI treats them uniformly                                                              |
+| Detail layout             | Terminal-first: header bar → scrollback → sticky stdin footer               | Output space maximised; metadata in header, not sidebar                                                                                        |
+| Terminal style            | Classic: cyan prompt, slate stdout, green success, red stderr, cursor blink | Familiar, colour-coded by stream                                                                                                               |
+| ANSI rendering            | `ansi_up` library                                                           | Zero deps, single TS file, stateful streaming API handles chunk boundaries, 256-colour + truecolor, MIT, actively maintained (v6.0.6 May 2025) |
+| Output data model         | `chunks: Ref<string[]>` in `useProcess`                                     | Preserves `AnsiUp` stateful streaming; composable stays UI-free                                                                                |
+| `AnsiOutput.vue`          | Owns `AnsiUp` instance, scroll-lock, `<pre>` DOM                            | UI concern isolated to component; matches `MarkdownContent.vue` pattern                                                                        |
+| `ProcessDetail` lifecycle | `:key="processId"` — destroy/recreate on id change                          | Matches `ConversationThread` pattern; `useProcess` stays simple                                                                                |
+| List refresh              | Poll every 5 s + manual `refresh()` on form submit                          | No process lifecycle EventBus events in v1; simple and reliable                                                                                |
+| ANSI scroll-lock          | Auto-scroll to bottom unless user scrolled up (50 px threshold)             | Standard terminal UX                                                                                                                           |
 
 ---
 
@@ -95,6 +95,7 @@ Thin orchestrator. Mirrors `ConversationsView` structure.
 Left sidebar. Receives `processes: ProcessHandle[]` and `activeId: string | null` as props.
 
 Each row displays:
+
 - `ProcessStatusDot` with current status
 - Command + optional name (truncated)
 - Elapsed time if running, exit time if done
@@ -107,13 +108,13 @@ Rows sorted by `startedAt` descending (most recent first). All statuses shown; e
 
 Extends `StatusDot.vue` pattern with process-specific colours:
 
-| Status | Colour |
-|---|---|
-| `running` | cyan-400 (animated pulse) |
-| `starting` | amber-400 |
-| `exited` | slate-500 |
-| `killed` | red-400 |
-| `abandoned` | navy-500 |
+| Status      | Colour                    |
+| ----------- | ------------------------- |
+| `running`   | cyan-400 (animated pulse) |
+| `starting`  | amber-400                 |
+| `exited`    | slate-500                 |
+| `killed`    | red-400                   |
+| `abandoned` | navy-500                  |
 
 ### `ProcessStartForm.vue`
 
@@ -121,16 +122,17 @@ Rendered in the right pane when no process is selected (`/processes`).
 
 Fields:
 
-| Field | Input | Notes |
-|---|---|---|
-| Command | text, required | e.g. `npm` |
-| Args | text, optional | space-separated; split on submit; e.g. `run dev` |
-| Name | text, optional | display name for the process list |
-| Working dir | text, optional | defaults to workspaceRoot on backend |
-| TTY | checkbox | allocate pseudo-terminal |
-| Shell | checkbox | wrap in `/bin/sh -c` |
+| Field       | Input          | Notes                                            |
+| ----------- | -------------- | ------------------------------------------------ |
+| Command     | text, required | e.g. `npm`                                       |
+| Args        | text, optional | space-separated; split on submit; e.g. `run dev` |
+| Name        | text, optional | display name for the process list                |
+| Working dir | text, optional | defaults to workspaceRoot on backend             |
+| TTY         | checkbox       | allocate pseudo-terminal                         |
+| Shell       | checkbox       | wrap in `/bin/sh -c`                             |
 
 On submit:
+
 1. Calls `execute('start_process', { command, args, name, cwd, tty, shell })`
 2. On success: `router.push('/processes/' + result.id)` + `useProcesses().refresh()`
 3. On error: shows inline error message, form stays open
@@ -160,6 +162,7 @@ Uses `useProcess(processId)` for all state and actions.
 ```
 
 **Header bar** (always visible):
+
 - `ProcessStatusDot` + status label
 - Command string (+ name if set)
 - PID
@@ -170,6 +173,7 @@ Uses `useProcess(processId)` for all state and actions.
 **`<AnsiOutput>`**: receives `chunks` from `useProcess`. Takes up all remaining vertical space.
 
 **Stdin footer** (only rendered when `status === 'running'`):
+
 - Text input, placeholder `"stdin…"`
 - `Send` button: calls `send(input)`, clears input on success
 - Enter key also submits
@@ -179,23 +183,27 @@ Uses `useProcess(processId)` for all state and actions.
 Prop: `chunks: string[]`
 
 Owns:
+
 - `AnsiUp` instance (one per component lifetime — stateful, handles split escape sequences)
 - Internal `renderedHtml: string` (append-only, never reset during component lifetime)
 - `processed: number` counter — index into `chunks` up to which rendering is complete
 - `<pre>` DOM ref for scroll management
 
 Rendering loop (runs in `watchEffect` or `watch(() => chunks.length, ...)`):
+
 1. Slice `chunks.slice(processed)` to get new chunks
 2. For each: `renderedHtml += ansiUp.ansi_to_html(chunk)`
 3. `processed = chunks.length`
 4. Update `<pre>` innerHTML and conditionally scroll
 
 Scroll-lock:
+
 - After each render: if `preEl.scrollHeight - preEl.scrollTop - preEl.clientHeight < 50` → scroll to bottom
 - `scroll` listener: if user scrolls up past threshold, auto-scroll stops
 - Scroll-to-bottom button appears when not at bottom (small overlay button, bottom-right corner of the output pane)
 
 Styling:
+
 - `<pre>` with `font-family: monospace`, `font-size: 11.5px`, `line-height: 1.65`, `background: #0a111e` (slightly darker than navy-950), padding `14px 16px`
 - `ansi_up` configured with `use_classes: false` (inline styles) so ANSI colours render without a separate CSS class sheet
 
@@ -207,16 +215,16 @@ Styling:
 
 ```typescript
 export function useProcesses() {
-  const processes: Ref<ProcessHandle[]>
-  const loading: Ref<boolean>
-  const error: Ref<string | null>
+  const processes: Ref<ProcessHandle[]>;
+  const loading: Ref<boolean>;
+  const error: Ref<string | null>;
 
-  async function refresh(): Promise<void>  // calls list_processes({ status: 'all' })
+  async function refresh(): Promise<void>; // calls list_processes({ status: 'all' })
 
   // Auto-poll every 5s; stopped on last consumer unmount via onUnmounted
   // refresh() called immediately on first use
 
-  return { processes, loading, error, refresh }
+  return { processes, loading, error, refresh };
 }
 ```
 
@@ -226,25 +234,27 @@ Polling runs while any component consuming `useProcesses` is mounted. Uses a mod
 
 ```typescript
 export function useProcess(processId: string) {
-  const handle: Ref<ProcessHandle | null>
-  const chunks: Ref<string[]>      // raw decoded strings, append-only
-  const error: Ref<string | null>
+  const handle: Ref<ProcessHandle | null>;
+  const chunks: Ref<string[]>; // raw decoded strings, append-only
+  const error: Ref<string | null>;
 
-  async function send(data: string): Promise<void>   // write_process_input
-  async function stop(): Promise<void>               // stop_process
-  async function del(): Promise<void>                // delete_process
+  async function send(data: string): Promise<void>; // write_process_input
+  async function stop(): Promise<void>; // stop_process
+  async function del(): Promise<void>; // delete_process
 
-  return { handle, chunks, error, send, stop, del }
+  return { handle, chunks, error, send, stop, del };
 }
 ```
 
 **Mount sequence:**
+
 1. `execute('get_process', { id })` → populate `handle`
 2. If `handle.status === 'running'`: `execute('read_process_output', { id, bytes: 65536, decode: 'base64' })` → decode → push as first element of `chunks`
 3. If `handle.status === 'running'`: send `{ type: 'subscribe_process', processId: id }` via `useWebSocket().send()`
 4. Register WS message handler via `useWebSocket().onMessage()`
 
 **WS message handling:**
+
 - `{ type: 'process:output', processId: id }` → `atob(data)` → push to `chunks`
 - `{ type: 'process:exited', processId: id }` → update `handle.status`, `handle.exitCode`; server auto-detaches subscription
 - `{ type: 'process:error', processId: id }` → set `error`
@@ -258,11 +268,11 @@ export function useProcess(processId: string) {
 
 The `<pre>` container background is `#0a111e`. Text colours via `ansi_up` inline styles for ANSI codes. For non-ANSI text (plain stdout):
 
-| Content | Class / colour |
-|---|---|
-| Default stdout | `text-slate-300` (`#cbd5e1`) |
-| stderr (stream label only — ANSI codes colour the content itself) | `text-red-400` |
-| Cursor (blinking block) | `border-r-2 border-cyan-400`, CSS `animation: blink 1s step-end infinite` |
+| Content                                                           | Class / colour                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Default stdout                                                    | `text-slate-300` (`#cbd5e1`)                                              |
+| stderr (stream label only — ANSI codes colour the content itself) | `text-red-400`                                                            |
+| Cursor (blinking block)                                           | `border-r-2 border-cyan-400`, CSS `animation: blink 1s step-end infinite` |
 
 The cursor is shown only when `status === 'running'` and the `chunks` array has been populated. It is appended as a static `<span>` after the `<pre>` content, not inside `renderedHtml`.
 

@@ -58,10 +58,7 @@ export class MCPToolSource implements ToolSource {
     if (this.client) return [];
 
     const transport = this.createTransport();
-    const client = new Client(
-      { name: 'legion', version: '2.0.0' },
-      { capabilities: {} },
-    );
+    const client = new Client({ name: 'legion', version: '2.0.0' }, { capabilities: {} });
     await client.connect(transport);
     this.client = client;
 
@@ -75,9 +72,11 @@ export class MCPToolSource implements ToolSource {
       const tool: Tool = {
         name: namespacedName,
         description: mcpTool.description ?? namespacedName,
-        parameters: mcpTool.inputSchema ?? {
-          type: 'object',
-        } as JSONSchema,
+        parameters:
+          mcpTool.inputSchema ??
+          ({
+            type: 'object',
+          } as JSONSchema),
         async execute(args: unknown, _context: ToolContext): Promise<ToolResult> {
           try {
             const response = (await client!.callTool({
@@ -131,9 +130,7 @@ export class MCPToolSource implements ToolSource {
     // config.command is guaranteed non-null here (constructor guard).
     const stdioEnv = config.env
       ? ({
-          ...Object.fromEntries(
-            Object.entries(process.env).filter(([, v]) => v !== undefined),
-          ),
+          ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)),
           ...expandEnv(config.env),
         } as Record<string, string>)
       : undefined;

@@ -60,7 +60,8 @@ A new management tool in `packages/core/src/tools/management-tools.ts`:
 ```ts
 export const deleteConversationTool: Tool = {
   name: 'delete_conversation',
-  description: 'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
+  description:
+    'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
   parameters: {
     type: 'object',
     properties: {
@@ -158,6 +159,7 @@ After implementation, against the running server:
 ## 7. Affected Files
 
 **Backend:**
+
 - `packages/core/src/conversation/ConversationStore.ts` — add `delete` to interface.
 - `packages/core/src/conversation/FileConversationStore.ts` — implement `delete` (recursive cascade via `listByParent`).
 - `packages/core/src/tools/management-tools.ts` — add `deleteConversationTool`; register in `managementTools` and `createManagementTools`.
@@ -165,11 +167,13 @@ After implementation, against the running server:
 - `.legion/collective/participants/operator.json` — add `"delete_conversation": "auto"`.
 
 **Frontend:**
+
 - `packages/web/src/components/conversations/ConversationList.vue` — hover trash icon; emit `delete`.
 - `packages/web/src/components/conversations/ConversationThread.vue` — header trash button; emit `delete`.
 - `packages/web/src/views/ConversationsView.vue` — `pendingDeleteId` state, confirm modal, `deleteConversation` handler, list refresh + navigation.
 
 **Tests:**
+
 - `packages/core/src/conversation/FileConversationStore.test.ts` (new or extended) — store-level delete tests.
 - `packages/core/src/tools/management-tools.test.ts` — `delete_conversation` tool tests.
 

@@ -97,7 +97,10 @@ async function setup(dir: string) {
 
   const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
 
-  runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter as ModelRouter));
+  runtimeRegistry.registerFactory(
+    'agent',
+    (id) => new AgentRuntime(id, modelRouter as ModelRouter),
+  );
   runtimeRegistry.registerFactory('user', (_id) => ({
     async handle() {
       return { kind: 'void' as const };

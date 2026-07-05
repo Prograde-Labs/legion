@@ -79,7 +79,7 @@ function summary(e: LiveEvent): string {
 
 <template>
   <AppLayout>
-  <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full">
       <!-- Toolbar -->
       <div
         class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-600 bg-navy-900 flex-wrap"

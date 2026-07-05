@@ -83,7 +83,11 @@ test.describe('ConversationsView', () => {
       await expect(page).toHaveURL(/#\/conversations\//);
     });
 
-    test('selecting different conversation replaces thread content', async ({ authPage, api, connInfo }) => {
+    test('selecting different conversation replaces thread content', async ({
+      authPage,
+      api,
+      connInfo,
+    }) => {
       const { page, token } = authPage;
 
       // Create a second conversation
@@ -124,7 +128,9 @@ test.describe('ConversationsView', () => {
       await expect(page.getByText('Select a conversation or start a new one')).toBeVisible();
     });
 
-    test('navigating away and back does not duplicate conversations in sidebar', async ({ authPage }) => {
+    test('navigating away and back does not duplicate conversations in sidebar', async ({
+      authPage,
+    }) => {
       const { page } = authPage;
       await page.goto('/#/conversations');
       await expect(conversationEntry(page, conversationId)).toHaveCount(1);

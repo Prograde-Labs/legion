@@ -12,21 +12,22 @@
 
 ## File Map
 
-| File | Action | Responsibility |
-|---|---|---|
-| `packages/web/package.json` | Modify | Add runtime + dev dependencies |
-| `packages/web/src/lib/markdown.ts` | **Create** | Module singleton: Shiki + markdown-it init, `ensureReady()`, `render()` |
-| `packages/web/src/components/MarkdownContent.vue` | **Create** | Reusable rendering component: lifecycle, `v-html`, copy-button event delegation |
-| `packages/web/src/assets/style.css` | Modify | Add `.md-content` prose styles + code block / copy button styles |
-| `packages/web/src/components/conversations/MessageBubble.vue` | Modify | Swap `{{ content }}` for `<MarkdownContent>` |
-| `packages/web/src/components/conversations/SubThreadBlock.vue` | Modify | Swap `{{ msg.content }}` for `<MarkdownContent>` |
-| `packages/e2e/tests/conversations/markdown.spec.ts` | **Create** | E2e: markdown renders as HTML; copy button writes correct text |
+| File                                                           | Action     | Responsibility                                                                  |
+| -------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `packages/web/package.json`                                    | Modify     | Add runtime + dev dependencies                                                  |
+| `packages/web/src/lib/markdown.ts`                             | **Create** | Module singleton: Shiki + markdown-it init, `ensureReady()`, `render()`         |
+| `packages/web/src/components/MarkdownContent.vue`              | **Create** | Reusable rendering component: lifecycle, `v-html`, copy-button event delegation |
+| `packages/web/src/assets/style.css`                            | Modify     | Add `.md-content` prose styles + code block / copy button styles                |
+| `packages/web/src/components/conversations/MessageBubble.vue`  | Modify     | Swap `{{ content }}` for `<MarkdownContent>`                                    |
+| `packages/web/src/components/conversations/SubThreadBlock.vue` | Modify     | Swap `{{ msg.content }}` for `<MarkdownContent>`                                |
+| `packages/e2e/tests/conversations/markdown.spec.ts`            | **Create** | E2e: markdown renders as HTML; copy button writes correct text                  |
 
 ---
 
 ## Task 1: Install dependencies
 
 **Files:**
+
 - Modify: `packages/web/package.json`
 
 - [ ] **Step 1: Add packages**
@@ -58,13 +59,14 @@ git commit -m "chore(web): add markdown-it, shiki, dompurify dependencies"
 ## Task 2: Write failing e2e tests
 
 **Files:**
+
 - Create: `packages/e2e/tests/conversations/markdown.spec.ts`
 
 Write these tests first — they will fail until the implementation is in place. That's the point.
 
 - [ ] **Step 1: Create the test file**
 
-```typescript
+````typescript
 // packages/e2e/tests/conversations/markdown.spec.ts
 import { test, expect } from '../../fixtures/index.js';
 
@@ -97,7 +99,10 @@ test.describe('Markdown rendering in message bubbles', () => {
     agentId = createResult.result.data!.id;
   });
 
-  test('bold markdown in user message renders as <strong>, not raw **', async ({ authPage, api }) => {
+  test('bold markdown in user message renders as <strong>, not raw **', async ({
+    authPage,
+    api,
+  }) => {
     const { page, token } = authPage;
 
     const commResult = await api.execute<{ conversationId: string }>(token, 'communicate', {
@@ -119,7 +124,10 @@ test.describe('Markdown rendering in message bubbles', () => {
     await expect(page.locator('[data-bubble]').first()).not.toContainText('**bold text**');
   });
 
-  test('fenced code block in user message renders with copy button that writes correct text', async ({ authPage, api }) => {
+  test('fenced code block in user message renders with copy button that writes correct text', async ({
+    authPage,
+    api,
+  }) => {
     const { page, token } = authPage;
 
     // Spy on clipboard.writeText before any navigation
@@ -152,12 +160,12 @@ test.describe('Markdown rendering in message bubbles', () => {
     await page.locator('[data-copy-code]').first().click();
 
     const copied = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>)['__clipboardData'] as string
+      () => (window as unknown as Record<string, unknown>)['__clipboardData'] as string,
     );
     expect(copied.trim()).toContain('const x: number = 42;');
   });
 });
-```
+````
 
 - [ ] **Step 2: Run the tests to confirm they fail**
 
@@ -185,6 +193,7 @@ git commit -m "test(e2e): add failing markdown rendering tests"
 ## Task 3: Create `src/lib/markdown.ts`
 
 **Files:**
+
 - Create: `packages/web/src/lib/markdown.ts`
 
 - [ ] **Step 1: Create the `lib/` directory and the file**
@@ -270,7 +279,7 @@ export function render(content: string): string {
   }
   return DOMPurify.sanitize(_md.render(content), {
     USE_PROFILES: { html: true },
-    ALLOW_DATA_ATTR: true,   // preserve data-copy-code on the button
+    ALLOW_DATA_ATTR: true, // preserve data-copy-code on the button
     SANITIZE_NAMED_PROPS: true,
   });
 }
@@ -308,6 +317,7 @@ git commit -m "feat(web): add markdown singleton lib (markdown-it + shiki + domp
 ## Task 4: Create `MarkdownContent.vue`
 
 **Files:**
+
 - Create: `packages/web/src/components/MarkdownContent.vue`
 
 - [ ] **Step 1: Create the component**
@@ -341,14 +351,17 @@ function onRootClick(e: MouseEvent): void {
   if (!pre) return;
 
   const text = pre.textContent ?? '';
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => {
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+      }, 2000);
+    })
+    .catch(() => {
       btn.textContent = 'Copy';
-    }, 2000);
-  }).catch(() => {
-    btn.textContent = 'Copy';
-  });
+    });
 }
 </script>
 
@@ -378,6 +391,7 @@ git commit -m "feat(web): add MarkdownContent component with Shiki lifecycle and
 ## Task 5: Add `.md-content` prose styles
 
 **Files:**
+
 - Modify: `packages/web/src/assets/style.css`
 
 - [ ] **Step 1: Append the styles**
@@ -406,21 +420,33 @@ Add the following after the existing `@theme` block in `style.css`:
   line-height: 1.3;
   margin: 0.75em 0 0.25em;
 }
-.md-content h1 { font-size: 1.25em; }
-.md-content h2 { font-size: 1.1em; }
+.md-content h1 {
+  font-size: 1.25em;
+}
+.md-content h2 {
+  font-size: 1.1em;
+}
 .md-content h3,
 .md-content h4,
 .md-content h5,
-.md-content h6 { font-size: 1em; }
+.md-content h6 {
+  font-size: 1em;
+}
 
 .md-content ul,
 .md-content ol {
   margin: 0.25em 0 0.5em;
   padding-left: 1.5em;
 }
-.md-content ul { list-style-type: disc; }
-.md-content ol { list-style-type: decimal; }
-.md-content li { margin: 0.15em 0; }
+.md-content ul {
+  list-style-type: disc;
+}
+.md-content ol {
+  list-style-type: decimal;
+}
+.md-content li {
+  margin: 0.15em 0;
+}
 
 /* Inline code — semi-transparent darker overlay readable on both
    navy-800 (agent) and cyan-700 (own) bubble backgrounds */
@@ -466,7 +492,10 @@ Add the following after the existing `@theme` block in `style.css`:
   cursor: pointer;
   font-family: ui-monospace, monospace;
   line-height: 1.6;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 .md-content .copy-btn:hover {
   background: rgba(0, 0, 0, 0.6);
@@ -514,8 +543,12 @@ Add the following after the existing `@theme` block in `style.css`:
   margin: 0.75em 0;
 }
 
-.md-content strong { font-weight: 700; }
-.md-content em { font-style: italic; }
+.md-content strong {
+  font-weight: 700;
+}
+.md-content em {
+  font-style: italic;
+}
 ```
 
 - [ ] **Step 2: Verify the build**
@@ -538,6 +571,7 @@ git commit -m "feat(web): add .md-content prose styles and copy button styling"
 ## Task 6: Wire up `MessageBubble.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/components/conversations/MessageBubble.vue`
 
 - [ ] **Step 1: Replace plain-text interpolation with `<MarkdownContent>`**
@@ -558,11 +592,7 @@ defineProps<{
 </script>
 
 <template>
-  <div
-    data-bubble
-    class="flex flex-col gap-1"
-    :class="isOwn ? 'items-end' : 'items-start'"
-  >
+  <div data-bubble class="flex flex-col gap-1" :class="isOwn ? 'items-end' : 'items-start'">
     <MarkdownContent
       v-if="message.content?.trim()"
       :content="message.content.trim()"
@@ -608,6 +638,7 @@ git commit -m "feat(web): render message bubble content as markdown"
 ## Task 7: Wire up `SubThreadBlock.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/components/conversations/SubThreadBlock.vue`
 
 - [ ] **Step 1: Replace plain-text `<p>` with `<MarkdownContent>`**
@@ -631,10 +662,7 @@ defineProps<{ messages: MessageEntry[] }>();
         <span :style="{ color: msg.authorColour }" class="text-xs font-bold">{{ msg.author }}</span>
         <span class="text-[10px] text-navy-500">{{ msg.timestamp }}</span>
       </div>
-      <MarkdownContent
-        :content="msg.content"
-        class="text-[11px] text-slate-300 leading-relaxed"
-      />
+      <MarkdownContent :content="msg.content" class="text-[11px] text-slate-300 leading-relaxed" />
       <ToolCallBlock v-for="tc in msg.toolCalls ?? []" :key="tc.id" :entry="tc" />
     </div>
   </div>
@@ -671,16 +699,19 @@ npx playwright test tests/conversations/markdown.spec.ts --reporter=list
 Run from `packages/e2e/`. Expected: both tests pass.
 
 If the first test fails (`[data-bubble] strong` not found):
+
 - Check that `MarkdownContent.vue` is imported and used in `MessageBubble.vue`
 - Check that `ensureReady()` is completing before render (add a `console.log` in `markdown.ts` to confirm)
 - Verify `DOMPurify` is not stripping `<strong>` — it shouldn't be, but add `ADD_TAGS: ['strong']` to the sanitize config if so
 
 If the second test fails (`[data-copy-code]` not found):
+
 - Check that the fence rule override in `markdown.ts` is running (add a `console.log` after the override)
 - Check that the Shiki fence rule exists on `md.renderer.rules['fence']` after `md.use(fromHighlighter(...))`
 - If the fence rule key is different (e.g. `'code_block'`), adjust accordingly
 
 If the copy button test fails on the clipboard assertion:
+
 - Check that `addInitScript` is injecting the spy before `page.goto()` (it must be called before any navigation)
 - Confirm the click event reaches `MarkdownContent.vue`'s `onRootClick` handler
 - Check that `btn.closest('.code-block')` finds the wrapper — the wrapper class must match between `markdown.ts` and the CSS

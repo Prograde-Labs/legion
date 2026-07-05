@@ -12,21 +12,22 @@
 
 ## File Map
 
-| Action | Path | Responsibility |
-|---|---|---|
-| Create | `packages/core/src/providers/ProviderStore.ts` | Reads/writes provider configs via `Storage`; constructs `OpenAICompatibleProvider` instances |
-| Create | `packages/core/src/providers/ProviderStore.test.ts` | Unit tests for `ProviderStore` |
-| Modify | `packages/core/src/runtime/AgentRuntime.ts` | Accept `ProviderStore` instead of `ProviderRegistry` |
-| Modify | `packages/core/src/runtime/AgentRuntime.test.ts` | Update test setup: replace `ProviderRegistry` with stub `ProviderStore` |
-| Modify | `packages/core/src/index.ts` | Export `ProviderStore` |
-| Modify | `packages/runtime/src/LegionProcess.ts` | Migrate `config.json` providers; construct `ProviderStore`; wire to `AgentRuntime` factory and `createRuntimeTools` |
-| Modify | `packages/runtime/src/server/runtime-tools.ts` | Accept `providerStore` dep; delegate list/configure to it |
+| Action | Path                                                | Responsibility                                                                                                      |
+| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Create | `packages/core/src/providers/ProviderStore.ts`      | Reads/writes provider configs via `Storage`; constructs `OpenAICompatibleProvider` instances                        |
+| Create | `packages/core/src/providers/ProviderStore.test.ts` | Unit tests for `ProviderStore`                                                                                      |
+| Modify | `packages/core/src/runtime/AgentRuntime.ts`         | Accept `ProviderStore` instead of `ProviderRegistry`                                                                |
+| Modify | `packages/core/src/runtime/AgentRuntime.test.ts`    | Update test setup: replace `ProviderRegistry` with stub `ProviderStore`                                             |
+| Modify | `packages/core/src/index.ts`                        | Export `ProviderStore`                                                                                              |
+| Modify | `packages/runtime/src/LegionProcess.ts`             | Migrate `config.json` providers; construct `ProviderStore`; wire to `AgentRuntime` factory and `createRuntimeTools` |
+| Modify | `packages/runtime/src/server/runtime-tools.ts`      | Accept `providerStore` dep; delegate list/configure to it                                                           |
 
 ---
 
 ## Task 1: Create `ProviderStore`
 
 **Files:**
+
 - Create: `packages/core/src/providers/ProviderStore.ts`
 - Create: `packages/core/src/providers/ProviderStore.test.ts`
 
@@ -200,6 +201,7 @@ git commit -m "feat(providers): add ProviderStore — reads provider config from
 ## Task 2: Wire `AgentRuntime` to use `ProviderStore`
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/AgentRuntime.ts`
 - Modify: `packages/core/src/runtime/AgentRuntime.test.ts`
 
@@ -208,15 +210,19 @@ git commit -m "feat(providers): add ProviderStore — reads provider config from
 In `packages/core/src/runtime/AgentRuntime.ts`:
 
 Replace the import of `ProviderRegistry`:
+
 ```typescript
 import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
 ```
+
 With:
+
 ```typescript
 import type { ProviderStore } from '../providers/ProviderStore.js';
 ```
 
 Replace the constructor and provider-lookup:
+
 ```typescript
 export class AgentRuntime implements Runtime {
   constructor(
@@ -252,6 +258,7 @@ Expected: `AgentRuntime.test.ts` fails because `makeSetup` still passes a `Provi
 In `packages/core/src/runtime/AgentRuntime.test.ts`:
 
 Remove the `ProviderRegistry` import and add `ProviderStore`:
+
 ```typescript
 // Remove:
 import { ProviderRegistry } from '../providers/ProviderRegistry.js';
@@ -268,13 +275,16 @@ class MockProviderStore extends ProviderStore {
     super(new MemoryStorage());
   }
 
-  override async get(name: string): Promise<import('../providers/OpenAICompatibleProvider.js').OpenAICompatibleProvider | null> {
+  override async get(
+    name: string,
+  ): Promise<import('../providers/OpenAICompatibleProvider.js').OpenAICompatibleProvider | null> {
     return (this.mockProviders.get(name) as any) ?? null;
   }
 }
 ```
 
 Update `makeSetup` to build a `MockProviderStore`:
+
 ```typescript
 async function makeSetup(providerResponses: ProviderResponse[]) {
   const storage = new MemoryStorage();
@@ -364,6 +374,7 @@ const runtime = new AgentRuntime('agent-1', providerStore);
 ```
 
 The "no provider registered" test becomes:
+
 ```typescript
 it('returns an error message when no provider is registered for the agent model', async () => {
   const emptyStore = new MockProviderStore(new Map());
@@ -376,6 +387,7 @@ it('returns an error message when no provider is registered for the agent model'
 ```
 
 The "provider throws" test becomes:
+
 ```typescript
 it('returns a graceful error response when the provider throws', async () => {
   const throwingProvider: Provider = {
@@ -412,6 +424,7 @@ git commit -m "feat(runtime): AgentRuntime now resolves providers from ProviderS
 ## Task 3: Update `runtime-tools.ts` to accept `ProviderStore`
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/runtime-tools.ts`
 
 - [ ] **Step 1: Update `RuntimeToolDeps` and the tool implementations**
@@ -504,7 +517,9 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         try {
           const args = rawArgs as { key: string; value: string; usedBy?: string[] };
           await credStore.set(args.key, args.value);
-          throw new Error('set_credential_with_meta requires storage dep — see implementation note');
+          throw new Error(
+            'set_credential_with_meta requires storage dep — see implementation note',
+          );
         } catch (err) {
           return { status: 'error', error: err instanceof Error ? err.message : String(err) };
         }
@@ -640,6 +655,7 @@ git commit -m "feat(runtime-tools): delegate list_providers/configure_provider t
 ## Task 4: Update `LegionProcess` — migrate config, wire `ProviderStore`
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts`
 
 - [ ] **Step 1: Update imports**
@@ -688,36 +704,38 @@ import {
 Replace lines 142–154 (the `ProviderRegistry` build block and the agent factory) with:
 
 ```typescript
-    // ── Step 8b: Migrate providers from config.json → .legion/providers/ ──────
-    if (workspaceConfig.providers) {
-      for (const [name, config] of Object.entries(workspaceConfig.providers)) {
-        const fileKey = `providers/${name}.json`;
-        const alreadyExists = await storage.exists(fileKey);
-        if (!alreadyExists) {
-          await storage.writeJson(fileKey, { ...config, name });
-        }
-      }
+// ── Step 8b: Migrate providers from config.json → .legion/providers/ ──────
+if (workspaceConfig.providers) {
+  for (const [name, config] of Object.entries(workspaceConfig.providers)) {
+    const fileKey = `providers/${name}.json`;
+    const alreadyExists = await storage.exists(fileKey);
+    if (!alreadyExists) {
+      await storage.writeJson(fileKey, { ...config, name });
     }
+  }
+}
 
-    // ── Step 8c: Create ProviderStore ─────────────────────────────────────────
-    const providerStore = new ProviderStore(storage);
+// ── Step 8c: Create ProviderStore ─────────────────────────────────────────
+const providerStore = new ProviderStore(storage);
 
-    // Register agent factory
-    runtimeRegistry.registerFactory('agent', (id) => {
-      return new AgentRuntime(id, providerStore);
-    });
+// Register agent factory
+runtimeRegistry.registerFactory('agent', (id) => {
+  return new AgentRuntime(id, providerStore);
+});
 ```
 
 - [ ] **Step 3: Update `createRuntimeTools` call to pass `providerStore`**
 
 Line 110 currently reads:
+
 ```typescript
-    const runtimeTools = createRuntimeTools({ storage, credStore: credentials });
+const runtimeTools = createRuntimeTools({ storage, credStore: credentials });
 ```
 
 Replace with:
+
 ```typescript
-    const runtimeTools = createRuntimeTools({ storage, providerStore, credStore: credentials });
+const runtimeTools = createRuntimeTools({ storage, providerStore, credStore: credentials });
 ```
 
 - [ ] **Step 4: Build cleanly**

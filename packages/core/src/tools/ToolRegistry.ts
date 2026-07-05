@@ -47,7 +47,7 @@ export class ToolRegistry implements ToolRegistryLike {
     });
 
     try {
-      const result = await tool.execute(args, context) as ToolResult;
+      const result = (await tool.execute(args, context)) as ToolResult;
       context.eventBus.emit('tool:result', {
         conversationId: context.conversationId ?? '',
         participantId: context.participant.id,
@@ -57,7 +57,10 @@ export class ToolRegistry implements ToolRegistryLike {
       });
       return result;
     } catch (err) {
-      const errorResult = { status: 'error' as const, error: err instanceof Error ? err.message : String(err) };
+      const errorResult = {
+        status: 'error' as const,
+        error: err instanceof Error ? err.message : String(err),
+      };
       context.eventBus.emit('tool:result', {
         conversationId: context.conversationId ?? '',
         participantId: context.participant.id,

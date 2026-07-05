@@ -29,7 +29,10 @@ test.describe('Markdown rendering in message bubbles', () => {
     agentId = createResult.result.data!.id;
   });
 
-  test('bold markdown in user message renders as <strong>, not raw **', async ({ authPage, api }) => {
+  test('bold markdown in user message renders as <strong>, not raw **', async ({
+    authPage,
+    api,
+  }) => {
     const { page, token } = authPage;
 
     const commResult = await api.execute<{ conversationId: string }>(token, 'communicate', {
@@ -51,7 +54,10 @@ test.describe('Markdown rendering in message bubbles', () => {
     await expect(page.locator('[data-bubble]').first()).not.toContainText('**bold text**');
   });
 
-  test('fenced code block in user message renders with copy button that writes correct text', async ({ authPage, api }) => {
+  test('fenced code block in user message renders with copy button that writes correct text', async ({
+    authPage,
+    api,
+  }) => {
     const { page, token } = authPage;
 
     // Spy on clipboard.writeText before any navigation
@@ -84,7 +90,7 @@ test.describe('Markdown rendering in message bubbles', () => {
     await page.locator('[data-copy-code]').first().click();
 
     const copied = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>)['__clipboardData'] as string
+      () => (window as unknown as Record<string, unknown>)['__clipboardData'] as string,
     );
     expect(copied.trim()).toContain('const x: number = 42;');
   });

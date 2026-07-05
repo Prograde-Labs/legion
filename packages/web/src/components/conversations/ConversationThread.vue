@@ -30,16 +30,19 @@ const emit = defineEmits<{
 }>();
 
 const { execute } = useExecute();
-const { messages, subThreads, loading, isThinking, markSent } = useConversation(props.conversationId);
+const { messages, subThreads, loading, isThinking, markSent } = useConversation(
+  props.conversationId,
+);
 
 const composerText = ref('');
 const sending = ref(false);
 const threadEl = ref<HTMLElement | null>(null);
 
-const canSend = computed(() =>
-  props.mode === 'chat' &&
-  composerText.value.trim().length > 0 &&
-  (props.recipientId !== undefined || props.recipientName !== undefined),
+const canSend = computed(
+  () =>
+    props.mode === 'chat' &&
+    composerText.value.trim().length > 0 &&
+    (props.recipientId !== undefined || props.recipientName !== undefined),
 );
 
 async function send(targetId: string) {
@@ -119,8 +122,20 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
         title="Delete conversation"
         @click="emit('delete', conversationId)"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+          />
         </svg>
       </button>
     </div>
@@ -131,7 +146,10 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
 
       <template v-else-if="mode === 'chat'">
         <!-- Empty state for draft -->
-        <div v-if="messages.length === 0 && !conversationId" class="flex-1 flex items-center justify-center">
+        <div
+          v-if="messages.length === 0 && !conversationId"
+          class="flex-1 flex items-center justify-center"
+        >
           <div class="text-center text-slate-600 text-sm">
             Send a message to start the conversation
           </div>
@@ -161,17 +179,17 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
             </template>
             <!-- Approval card for pending_approval tool results -->
             <ApprovalCard
-              v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'pending_approval')"
+              v-for="tr in msg.toolResults?.filter((tr) => tr.result.status === 'pending_approval')"
               :key="tr.id"
               :approval-id="tr.result.approvalId ?? ''"
               :tool-name="tr.name"
-              :args="msg.toolCalls?.find(tc => tc.id === tr.id)?.arguments ?? {}"
+              :args="msg.toolCalls?.find((tc) => tc.id === tr.id)?.arguments ?? {}"
               :resolved="false"
               :decision="null"
             />
             <!-- Resolved approval cards -->
             <ApprovalCard
-              v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'rejected')"
+              v-for="tr in msg.toolResults?.filter((tr) => tr.result.status === 'rejected')"
               :key="`resolved-${tr.id}`"
               :approval-id="''"
               :tool-name="tr.name"
@@ -218,7 +236,11 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
         <button
           :disabled="!canSend || sending"
           class="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-          :class="canSend ? 'bg-cyan-700 text-white hover:bg-cyan-600' : 'bg-navy-800 text-slate-600 cursor-not-allowed'"
+          :class="
+            canSend
+              ? 'bg-cyan-700 text-white hover:bg-cyan-600'
+              : 'bg-navy-800 text-slate-600 cursor-not-allowed'
+          "
           @click="send(recipientId ?? recipientName ?? '')"
         >
           Send

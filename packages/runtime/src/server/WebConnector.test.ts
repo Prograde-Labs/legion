@@ -281,7 +281,9 @@ describe('WebConnector: deliver()', () => {
     const sent: string[] = [];
     const fakeSocket = {
       readyState: 1,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     };
     (connector as any).connections.set('op-1', new Set([fakeSocket]));
 
@@ -305,7 +307,9 @@ describe('WebConnector: deliver()', () => {
     const sent: string[] = [];
     const closedSocket = {
       readyState: 3,
-      send: (data: string) => { sent.push(data); },
+      send: (data: string) => {
+        sent.push(data);
+      },
     };
     (connector as any).connections.set('op-1', new Set([closedSocket]));
 

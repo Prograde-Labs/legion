@@ -143,13 +143,13 @@ Removes a tool entry from a participant's `tools` map (making it absent = hidden
 // before
 authResult.reason === 'requires_approval'
   ? 'requires_approval — no authority chain in service context (denied)'
-  : (authResult.reason ?? 'denied')
+  : (authResult.reason ?? 'denied');
 // after
 authResult.reason === 'requires_approval'
   ? 'requires_approval — no authority chain in service context (denied)'
   : authResult.reason === 'hidden'
     ? 'tool not available to this participant'
-    : (authResult.reason ?? 'denied')
+    : (authResult.reason ?? 'denied');
 ```
 
 ### 7. Frontend
@@ -169,7 +169,7 @@ Show every tool from `availableTools` as a row:
 export interface ToolOverride {
   tool: string;
   source: string;
-  enabled: boolean;        // false = absent from map (hidden)
+  enabled: boolean; // false = absent from map (hidden)
   requireApproval: boolean; // only meaningful when enabled = true
 }
 ```
@@ -186,9 +186,9 @@ The "add tool override" select is removed — every registered tool is already l
 ```ts
 tools: Object.fromEntries(
   overrides
-    .filter(o => o.enabled)
-    .map(o => [o.tool, o.requireApproval ? 'requires_approval' : 'auto'])
-)
+    .filter((o) => o.enabled)
+    .map((o) => [o.tool, o.requireApproval ? 'requires_approval' : 'auto']),
+);
 ```
 
 No `defaultPolicy` or `toolPolicies` sent to `create_agent`/`modify_agent`.
@@ -215,25 +215,25 @@ Tests using `defaultPolicy: 'auto'` on `AuthEngine` constructor rewrite to use e
 
 ## Affected files
 
-| File | Change |
-|------|--------|
-| `packages/types/src/tool.ts` | Remove `'deny'` from `ToolPolicy` |
-| `packages/core/src/auth/AuthEngine.ts` | Remove options, `BUILTIN_DEFAULT`, `resolvePolicy`; new inline logic |
-| `packages/core/src/auth/AuthEngine.test.ts` | Remove deny/engine tests; update fail-safe test |
-| `packages/core/src/runtime/AgentRuntime.ts` | Update filter; replace deny branch with hidden |
-| `packages/core/src/runtime/AgentRuntime.test.ts` | Rewrite deny describe block |
-| `packages/core/src/tools/management-tools.ts` | Remove `composeTools`, `normalizePolicy`, `defaultPolicy` params; update `set_tool_policy` enum; add `remove_tool_policy` |
-| `packages/core/src/tools/management-tools.test.ts` | Update composeTools/defaultPolicy tests; add remove_tool_policy tests |
-| `packages/core/src/tools/approval-response-tool.ts` | No change |
-| `packages/core/src/service/ServiceContextImpl.ts` | Update error message branching |
-| `packages/core/src/service/ServiceContextImpl.test.ts` | Rewrite `defaultPolicy: 'deny'` test |
-| `packages/core/src/service/ServiceManager.test.ts` | Rewrite `defaultPolicy: 'auto'` usage |
-| `packages/core/src/service/service.integration.test.ts` | Rewrite `defaultPolicy: 'auto'` usage |
-| `packages/core/src/collective/default-participants.ts` | Add `remove_tool_policy` to MANAGEMENT_TOOLS |
-| `packages/core/src/collective/default-participants.test.ts` | Assert `remove_tool_policy: 'auto'` |
-| `packages/web/src/components/participants/ToolPolicyEditor.vue` | Remove default-policy selector; show all tools as rows |
-| `packages/web/src/components/participants/ParticipantSlideOver.vue` | Remove `defaultPolicy` ref and inference; update load/save |
-| `docs/legion-v2-greenfield-spec.md` | Update §7 AuthEngine description |
-| `AGENTS.md` | Update vocabulary |
-| `README.md` | Update vocabulary and policy-resolution description |
-| `docs/superpowers/specs/2026-07-02-chat-interface-bugfixes-design.md` | Note `defaultPolicy` superseded |
+| File                                                                  | Change                                                                                                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `packages/types/src/tool.ts`                                          | Remove `'deny'` from `ToolPolicy`                                                                                         |
+| `packages/core/src/auth/AuthEngine.ts`                                | Remove options, `BUILTIN_DEFAULT`, `resolvePolicy`; new inline logic                                                      |
+| `packages/core/src/auth/AuthEngine.test.ts`                           | Remove deny/engine tests; update fail-safe test                                                                           |
+| `packages/core/src/runtime/AgentRuntime.ts`                           | Update filter; replace deny branch with hidden                                                                            |
+| `packages/core/src/runtime/AgentRuntime.test.ts`                      | Rewrite deny describe block                                                                                               |
+| `packages/core/src/tools/management-tools.ts`                         | Remove `composeTools`, `normalizePolicy`, `defaultPolicy` params; update `set_tool_policy` enum; add `remove_tool_policy` |
+| `packages/core/src/tools/management-tools.test.ts`                    | Update composeTools/defaultPolicy tests; add remove_tool_policy tests                                                     |
+| `packages/core/src/tools/approval-response-tool.ts`                   | No change                                                                                                                 |
+| `packages/core/src/service/ServiceContextImpl.ts`                     | Update error message branching                                                                                            |
+| `packages/core/src/service/ServiceContextImpl.test.ts`                | Rewrite `defaultPolicy: 'deny'` test                                                                                      |
+| `packages/core/src/service/ServiceManager.test.ts`                    | Rewrite `defaultPolicy: 'auto'` usage                                                                                     |
+| `packages/core/src/service/service.integration.test.ts`               | Rewrite `defaultPolicy: 'auto'` usage                                                                                     |
+| `packages/core/src/collective/default-participants.ts`                | Add `remove_tool_policy` to MANAGEMENT_TOOLS                                                                              |
+| `packages/core/src/collective/default-participants.test.ts`           | Assert `remove_tool_policy: 'auto'`                                                                                       |
+| `packages/web/src/components/participants/ToolPolicyEditor.vue`       | Remove default-policy selector; show all tools as rows                                                                    |
+| `packages/web/src/components/participants/ParticipantSlideOver.vue`   | Remove `defaultPolicy` ref and inference; update load/save                                                                |
+| `docs/legion-v2-greenfield-spec.md`                                   | Update §7 AuthEngine description                                                                                          |
+| `AGENTS.md`                                                           | Update vocabulary                                                                                                         |
+| `README.md`                                                           | Update vocabulary and policy-resolution description                                                                       |
+| `docs/superpowers/specs/2026-07-02-chat-interface-bugfixes-design.md` | Note `defaultPolicy` superseded                                                                                           |

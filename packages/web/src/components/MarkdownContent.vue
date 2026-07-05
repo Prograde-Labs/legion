@@ -62,23 +62,29 @@ function onRootClick(e: MouseEvent): void {
       return;
     }
 
-    navigator.clipboard.writeText(text).then(() => {
-      if (!isCurrentCopyOperation(btn, operation)) return;
-
-      btn.textContent = 'Copied!';
-      copyResetTimeouts.set(btn, setTimeout(() => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
         if (!isCurrentCopyOperation(btn, operation)) return;
 
-        btn.textContent = 'Copy';
-        copyResetTimeouts.delete(btn);
-        copyOperations.delete(btn);
-      }, 2000));
-    }).catch(() => {
-      if (!isCurrentCopyOperation(btn, operation)) return;
+        btn.textContent = 'Copied!';
+        copyResetTimeouts.set(
+          btn,
+          setTimeout(() => {
+            if (!isCurrentCopyOperation(btn, operation)) return;
 
-      resetCopyButton(btn);
-      copyOperations.delete(btn);
-    });
+            btn.textContent = 'Copy';
+            copyResetTimeouts.delete(btn);
+            copyOperations.delete(btn);
+          }, 2000),
+        );
+      })
+      .catch(() => {
+        if (!isCurrentCopyOperation(btn, operation)) return;
+
+        resetCopyButton(btn);
+        copyOperations.delete(btn);
+      });
   } catch {
     if (isCurrentCopyOperation(btn, operation)) {
       resetCopyButton(btn);

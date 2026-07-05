@@ -4,7 +4,8 @@ import MarkdownContent from './MarkdownContent.vue';
 
 vi.mock('../lib/markdown.js', () => ({
   ensureReady: () => Promise.resolve(),
-  render: () => '<div class="code-block"><pre>console.log(1)</pre><button type="button" data-copy-code>Copy</button></div>',
+  render: () =>
+    '<div class="code-block"><pre>console.log(1)</pre><button type="button" data-copy-code>Copy</button></div>',
 }));
 
 function deferred(): { promise: Promise<void>; resolve: () => void; reject: () => void } {
@@ -39,7 +40,11 @@ describe('MarkdownContent', () => {
   it('does not throw when clipboard writeText throws synchronously', () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
-      value: { writeText: () => { throw new Error('clipboard unavailable'); } },
+      value: {
+        writeText: () => {
+          throw new Error('clipboard unavailable');
+        },
+      },
     });
     const wrapper = mount(MarkdownContent, { props: { content: '```js\nconsole.log(1)\n```' } });
     const button = wrapper.find('[data-copy-code]');
@@ -77,9 +82,7 @@ describe('MarkdownContent', () => {
   it('clears the existing reset timeout when a new copy starts', async () => {
     vi.useFakeTimers();
     const second = deferred();
-    const writeText = vi.fn()
-      .mockResolvedValueOnce(undefined)
-      .mockReturnValueOnce(second.promise);
+    const writeText = vi.fn().mockResolvedValueOnce(undefined).mockReturnValueOnce(second.promise);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText },
@@ -106,7 +109,8 @@ describe('MarkdownContent', () => {
     vi.useFakeTimers();
     const first = deferred();
     const second = deferred();
-    const writeText = vi.fn()
+    const writeText = vi
+      .fn()
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     Object.defineProperty(navigator, 'clipboard', {
@@ -132,7 +136,8 @@ describe('MarkdownContent', () => {
     vi.useFakeTimers();
     const first = deferred();
     const second = deferred();
-    const writeText = vi.fn()
+    const writeText = vi
+      .fn()
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     Object.defineProperty(navigator, 'clipboard', {

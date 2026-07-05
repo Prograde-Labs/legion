@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript (monorepo: `packages/types`, `packages/core`, `packages/runtime`, `packages/web`), Vue 3 + Vite, Fastify, vitest, Playwright for E2E.
 
 **Build/test commands:**
+
 - Build all: `npm run build` (from root, runs `tsc --build`)
 - Build web: `npm run build -w @legion/web`
 - Typecheck: `npm run typecheck`
@@ -22,6 +23,7 @@
 ## File Structure
 
 ### Part A — Auth & Session
+
 - Modify: `packages/runtime/src/server/auth.ts` — `signToken` returns `{ token, expiresAt }`
 - Modify: `packages/runtime/src/server/routes/auth.ts` — login response includes `expiresAt`
 - Modify: `packages/web/src/composables/useAuth.ts` — JWT decode fallback, expiry check
@@ -33,6 +35,7 @@
 - Test: `packages/web/src/composables/useWebSocket.test.ts` (existing, extend)
 
 ### Part B — Participant Management
+
 - Modify: `packages/core/src/tools/management-tools.ts` — fix `create_agent`/`modify_agent`, add `get_participant`
 - Modify: `packages/core/src/collective/default-participants.ts` — add `get_participant` to operator policy
 - Modify: `packages/web/src/components/participants/ParticipantSlideOver.vue` — provider default, edit load, default policy, vocabulary mapping
@@ -40,6 +43,7 @@
 - Test: `packages/core/src/tools/management-tools.test.ts` (existing, extend)
 
 ### Part C — Agent-to-Agent Delegation
+
 - Modify: `packages/types/src/conversation.ts` — `parentConversationId`, `parentToolCallId` on `ConversationData` + `ConversationMeta`; `ConversationFilter.includeSubThreads`
 - Modify: `packages/core/src/conversation/ConversationStore.ts` — add `listByParent` method
 - Modify: `packages/core/src/conversation/FileConversationStore.ts` — implement `listByParent`, filter sub-threads in `list`
@@ -62,6 +66,7 @@
 ### Task A1: Server returns `expiresAt` from login
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/auth.ts`
 - Modify: `packages/runtime/src/server/routes/auth.ts`
 - Test: `packages/runtime/src/server/auth.test.ts` (create)
@@ -91,9 +96,7 @@ describe('signToken', () => {
     const { participantId } = await verifyToken(token, secret);
     expect(participantId).toBe('p2');
     // The exp claim inside the token should match expiresAt
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64').toString(),
-    );
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
     expect(payload.exp).toBe(expiresAt);
   });
 });
@@ -129,11 +132,12 @@ export async function signToken(
 Edit `packages/runtime/src/server/routes/auth.ts`. Replace lines 43-44:
 
 ```typescript
-      const { token, expiresAt } = await signToken(participant.id, jwtSecret);
-      return reply.send({ token, participantId: participant.id, expiresAt });
+const { token, expiresAt } = await signToken(participant.id, jwtSecret);
+return reply.send({ token, participantId: participant.id, expiresAt });
 ```
 
 Also update the JSDoc comment on line 20:
+
 ```typescript
    * Returns: { token: string; participantId: string; expiresAt: number }
 ```
@@ -160,6 +164,7 @@ git commit -m "fix(auth): return expiresAt from signToken and login route"
 ### Task A2: Client honors expiry with JWT decode fallback
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useAuth.ts`
 - Test: `packages/web/src/composables/useAuth.test.ts`
 
@@ -168,41 +173,41 @@ git commit -m "fix(auth): return expiresAt from signToken and login route"
 Add to `packages/web/src/composables/useAuth.test.ts` (after existing tests):
 
 ```typescript
-  it('isAuthenticated returns false when expiresAt is in the past', async () => {
-    const { useAuth } = await import('./useAuth.js');
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ token: 'tok-expired', participantId: 'p1', expiresAt: 1 }),
-    } as Response);
-    await useAuth().login('admin', 'secret');
-    expect(useAuth().isAuthenticated.value).toBe(false);
-  });
+it('isAuthenticated returns false when expiresAt is in the past', async () => {
+  const { useAuth } = await import('./useAuth.js');
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ token: 'tok-expired', participantId: 'p1', expiresAt: 1 }),
+  } as Response);
+  await useAuth().login('admin', 'secret');
+  expect(useAuth().isAuthenticated.value).toBe(false);
+});
 
-  it('decodes JWT exp as fallback when expiresAt is missing from response', async () => {
-    const { useAuth } = await import('./useAuth.js');
-    // Create a fake JWT with exp far in the future
-    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-    const futureExp = Math.floor(Date.now() / 1000) + 3600;
-    const payload = Buffer.from(JSON.stringify({ sub: 'p1', exp: futureExp })).toString('base64url');
-    const fakeToken = `${header}.${payload}.sig`;
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ token: fakeToken, participantId: 'p1' }),
-    } as Response);
-    await useAuth().login('admin', 'secret');
-    expect(useAuth().isAuthenticated.value).toBe(true);
-    expect(useAuth().participantId.value).toBe('p1');
-  });
+it('decodes JWT exp as fallback when expiresAt is missing from response', async () => {
+  const { useAuth } = await import('./useAuth.js');
+  // Create a fake JWT with exp far in the future
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const futureExp = Math.floor(Date.now() / 1000) + 3600;
+  const payload = Buffer.from(JSON.stringify({ sub: 'p1', exp: futureExp })).toString('base64url');
+  const fakeToken = `${header}.${payload}.sig`;
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ token: fakeToken, participantId: 'p1' }),
+  } as Response);
+  await useAuth().login('admin', 'secret');
+  expect(useAuth().isAuthenticated.value).toBe(true);
+  expect(useAuth().participantId.value).toBe('p1');
+});
 
-  it('treats token without exp as expired (fallback decode fails)', async () => {
-    const { useAuth } = await import('./useAuth.js');
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ token: 'not-a-jwt', participantId: 'p1' }),
-    } as Response);
-    await useAuth().login('admin', 'secret');
-    expect(useAuth().isAuthenticated.value).toBe(false);
-  });
+it('treats token without exp as expired (fallback decode fails)', async () => {
+  const { useAuth } = await import('./useAuth.js');
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ token: 'not-a-jwt', participantId: 'p1' }),
+  } as Response);
+  await useAuth().login('admin', 'secret');
+  expect(useAuth().isAuthenticated.value).toBe(false);
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -300,6 +305,7 @@ git commit -m "fix(auth): honor expiresAt + JWT exp decode fallback client-side"
 ### Task A3: 401 redirect + WebSocket 4401 handling
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useExecute.ts`
 - Modify: `packages/web/src/composables/useWebSocket.ts`
 - Test: `packages/web/src/composables/useExecute.test.ts`
@@ -310,31 +316,31 @@ git commit -m "fix(auth): honor expiresAt + JWT exp decode fallback client-side"
 Add to `packages/web/src/composables/useExecute.test.ts`:
 
 ```typescript
-  it('calls logout and redirects to /login on 401', async () => {
-    const { useExecute } = await import('./useExecute.js');
-    const { useAuth } = (await import('./useAuth.js')) as unknown as {
-      useAuth: ReturnType<typeof vi.fn>;
-    };
+it('calls logout and redirects to /login on 401', async () => {
+  const { useExecute } = await import('./useExecute.js');
+  const { useAuth } = (await import('./useAuth.js')) as unknown as {
+    useAuth: ReturnType<typeof vi.fn>;
+  };
 
-    const logout = vi.fn();
-    useAuth.mockReturnValue({
-      getToken: () => 'tok-dead',
-      logout,
-    });
-
-    global.fetch = vi.fn().mockResolvedValue({ status: 401 } as Response);
-
-    // Mock the router push
-    const pushMock = vi.fn();
-    vi.doMock('../../router/index.js', () => ({
-      router: { push: pushMock },
-    }));
-
-    const { execute } = useExecute();
-    await expect(execute('list_participants', {})).rejects.toThrow('Unauthorized');
-    expect(logout).toHaveBeenCalled();
-    expect(pushMock).toHaveBeenCalledWith('/login');
+  const logout = vi.fn();
+  useAuth.mockReturnValue({
+    getToken: () => 'tok-dead',
+    logout,
   });
+
+  global.fetch = vi.fn().mockResolvedValue({ status: 401 } as Response);
+
+  // Mock the router push
+  const pushMock = vi.fn();
+  vi.doMock('../../router/index.js', () => ({
+    router: { push: pushMock },
+  }));
+
+  const { execute } = useExecute();
+  await expect(execute('list_participants', {})).rejects.toThrow('Unauthorized');
+  expect(logout).toHaveBeenCalled();
+  expect(pushMock).toHaveBeenCalledWith('/login');
+});
 ```
 
 - [ ] **Step 2: Write the failing test for useWebSocket 4401**
@@ -342,52 +348,52 @@ Add to `packages/web/src/composables/useExecute.test.ts`:
 Add to `packages/web/src/composables/useWebSocket.test.ts`:
 
 ```typescript
-  it('stops reconnecting and calls logout on close code 4401', async () => {
-    vi.resetModules();
-    const logoutMock = vi.fn();
-    vi.doMock('./useAuth.js', () => ({
-      useAuth: () => ({ getToken: () => 'dead-token', logout: logoutMock }),
-    }));
-    const pushMock = vi.fn();
-    vi.doMock('../router/index.js', () => ({
-      router: { push: pushMock },
-    }));
+it('stops reconnecting and calls logout on close code 4401', async () => {
+  vi.resetModules();
+  const logoutMock = vi.fn();
+  vi.doMock('./useAuth.js', () => ({
+    useAuth: () => ({ getToken: () => 'dead-token', logout: logoutMock }),
+  }));
+  const pushMock = vi.fn();
+  vi.doMock('../router/index.js', () => ({
+    router: { push: pushMock },
+  }));
 
-    const { useWebSocket } = await import('./useWebSocket.js');
+  const { useWebSocket } = await import('./useWebSocket.js');
 
-    // Simulate: connect → open → close with code 4401
-    // We need to intercept WebSocket construction
-    let wsInstance: any;
-    const origWS = global.WebSocket;
-    global.WebSocket = class extends origWS {
-      constructor(url: string) {
-        super(url);
-        wsInstance = this;
-      }
-    } as any;
-
-    // Mock location
-    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
-
-    useWebSocket().connect();
-
-    // Wait for the WebSocket to be created
-    await new Promise((r) => setTimeout(r, 10));
-
-    if (wsInstance) {
-      // Simulate close with 4401
-      wsInstance.dispatchEvent(new CloseEvent('close', { code: 4401 }));
+  // Simulate: connect → open → close with code 4401
+  // We need to intercept WebSocket construction
+  let wsInstance: any;
+  const origWS = global.WebSocket;
+  global.WebSocket = class extends origWS {
+    constructor(url: string) {
+      super(url);
+      wsInstance = this;
     }
+  } as any;
 
-    // Wait for any timers
-    await new Promise((r) => setTimeout(r, 50));
+  // Mock location
+  vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
 
-    expect(logoutMock).toHaveBeenCalled();
+  useWebSocket().connect();
 
-    // Restore
-    global.WebSocket = origWS;
-    vi.unstubAllMocks();
-  });
+  // Wait for the WebSocket to be created
+  await new Promise((r) => setTimeout(r, 10));
+
+  if (wsInstance) {
+    // Simulate close with 4401
+    wsInstance.dispatchEvent(new CloseEvent('close', { code: 4401 }));
+  }
+
+  // Wait for any timers
+  await new Promise((r) => setTimeout(r, 50));
+
+  expect(logoutMock).toHaveBeenCalled();
+
+  // Restore
+  global.WebSocket = origWS;
+  vi.unstubAllMocks();
+});
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -467,9 +473,17 @@ function connect(): void {
 
   ws.addEventListener('message', (evt) => {
     let parsed: unknown;
-    try { parsed = JSON.parse(evt.data as string); } catch { return; }
+    try {
+      parsed = JSON.parse(evt.data as string);
+    } catch {
+      return;
+    }
     for (const handler of [...handlers]) {
-      try { handler(parsed); } catch { /* isolate */ }
+      try {
+        handler(parsed);
+      } catch {
+        /* isolate */
+      }
     }
   });
 
@@ -582,6 +596,7 @@ git commit -m "fix(auth): redirect to /login on 401 and WS 4401 close code"
 ### Task B1: Add `get_participant` tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Modify: `packages/core/src/collective/default-participants.ts`
 - Test: `packages/core/src/tools/management-tools.test.ts`
@@ -598,7 +613,14 @@ async function makeContext() {
   const conversationStore = new FileConversationStore(storage);
   const toolRegistry = new ToolRegistry();
   // Register mock tools so composeTools has tool names to work with
-  for (const name of ['communicate', 'list_participants', 'list_tools', 'get_participant', 'list_conversations', 'get_conversation']) {
+  for (const name of [
+    'communicate',
+    'list_participants',
+    'list_tools',
+    'get_participant',
+    'list_conversations',
+    'get_conversation',
+  ]) {
     toolRegistry.register({
       name,
       description: `mock ${name}`,
@@ -640,42 +662,44 @@ import {
 Add to `packages/core/src/tools/management-tools.test.ts` (inside the main describe block, after existing tests):
 
 ```typescript
-  it('get_participant returns full config for an agent', async () => {
-    const { context } = await makeContext();
-    // Create an agent via the tool
-    await createAgentTool.execute(
-      {
-        id: 'test-agent',
-        name: 'Test Agent',
-        systemPrompt: 'You are a test agent.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
-        toolPolicies: { communicate: 'auto' },
-        defaultPolicy: 'auto',
-      },
-      context,
-    );
+it('get_participant returns full config for an agent', async () => {
+  const { context } = await makeContext();
+  // Create an agent via the tool
+  await createAgentTool.execute(
+    {
+      id: 'test-agent',
+      name: 'Test Agent',
+      systemPrompt: 'You are a test agent.',
+      model: { provider: 'openai-compatible', model: 'gpt-4o' },
+      toolPolicies: { communicate: 'auto' },
+      defaultPolicy: 'auto',
+    },
+    context,
+  );
 
-    const result = await getParticipantTool.execute({ id: 'test-agent' }, context);
-    expect(result.status).toBe('success');
-    const data = result.data as Record<string, unknown>;
-    expect(data.id).toBe('test-agent');
-    expect(data.name).toBe('Test Agent');
-    expect(data.type).toBe('agent');
-    expect((data as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
-    expect((data as any).systemPrompt).toBe('You are a test agent.');
-  });
+  const result = await getParticipantTool.execute({ id: 'test-agent' }, context);
+  expect(result.status).toBe('success');
+  const data = result.data as Record<string, unknown>;
+  expect(data.id).toBe('test-agent');
+  expect(data.name).toBe('Test Agent');
+  expect(data.type).toBe('agent');
+  expect((data as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
+  expect((data as any).systemPrompt).toBe('You are a test agent.');
+});
 
-  it('get_participant returns error for unknown id', async () => {
-    const { context } = await makeContext();
-    const result = await getParticipantTool.execute({ id: 'nonexistent' }, context);
-    expect(result.status).toBe('error');
-  });
+it('get_participant returns error for unknown id', async () => {
+  const { context } = await makeContext();
+  const result = await getParticipantTool.execute({ id: 'nonexistent' }, context);
+  expect(result.status).toBe('error');
+});
 ```
 
 Add the import at the top of the file:
+
 ```typescript
 import { getParticipantTool } from './management-tools.js';
 ```
+
 (alongside the existing imports from that module).
 
 - [ ] **Step 3: Run test to verify it fails**
@@ -771,6 +795,7 @@ git commit -m "feat: add get_participant tool for full config retrieval"
 ### Task B2: Fix `create_agent` and `modify_agent` — single source of truth + policy composition
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Test: `packages/core/src/tools/management-tools.test.ts`
 
@@ -779,88 +804,88 @@ git commit -m "feat: add get_participant tool for full config retrieval"
 Add to `packages/core/src/tools/management-tools.test.ts`:
 
 ```typescript
-  it('create_agent persists to collective only (no agents/ file)', async () => {
-    const { context, collective } = await makeContext();
-    const result = await createAgentTool.execute(
-      {
-        id: 'src-agent',
-        name: 'Source Agent',
-        systemPrompt: 'You are helpful.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
-        defaultPolicy: 'auto',
-        toolPolicies: { communicate: 'auto' },
-      },
-      context,
-    );
-    expect(result.status).toBe('success');
+it('create_agent persists to collective only (no agents/ file)', async () => {
+  const { context, collective } = await makeContext();
+  const result = await createAgentTool.execute(
+    {
+      id: 'src-agent',
+      name: 'Source Agent',
+      systemPrompt: 'You are helpful.',
+      model: { provider: 'openai-compatible', model: 'gpt-4o' },
+      defaultPolicy: 'auto',
+      toolPolicies: { communicate: 'auto' },
+    },
+    context,
+  );
+  expect(result.status).toBe('success');
 
-    // Collective record exists
-    const p = collective.get('src-agent');
-    expect(p).toBeDefined();
-    expect(p!.name).toBe('Source Agent');
-    expect((p as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
+  // Collective record exists
+  const p = collective.get('src-agent');
+  expect(p).toBeDefined();
+  expect(p!.name).toBe('Source Agent');
+  expect((p as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
 
-    // No agents/ file should be written
-    const agentsFile = await storage.readJson('agents/src-agent.json').catch(() => null);
-    expect(agentsFile).toBeNull();
-  });
+  // No agents/ file should be written
+  const agentsFile = await storage.readJson('agents/src-agent.json').catch(() => null);
+  expect(agentsFile).toBeNull();
+});
 
-  it('create_agent composes tools from defaultPolicy + toolPolicies', async () => {
-    const { context, collective } = await makeContext();
-    await createAgentTool.execute(
-      {
-        id: 'policy-agent',
-        name: 'Policy Agent',
-        systemPrompt: 'You are helpful.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
-        defaultPolicy: 'require-approval',
-        toolPolicies: { communicate: 'allow' },
-      },
-      context,
-    );
-    const p = collective.get('policy-agent') as any;
-    // communicate should be 'auto' (allow → auto mapping)
-    expect(p.tools['communicate']).toBe('auto');
-    // Other tools should default to 'requires_approval'
-    expect(p.tools['list_participants']).toBe('requires_approval');
-  });
+it('create_agent composes tools from defaultPolicy + toolPolicies', async () => {
+  const { context, collective } = await makeContext();
+  await createAgentTool.execute(
+    {
+      id: 'policy-agent',
+      name: 'Policy Agent',
+      systemPrompt: 'You are helpful.',
+      model: { provider: 'openai-compatible', model: 'gpt-4o' },
+      defaultPolicy: 'require-approval',
+      toolPolicies: { communicate: 'allow' },
+    },
+    context,
+  );
+  const p = collective.get('policy-agent') as any;
+  // communicate should be 'auto' (allow → auto mapping)
+  expect(p.tools['communicate']).toBe('auto');
+  // Other tools should default to 'requires_approval'
+  expect(p.tools['list_participants']).toBe('requires_approval');
+});
 
-  it('modify_agent updates the collective record (not agents/ file)', async () => {
-    const { context, collective } = await makeContext();
-    // Create first
-    await createAgentTool.execute(
-      {
-        id: 'mod-agent',
-        name: 'Before',
-        systemPrompt: 'Original prompt.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
-        defaultPolicy: 'auto',
-      },
-      context,
-    );
-    // Modify
-    const result = await modifyAgentTool.execute(
-      {
-        id: 'mod-agent',
-        name: 'After',
-        model: { provider: 'anthropic', model: 'claude-3' },
-        systemPrompt: 'Updated prompt.',
-        maxIterations: 10,
-        defaultPolicy: 'deny',
-        toolPolicies: { communicate: 'allow' },
-      },
-      context,
-    );
-    expect(result.status).toBe('success');
+it('modify_agent updates the collective record (not agents/ file)', async () => {
+  const { context, collective } = await makeContext();
+  // Create first
+  await createAgentTool.execute(
+    {
+      id: 'mod-agent',
+      name: 'Before',
+      systemPrompt: 'Original prompt.',
+      model: { provider: 'openai-compatible', model: 'gpt-4o' },
+      defaultPolicy: 'auto',
+    },
+    context,
+  );
+  // Modify
+  const result = await modifyAgentTool.execute(
+    {
+      id: 'mod-agent',
+      name: 'After',
+      model: { provider: 'anthropic', model: 'claude-3' },
+      systemPrompt: 'Updated prompt.',
+      maxIterations: 10,
+      defaultPolicy: 'deny',
+      toolPolicies: { communicate: 'allow' },
+    },
+    context,
+  );
+  expect(result.status).toBe('success');
 
-    const p = collective.get('mod-agent') as any;
-    expect(p.name).toBe('After');
-    expect(p.model).toEqual({ provider: 'anthropic', model: 'claude-3' });
-    expect(p.systemPrompt).toBe('Updated prompt.');
-    expect(p.maxIterations).toBe(10);
-    expect(p.tools['communicate']).toBe('auto'); // override
-    expect(p.tools['list_participants']).toBe('deny'); // default
-  });
+  const p = collective.get('mod-agent') as any;
+  expect(p.name).toBe('After');
+  expect(p.model).toEqual({ provider: 'anthropic', model: 'claude-3' });
+  expect(p.systemPrompt).toBe('Updated prompt.');
+  expect(p.maxIterations).toBe(10);
+  expect(p.tools['communicate']).toBe('auto'); // override
+  expect(p.tools['list_participants']).toBe('deny'); // default
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -895,7 +920,11 @@ function composeTools(
     }
   }
   const tools: Record<string, ToolPolicy> = {};
-  const names = new Set([...allToolNames, ...Object.keys(overrides), ...(existing ? Object.keys(existing) : [])]);
+  const names = new Set([
+    ...allToolNames,
+    ...Object.keys(overrides),
+    ...(existing ? Object.keys(existing) : []),
+  ]);
   for (const name of names) {
     tools[name] = overrides[name] ?? existing?.[name] ?? dp;
   }
@@ -915,8 +944,14 @@ export const createAgentTool: Tool = {
       id: { type: 'string' },
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
-      model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
-      defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
+      model: {
+        type: 'object',
+        properties: { provider: { type: 'string' }, model: { type: 'string' } },
+      },
+      defaultPolicy: {
+        type: 'string',
+        enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'],
+      },
       toolPolicies: { type: 'object' },
       tools: { type: 'object' },
     },
@@ -963,16 +998,23 @@ Replace the `modifyAgentTool` (lines 185-226) with:
 ```typescript
 export const modifyAgentTool: Tool = {
   name: 'modify_agent',
-  description: 'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
+  description:
+    'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
   parameters: {
     type: 'object',
     properties: {
       id: { type: 'string', description: 'Participant ID' },
       name: { type: 'string' },
-      model: { type: 'object', properties: { provider: { type: 'string' }, model: { type: 'string' } } },
+      model: {
+        type: 'object',
+        properties: { provider: { type: 'string' }, model: { type: 'string' } },
+      },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
-      defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
+      defaultPolicy: {
+        type: 'string',
+        enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'],
+      },
       toolPolicies: { type: 'object' },
     },
     required: ['id'],
@@ -991,17 +1033,20 @@ export const modifyAgentTool: Tool = {
       const collective = requireCollective(context);
       const existing = collective.get(id);
       if (!existing) return { status: 'error', error: `Agent not found: ${id}` };
-      if (existing.type !== 'agent') return { status: 'error', error: `Participant ${id} is not an agent` };
+      if (existing.type !== 'agent')
+        return { status: 'error', error: `Participant ${id} is not an agent` };
 
       const agent = existing as AgentConfig;
       // Handle both string (legacy) and object (ModelConfig) model arg
-      const updatedModel: ModelConfig = typeof model === 'string'
-        ? { provider: agent.model.provider, model }
-        : (model ?? agent.model);
+      const updatedModel: ModelConfig =
+        typeof model === 'string'
+          ? { provider: agent.model.provider, model }
+          : (model ?? agent.model);
       const allToolNames = context.toolRegistry.listAll();
-      const composedTools = (defaultPolicy || toolPolicies)
-        ? composeTools(defaultPolicy, toolPolicies, allToolNames, agent.tools)
-        : agent.tools;
+      const composedTools =
+        defaultPolicy || toolPolicies
+          ? composeTools(defaultPolicy, toolPolicies, allToolNames, agent.tools)
+          : agent.tools;
 
       await collective.update(id, {
         name: name ?? agent.name,
@@ -1027,74 +1072,74 @@ Edit `packages/core/src/tools/management-tools.test.ts`.
 **Replace the test at lines 198-223** ("create_agent writes agent config to storage") with:
 
 ```typescript
-  it('create_agent persists agent config to collective (not agents/ file)', async () => {
-    const storage = new MemoryStorage();
-    const collective = await Collective.load(storage);
-    await collective.seedDefaultsIfEmpty();
-    const conversationStore = new FileConversationStore(storage);
-    const toolRegistry = new ToolRegistry();
-    for (const tool of managementTools) {
-      toolRegistry.register(tool);
-    }
-    const context = {
-      participant: collective.getOrThrow('operator'),
-      collective,
-      conversationStore,
-      storage,
-      toolRegistry,
-      workspaceRoot: '/tmp',
-    } as unknown as ToolContext;
-    await createAgentTool.execute(
-      {
-        id: 'bot-1',
-        name: 'bot-1',
-        model: { provider: 'openai', model: 'gpt-4o' },
-        systemPrompt: '',
-        tools: {},
-      },
-      context,
-    );
-    // Collective record should exist with full config
-    const p = collective.get('bot-1') as any;
-    expect(p).toBeDefined();
-    expect(p.model).toEqual({ provider: 'openai', model: 'gpt-4o' });
-    // No agents/ file should be written
-    const agentsFiles = await storage.list('agents/');
-    expect(agentsFiles).toHaveLength(0);
-  });
+it('create_agent persists agent config to collective (not agents/ file)', async () => {
+  const storage = new MemoryStorage();
+  const collective = await Collective.load(storage);
+  await collective.seedDefaultsIfEmpty();
+  const conversationStore = new FileConversationStore(storage);
+  const toolRegistry = new ToolRegistry();
+  for (const tool of managementTools) {
+    toolRegistry.register(tool);
+  }
+  const context = {
+    participant: collective.getOrThrow('operator'),
+    collective,
+    conversationStore,
+    storage,
+    toolRegistry,
+    workspaceRoot: '/tmp',
+  } as unknown as ToolContext;
+  await createAgentTool.execute(
+    {
+      id: 'bot-1',
+      name: 'bot-1',
+      model: { provider: 'openai', model: 'gpt-4o' },
+      systemPrompt: '',
+      tools: {},
+    },
+    context,
+  );
+  // Collective record should exist with full config
+  const p = collective.get('bot-1') as any;
+  expect(p).toBeDefined();
+  expect(p.model).toEqual({ provider: 'openai', model: 'gpt-4o' });
+  // No agents/ file should be written
+  const agentsFiles = await storage.list('agents/');
+  expect(agentsFiles).toHaveLength(0);
+});
 ```
 
 **Replace the test at lines 227-256** ("updates model and systemPrompt in storage") with:
 
 ```typescript
-  it('updates model and systemPrompt in collective record', async () => {
-    const storage = new MemoryStorage();
-    const deps = await buildTestDeps({ storage });
-    const createResult = (await invokeManagementTool(
-      'create_agent',
-      {
-        id: 'bot-1',
-        name: 'bot-1',
-        model: { provider: 'openai', model: 'gpt-4o' },
-        systemPrompt: '',
-        tools: {},
-      },
-      deps,
-    )) as { status: string; data: { id: string } };
-    const { id } = createResult.data;
-    await invokeManagementTool(
-      'modify_agent',
-      {
-        id,
-        model: { provider: 'openai', model: 'gpt-4o-mini' },
-        systemPrompt: 'Be concise.',
-      },
-      deps,
-    );
-    const p = deps.collective.get(id) as any;
-    expect(p.model).toEqual({ provider: 'openai', model: 'gpt-4o-mini' });
-    expect(p.systemPrompt).toBe('Be concise.');
-  });
+it('updates model and systemPrompt in collective record', async () => {
+  const storage = new MemoryStorage();
+  const deps = await buildTestDeps({ storage });
+  const createResult = (await invokeManagementTool(
+    'create_agent',
+    {
+      id: 'bot-1',
+      name: 'bot-1',
+      model: { provider: 'openai', model: 'gpt-4o' },
+      systemPrompt: '',
+      tools: {},
+    },
+    deps,
+  )) as { status: string; data: { id: string } };
+  const { id } = createResult.data;
+  await invokeManagementTool(
+    'modify_agent',
+    {
+      id,
+      model: { provider: 'openai', model: 'gpt-4o-mini' },
+      systemPrompt: 'Be concise.',
+    },
+    deps,
+  );
+  const p = deps.collective.get(id) as any;
+  expect(p.model).toEqual({ provider: 'openai', model: 'gpt-4o-mini' });
+  expect(p.systemPrompt).toBe('Be concise.');
+});
 ```
 
 - [ ] **Step 6: Run tests to verify they pass**
@@ -1119,6 +1164,7 @@ git commit -m "fix: create_agent/modify_agent operate on collective as single so
 ### Task B3: Fix `ParticipantSlideOver.vue` — provider default, edit load, default policy
 
 **Files:**
+
 - Modify: `packages/web/src/components/participants/ParticipantSlideOver.vue`
 
 - [ ] **Step 1: Implement all slide-over fixes**
@@ -1271,6 +1317,7 @@ git commit -m "fix: ParticipantSlideOver loads full config on edit, defaults pro
 ### Task B4: `ParticipantsView.vue` — Model/Provider columns from full participant data
 
 **Files:**
+
 - Modify: `packages/web/src/views/ParticipantsView.vue`
 
 - [ ] **Step 1: Update `load()` to fetch full participant configs**
@@ -1280,7 +1327,10 @@ Edit `packages/web/src/views/ParticipantsView.vue`. Replace the `load` function 
 ```typescript
 async function load() {
   try {
-    const list = await execute<{ id: string; name: string; type: string; status: string }[]>('list_participants', {});
+    const list = await execute<{ id: string; name: string; type: string; status: string }[]>(
+      'list_participants',
+      {},
+    );
     // Fetch full config for each participant to get model/provider
     const fullConfigs = await Promise.all(
       list.map((p) =>
@@ -1325,6 +1375,7 @@ git commit -m "fix: ParticipantsView fetches full config for Model/Provider colu
 ### Task C1: Schema — add parent fields to conversation types + store interface
 
 **Files:**
+
 - Modify: `packages/types/src/conversation.ts`
 - Modify: `packages/core/src/conversation/ConversationStore.ts`
 - Modify: `packages/core/src/conversation/FileConversationStore.ts`
@@ -1335,73 +1386,73 @@ git commit -m "fix: ParticipantsView fetches full config for Model/Provider colu
 Add to `packages/core/src/conversation/FileConversationStore.test.ts` (inside the main describe block):
 
 ```typescript
-  it('create persists parentConversationId and parentToolCallId', async () => {
-    const conv = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: 'parent-conv',
-      parentToolCallId: 'tc-1',
-    });
-    expect(conv.parentConversationId).toBe('parent-conv');
-    expect(conv.parentToolCallId).toBe('tc-1');
+it('create persists parentConversationId and parentToolCallId', async () => {
+  const conv = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: 'parent-conv',
+    parentToolCallId: 'tc-1',
+  });
+  expect(conv.parentConversationId).toBe('parent-conv');
+  expect(conv.parentToolCallId).toBe('tc-1');
 
-    const loaded = await store.load(conv.id);
-    expect(loaded?.parentConversationId).toBe('parent-conv');
-    expect(loaded?.parentToolCallId).toBe('tc-1');
+  const loaded = await store.load(conv.id);
+  expect(loaded?.parentConversationId).toBe('parent-conv');
+  expect(loaded?.parentToolCallId).toBe('tc-1');
+});
+
+it('listByParent returns only child conversations', async () => {
+  const parent = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  const child1 = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: parent.id,
+    parentToolCallId: 'tc-a',
+  });
+  const child2 = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: parent.id,
+    parentToolCallId: 'tc-b',
+  });
+  // An unrelated top-level conversation
+  await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
   });
 
-  it('listByParent returns only child conversations', async () => {
-    const parent = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    const child1 = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: parent.id,
-      parentToolCallId: 'tc-a',
-    });
-    const child2 = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: parent.id,
-      parentToolCallId: 'tc-b',
-    });
-    // An unrelated top-level conversation
-    await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
+  const children = await store.listByParent(parent.id);
+  expect(children).toHaveLength(2);
+  expect(children.map((c) => c.id).sort()).toEqual([child1.id, child2.id].sort());
+});
 
-    const children = await store.listByParent(parent.id);
-    expect(children).toHaveLength(2);
-    expect(children.map((c) => c.id).sort()).toEqual([child1.id, child2.id].sort());
+it('list excludes sub-threads by default', async () => {
+  const parent = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: parent.id,
+    parentToolCallId: 'tc-1',
   });
 
-  it('list excludes sub-threads by default', async () => {
-    const parent = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: parent.id,
-      parentToolCallId: 'tc-1',
-    });
-
-    const metas = await store.list();
-    const ids = metas.map((m) => m.id);
-    expect(ids).toContain(parent.id);
-    expect(ids).toHaveLength(1); // only the parent, not the child
-  });
+  const metas = await store.list();
+  const ids = metas.map((m) => m.id);
+  expect(ids).toContain(parent.id);
+  expect(ids).toHaveLength(1); // only the parent, not the child
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1467,7 +1518,7 @@ Edit `packages/core/src/conversation/FileConversationStore.ts`.
 In the `list` method, after loading each conversation (after line 81: `if (!conversation) continue;`), add:
 
 ```typescript
-      if (!filter?.includeSubThreads && conversation.parentConversationId) continue;
+if (!filter?.includeSubThreads && conversation.parentConversationId) continue;
 ```
 
 Also populate the meta's parent fields (add to the `meta` object, after line 97 `participants: [...participantSet],`):
@@ -1517,6 +1568,7 @@ git commit -m "feat: add parentConversationId/parentToolCallId to conversation s
 ### Task C2: Remove implicit join in `communicate` tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/Tool.ts` (add `toolCallId?`)
 - Modify: `packages/core/src/tools/communicate-tool.ts`
 - Test: `packages/core/src/tools/communicate-tool.test.ts`
@@ -1526,29 +1578,29 @@ git commit -m "feat: add parentConversationId/parentToolCallId to conversation s
 Add to `packages/core/src/tools/communicate-tool.test.ts` (inside the main describe block):
 
 ```typescript
-  it('creates a new conversation when no conversationId is supplied (does not join caller conversation)', async () => {
-    const { context, router } = await setup(dir);
-    // context.conversationId is 'seed' — the tool must NOT join 'seed'
-    const result = await communicateTool.execute({ to: 'agent-b', message: 'hi B' }, context);
-    expect(result.status).toBe('success');
-    const convId = (result.data as { conversationId: string }).conversationId;
-    expect(convId).not.toBe('seed');
-    // A new conversation should have been created
-    expect(convId).toMatch(/^conv-/);
-  });
+it('creates a new conversation when no conversationId is supplied (does not join caller conversation)', async () => {
+  const { context, router } = await setup(dir);
+  // context.conversationId is 'seed' — the tool must NOT join 'seed'
+  const result = await communicateTool.execute({ to: 'agent-b', message: 'hi B' }, context);
+  expect(result.status).toBe('success');
+  const convId = (result.data as { conversationId: string }).conversationId;
+  expect(convId).not.toBe('seed');
+  // A new conversation should have been created
+  expect(convId).toMatch(/^conv-/);
+});
 
-  it('joins explicit conversationId when supplied', async () => {
-    const { context } = await setup(dir);
-    const result = await communicateTool.execute(
-      { to: 'agent-b', message: 'hi', conversationId: 'explicit-conv' },
-      context,
-    );
-    expect(result.status).toBe('success');
-    const convId = (result.data as { conversationId: string }).conversationId;
-    // 'explicit-conv' doesn't exist yet so router creates it with a new id;
-    // but the key point is the tool passed it through, not 'seed'
-    expect(convId).not.toBe('seed');
-  });
+it('joins explicit conversationId when supplied', async () => {
+  const { context } = await setup(dir);
+  const result = await communicateTool.execute(
+    { to: 'agent-b', message: 'hi', conversationId: 'explicit-conv' },
+    context,
+  );
+  expect(result.status).toBe('success');
+  const convId = (result.data as { conversationId: string }).conversationId;
+  // 'explicit-conv' doesn't exist yet so router creates it with a new id;
+  // but the key point is the tool passed it through, not 'seed'
+  expect(convId).not.toBe('seed');
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1643,6 +1695,7 @@ git commit -m "fix: communicate tool never implicitly joins caller conversation"
 ### Task C3: `MessageRouter` — parent linking on new conversation
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/MessageRouter.ts`
 - Test: `packages/core/src/runtime/MessageRouter.test.ts`
 
@@ -1651,43 +1704,47 @@ git commit -m "fix: communicate tool never implicitly joins caller conversation"
 Add to `packages/core/src/runtime/MessageRouter.test.ts` (inside `describe('MessageRouter: synchronous send')`):
 
 ```typescript
-  it('stamps parentConversationId and parentToolCallId on child when caller has a conversation', async () => {
-    const { router, baseContext, store } = await setup(dir);
-    // First send creates a parent conversation
-    const parent = await router.send({
-      senderId: 'op',
-      recipientId: 'mock-1',
-      message: 'hello',
-      context: baseContext,
-    });
-    // Second send with context.conversationId = parent, no explicit conversationId
-    // (simulates an agent in the parent conversation calling communicate)
-    const childContext = { ...baseContext, conversationId: parent.conversationId, toolCallId: 'tc-42' };
-    const child = await router.send({
-      senderId: 'op',
-      recipientId: 'mock-1',
-      message: 'delegate',
-      context: childContext,
-    });
-    expect(child.conversationId).not.toBe(parent.conversationId);
-
-    const childConv = await store.load(child.conversationId);
-    expect(childConv?.parentConversationId).toBe(parent.conversationId);
-    expect(childConv?.parentToolCallId).toBe('tc-42');
+it('stamps parentConversationId and parentToolCallId on child when caller has a conversation', async () => {
+  const { router, baseContext, store } = await setup(dir);
+  // First send creates a parent conversation
+  const parent = await router.send({
+    senderId: 'op',
+    recipientId: 'mock-1',
+    message: 'hello',
+    context: baseContext,
   });
-
-  it('does not stamp parent link when caller has no conversation (empty string)', async () => {
-    const { router, baseContext, store } = await setup(dir);
-    const result = await router.send({
-      senderId: 'op',
-      recipientId: 'mock-1',
-      message: 'first',
-      context: { ...baseContext, conversationId: '' },
-    });
-    const conv = await store.load(result.conversationId);
-    expect(conv?.parentConversationId).toBeUndefined();
-    expect(conv?.parentToolCallId).toBeUndefined();
+  // Second send with context.conversationId = parent, no explicit conversationId
+  // (simulates an agent in the parent conversation calling communicate)
+  const childContext = {
+    ...baseContext,
+    conversationId: parent.conversationId,
+    toolCallId: 'tc-42',
+  };
+  const child = await router.send({
+    senderId: 'op',
+    recipientId: 'mock-1',
+    message: 'delegate',
+    context: childContext,
   });
+  expect(child.conversationId).not.toBe(parent.conversationId);
+
+  const childConv = await store.load(child.conversationId);
+  expect(childConv?.parentConversationId).toBe(parent.conversationId);
+  expect(childConv?.parentToolCallId).toBe('tc-42');
+});
+
+it('does not stamp parent link when caller has no conversation (empty string)', async () => {
+  const { router, baseContext, store } = await setup(dir);
+  const result = await router.send({
+    senderId: 'op',
+    recipientId: 'mock-1',
+    message: 'first',
+    context: { ...baseContext, conversationId: '' },
+  });
+  const conv = await store.load(result.conversationId);
+  expect(conv?.parentConversationId).toBeUndefined();
+  expect(conv?.parentToolCallId).toBeUndefined();
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1725,35 +1782,35 @@ Replace `getThread` (lines 57-69):
 In `sendInner` (line 134), replace:
 
 ```typescript
-    const thread = await this.getThread(opts.conversationId);
+const thread = await this.getThread(opts.conversationId);
 ```
 
 with:
 
 ```typescript
-    // When no explicit conversationId is provided, create a new conversation.
-    // If the caller is itself in a real conversation, stamp the parent link.
-    const parentConvId = opts.context.conversationId;
-    const parentLink =
-      !opts.conversationId && parentConvId && parentConvId !== ''
-        ? {
-            parentConversationId: parentConvId,
-            parentToolCallId: opts.context.toolCallId as string | undefined,
-          }
-        : undefined;
-    const thread = await this.getThread(opts.conversationId, parentLink);
+// When no explicit conversationId is provided, create a new conversation.
+// If the caller is itself in a real conversation, stamp the parent link.
+const parentConvId = opts.context.conversationId;
+const parentLink =
+  !opts.conversationId && parentConvId && parentConvId !== ''
+    ? {
+        parentConversationId: parentConvId,
+        parentToolCallId: opts.context.toolCallId as string | undefined,
+      }
+    : undefined;
+const thread = await this.getThread(opts.conversationId, parentLink);
 ```
 
 In `resume` (line 178), replace:
 
 ```typescript
-    const thread = await this.getThread(conversationId);
+const thread = await this.getThread(conversationId);
 ```
 
 with:
 
 ```typescript
-    const thread = await this.getThread(conversationId);
+const thread = await this.getThread(conversationId);
 ```
 
 (No change needed — `resume` always passes an explicit `conversationId`, so `parent` is undefined and the existing conversation is loaded.)
@@ -1780,6 +1837,7 @@ git commit -m "feat: MessageRouter stamps parentConversationId/parentToolCallId 
 ### Task C4: `AgentRuntime` — thread `toolCallId` into context
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/AgentRuntime.ts`
 
 - [ ] **Step 1: Thread `toolCallId` into the tool execution context**
@@ -1789,31 +1847,31 @@ Edit `packages/core/src/runtime/AgentRuntime.ts`.
 In the main tool loop (line 197), replace:
 
 ```typescript
-        const result = await context.toolRegistry.execute(tc.name, tc.arguments, context);
+const result = await context.toolRegistry.execute(tc.name, tc.arguments, context);
 ```
 
 with:
 
 ```typescript
-        const result = await context.toolRegistry.execute(tc.name, tc.arguments, {
-          ...context,
-          toolCallId: tc.id,
-        });
+const result = await context.toolRegistry.execute(tc.name, tc.arguments, {
+  ...context,
+  toolCallId: tc.id,
+});
 ```
 
 In `processResumedApprovals` (line 300), replace:
 
 ```typescript
-      const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, context);
+const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, context);
 ```
 
 with:
 
 ```typescript
-      const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, {
-        ...context,
-        toolCallId: tr.id,
-      });
+const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, {
+  ...context,
+  toolCallId: tr.id,
+});
 ```
 
 - [ ] **Step 2: Run existing AgentRuntime tests to verify no regressions**
@@ -1838,6 +1896,7 @@ git commit -m "feat: AgentRuntime threads toolCallId into tool context for paren
 ### Task C5: `list_conversations` filter + `get_conversation` sub-thread inclusion
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Test: `packages/core/src/tools/management-tools.test.ts`
 
@@ -1846,81 +1905,84 @@ git commit -m "feat: AgentRuntime threads toolCallId into tool context for paren
 Add to `packages/core/src/tools/management-tools.test.ts`:
 
 ```typescript
-  it('get_conversation includes subThreads keyed by parentToolCallId', async () => {
-    const { context, conversationStore } = await makeContext();
-    // Create a parent conversation with a message
-    const parent = await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    await conversationStore.appendMessage(parent.id, {
-      id: 'msg-1',
-      parentId: null,
-      conversationId: parent.id,
-      senderId: 'op',
-      recipientId: 'agent-a',
-      role: 'user',
-      content: 'hello',
-      status: 'active',
-      timestamp: new Date().toISOString(),
-    });
-    await conversationStore.updateHead(parent.id, 'msg-1');
+it('get_conversation includes subThreads keyed by parentToolCallId', async () => {
+  const { context, conversationStore } = await makeContext();
+  // Create a parent conversation with a message
+  const parent = await conversationStore.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  await conversationStore.appendMessage(parent.id, {
+    id: 'msg-1',
+    parentId: null,
+    conversationId: parent.id,
+    senderId: 'op',
+    recipientId: 'agent-a',
+    role: 'user',
+    content: 'hello',
+    status: 'active',
+    timestamp: new Date().toISOString(),
+  });
+  await conversationStore.updateHead(parent.id, 'msg-1');
 
-    // Create a child sub-thread
-    const child = await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: parent.id,
-      parentToolCallId: 'tc-delegate',
-    });
-    await conversationStore.appendMessage(child.id, {
-      id: 'child-msg-1',
-      parentId: null,
-      conversationId: child.id,
-      senderId: 'agent-a',
-      recipientId: 'agent-b',
-      role: 'user',
-      content: 'delegated question',
-      status: 'active',
-      timestamp: new Date().toISOString(),
-    });
-    await conversationStore.updateHead(child.id, 'child-msg-1');
+  // Create a child sub-thread
+  const child = await conversationStore.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: parent.id,
+    parentToolCallId: 'tc-delegate',
+  });
+  await conversationStore.appendMessage(child.id, {
+    id: 'child-msg-1',
+    parentId: null,
+    conversationId: child.id,
+    senderId: 'agent-a',
+    recipientId: 'agent-b',
+    role: 'user',
+    content: 'delegated question',
+    status: 'active',
+    timestamp: new Date().toISOString(),
+  });
+  await conversationStore.updateHead(child.id, 'child-msg-1');
 
-    const result = await getConversationTool.execute({ conversationId: parent.id }, context);
-    expect(result.status).toBe('success');
-    const data = result.data as { id: string; subThreads: Record<string, { id: string; messages: unknown[] }> };
-    expect(data.id).toBe(parent.id);
-    expect(data.subThreads).toBeDefined();
-    expect(data.subThreads['tc-delegate']).toBeDefined();
-    expect(data.subThreads['tc-delegate'].id).toBe(child.id);
-    expect(data.subThreads['tc-delegate'].messages).toHaveLength(1);
+  const result = await getConversationTool.execute({ conversationId: parent.id }, context);
+  expect(result.status).toBe('success');
+  const data = result.data as {
+    id: string;
+    subThreads: Record<string, { id: string; messages: unknown[] }>;
+  };
+  expect(data.id).toBe(parent.id);
+  expect(data.subThreads).toBeDefined();
+  expect(data.subThreads['tc-delegate']).toBeDefined();
+  expect(data.subThreads['tc-delegate'].id).toBe(child.id);
+  expect(data.subThreads['tc-delegate'].messages).toHaveLength(1);
+});
+
+it('list_conversations excludes sub-threads', async () => {
+  const { context, conversationStore } = await makeContext();
+  const parent = await conversationStore.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  await conversationStore.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: parent.id,
+    parentToolCallId: 'tc-1',
   });
 
-  it('list_conversations excludes sub-threads', async () => {
-    const { context, conversationStore } = await makeContext();
-    const parent = await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: parent.id,
-      parentToolCallId: 'tc-1',
-    });
-
-    const result = await listConversationsTool.execute({}, context);
-    expect(result.status).toBe('success');
-    const data = result.data as { conversations: { id: string }[] };
-    const ids = data.conversations.map((c) => c.id);
-    expect(ids).toContain(parent.id);
-    // The child should not appear
-    expect(ids).toHaveLength(1);
-  });
+  const result = await listConversationsTool.execute({}, context);
+  expect(result.status).toBe('success');
+  const data = result.data as { conversations: { id: string }[] };
+  const ids = data.conversations.map((c) => c.id);
+  expect(ids).toContain(parent.id);
+  // The child should not appear
+  expect(ids).toHaveLength(1);
+});
 ```
 
 Add `getConversationTool` and `listConversationsTool` to the imports at the top (if not already imported):
@@ -2012,6 +2074,7 @@ git commit -m "feat: get_conversation includes subThreads, list_conversations ex
 ### Task C6: Frontend — capture `subThreads` and render nested delegation blocks
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useConversation.ts`
 - Modify: `packages/web/src/components/conversations/ConversationThread.vue`
 - Test: `packages/web/src/composables/useConversation.test.ts`
@@ -2083,22 +2146,57 @@ export function useConversation(conversationId: string | null) {
   }
 
   if (conversationId) {
-    on('message:sent', () => { void load(); }, { conversationId });
-    on('message:delivered', () => {
-      isThinkingLocal.value = false;
-      iterationFired.value = false;
-      void load();
-    }, { conversationId });
-    on('iteration', () => { iterationFired.value = true; }, { conversationId });
-    on('approval:requested', () => {
-      isThinkingLocal.value = false;
-      iterationFired.value = false;
-      void load();
-    }, { conversationId });
-    on('approval:resolved', () => { iterationFired.value = true; void load(); }, { conversationId });
-    on('tool:result', () => { void load(); }, { conversationId });
+    on(
+      'message:sent',
+      () => {
+        void load();
+      },
+      { conversationId },
+    );
+    on(
+      'message:delivered',
+      () => {
+        isThinkingLocal.value = false;
+        iterationFired.value = false;
+        void load();
+      },
+      { conversationId },
+    );
+    on(
+      'iteration',
+      () => {
+        iterationFired.value = true;
+      },
+      { conversationId },
+    );
+    on(
+      'approval:requested',
+      () => {
+        isThinkingLocal.value = false;
+        iterationFired.value = false;
+        void load();
+      },
+      { conversationId },
+    );
+    on(
+      'approval:resolved',
+      () => {
+        iterationFired.value = true;
+        void load();
+      },
+      { conversationId },
+    );
+    on(
+      'tool:result',
+      () => {
+        void load();
+      },
+      { conversationId },
+    );
 
-    onMounted(() => { void load(); });
+    onMounted(() => {
+      void load();
+    });
   }
 
   return { messages, subThreads, loading, error, isThinking, load, markSent };
@@ -2143,36 +2241,35 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
 Destructure `subThreads` from `useConversation` on line 20:
 
 ```typescript
-const { messages, subThreads, loading, isThinking, markSent } = useConversation(props.conversationId);
+const { messages, subThreads, loading, isThinking, markSent } = useConversation(
+  props.conversationId,
+);
 ```
 
 In the template, replace the compact tool call div (lines 100-107):
 
 ```html
-            <div
-              v-for="tc in msg.toolCalls"
-              :key="tc.id"
-              class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
-            >
-              {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
-            </div>
+<div
+  v-for="tc in msg.toolCalls"
+  :key="tc.id"
+  class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
+>
+  {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
+</div>
 ```
 
 with:
 
 ```html
-            <template v-for="tc in msg.toolCalls" :key="tc.id">
-              <ToolCallBlock
-                v-if="subThreadForToolCall(tc.id)"
-                :entry="subThreadForToolCall(tc.id)!"
-              />
-              <div
-                v-else
-                class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
-              >
-                {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
-              </div>
-            </template>
+<template v-for="tc in msg.toolCalls" :key="tc.id">
+  <ToolCallBlock v-if="subThreadForToolCall(tc.id)" :entry="subThreadForToolCall(tc.id)!" />
+  <div
+    v-else
+    class="text-xs font-mono text-slate-500 px-2 py-1 bg-navy-900 rounded border border-navy-700"
+  >
+    {{ tc.name }}({{ JSON.stringify(tc.arguments).slice(0, 60) }}…)
+  </div>
+</template>
 ```
 
 - [ ] **Step 4: Build the web package**
@@ -2232,6 +2329,7 @@ Expected: Response includes `expiresAt` field (a number ~8h in the future).
 - [ ] **Step 2: Verify 401 redirect via Playwright**
 
 Use Playwright to:
+
 1. Navigate to `http://192.168.1.153:3000`
 2. Log in with operator credentials
 3. Kill and restart the server (invalidating the token)

@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./useAuth.js', () => ({
-  useAuth: vi.fn<() => {
-    getToken: () => string | null;
-    logout: () => void;
-  }>(),
+  useAuth: vi.fn<
+    () => {
+      getToken: () => string | null;
+      logout: () => void;
+    }
+  >(),
 }));
 
 vi.mock('../router/index.js', () => ({
@@ -51,8 +53,8 @@ describe('useExecute', () => {
       logout: () => {},
     });
 
-    global.fetch =
-      vi.fn()
+    global.fetch = vi
+      .fn()
       .mockResolvedValue({ ok: false, text: async () => 'Forbidden' } as Response);
 
     const { execute } = useExecute();

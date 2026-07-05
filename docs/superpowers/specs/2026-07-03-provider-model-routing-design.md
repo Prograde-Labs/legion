@@ -42,12 +42,12 @@ Stored at `~/.config/legion/providers/<name>.json`. One file per provider.
 
 ```ts
 interface ProviderConfig {
-  name: string;           // user-defined display name, used in routing config
+  name: string; // user-defined display name, used in routing config
   type: 'openai-compatible' | 'anthropic' | 'copilot' | 'codex';
-  baseUrl?: string;       // required for openai-compatible; optional for others
-  apiKey?: string;        // plaintext inline — no separate credential store
-  auth?: OAuthToken;      // copilot/codex — future; OAuthToken type defined when OAuth is implemented
-  priority: number;       // system-level ranking; lower number = higher priority
+  baseUrl?: string; // required for openai-compatible; optional for others
+  apiKey?: string; // plaintext inline — no separate credential store
+  auth?: OAuthToken; // copilot/codex — future; OAuthToken type defined when OAuth is implemented
+  priority: number; // system-level ranking; lower number = higher priority
 }
 ```
 
@@ -59,11 +59,11 @@ Returned by `Provider.listModels()`. Not persisted — always fetched live.
 
 ```ts
 interface ProviderModel {
-  id: string;                         // "claude-sonnet-4-5"
-  name?: string;                      // display name if different from id
+  id: string; // "claude-sonnet-4-5"
+  name?: string; // display name if different from id
   contextWindow?: number;
-  inputCostPer1kTokens?: number;      // USD, informational only
-  outputCostPer1kTokens?: number;     // USD, informational only
+  inputCostPer1kTokens?: number; // USD, informational only
+  outputCostPer1kTokens?: number; // USD, informational only
   capabilities?: ('vision' | 'tools' | 'json_mode')[];
 }
 ```
@@ -74,7 +74,7 @@ Used in `AgentConfig`. Provider reference removed entirely.
 
 ```ts
 interface ModelConfig {
-  model: string;          // "claude-sonnet-4-5"
+  model: string; // "claude-sonnet-4-5"
   temperature?: number;
   maxTokens?: number;
   // baseUrl and apiKeyEnv removed — provider owns these
@@ -119,7 +119,7 @@ interface LocalConfig extends Partial<WorkspaceConfig> {
 
 ```ts
 interface SystemConfig {
-  routing?: RoutingConfig;  // system-level routing defaults
+  routing?: RoutingConfig; // system-level routing defaults
   // extensible for future system-level settings
 }
 ```
@@ -156,6 +156,7 @@ class SystemProviderStore {
 ```
 
 Reads/writes `~/.config/legion/providers/<name>.json`. Constructs provider instances by type:
+
 - `openai-compatible` / `anthropic` → `OpenAICompatibleProvider(config.baseUrl, config.apiKey)`
 - `copilot` / `codex` → throws `NotImplementedError` (placeholder for future OAuth implementations)
 
@@ -257,12 +258,14 @@ Error message when no provider found: `[AgentRuntime error: no provider availabl
 ### Provider management (replaces current two-tab Providers + Credentials)
 
 **Provider list:**
+
 - Single "Providers" tab — no separate Credentials tab
 - Columns: name, type badge, priority, model count (from `listModels()` if available), edit/delete
 - Drag-to-reorder rows updates `priority` field
 - "Add Provider" button opens slideout
 
 **Provider slideout (add/edit):**
+
 - Fields: name, type (dropdown), base URL (shown only for `openai-compatible`), API key (password input, masked after save)
 - On save: calls `save_provider` tool
 - After save: calls `list_models` for that provider in background, updates model count in list
@@ -279,6 +282,7 @@ Each section: per-model rows showing model ID and ordered provider list. Drag to
 ### Agent config UI
 
 **Model field:**
+
 - Replaced with searchable dropdown
 - Populated from `list_models` (all models across all providers that have `listModels()`)
 - Grouped by provider or sorted alphabetically — implementation detail
@@ -289,14 +293,14 @@ Each section: per-model rows showing model ID and ordered provider list. Drag to
 
 ### New runtime tools
 
-| Tool | Description |
-|------|-------------|
-| `list_providers` | List all system-level providers (reads `SystemProviderStore`) |
-| `save_provider` | Create or update a provider (writes to system store, includes `apiKey`) |
-| `delete_provider` | Remove a provider by name |
-| `list_models` | Call `listModels()` on one or all providers, return merged results |
-| `get_routing` | Return system routing + workspace routing (merged, labeled by source) |
-| `save_routing` | Write routing config to system (`~/.config/legion/config.json`) or workspace (`config.local.json`) |
+| Tool              | Description                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| `list_providers`  | List all system-level providers (reads `SystemProviderStore`)                                      |
+| `save_provider`   | Create or update a provider (writes to system store, includes `apiKey`)                            |
+| `delete_provider` | Remove a provider by name                                                                          |
+| `list_models`     | Call `listModels()` on one or all providers, return merged results                                 |
+| `get_routing`     | Return system routing + workspace routing (merged, labeled by source)                              |
+| `save_routing`    | Write routing config to system (`~/.config/legion/config.json`) or workspace (`config.local.json`) |
 
 **Removed tools:** `configure_provider`, `list_credentials`, `set_credential_with_meta`.
 
@@ -314,6 +318,7 @@ Each section: per-model rows showing model ID and ordered provider list. Drag to
 ## Testing
 
 **`SystemProviderStore.test.ts`** (new):
+
 - `get()` returns constructed provider when file exists
 - `get()` returns `null` when file missing
 - `save()` writes correct JSON
@@ -321,6 +326,7 @@ Each section: per-model rows showing model ID and ordered provider list. Drag to
 - `list()` returns all configs
 
 **`ModelRouter.test.ts`** (new):
+
 - Workspace routing takes precedence over system routing
 - System routing used when no workspace routing for model
 - Auto-resolution uses `listModels()` + priority sort
@@ -328,11 +334,13 @@ Each section: per-model rows showing model ID and ordered provider list. Drag to
 - Returns `null` when no provider can serve model
 
 **`OpenAICompatibleProvider.test.ts`** (update):
+
 - `listModels()` merges live response with static data
 - `listModels()` returns `[]` on network error
 - `complete()` uses `apiKey` directly (not env var)
 
 **`AgentRuntime.test.ts`** (update):
+
 - Replace `ProviderStore` stub with `ModelRouter` stub
 - Error message when router returns `null`
 

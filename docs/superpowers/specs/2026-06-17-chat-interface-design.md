@@ -66,20 +66,20 @@ An `isRelevantToParticipant(event, payload, participantId)` function is added to
 
 Relevance rules by event type:
 
-| Event | Relevant when |
-|---|---|
-| `process:ready` | Always |
-| `conversation:created` | Always |
-| `participant:active` | Always |
-| `participant:retired` | Always |
-| `error` | Always |
-| `message:sent` | `payload.senderId === pid` OR `payload.recipientId === pid` |
-| `message:delivered` | `payload.recipientId === pid` |
-| `tool:call` | `payload.participantId === pid` |
-| `tool:result` | `payload.participantId === pid` |
-| `iteration` | `payload.participantId === pid` |
-| `approval:requested` | `payload.requesterId === pid` OR participant is an operator |
-| `approval:resolved` | `payload.requesterId === pid` OR participant is an operator |
+| Event                  | Relevant when                                               |
+| ---------------------- | ----------------------------------------------------------- |
+| `process:ready`        | Always                                                      |
+| `conversation:created` | Always                                                      |
+| `participant:active`   | Always                                                      |
+| `participant:retired`  | Always                                                      |
+| `error`                | Always                                                      |
+| `message:sent`         | `payload.senderId === pid` OR `payload.recipientId === pid` |
+| `message:delivered`    | `payload.recipientId === pid`                               |
+| `tool:call`            | `payload.participantId === pid`                             |
+| `tool:result`          | `payload.participantId === pid`                             |
+| `iteration`            | `payload.participantId === pid`                             |
+| `approval:requested`   | `payload.requesterId === pid` OR participant is an operator |
+| `approval:resolved`    | `payload.requesterId === pid` OR participant is an operator |
 
 Approval events are broadcast to all operators because operators are the approval authority. The `isRelevantToParticipant` function receives an `isOperator: boolean` flag resolved at auth time from the `Collective` — no per-event authority lookup needed.
 
@@ -94,6 +94,7 @@ The existing composable layer is refactored into three distinct layers. A known 
 ### 5.1 `useWebSocket`
 
 Extracted from the current `useEventStream`. Owns the raw WebSocket connection lifecycle:
+
 - Connection establishment and JWT auth handshake (`{ type: 'auth', token }`)
 - Exponential backoff reconnect (1s → 30s max)
 - Module-level singleton — one connection shared across the entire app
@@ -106,10 +107,10 @@ This is a pure transport layer. It knows nothing about event types or conversati
 Refactored to subscribe to `useWebSocket` rather than owning the WebSocket directly. Provides typed, filtered event subscriptions:
 
 ```ts
-const { on } = useEventStream()
-on('message:sent', handler)                          // all message:sent events
-on('message:sent', handler, { conversationId })      // filtered to one conversation
-on('iteration', handler, { conversationId })
+const { on } = useEventStream();
+on('message:sent', handler); // all message:sent events
+on('message:sent', handler, { conversationId }); // filtered to one conversation
+on('iteration', handler, { conversationId });
 ```
 
 **Lifecycle safety:** when called inside a Vue component's `setup()` context, subscriptions are automatically cleaned up on `onUnmounted` — the composable detects the component context via `getCurrentInstance()` and registers cleanup itself. Callers do not need to manage unsubscribe closures manually. This eliminates the class of leak present in `ParticipantsView` today.
@@ -121,6 +122,7 @@ The Events view uses `useEventStream` directly with no filters (it wants the ful
 The stateful composable for a single conversation thread. Accepts a `conversationId` or `null` for the draft state.
 
 When given a real `conversationId`:
+
 1. Loads the full conversation via `get_conversation` tool through `POST /api/execute` on mount — this is the authoritative initial state, not the event stream
 2. Subscribes to `useEventStream` filtered to that `conversationId` for: `message:sent`, `iteration`, `tool:call`, `tool:result`, `approval:requested`, `approval:resolved`
 3. Appends incoming events to local state — the event stream is a source of updates only, never a source of truth
@@ -128,6 +130,7 @@ When given a real `conversationId`:
 When `id` is `null` (draft state): returns empty state, no subscriptions.
 
 **Thinking indicator logic:**
+
 - Show animated "thinking..." when: the user just sent a message in this tab, OR an `iteration` event fires for this `conversationId`
 - Hide thinking when: `message:sent` (assistant role) fires, OR `approval:requested` fires for this `conversationId`
 - On initial load: if the last message in the active chain is `role: 'user'` with no subsequent assistant reply and no `pending_approval` tool results, show a static indeterminate "..." indicator — the agent may be processing or may have died mid-flight; we cannot distinguish after a restart
@@ -136,11 +139,11 @@ When `id` is `null` (draft state): returns empty state, no subscriptions.
 
 ## 6. Routes and Navigation
 
-| Route | State | Description |
-|---|---|---|
-| `/conversations` | list only | No conversation selected |
-| `/conversations/new` | draft | Empty thread, "To:" header, composer active |
-| `/conversations/:id` | active thread | Chat view for existing conversation |
+| Route                | State         | Description                                 |
+| -------------------- | ------------- | ------------------------------------------- |
+| `/conversations`     | list only     | No conversation selected                    |
+| `/conversations/new` | draft         | Empty thread, "To:" header, composer active |
+| `/conversations/:id` | active thread | Chat view for existing conversation         |
 
 The "Mine / All" toggle and "+ New" button live in the conversation list header. "+ New" navigates to `/conversations/new`.
 
@@ -149,6 +152,7 @@ The "Mine / All" toggle and "+ New" button live in the conversation list header.
 ## 7. New Conversation Flow (`/conversations/new`)
 
 The thread pane renders in draft state:
+
 - A "To:" header bar sits above the empty thread area with a `SearchableCombobox` populated by `list_participants` (active agents only)
 - The thread area shows an empty state: a subtle icon and "Send a message to start the conversation"
 - The composer is active immediately — the user can type before selecting a recipient
@@ -156,6 +160,7 @@ The thread pane renders in draft state:
 - The composer placeholder reads "Type a message..."
 
 On Send:
+
 1. Call `communicate` via `POST /api/execute` with `{ to: recipientId, message, replyTo: operatorParticipantId }`
 2. The response returns immediately with `{ conversationId, status: 'dispatched' }`
 3. Navigate to `/conversations/<conversationId>`
@@ -168,6 +173,7 @@ On Send:
 ### 8.1 Bubble layout
 
 Messages render as bubbles:
+
 - **Your messages** (operator): right-aligned, cyan background (`bg-cyan-700` / `bg-cyan-600`), white text, `border-radius: 12px 12px 3px 12px`
 - **Agent messages**: left-aligned, slate background (`bg-navy-800` / `bg-slate-800`), light text, `border-radius: 12px 12px 12px 3px`
 - Each bubble shows sender name and relative timestamp beneath it
@@ -180,6 +186,7 @@ Existing `ToolCallBlock` component rendering is preserved — compact, shows too
 ### 8.3 Approval cards (`ApprovalCard.vue`)
 
 Rendered for any tool result with `status: 'pending_approval'`. Shows:
+
 - Tool name and formatted args (collapsed, expandable)
 - Allow / Deny buttons
 - Optional `message` text field — always visible, encouraged for Deny, optional for Allow
@@ -195,12 +202,15 @@ A subtle animated "..." appears as a left-aligned pseudo-bubble beneath the last
 ## 9. New Components
 
 ### `MessageBubble.vue`
+
 Single message bubble. Props: `message: MessageData`, `isOwn: boolean`. Renders content, sender, timestamp. Slots for tool call blocks and approval cards beneath the bubble.
 
 ### `ApprovalCard.vue`
+
 Inline approval request. Props: `toolResult: ToolCallResult`, `approvalId: string`, `toolName: string`, `args: Record<string, unknown>`. Emits resolution via `useExecute`. Shows decision outcome after resolution.
 
 ### `SearchableCombobox.vue`
+
 Reusable filtered dropdown. Props: `options: { value: string, label: string }[]`, `placeholder: string`. Emits `select(value)`. Filters options as the user types. Keyboard navigable. Used for recipient picker; reusable elsewhere across the app.
 
 ---
@@ -208,16 +218,19 @@ Reusable filtered dropdown. Props: `options: { value: string, label: string }[]`
 ## 10. Modified Components
 
 ### `ConversationsView.vue`
+
 - Handles `/conversations/new` route (draft state)
 - Passes `mode: 'read' | 'chat'` to `ConversationThread` — chat mode when the operator is a participant or it is a draft; read mode when viewing "All" conversations the operator is not part of
 - Manages `useConversation` lifecycle (mount/unmount on route change)
 
 ### `ConversationList.vue`
+
 - "+ New" button in header navigates to `/conversations/new`
 - "Mine / All" toggle — Mine passes `participantId` to `list_conversations`, All omits it
 - Amber dot indicator on list items where the last message has a `pending_approval` tool result
 
 ### `ConversationThread.vue`
+
 - Accepts `mode` prop
 - In chat mode: renders `MessageBubble` components instead of flat message rows, shows composer at bottom, shows thinking indicator, wires `useConversation`
 - In read mode: existing rendering unchanged
@@ -232,20 +245,21 @@ A `textarea` with auto-expand (up to ~4 lines), then scrolls. Send button to the
 
 ## 12. Thinking Indicator Triggers
 
-| Condition | Indicator shown |
-|---|---|
-| User just sent a message in this tab | Animated "thinking..." |
-| `iteration` event fires for this `conversationId` | Animated "thinking..." |
-| `message:sent` (assistant) fires | Hide indicator |
-| `approval:requested` fires | Hide indicator (approval card appears instead) |
-| Initial load: last message is user, no reply, no events | Static indeterminate "..." |
-| Initial load: last message is assistant | No indicator |
+| Condition                                               | Indicator shown                                |
+| ------------------------------------------------------- | ---------------------------------------------- |
+| User just sent a message in this tab                    | Animated "thinking..."                         |
+| `iteration` event fires for this `conversationId`       | Animated "thinking..."                         |
+| `message:sent` (assistant) fires                        | Hide indicator                                 |
+| `approval:requested` fires                              | Hide indicator (approval card appears instead) |
+| Initial load: last message is user, no reply, no events | Static indeterminate "..."                     |
+| Initial load: last message is assistant                 | No indicator                                   |
 
 ---
 
 ## 13. Testing
 
 ### Unit / component tests
+
 - `useWebSocket` — connection lifecycle, reconnect backoff, auth handshake
 - `useEventStream` — filter parameter behaviour, auto-cleanup on unmount, no handler leak across multiple mounts
 - `useConversation` — initial load, event appending, thinking indicator state transitions
@@ -255,6 +269,7 @@ A `textarea` with auto-expand (up to ~4 lines), then scrolls. Send button to the
 - `MessageBubble` — own vs other alignment, timestamp formatting
 
 ### E2E tests (new specs in `packages/e2e`)
+
 - Send a message to an agent, see thinking indicator, see response appear in thread
 - Start a new conversation via "+ New", pick recipient, send first message, redirect to conversation
 - Approve a tool call — card updates to approved state, agent continues

@@ -25,9 +25,17 @@ function connect(): void {
 
   ws.addEventListener('message', (evt) => {
     let parsed: unknown;
-    try { parsed = JSON.parse(evt.data as string); } catch { return; }
+    try {
+      parsed = JSON.parse(evt.data as string);
+    } catch {
+      return;
+    }
     for (const handler of [...handlers]) {
-      try { handler(parsed); } catch { /* isolate */ }
+      try {
+        handler(parsed);
+      } catch {
+        /* isolate */
+      }
     }
   });
 
@@ -47,12 +55,12 @@ function connect(): void {
 function scheduleReconnect(): void {
   if (stoppedByAuth) return;
   if (reconnectTimer !== null) return;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      if (stoppedByAuth) return;
-      backoff = Math.min(backoff * 2, 30_000);
-      connect();
-    }, backoff);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (stoppedByAuth) return;
+    backoff = Math.min(backoff * 2, 30_000);
+    connect();
+  }, backoff);
 }
 
 export function useWebSocket() {

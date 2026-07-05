@@ -53,10 +53,10 @@ Coverage is provided by [`@vitest/coverage-v8`](https://vitest.dev/guide/coverag
 
 Reports are written to:
 
-| Scope | Output directory |
-|---|---|
-| `core` / `runtime` / `types` | `./coverage/` |
-| `web` | `./packages/web/coverage/` |
+| Scope                        | Output directory           |
+| ---------------------------- | -------------------------- |
+| `core` / `runtime` / `types` | `./coverage/`              |
+| `web`                        | `./packages/web/coverage/` |
 
 Three report formats are generated: `text` (terminal table), `html` (browsable), and `lcov` (CI tools).
 
@@ -81,11 +81,11 @@ Integration tests live alongside unit tests but use the `.integration.test.ts` s
 
 ### Environment variables
 
-| Variable | Tests enabled | Notes |
-|---|---|---|
-| `LEGION_INTEGRATION=1` | `LegionProcess.integration.test.ts`, `WebConnector.ws.integration.test.ts` | Starts a real Fastify server on port 3000 — ensure the port is free |
-| `LEGION_MCP_INTEGRATION=1` | `MCPToolSource.integration.test.ts` | Spawns real MCP subprocess |
-| `LEGION_OPENAI_INTEGRATION=1` | `agent-runtime.integration.test.ts` | Requires a live OpenAI-compatible API key; uses `gpt-4o-mini` by default (override with `OPENAI_MODEL`) |
+| Variable                      | Tests enabled                                                              | Notes                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `LEGION_INTEGRATION=1`        | `LegionProcess.integration.test.ts`, `WebConnector.ws.integration.test.ts` | Starts a real Fastify server on port 3000 — ensure the port is free                                     |
+| `LEGION_MCP_INTEGRATION=1`    | `MCPToolSource.integration.test.ts`                                        | Spawns real MCP subprocess                                                                              |
+| `LEGION_OPENAI_INTEGRATION=1` | `agent-runtime.integration.test.ts`                                        | Requires a live OpenAI-compatible API key; uses `gpt-4o-mini` by default (override with `OPENAI_MODEL`) |
 
 ### Running with integration tests
 

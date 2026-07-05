@@ -13,10 +13,7 @@ defineProps<{ messages: MessageEntry[] }>();
         <span :style="{ color: msg.authorColour }" class="text-xs font-bold">{{ msg.author }}</span>
         <span class="text-[10px] text-navy-500">{{ msg.timestamp }}</span>
       </div>
-      <MarkdownContent
-        :content="msg.content"
-        class="text-[11px] text-slate-300 leading-relaxed"
-      />
+      <MarkdownContent :content="msg.content" class="text-[11px] text-slate-300 leading-relaxed" />
       <ToolCallBlock v-for="tc in msg.toolCalls ?? []" :key="tc.id" :entry="tc" />
     </div>
   </div>

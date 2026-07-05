@@ -28,9 +28,7 @@ async function waitForUrl(url: string, maxMs: number, intervalMs = 500): Promise
   throw new Error(`Timed out waiting for ${url}: ${String(lastError)}`);
 }
 
-export default async function globalSetup(
-  _config: FullConfig,
-): Promise<() => Promise<void>> {
+export default async function globalSetup(_config: FullConfig): Promise<() => Promise<void>> {
   const workspaceDir = await mkdtemp(join(tmpdir(), 'legion-e2e-'));
   let mockProvider: MockProvider | undefined;
 
@@ -81,10 +79,18 @@ export default async function globalSetup(
 
     // Return teardown function (Playwright calls this after all tests)
     return async function teardown(): Promise<void> {
-      try { legionServer.kill('SIGTERM'); } catch {}
-      try { await mockProvider!.stop(); } catch {}
-      try { await rm(workspaceDir, { recursive: true, force: true }); } catch {}
-      try { await rm(CONN_INFO_FILE, { force: true }); } catch {}
+      try {
+        legionServer.kill('SIGTERM');
+      } catch {}
+      try {
+        await mockProvider!.stop();
+      } catch {}
+      try {
+        await rm(workspaceDir, { recursive: true, force: true });
+      } catch {}
+      try {
+        await rm(CONN_INFO_FILE, { force: true });
+      } catch {}
       console.log('[e2e teardown] Complete.');
     };
   } catch (err) {

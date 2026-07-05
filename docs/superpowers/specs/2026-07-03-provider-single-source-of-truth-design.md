@@ -28,6 +28,7 @@ The result: changes made through the web UI have no effect on running agents. Th
 **Single source of truth:** `.legion/providers/<name>.json` — one JSON file per provider, already the format written by the web UI.
 
 **`ProviderStore`** (new class, `packages/core/src/providers/ProviderStore.ts`): thin wrapper around `FileStorage` with three methods:
+
 - `get(name): Promise<OpenAICompatibleProvider | null>` — reads `providers/<name>.json`, constructs and returns a provider instance; returns `null` if not found
 - `list(): Promise<ProviderConfig[]>` — enumerates all provider files
 - `save(config: ProviderConfig): Promise<void>` — writes the file
@@ -38,13 +39,13 @@ The result: changes made through the web UI have no effect on running agents. Th
 
 ## Component Changes
 
-| File | Change |
-|---|---|
-| `packages/core/src/providers/ProviderStore.ts` | **New.** `get()`, `list()`, `save()` wrapping `FileStorage` |
-| `packages/core/src/runtime/AgentRuntime.ts` | Constructor: `ProviderRegistry` → `ProviderStore`. `handle()`: calls `providerStore.get()` instead of `providerRegistry.get()` |
-| `packages/runtime/src/LegionProcess.ts` | Startup: migrate `workspaceConfig.providers` to `.legion/providers/`. Construct `ProviderStore`, pass to `AgentRuntime` factory instead of `ProviderRegistry` |
-| `packages/runtime/src/server/runtime-tools.ts` | `list_providers` and `configure_provider` delegate to `providerStore` instead of calling `FileStorage` directly. `providerStore` is passed in as a parameter to the `createRuntimeTools(storage, providerStore)` factory (or equivalent wiring from `LegionProcess`) |
-| `packages/core/src/providers/ProviderRegistry.ts` | No deletion; kept for test use only |
+| File                                              | Change                                                                                                                                                                                                                                                               |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/providers/ProviderStore.ts`    | **New.** `get()`, `list()`, `save()` wrapping `FileStorage`                                                                                                                                                                                                          |
+| `packages/core/src/runtime/AgentRuntime.ts`       | Constructor: `ProviderRegistry` → `ProviderStore`. `handle()`: calls `providerStore.get()` instead of `providerRegistry.get()`                                                                                                                                       |
+| `packages/runtime/src/LegionProcess.ts`           | Startup: migrate `workspaceConfig.providers` to `.legion/providers/`. Construct `ProviderStore`, pass to `AgentRuntime` factory instead of `ProviderRegistry`                                                                                                        |
+| `packages/runtime/src/server/runtime-tools.ts`    | `list_providers` and `configure_provider` delegate to `providerStore` instead of calling `FileStorage` directly. `providerStore` is passed in as a parameter to the `createRuntimeTools(storage, providerStore)` factory (or equivalent wiring from `LegionProcess`) |
+| `packages/core/src/providers/ProviderRegistry.ts` | No deletion; kept for test use only                                                                                                                                                                                                                                  |
 
 ## Data Flow
 
@@ -90,12 +91,14 @@ No changes to error shapes. `ProviderStore.get()` returns `null` when a file is 
 ## Testing
 
 **`ProviderStore.test.ts`** (new):
+
 - `get()` returns a constructed `OpenAICompatibleProvider` when file exists
 - `get()` returns `null` when file is missing
 - `save()` writes correct JSON to storage
 - `list()` returns all provider configs
 
 **`AgentRuntime.test.ts`** (update):
+
 - Replace `ProviderRegistry` with a mock/stub `ProviderStore` in test setup
 - Existing behavior tests remain valid; only the injected dependency changes
 

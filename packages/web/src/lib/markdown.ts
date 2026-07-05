@@ -37,9 +37,11 @@ export function ensureReady(): Promise<void> {
         breaks: true,
       });
 
-      md.use(fromHighlighter(highlighter, {
-        theme: 'github-dark',
-      }));
+      md.use(
+        fromHighlighter(highlighter, {
+          theme: 'github-dark',
+        }),
+      );
 
       // Wrap Shiki's fence output with a .code-block div + copy button.
       // This must happen AFTER fromHighlighter() replaces the fence rule.

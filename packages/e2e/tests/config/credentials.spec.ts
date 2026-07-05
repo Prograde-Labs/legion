@@ -17,7 +17,9 @@ test.describe('Config — Credentials tab', () => {
     await expect(page.getByText('Add credential', { exact: true })).toBeVisible();
   });
 
-  test('fills form and saves — new credential appears in table with masked value', async ({ authPage }) => {
+  test('fills form and saves — new credential appears in table with masked value', async ({
+    authPage,
+  }) => {
     const { page } = authPage;
     await page.goto('/#/config/credentials');
 
@@ -25,7 +27,10 @@ test.describe('Config — Credentials tab', () => {
     await expect(page.getByText('Add credential', { exact: true })).toBeVisible();
 
     await page.locator('div:has(label:text-is("Key name")) input').first().fill('ui-test-key');
-    await page.locator('div:has(label:text-is("Value")) input[type="password"]').first().fill('super-secret');
+    await page
+      .locator('div:has(label:text-is("Value")) input[type="password"]')
+      .first()
+      .fill('super-secret');
 
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Add credential', { exact: true })).not.toBeVisible();
@@ -45,7 +50,9 @@ test.describe('Config — Credentials tab', () => {
     await row.getByRole('button', { name: 'Rotate' }).click();
 
     await expect(page.getByText('Rotate credential', { exact: true })).toBeVisible();
-    await page.locator('div:has(label:text-is("New value")) input[type="password"]').fill('new-super-secret');
+    await page
+      .locator('div:has(label:text-is("New value")) input[type="password"]')
+      .fill('new-super-secret');
     await page.getByRole('button', { name: 'Save' }).click();
 
     await expect(page.getByText('Rotate credential', { exact: true })).not.toBeVisible();
