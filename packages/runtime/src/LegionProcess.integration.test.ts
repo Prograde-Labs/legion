@@ -45,11 +45,16 @@ describe('LegionProcess config and runtime tools', () => {
     );
     await writeFile(
       join(homeRoot, '.config', 'legion', 'config.json'),
-      JSON.stringify({ custom: 'keep-system-field', routing: { models: { systemOld: ['system'] } } }),
+      JSON.stringify({
+        custom: 'keep-system-field',
+        routing: { models: { systemOld: ['system'] } },
+      }),
     );
 
     process_ = await LegionProcess.start(workspaceRoot);
-    const web = process_.connectors.get('web') as unknown as { app: { inject: (opts: unknown) => Promise<{ statusCode: number; payload: string }> } };
+    const web = process_.connectors.get('web') as unknown as {
+      app: { inject: (opts: unknown) => Promise<{ statusCode: number; payload: string }> };
+    };
     const login = await web.app.inject({
       method: 'POST',
       url: '/api/auth/login',
@@ -114,11 +119,21 @@ describe('LegionProcess config and runtime tools', () => {
       },
     });
 
-    await expect(readFile(join(workspaceRoot, '.legion', '.gitignore'), 'utf8')).resolves.toContain('config.local.json');
-    await expect(readFile(join(workspaceRoot, '.legion', 'config.local.json'), 'utf8')).resolves.toContain('workspaceNew');
-    await expect(readFile(join(workspaceRoot, '.legion', 'config.local.json'), 'utf8')).resolves.toContain('"server"');
-    await expect(readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8')).resolves.toContain('systemNew');
-    await expect(readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8')).resolves.toContain('keep-system-field');
+    await expect(readFile(join(workspaceRoot, '.legion', '.gitignore'), 'utf8')).resolves.toContain(
+      'config.local.json',
+    );
+    await expect(
+      readFile(join(workspaceRoot, '.legion', 'config.local.json'), 'utf8'),
+    ).resolves.toContain('workspaceNew');
+    await expect(
+      readFile(join(workspaceRoot, '.legion', 'config.local.json'), 'utf8'),
+    ).resolves.toContain('"server"');
+    await expect(
+      readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8'),
+    ).resolves.toContain('systemNew');
+    await expect(
+      readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8'),
+    ).resolves.toContain('keep-system-field');
   });
 });
 

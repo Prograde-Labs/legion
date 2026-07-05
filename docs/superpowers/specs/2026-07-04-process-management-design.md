@@ -16,22 +16,22 @@ Two runtime modes are supported per-process: **pipe mode** (`child_process.spawn
 
 ## Decisions
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Architecture | Tool family + internal `ProcessManager` | Matches `file_*`, `create_agent` pattern; management actions are ordinary authorized tool calls |
-| Execution modes | Both pipe + PTY; caller chooses per-process | Some programs require a TTY (interactive shells, TUI apps, programs that branch on `isatty`) |
-| Output capture | In-memory ring buffer (1 MiB) + persistent `output.log` + per-process event emitter | Ring = fast hot reads; file = historical seeks; emitter = live subscribers (services, SPA) |
-| Process identity | Auto-generated `proc-<uuid>` via existing `createId('proc')` + optional display name | Consistent with existing ID convention; no collision risk |
-| Auth | Per-tool `ToolPolicy` only, no command-pattern inspection | Matches Legion philosophy; operator responsibility; default `requires_approval` fallback means no accidental shell access |
-| Dirty shutdown | Startup sweep: stale `running` entries → `abandoned` | Deterministic, honest about uncertainty, cheap, self-healing; no PID liveness probe |
-| Live-only vs historical | Live table + persisted `meta.json` per process | Cheap historical record; survives restart for audit/debug |
-| Prune/retention | Not in v1 | Future work; `delete_process` covers manual cleanup |
-| Shutdown behavior | Kill all running processes on Legion shutdown | Processes are ephemeral, tied to Legion lifecycle; clean exit |
-| Events | Per-process `EventEmitter` on `ProcessEntry` | Avoids global-bus pollution; finer-grained than global `LegionEventMap`; subscribers attach to specific process |
-| SPA event delivery | WS `subscribe_process` / `unsubscribe_process` messages; server relays per-process emitter to socket | SPA subscribes to the process it's viewing, not a fire-hose; no global-bus relay needed |
-| WS output encoding | base64 | Safe for binary/partial-UTF-8 chunks, ANSI escape codes; SPA decodes via `TextDecoder`; optimize later if needed |
-| `cwd` / `env` | Caller-supplied; default `workspaceRoot` + inherited `process.env` | Flexible, caller-responsible |
-| `delete_process` | Manual one-at-a-time cleanup of dead process records | Pruning/retention (automated bulk) is future work |
+| Decision                | Choice                                                                                               | Rationale                                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Architecture            | Tool family + internal `ProcessManager`                                                              | Matches `file_*`, `create_agent` pattern; management actions are ordinary authorized tool calls                           |
+| Execution modes         | Both pipe + PTY; caller chooses per-process                                                          | Some programs require a TTY (interactive shells, TUI apps, programs that branch on `isatty`)                              |
+| Output capture          | In-memory ring buffer (1 MiB) + persistent `output.log` + per-process event emitter                  | Ring = fast hot reads; file = historical seeks; emitter = live subscribers (services, SPA)                                |
+| Process identity        | Auto-generated `proc-<uuid>` via existing `createId('proc')` + optional display name                 | Consistent with existing ID convention; no collision risk                                                                 |
+| Auth                    | Per-tool `ToolPolicy` only, no command-pattern inspection                                            | Matches Legion philosophy; operator responsibility; default `requires_approval` fallback means no accidental shell access |
+| Dirty shutdown          | Startup sweep: stale `running` entries → `abandoned`                                                 | Deterministic, honest about uncertainty, cheap, self-healing; no PID liveness probe                                       |
+| Live-only vs historical | Live table + persisted `meta.json` per process                                                       | Cheap historical record; survives restart for audit/debug                                                                 |
+| Prune/retention         | Not in v1                                                                                            | Future work; `delete_process` covers manual cleanup                                                                       |
+| Shutdown behavior       | Kill all running processes on Legion shutdown                                                        | Processes are ephemeral, tied to Legion lifecycle; clean exit                                                             |
+| Events                  | Per-process `EventEmitter` on `ProcessEntry`                                                         | Avoids global-bus pollution; finer-grained than global `LegionEventMap`; subscribers attach to specific process           |
+| SPA event delivery      | WS `subscribe_process` / `unsubscribe_process` messages; server relays per-process emitter to socket | SPA subscribes to the process it's viewing, not a fire-hose; no global-bus relay needed                                   |
+| WS output encoding      | base64                                                                                               | Safe for binary/partial-UTF-8 chunks, ANSI escape codes; SPA decodes via `TextDecoder`; optimize later if needed          |
+| `cwd` / `env`           | Caller-supplied; default `workspaceRoot` + inherited `process.env`                                   | Flexible, caller-responsible                                                                                              |
+| `delete_process`        | Manual one-at-a-time cleanup of dead process records                                                 | Pruning/retention (automated bulk) is future work                                                                         |
 
 ---
 
@@ -88,12 +88,12 @@ export interface ProcessMeta {
   cwd: string;
   tty: boolean;
   shell: boolean;
-  startedAt: string;           // ISO-8601
+  startedAt: string; // ISO-8601
   startedByParticipantId: string;
   pid: number;
   status: ProcessStatus;
   exitCode: number | null;
-  exitedAt: string | null;     // ISO-8601; null if still running or abandoned without exit event
+  exitedAt: string | null; // ISO-8601; null if still running or abandoned without exit event
   abandonedReason?: 'parent_unclean_shutdown';
 }
 
@@ -124,7 +124,7 @@ export interface ExecuteResult {
 
 export interface ProcessOutputChunk {
   id: string;
-  stream: 'stdout' | 'stderr' | 'combined';  // 'combined' in PTY mode
+  stream: 'stdout' | 'stderr' | 'combined'; // 'combined' in PTY mode
   data: Buffer;
   timestamp: string;
 }
@@ -139,11 +139,11 @@ Internal to `ProcessManager`. Never exposed to callers directly.
 ```typescript
 interface ProcessEntry {
   meta: ProcessMeta;
-  child: ChildProcess | IPty | null;   // null after exit
-  emitter: EventEmitter;               // per-process event channel
+  child: ChildProcess | IPty | null; // null after exit
+  emitter: EventEmitter; // per-process event channel
   ringBuffer: RingBuffer;
-  logStream: Writable | null;          // output.log append stream; null after close
-  logByteCount: number;                // running total for read offset / totalBytes
+  logStream: Writable | null; // output.log append stream; null after close
+  logByteCount: number; // running total for read offset / totalBytes
 }
 ```
 
@@ -158,9 +158,9 @@ Bounded ring of `Buffer` chunks. Target size 1 MiB (`DEFAULT_RING_BYTES = 1024 *
 ```typescript
 class RingBuffer {
   constructor(maxBytes: number = DEFAULT_RING_BYTES) {}
-  push(chunk: Buffer): void   // append chunk; drop oldest chunks until byteSize <= maxBytes
-  tail(bytes: number): Buffer // return last `bytes` bytes as single concatenated Buffer
-  get byteSize(): number
+  push(chunk: Buffer): void; // append chunk; drop oldest chunks until byteSize <= maxBytes
+  tail(bytes: number): Buffer; // return last `bytes` bytes as single concatenated Buffer
+  get byteSize(): number;
 }
 ```
 
@@ -174,7 +174,7 @@ Chunk-based (not byte-precise splitting): chunks are appended whole; when cumula
 
 ```typescript
 interface ProcessManagerDeps {
-  storage: Storage;          // will scope to 'processes'
+  storage: Storage; // will scope to 'processes'
   workspaceRoot: string;
   // injectable for testing:
   spawn?: (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
@@ -204,17 +204,18 @@ Called early in `LegionProcess.start`, before tools are registered.
 interface SpawnConfig {
   command: string;
   args?: string[];
-  cwd?: string;          // default workspaceRoot
-  env?: Record<string, string>;  // merged onto process.env
-  tty?: boolean;         // default false
-  shell?: boolean;       // default false; wraps command in /bin/sh -c
+  cwd?: string; // default workspaceRoot
+  env?: Record<string, string>; // merged onto process.env
+  tty?: boolean; // default false
+  shell?: boolean; // default false; wraps command in /bin/sh -c
   name?: string;
-  cols?: number;         // tty only, default 80
-  rows?: number;         // tty only, default 24
+  cols?: number; // tty only, default 80
+  rows?: number; // tty only, default 24
 }
 ```
 
 Steps:
+
 1. Generate `id = createId('proc')`.
 2. Create storage dir `.legion/processes/<id>/`.
 3. Build `ProcessEntry`: construct `EventEmitter`, `RingBuffer`, set `meta.status = 'starting'`.
@@ -342,7 +343,7 @@ child.on('exit', (code, signal) => {
   await persistMeta(entry);
   entry.emitter.emit('exited', { id, exitCode: code, signal, durationMs });
   entry.logStream?.end();
-  entry.child = null;   // keep entry in map; drop child handle
+  entry.child = null; // keep entry in map; drop child handle
 });
 ```
 
@@ -375,6 +376,7 @@ Used by both `execute_command` and `start_process` (the only difference is `time
 Adds `timeoutMs: number = 60000` (0 = no timeout) to spawn input schema.
 
 Returns:
+
 ```jsonc
 {
   "processId": string,
@@ -395,6 +397,7 @@ Returns `ProcessHandle`.
 ### `list_processes`
 
 Input:
+
 ```jsonc
 {
   "status": "running"|"exited"|"killed"|"abandoned"|"all" = "all",
@@ -414,6 +417,7 @@ Returns `ProcessHandle` or error result if not found.
 ### `read_process_output`
 
 Input:
+
 ```jsonc
 {
   "id": string,
@@ -424,6 +428,7 @@ Input:
 ```
 
 Returns:
+
 ```jsonc
 {
   "data": string,
@@ -435,6 +440,7 @@ Returns:
 ### `write_process_input`
 
 Input:
+
 ```jsonc
 {
   "id": string,
@@ -448,6 +454,7 @@ Returns `{ "ok": true }` or error result.
 ### `stop_process`
 
 Input:
+
 ```jsonc
 {
   "id": string,
@@ -541,10 +548,12 @@ On `process:exited` relay: after sending `process:exited`, call all three unsub 
 ## Dependencies
 
 - **`node-pty`** — native module; add to `packages/core/package.json`. Enables PTY mode. May require build tools on some platforms. Import guarded:
+
   ```typescript
   // native dep — may require build tools (node-gyp)
   import * as nodePty from 'node-pty';
   ```
+
   If `node-pty` fails to install (e.g. missing build tools in CI), PTY mode is unavailable at build time. Consider a dynamic `import()` with a try/catch that disables PTY mode gracefully rather than failing the whole process — defer this resilience to implementation.
 
 - No other new external deps. `child_process`, `EventEmitter`, `Writable` are Node built-ins.
@@ -574,17 +583,20 @@ On `process:exited` relay: after sending `process:exited`, call all three unsub 
 **Fake spawner injection.** `ProcessManager` constructor accepts optional `spawn` and `ptySpawn` for test injection. Fakes return a mock `ChildProcess`/`IPty` that emits events on demand. No real OS processes in unit tests — fast and deterministic.
 
 **`RingBuffer.test.ts`**
+
 - Push chunks until over 1 MiB; verify oldest dropped, byte count bounded.
 - `tail(bytes)` returns correct slice.
 - Edge: empty buffer, single oversized chunk.
 
 **`process-storage.test.ts`**
+
 - `meta.json` write/read round-trip (all fields, null fields).
 - Corrupted JSON parse: must throw, not silently swallow.
 - Missing directory: must error clearly.
 - `output.log` append: multiple writes, read-back matches.
 
 **`ProcessManager.test.ts`**
+
 - `start()` happy path: persists `running` meta, emits `started`, returns handle.
 - `start()` ENOENT: fake emits `error` before `exit`; manager sets `abandoned`, emits `error`, persists meta.
 - `execute()` success: returns captured stdout/stderr/durationMs, entry stays in map as `exited`.
@@ -599,6 +611,7 @@ On `process:exited` relay: after sending `process:exited`, call all three unsub 
 - `delete()` dead process: removed from map + disk. Running process: returns error.
 
 **`process-tools.test.ts`**
+
 - Each tool: mock `ProcessManager` injected into `ToolContext`. Validates JSONSchema enforcement (missing required, wrong type), error propagation, `delete_process` refusing on running entry.
 
 ### Integration tests (`*.integration.test.ts`, gated by `LEGION_INTEGRATION=1`)
@@ -622,6 +635,7 @@ Modeled on `WebConnector.ws.integration.test.ts`.
 ### E2E (`packages/e2e`)
 
 Full UI round-trip (lower priority for v1; implement once SPA process management view exists):
+
 - List processes → start via tool call from SPA execute pane → appear in list → click → live output → stop → exit → delete → gone.
 
 ---

@@ -16,6 +16,7 @@ import {
   ToolRegistry,
   AuthEngine,
   PendingApprovalRegistry,
+  ProcessManager,
   ConnectorRegistry,
   UserDeliveryRuntime,
   AgentRuntime,
@@ -27,6 +28,8 @@ import {
   communicateTool,
   approvalResponseTool,
   managementTools,
+  fileTools,
+  processTools,
   // MCP
   loadMCPSources,
   type ToolSource,
@@ -61,6 +64,7 @@ export class LegionProcess {
     readonly connectors: ConnectorRegistry,
     readonly eventBus: EventBus,
     private readonly mcpSources: ToolSource[],
+    private readonly processManager: ProcessManager,
   ) {}
 
   /**
@@ -134,10 +138,20 @@ export class LegionProcess {
       await writeJsonFile(join(legionRoot, 'config.local.json'), deepMerge(current, { routing }));
     };
 
+    // ── Step 5c: Create ProcessManager and reconcile stale processes ──────────
+    const processManager = new ProcessManager({ storage, workspaceRoot });
+    await processManager.reconcileOnStartup();
+
     // ── Step 6: Register global tools ────────────────────────────────────────
     toolRegistry.register(communicateTool);
     toolRegistry.register(approvalResponseTool);
     for (const tool of managementTools) {
+      toolRegistry.register(tool);
+    }
+    for (const tool of fileTools) {
+      toolRegistry.register(tool);
+    }
+    for (const tool of processTools) {
       toolRegistry.register(tool);
     }
     const runtimeTools = createRuntimeTools({
@@ -205,6 +219,7 @@ export class LegionProcess {
       collective,
       credentials,
       eventBus,
+      processManager,
       serverConfig: webConnectorConfig,
       webDistPath,
       webSrcPath,
@@ -226,6 +241,7 @@ export class LegionProcess {
       config: mergedConfig,
       workspaceRoot,
       serviceManager,
+      processManager,
     });
 
     await webConnector.start(connectorContext);
@@ -245,11 +261,14 @@ export class LegionProcess {
       connectorRegistry,
       eventBus,
       mcpSources,
+      processManager,
     );
   }
 
   /** Graceful shutdown: stop all services, connectors, and MCP sources. */
   async stop(): Promise<void> {
+    // Kill all running processes
+    await this.processManager.shutdown().catch(() => undefined);
     // Stop all running services
     for (const { participantId } of this.services.getAll()) {
       try {
@@ -401,6 +420,7 @@ interface ConnectorContextDeps {
   config: WorkspaceConfig;
   workspaceRoot: string;
   serviceManager: ServiceManager;
+  processManager: ProcessManager;
 }
 
 /** Build the `ConnectorContext` passed to every connector's `start()`. */
@@ -418,6 +438,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
     config,
     workspaceRoot,
     serviceManager,
+    processManager,
   } = deps;
 
   return {
@@ -438,6 +459,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         messageRouter: router,
         serviceManager,
         conversationStore: store,
+        processManager,
       };
       return router.send({
         senderId: msg.senderId,
@@ -526,6 +548,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         messageRouter: router,
         serviceManager,
         conversationStore: store,
+        processManager,
       };
 
       const result = (await toolRegistry.execute(toolName, args, toolCtx)) as ToolResult;

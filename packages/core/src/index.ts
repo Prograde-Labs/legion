@@ -42,3 +42,5 @@ export type { ToolSource } from './tools/ToolSource.js';
 export { MCPToolSource } from './tools/MCPToolSource.js';
 export { loadMCPSources } from './tools/loadMCPSources.js';
 export * from './connectors/index.js';
+export * from './process/ProcessManager.js';
+export * from './process/process-tools.js';

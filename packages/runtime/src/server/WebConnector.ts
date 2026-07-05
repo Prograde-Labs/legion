@@ -9,6 +9,7 @@ import type {
   Collective,
   CredentialStore,
   EventBus,
+  ProcessManager,
   ServerConfig,
 } from '@legion/core';
 import { verifyToken } from './auth.js';
@@ -22,6 +23,7 @@ export interface WebConnectorDeps {
   collective: Collective;
   credentials: CredentialStore;
   eventBus: EventBus;
+  processManager: ProcessManager;
   serverConfig?: ServerConfig;
   /** Absolute path to built SPA files (packages/web/dist). Used in production. */
   webDistPath?: string;
@@ -169,6 +171,16 @@ export class WebConnector implements Connector {
     let participantId: string | null = null;
     let anyOff: (() => void) | null = null;
 
+    const processSubs = new Map<string, Array<() => void>>();
+
+    function detachProcessSub(processId: string): void {
+      const unsubs = processSubs.get(processId);
+      if (unsubs) {
+        for (const u of unsubs) u();
+        processSubs.delete(processId);
+      }
+    }
+
     // Auth timeout: close if no auth message arrives promptly.
     const authTimer = setTimeout(() => {
       if (!participantId) socket.close(4401, 'Authentication timeout');
@@ -225,6 +237,82 @@ export class WebConnector implements Connector {
             socket.close(4401, 'Invalid token');
           });
       }
+
+      if (msg.type === 'subscribe_process' && participantId) {
+        const processId = (msg as any).processId as string;
+        if (!processId) return;
+
+        const handle = this.deps.processManager.get(processId);
+        if (!handle) {
+          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'not_found' }));
+          return;
+        }
+        if (handle.status !== 'running') {
+          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }));
+          return;
+        }
+
+        // Authorization: only the process owner or operators can subscribe
+        const isOperator = this.deps.collective.get(participantId)?.operator === true;
+        if (handle.startedByParticipantId !== participantId && !isOperator) {
+          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'forbidden' }));
+          return;
+        }
+
+        // Detach previous subscription for same processId (idempotent re-subscribe)
+        detachProcessSub(processId);
+
+        const send = (type: string, payload: Record<string, unknown>): void => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type, processId, ...payload }));
+          }
+        };
+
+        const offOutput = this.deps.processManager.subscribe(processId, 'output', (evt: any) => {
+          send('process:output', {
+            stream: evt.stream,
+            data: (evt.data as Buffer).toString('base64'),
+          });
+        });
+
+        const offExited = this.deps.processManager.subscribe(processId, 'exited', (evt: any) => {
+          send('process:exited', { exitCode: evt.exitCode, signal: evt.signal ?? null });
+          detachProcessSub(processId);
+        });
+
+        const offError = this.deps.processManager.subscribe(processId, 'error', (evt: any) => {
+          send('process:error', { error: evt.error });
+          detachProcessSub(processId);
+        });
+
+        processSubs.set(processId, [offOutput, offExited, offError]);
+
+        // Re-check status after subscribing — if the process exited between
+        // the initial get() and subscribe(), the 'exited' event already fired
+        // and our listener missed it. Detach and notify.
+        const latestHandle = this.deps.processManager.get(processId);
+        if (!latestHandle || latestHandle.status !== 'running') {
+          detachProcessSub(processId);
+          send('process:exited', {
+            exitCode: latestHandle?.exitCode ?? null,
+            signal: null,
+          });
+          socket.send(
+            JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }),
+          );
+          return;
+        }
+
+        socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'subscribed' }));
+        return;
+      }
+
+      if (msg.type === 'unsubscribe_process' && participantId) {
+        const processId = (msg as any).processId as string;
+        if (processId) detachProcessSub(processId);
+        socket.send(JSON.stringify({ type: 'unsubscribe_ack', processId }));
+        return;
+      }
     });
 
     socket.on('close', () => {
@@ -237,6 +325,11 @@ export class WebConnector implements Connector {
         }
       }
       anyOff?.();
+
+      // Detach all process subscriptions for this socket
+      for (const processId of processSubs.keys()) {
+        detachProcessSub(processId);
+      }
     });
 
     socket.on('error', () => {
