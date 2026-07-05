@@ -28,6 +28,7 @@ describe('useProcesses', () => {
     expect(typeof refresh).toBe('function');
     expect(Array.isArray(processes)).toBe(true);
     expect(typeof loading).toBe('boolean');
+    expect(error).toBeNull();
     w.unmount();
   });
 
