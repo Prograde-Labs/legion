@@ -297,9 +297,7 @@ export class WebConnector implements Connector {
             exitCode: latestHandle?.exitCode ?? null,
             signal: null,
           });
-          socket.send(
-            JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }),
-          );
+          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }));
           return;
         }
 

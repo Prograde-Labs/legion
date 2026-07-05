@@ -24,7 +24,11 @@ function ensureConnected(): void {
         const payload = msg.data as Record<string, unknown>;
         if (payload['conversationId'] !== sub.filter.conversationId) continue;
       }
-      try { sub.handler(msg.data); } catch { /* isolate */ }
+      try {
+        sub.handler(msg.data);
+      } catch {
+        /* isolate */
+      }
     }
   });
 }

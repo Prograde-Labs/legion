@@ -19,7 +19,10 @@ const loadError = ref<string | null>(null);
 
 async function load() {
   try {
-    const list = await execute<{ id: string; name: string; type: string; status: string }[]>('list_participants', {});
+    const list = await execute<{ id: string; name: string; type: string; status: string }[]>(
+      'list_participants',
+      {},
+    );
     const fullConfigs = await Promise.all(
       list.map((p) =>
         execute<Record<string, unknown>>('get_participant', { id: p.id }).catch(() => null),
@@ -33,8 +36,15 @@ async function load() {
       };
     }) as any;
     allTools.value = await execute<string[]>('list_tools', {});
-    const raw = await execute<Array<{ provider: string; model: { id: string; name?: string } }>>('list_models', {});
-    availableModels.value = raw.map((r) => ({ id: r.model.id, name: r.model.name, provider: r.provider }));
+    const raw = await execute<Array<{ provider: string; model: { id: string; name?: string } }>>(
+      'list_models',
+      {},
+    );
+    availableModels.value = raw.map((r) => ({
+      id: r.model.id,
+      name: r.model.name,
+      provider: r.provider,
+    }));
     loadError.value = null;
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);

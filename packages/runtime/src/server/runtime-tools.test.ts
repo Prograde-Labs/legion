@@ -34,11 +34,11 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
     systemRouting,
     workspaceRouting,
     saveSystemRouting: async (routing: RoutingConfig) => {
-      Object.keys(systemRouting).forEach(k => delete systemRouting[k]);
+      Object.keys(systemRouting).forEach((k) => delete systemRouting[k]);
       Object.assign(systemRouting, routing);
     },
     saveWorkspaceRouting: async (routing: RoutingConfig) => {
-      Object.keys(workspaceRouting).forEach(k => delete workspaceRouting[k]);
+      Object.keys(workspaceRouting).forEach((k) => delete workspaceRouting[k]);
       Object.assign(workspaceRouting, routing);
     },
     ...overrides,
@@ -69,12 +69,24 @@ describe('runtime tools', () => {
 
   it('list_providers returns system provider configs', async () => {
     const systemStore = makeSystemStore([
-      { name: 'openai', type: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', priority: 1 },
+      {
+        name: 'openai',
+        type: 'openai-compatible',
+        baseUrl: 'https://api.openai.com/v1',
+        priority: 1,
+      },
     ]);
     const tools = createRuntimeTools(makeDeps({ systemStore }));
     await expect(tool(tools, 'list_providers').execute({})).resolves.toEqual({
       status: 'success',
-      data: [{ name: 'openai', type: 'openai-compatible', baseUrl: 'https://api.openai.com/v1', priority: 1 }],
+      data: [
+        {
+          name: 'openai',
+          type: 'openai-compatible',
+          baseUrl: 'https://api.openai.com/v1',
+          priority: 1,
+        },
+      ],
     });
   });
 
@@ -121,7 +133,11 @@ describe('runtime tools', () => {
         good: { listModels: async () => [{ id: 'gpt-4o', name: 'GPT-4o' }] },
         'throws-get': new Error('not implemented'),
         'no-list': {},
-        'throws-list': { listModels: async () => { throw new Error('network'); } },
+        'throws-list': {
+          listModels: async () => {
+            throw new Error('network');
+          },
+        },
       },
     );
     const tools = createRuntimeTools(makeDeps({ systemStore }));

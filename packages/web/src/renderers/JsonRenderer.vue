@@ -8,6 +8,6 @@ function fmt(v: unknown) {
 <template>
   <pre
     class="text-[10px] font-mono text-navy-400 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap"
-  >{{ fmt(result ?? args) }}</pre
->
+    >{{ fmt(result ?? args) }}</pre
+  >
 </template>

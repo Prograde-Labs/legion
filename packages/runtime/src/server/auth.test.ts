@@ -17,9 +17,7 @@ describe('signToken', () => {
     const { token, expiresAt } = await signToken('p2', secret);
     const { participantId } = await verifyToken(token, secret);
     expect(participantId).toBe('p2');
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64').toString(),
-    );
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
     expect(payload.exp).toBe(expiresAt);
   });
 });

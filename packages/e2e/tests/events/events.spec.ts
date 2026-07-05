@@ -1,7 +1,9 @@
 import { test, expect } from '../../fixtures/index.js';
 
 test.describe('EventStreamView', () => {
-  test('loads and WebSocket connection is established (Live status shows)', async ({ authPage }) => {
+  test('loads and WebSocket connection is established (Live status shows)', async ({
+    authPage,
+  }) => {
     const { page } = authPage;
     await page.goto('/#/events');
 
@@ -22,7 +24,10 @@ test.describe('EventStreamView', () => {
     expect(await page.locator('tbody tr').count()).toBeGreaterThan(0);
   });
 
-  test('category chips toggle — rows outside selected category are hidden', async ({ authPage, api }) => {
+  test('category chips toggle — rows outside selected category are hidden', async ({
+    authPage,
+    api,
+  }) => {
     const { page, token } = authPage;
     await page.goto('/#/events');
     await expect(page.getByText('Live')).toBeVisible();
@@ -115,7 +120,9 @@ test.describe('EventStreamView', () => {
     await expect(page.locator('pre')).toBeVisible();
   });
 
-  test('navigating away closes WebSocket, navigating back opens fresh connection', async ({ authPage }) => {
+  test('navigating away closes WebSocket, navigating back opens fresh connection', async ({
+    authPage,
+  }) => {
     const { page } = authPage;
     await page.goto('/#/events');
     await expect(page.getByText('Live')).toBeVisible();

@@ -22,7 +22,9 @@ const router = useRouter();
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0">
+    <div
+      class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0"
+    >
       <span class="text-xs uppercase tracking-wider text-slate-500">Conversations</span>
       <button
         class="text-xs px-2 py-0.5 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700"
@@ -36,14 +38,22 @@ const router = useRouter();
     <div class="flex gap-1 px-3 py-2 border-b border-navy-800 flex-shrink-0">
       <button
         class="text-xs px-3 py-0.5 rounded-full transition-colors"
-        :class="mode === 'mine' ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500 border border-navy-700 hover:text-slate-300'"
+        :class="
+          mode === 'mine'
+            ? 'bg-cyan-800 text-cyan-200'
+            : 'text-slate-500 border border-navy-700 hover:text-slate-300'
+        "
         @click="emit('update:mode', 'mine')"
       >
         Mine
       </button>
       <button
         class="text-xs px-3 py-0.5 rounded-full transition-colors"
-        :class="mode === 'all' ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500 border border-navy-700 hover:text-slate-300'"
+        :class="
+          mode === 'all'
+            ? 'bg-cyan-800 text-cyan-200'
+            : 'text-slate-500 border border-navy-700 hover:text-slate-300'
+        "
         @click="emit('update:mode', 'all')"
       >
         All
@@ -72,13 +82,25 @@ const router = useRouter();
           title="Delete conversation"
           @click.stop="emit('delete', conv.id)"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+            />
           </svg>
         </button>
 
         <div class="text-sm text-slate-200 truncate pr-8">
-          {{ conv.participants.filter(p => p !== myParticipantId).join(', ') || conv.id }}
+          {{ conv.participants.filter((p) => p !== myParticipantId).join(', ') || conv.id }}
         </div>
         <div class="text-xs text-slate-600 mt-0.5 font-mono truncate">
           {{ conv.id }}

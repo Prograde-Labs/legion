@@ -208,43 +208,43 @@ Replace with:
 Find lines 146–167 in `AgentRuntime.ts`:
 
 ```ts
-          if (authResult.reason === 'deny') {
-            // Denied tools bypass ToolRegistry — emit events here
-            context.eventBus.emit('tool:call', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              callId: tc.id,
-            });
-            toolResults.push({
-              id: tc.id,
-              name: tc.name,
-              result: { status: 'error', error: `Tool '${tc.name}' is denied for this agent` },
-            });
-            context.eventBus.emit('tool:result', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              callId: tc.id,
-              status: 'error',
-            });
-            continue;
-          }
+if (authResult.reason === 'deny') {
+  // Denied tools bypass ToolRegistry — emit events here
+  context.eventBus.emit('tool:call', {
+    conversationId: context.conversationId,
+    participantId: this.participantId,
+    tool: tc.name,
+    callId: tc.id,
+  });
+  toolResults.push({
+    id: tc.id,
+    name: tc.name,
+    result: { status: 'error', error: `Tool '${tc.name}' is denied for this agent` },
+  });
+  context.eventBus.emit('tool:result', {
+    conversationId: context.conversationId,
+    participantId: this.participantId,
+    tool: tc.name,
+    callId: tc.id,
+    status: 'error',
+  });
+  continue;
+}
 ```
 
 Replace with:
 
 ```ts
-          if (authResult.reason === 'hidden') {
-            // Unreachable in normal operation — filter above excludes absent tools.
-            // Defensive guard for direct authorize() calls that bypass the filter.
-            toolResults.push({
-              id: tc.id,
-              name: tc.name,
-              result: { status: 'error', error: `Tool '${tc.name}' not available` },
-            });
-            continue;
-          }
+if (authResult.reason === 'hidden') {
+  // Unreachable in normal operation — filter above excludes absent tools.
+  // Defensive guard for direct authorize() calls that bypass the filter.
+  toolResults.push({
+    id: tc.id,
+    name: tc.name,
+    result: { status: 'error', error: `Tool '${tc.name}' not available` },
+  });
+  continue;
+}
 ```
 
 - [ ] **Step 3: Rewrite the "deny policy" describe block in `AgentRuntime.test.ts`**
@@ -353,7 +353,6 @@ describe('AgentRuntime: auth – hidden tool (absent from map)', () => {
     expect((result as { kind: string; content: string }).content).toBe('No tools available');
   });
 });
-
 ```
 
 - [ ] **Step 4: Run the AgentRuntime tests**
@@ -387,27 +386,27 @@ git commit -m "refactor(runtime): hidden tools filtered from LLM; replace deny b
 Find lines 94–99 in `packages/core/src/service/ServiceContextImpl.ts`:
 
 ```ts
-    if (!authResult.authorized) {
-      const reason =
-        authResult.reason === 'requires_approval'
-          ? 'requires_approval — no authority chain in service context (denied)'
-          : (authResult.reason ?? 'denied');
-      return { status: 'error', error: reason };
-    }
+if (!authResult.authorized) {
+  const reason =
+    authResult.reason === 'requires_approval'
+      ? 'requires_approval — no authority chain in service context (denied)'
+      : (authResult.reason ?? 'denied');
+  return { status: 'error', error: reason };
+}
 ```
 
 Replace with:
 
 ```ts
-    if (!authResult.authorized) {
-      const reason =
-        authResult.reason === 'requires_approval'
-          ? 'requires_approval — no authority chain in service context (denied)'
-          : authResult.reason === 'hidden'
-            ? 'tool not available to this participant'
-            : (authResult.reason ?? 'denied');
-      return { status: 'error', error: reason };
-    }
+if (!authResult.authorized) {
+  const reason =
+    authResult.reason === 'requires_approval'
+      ? 'requires_approval — no authority chain in service context (denied)'
+      : authResult.reason === 'hidden'
+        ? 'tool not available to this participant'
+        : (authResult.reason ?? 'denied');
+  return { status: 'error', error: reason };
+}
 ```
 
 - [ ] **Step 2: Update `ServiceContextImpl.test.ts` — rewrite the "denied" test**
@@ -415,34 +414,34 @@ Replace with:
 Find lines 129–140:
 
 ```ts
-    it('returns error result when tool is denied', async () => {
-      const { dir: d, deps } = await setup();
-      dir = d;
-      const ctx = new ServiceContextImpl({
-        ...deps,
-        participant: { ...BASE_CONFIG, tools: {} },
-        authEngine: new AuthEngine({ defaultPolicy: 'deny' }),
-      });
-      const result = await ctx.callTool('file_read', {});
-      expect(result.status).toBe('error');
-      expect((result as any).error).toMatch(/deny/i);
-    });
+it('returns error result when tool is denied', async () => {
+  const { dir: d, deps } = await setup();
+  dir = d;
+  const ctx = new ServiceContextImpl({
+    ...deps,
+    participant: { ...BASE_CONFIG, tools: {} },
+    authEngine: new AuthEngine({ defaultPolicy: 'deny' }),
+  });
+  const result = await ctx.callTool('file_read', {});
+  expect(result.status).toBe('error');
+  expect((result as any).error).toMatch(/deny/i);
+});
 ```
 
 Replace with:
 
 ```ts
-    it('returns error result when tool is not in participant tools map (hidden)', async () => {
-      const { dir: d, deps } = await setup();
-      dir = d;
-      const ctx = new ServiceContextImpl({
-        ...deps,
-        participant: { ...BASE_CONFIG, tools: {} }, // file_read absent = hidden
-      });
-      const result = await ctx.callTool('file_read', {});
-      expect(result.status).toBe('error');
-      expect((result as any).error).toMatch(/not available/i);
-    });
+it('returns error result when tool is not in participant tools map (hidden)', async () => {
+  const { dir: d, deps } = await setup();
+  dir = d;
+  const ctx = new ServiceContextImpl({
+    ...deps,
+    participant: { ...BASE_CONFIG, tools: {} }, // file_read absent = hidden
+  });
+  const result = await ctx.callTool('file_read', {});
+  expect(result.status).toBe('error');
+  expect((result as any).error).toMatch(/not available/i);
+});
 ```
 
 Note: `authEngine` is no longer overridden — the default `new AuthEngine()` (no options) handles absent tools as hidden.
@@ -489,13 +488,13 @@ The `ServiceManager` tests test lifecycle (start/stop), not auth — no particip
 Find line 44 in `packages/core/src/service/service.integration.test.ts`:
 
 ```ts
-    const authEngine = new AuthEngine({ defaultPolicy: 'auto' });
+const authEngine = new AuthEngine({ defaultPolicy: 'auto' });
 ```
 
 Replace with:
 
 ```ts
-    const authEngine = new AuthEngine();
+const authEngine = new AuthEngine();
 ```
 
 The integration test's service config at line 85 has `tools: {}` and the service itself doesn't call tools directly — the authEngine here is for `callTool` paths that aren't exercised in this test. No further changes needed.
@@ -543,7 +542,11 @@ export const createAgentTool: Tool = {
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
       model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
-      tools: { type: 'object', description: 'Map of tool name to policy (auto or requires_approval). Absent tools are hidden from the agent.' },
+      tools: {
+        type: 'object',
+        description:
+          'Map of tool name to policy (auto or requires_approval). Absent tools are hidden from the agent.',
+      },
       maxIterations: { type: 'number' },
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
@@ -585,7 +588,8 @@ Replace the `modifyAgentTool` definition (lines 258–317) with:
 ```ts
 export const modifyAgentTool: Tool = {
   name: 'modify_agent',
-  description: 'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
+  description:
+    'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
   parameters: {
     type: 'object',
     properties: {
@@ -594,7 +598,11 @@ export const modifyAgentTool: Tool = {
       model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
-      tools: { type: 'object', description: 'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access.' },
+      tools: {
+        type: 'object',
+        description:
+          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access.',
+      },
     },
     required: ['id'],
   } as JSONSchema,
@@ -611,7 +619,8 @@ export const modifyAgentTool: Tool = {
       const collective = requireCollective(context);
       const existing = collective.get(id);
       if (!existing) return { status: 'error', error: `Agent not found: ${id}` };
-      if (existing.type !== 'agent') return { status: 'error', error: `Participant ${id} is not an agent` };
+      if (existing.type !== 'agent')
+        return { status: 'error', error: `Participant ${id} is not an agent` };
 
       const agent = existing as AgentConfig;
       const updatedModel: ModelConfig =
@@ -735,39 +744,39 @@ Find and delete the test at lines 462–491 ("modify_agent with new defaultPolic
 Find the test at lines 364–399 ("modify_agent updates the collective record") which uses `defaultPolicy: 'deny'` and `toolPolicies`. Replace it with:
 
 ```ts
-  it('modify_agent replaces tools map when tools arg is provided', async () => {
-    const { context, collective } = await makeContext();
-    await createAgentTool.execute(
-      {
-        id: 'mod-agent',
-        name: 'Before',
-        systemPrompt: 'Original prompt.',
-        model: { model: 'gpt-4o' },
-        tools: { communicate: 'auto', list_participants: 'auto' },
-      },
-      context,
-    );
-    const result = await modifyAgentTool.execute(
-      {
-        id: 'mod-agent',
-        name: 'After',
-        model: { model: 'claude-3' },
-        systemPrompt: 'Updated prompt.',
-        maxIterations: 10,
-        tools: { communicate: 'requires_approval' },
-      },
-      context,
-    );
-    expect(result.status).toBe('success');
+it('modify_agent replaces tools map when tools arg is provided', async () => {
+  const { context, collective } = await makeContext();
+  await createAgentTool.execute(
+    {
+      id: 'mod-agent',
+      name: 'Before',
+      systemPrompt: 'Original prompt.',
+      model: { model: 'gpt-4o' },
+      tools: { communicate: 'auto', list_participants: 'auto' },
+    },
+    context,
+  );
+  const result = await modifyAgentTool.execute(
+    {
+      id: 'mod-agent',
+      name: 'After',
+      model: { model: 'claude-3' },
+      systemPrompt: 'Updated prompt.',
+      maxIterations: 10,
+      tools: { communicate: 'requires_approval' },
+    },
+    context,
+  );
+  expect(result.status).toBe('success');
 
-    const p = collective.get('mod-agent') as any;
-    expect(p.name).toBe('After');
-    expect(p.model).toEqual({ model: 'claude-3' });
-    expect(p.systemPrompt).toBe('Updated prompt.');
-    expect(p.maxIterations).toBe(10);
-    expect(p.tools['communicate']).toBe('requires_approval');
-    expect(p.tools['list_participants']).toBeUndefined(); // replaced, not merged
-  });
+  const p = collective.get('mod-agent') as any;
+  expect(p.name).toBe('After');
+  expect(p.model).toEqual({ model: 'claude-3' });
+  expect(p.systemPrompt).toBe('Updated prompt.');
+  expect(p.maxIterations).toBe(10);
+  expect(p.tools['communicate']).toBe('requires_approval');
+  expect(p.tools['list_participants']).toBeUndefined(); // replaced, not merged
+});
 ```
 
 Find the test at lines 335–362 ("updates model and systemPrompt") which uses `defaultPolicy: 'auto'`. Replace the `create_agent` call's args:
@@ -964,7 +973,10 @@ function setEnabled(tool: string, enabled: boolean) {
   const existing = props.overrides.find((o) => o.tool === tool);
   if (enabled) {
     if (existing) {
-      emit('update:overrides', props.overrides.map((o) => (o.tool === tool ? { ...o, enabled: true } : o)));
+      emit(
+        'update:overrides',
+        props.overrides.map((o) => (o.tool === tool ? { ...o, enabled: true } : o)),
+      );
     } else {
       emit('update:overrides', [
         ...props.overrides,
@@ -973,7 +985,10 @@ function setEnabled(tool: string, enabled: boolean) {
     }
   } else {
     // Remove from overrides entirely — absent = hidden
-    emit('update:overrides', props.overrides.filter((o) => o.tool !== tool));
+    emit(
+      'update:overrides',
+      props.overrides.filter((o) => o.tool !== tool),
+    );
   }
 }
 
@@ -1033,6 +1048,7 @@ function toggleApproval(tool: string) {
 ```
 
 Key changes from prior version:
+
 - Removed "Default policy" selector and `defaultPolicy` prop
 - Removed "add tool override" select — every available tool is listed
 - Unchecking a tool removes it from overrides entirely (absent = hidden), not just marks `enabled: false`
@@ -1051,47 +1067,43 @@ Delete this line entirely.
 Remove the policy-count inference block inside the `watch` callback. Find lines 55–83:
 
 ```ts
-        const tools = (p.tools as Record<string, string>) ?? {};
-        const toolEntries = Object.entries(tools);
-        const policyCounts: Record<string, number> = {};
-        for (const [, policy] of toolEntries) {
-          const uiPolicy =
-            policy === 'auto'
-              ? 'allow'
-              : policy === 'requires_approval'
-                ? 'require-approval'
-                : 'deny';
-          policyCounts[uiPolicy] = (policyCounts[uiPolicy] ?? 0) + 1;
-        }
-        const sorted = Object.entries(policyCounts).sort((a, b) => b[1] - a[1]);
-        defaultPolicy.value = (sorted[0]?.[0] as 'allow' | 'require-approval' | 'deny') ?? 'allow';
+const tools = (p.tools as Record<string, string>) ?? {};
+const toolEntries = Object.entries(tools);
+const policyCounts: Record<string, number> = {};
+for (const [, policy] of toolEntries) {
+  const uiPolicy =
+    policy === 'auto' ? 'allow' : policy === 'requires_approval' ? 'require-approval' : 'deny';
+  policyCounts[uiPolicy] = (policyCounts[uiPolicy] ?? 0) + 1;
+}
+const sorted = Object.entries(policyCounts).sort((a, b) => b[1] - a[1]);
+defaultPolicy.value = (sorted[0]?.[0] as 'allow' | 'require-approval' | 'deny') ?? 'allow';
 
-        const defaultRuntime =
-          defaultPolicy.value === 'allow'
-            ? 'auto'
-            : defaultPolicy.value === 'require-approval'
-              ? 'requires_approval'
-              : 'deny';
-        overrides.value = toolEntries
-          .filter(([, policy]) => policy !== defaultRuntime)
-          .map(([tool, policy]) => ({
-            tool,
-            source: 'built-in',
-            enabled: policy !== 'deny',
-            requireApproval: policy === 'requires_approval',
-          }));
+const defaultRuntime =
+  defaultPolicy.value === 'allow'
+    ? 'auto'
+    : defaultPolicy.value === 'require-approval'
+      ? 'requires_approval'
+      : 'deny';
+overrides.value = toolEntries
+  .filter(([, policy]) => policy !== defaultRuntime)
+  .map(([tool, policy]) => ({
+    tool,
+    source: 'built-in',
+    enabled: policy !== 'deny',
+    requireApproval: policy === 'requires_approval',
+  }));
 ```
 
 Replace with:
 
 ```ts
-        const tools = (p.tools as Record<string, string>) ?? {};
-        overrides.value = Object.entries(tools).map(([tool, policy]) => ({
-          tool,
-          source: 'built-in',
-          enabled: true,
-          requireApproval: policy === 'requires_approval',
-        }));
+const tools = (p.tools as Record<string, string>) ?? {};
+overrides.value = Object.entries(tools).map(([tool, policy]) => ({
+  tool,
+  source: 'built-in',
+  enabled: true,
+  requireApproval: policy === 'requires_approval',
+}));
 ```
 
 All entries in the tools map are enabled (they're in the map). Their `requireApproval` reflects `requires_approval` vs `auto`.
@@ -1154,12 +1166,12 @@ async function save() {
 Update the `ToolPolicyEditor` binding in the template — remove `default-policy` and `@update:default-policy` props:
 
 ```vue
-    <ToolPolicyEditor
-      v-else
-      :overrides="overrides"
-      :available-tools="availableTools"
-      @update:overrides="(v) => (overrides = v)"
-    />
+<ToolPolicyEditor
+  v-else
+  :overrides="overrides"
+  :available-tools="availableTools"
+  @update:overrides="(v) => (overrides = v)"
+/>
 ```
 
 - [ ] **Step 3: Run web tests**

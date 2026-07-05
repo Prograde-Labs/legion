@@ -72,11 +72,11 @@ The root `package.json` gets a new script:
 
 Three env vars are added to `packages/runtime/bin/legion.js` and `LegionProcess.ts` to make the server configurable without code changes:
 
-| Env var | Default | Purpose |
-|---|---|---|
-| `LEGION_BOOTSTRAP_PASSWORD` | random UUID | Operator password used when seeding a fresh workspace. Bootstrap banner still prints the value. |
-| `LEGION_WORKSPACE` | `process.cwd()` | Workspace root directory passed to `LegionProcess.start()`. Allows the server to use a temp dir without changing the working directory. |
-| `PORT` | `3000` | HTTP port the server listens on. Allows E2E tests to use port `4000` without conflicting with a developer's local instance. |
+| Env var                     | Default         | Purpose                                                                                                                                 |
+| --------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `LEGION_BOOTSTRAP_PASSWORD` | random UUID     | Operator password used when seeding a fresh workspace. Bootstrap banner still prints the value.                                         |
+| `LEGION_WORKSPACE`          | `process.cwd()` | Workspace root directory passed to `LegionProcess.start()`. Allows the server to use a temp dir without changing the working directory. |
+| `PORT`                      | `3000`          | HTTP port the server listens on. Allows E2E tests to use port `4000` without conflicting with a developer's local instance.             |
 
 All three have utility outside of testing (Docker deployments, multi-instance setups, scripted provisioning).
 
@@ -97,7 +97,11 @@ Executes once before the entire test run:
 4. Polls `GET /api/health` until it responds `{ status: "ok" }` (max 15s, 500ms interval)
 5. Writes connection info to a well-known temp file so tests can read it:
    ```json
-   { "serverUrl": "http://127.0.0.1:4000", "mockProviderUrl": "http://127.0.0.1:4001", "password": "legion-e2e-test" }
+   {
+     "serverUrl": "http://127.0.0.1:4000",
+     "mockProviderUrl": "http://127.0.0.1:4001",
+     "password": "legion-e2e-test"
+   }
    ```
 
 ### `global-teardown.ts`
@@ -111,9 +115,9 @@ Executes once after the entire test run:
 
 ### Ports
 
-| Service | Port |
-|---|---|
-| Legion server | 4000 |
+| Service           | Port |
+| ----------------- | ---- |
+| Legion server     | 4000 |
 | Mock LLM provider | 4001 |
 
 Fixed ports (not randomised) since this is local-only. Teardown ensures they are freed before a new run.
@@ -147,9 +151,9 @@ Calls `apiClient.login()` via the API (not through the UI form), injects the JWT
 
 A minimal Node `http` server (no framework) implementing the OpenAI API subset the app uses:
 
-| Endpoint | Response |
-|---|---|
-| `GET /v1/models` | `{ data: [{ id: "mock-model", object: "model" }] }` |
+| Endpoint                    | Response                                                                                                       |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/models`            | `{ data: [{ id: "mock-model", object: "model" }] }`                                                            |
 | `POST /v1/chat/completions` | Deterministic assistant message: `{ choices: [{ message: { role: "assistant", content: "mock response" } }] }` |
 
 The mock provider URL (`http://127.0.0.1:4001`) is used in provider configuration tests. It returns valid enough responses for the app to accept a configured provider without errors.
@@ -159,6 +163,7 @@ The mock provider URL (`http://127.0.0.1:4001`) is used in provider configuratio
 ## Helpers (`helpers/api.ts`)
 
 Thin typed HTTP client. Handles:
+
 - Base URL injection from the connection info file
 - `Authorization: Bearer <token>` header
 - JSON serialisation/deserialisation
@@ -171,9 +176,11 @@ Not a full SDK — just enough to eliminate repetitive `fetch` boilerplate acros
 ## Test Coverage Plan
 
 ### `api/health.spec.ts`
+
 - `GET /api/health` returns `{ status: "ok" }` with no auth required
 
 ### `auth/login.spec.ts`
+
 - Login form renders with name and password fields
 - Valid credentials redirect to `/participants`
 - Invalid credentials show an error message and stay on `/login`
@@ -182,6 +189,7 @@ Not a full SDK — just enough to eliminate repetitive `fetch` boilerplate acros
 - After logout, navigating back to a protected route redirects to `/login`
 
 ### `auth/me.spec.ts`
+
 - `GET /api/auth/me` with valid token returns correct `id`, `name`, `type`, `tools` array
 - `tools` array contains all expected management tool names
 - Request with no token returns 401
@@ -191,22 +199,24 @@ Not a full SDK — just enough to eliminate repetitive `fetch` boilerplate acros
 
 Every management tool is called directly via `POST /api/execute`. Each assertion validates the full response shape, not just `status: "success"`:
 
-| Tool | Shape validated |
-|---|---|
-| `list_participants` | Array of `{ id, name, type, status }` |
-| `list_tools` | Array of `{ name, description }`, count > 0 |
-| `list_conversations` | Array (empty on fresh start) |
-| `list_providers` | Array (empty on fresh start) |
-| `list_credentials` | Array (empty on fresh start) |
-| `configure_provider` | `{ status: "success" }`, provider appears in subsequent `list_providers` |
-| `set_credential_with_meta` | `{ status: "success" }`, credential appears in subsequent `list_credentials` |
-| `create_agent` | Returns new participant with `id`, `name`, `type: "agent"` |
-| `modify_agent` | Returns updated participant |
-| `retire_agent` | Target participant `status` becomes `"retired"` in subsequent `list_participants` |
+| Tool                       | Shape validated                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `list_participants`        | Array of `{ id, name, type, status }`                                             |
+| `list_tools`               | Array of `{ name, description }`, count > 0                                       |
+| `list_conversations`       | Array (empty on fresh start)                                                      |
+| `list_providers`           | Array (empty on fresh start)                                                      |
+| `list_credentials`         | Array (empty on fresh start)                                                      |
+| `configure_provider`       | `{ status: "success" }`, provider appears in subsequent `list_providers`          |
+| `set_credential_with_meta` | `{ status: "success" }`, credential appears in subsequent `list_credentials`      |
+| `create_agent`             | Returns new participant with `id`, `name`, `type: "agent"`                        |
+| `modify_agent`             | Returns updated participant                                                       |
+| `retire_agent`             | Target participant `status` becomes `"retired"` in subsequent `list_participants` |
+
 - Calling any tool with no token returns 401
 - Calling an unknown tool name returns `status: "error"` result
 
 ### `api/websocket.spec.ts`
+
 - WebSocket connection at `ws://127.0.0.1:4000` is accepted with a valid token
 - WebSocket connection is rejected (closed with error code) with no token or invalid token
 - After a tool call via `/api/execute`, at least one event is received over the WebSocket within 2s
@@ -214,10 +224,12 @@ Every management tool is called directly via `POST /api/execute`. Each assertion
 ### `participants/participants.spec.ts`
 
 **Mount/load:**
+
 - Page loads, spinner resolves, table renders with at least the operator row
 - Each row shows `name`, `type`, `status` columns
 
 **CRUD:**
+
 - "New participant" button opens the slide-over panel
 - Filling and submitting the form creates the participant — it appears in the table without a page reload
 - Slide-over closes cleanly after submit — no ghost DOM, no duplicate panels
@@ -227,6 +239,7 @@ Every management tool is called directly via `POST /api/execute`. Each assertion
 - Tool policy editor: toggling a tool policy and saving — the correct policy is returned by `list_participants` via API after save
 
 **Navigation & lifecycle:**
+
 - Navigating away to `/config` and back to `/participants` re-fetches data (table is not stale)
 - Real-time update: retiring a participant via API causes the table to update automatically (WebSocket event triggers refresh)
 - Loading state is shown while the initial fetch is in flight
@@ -235,38 +248,46 @@ Every management tool is called directly via `POST /api/execute`. Each assertion
 ### `config/providers.spec.ts`
 
 **Mount/load:**
+
 - Providers tab renders with empty state message when no providers configured
 
 **CRUD:**
+
 - "Add provider" form: fill name, base URL (mock provider), model, credential — saves successfully
 - New provider appears in the table with correct values
 - Editing a provider updates the table row
 - Provider with a missing/unset credential shows the correct visual indicator
 
 **Navigation & lifecycle:**
+
 - Switching between Providers and Credentials tabs does not lose state
 - Navigating away and back re-fetches providers (no stale cache)
 
 ### `config/credentials.spec.ts`
 
 **Mount/load:**
+
 - Credentials tab renders with empty state message when no credentials set
 
 **CRUD:**
+
 - "Add credential" form: fill key name and secret value — saves successfully
 - New credential appears in table with value masked
 - Rotating a credential: new masked value is displayed
 
 **Navigation & lifecycle:**
+
 - Navigating away and back re-fetches credentials
 
 ### `conversations/conversations.spec.ts`
 
 **Mount/load:**
+
 - Page loads with empty state when no conversations exist
 - After a `create_agent` + `communicate` tool call sequence via API, the new conversation appears in the sidebar
 
 **Navigation:**
+
 - Clicking a conversation in the sidebar loads the thread in the right panel
 - URL updates to `/conversations/:id`
 - Selecting a different conversation replaces the thread panel content
@@ -274,17 +295,20 @@ Every management tool is called directly via `POST /api/execute`. Each assertion
 - Browser back button from a conversation returns to the unselected state
 
 **Thread rendering:**
+
 - Thread panel renders message blocks for the conversation
 - Navigating away from `ConversationsView` and back does not duplicate conversations in the sidebar
 
 ### `events/events.spec.ts`
 
 **Mount & WebSocket startup:**
+
 - EventStreamView loads and the WebSocket connection is established
 - Incoming events appear as rows in the table
 - Row count increases as tool calls are made during the test
 
 **Filters:**
+
 - Category chips (message, tool, error, system) toggle correctly — rows outside the selected category are hidden
 - Selecting multiple chips shows the union
 - Clearing all chips restores all rows
@@ -292,16 +316,19 @@ Every management tool is called directly via `POST /api/execute`. Each assertion
 - Combining category chip and text search applies both filters
 
 **Pause/resume:**
+
 - Pausing stops new rows from appearing (events are buffered or dropped per design)
 - Resuming restores row accumulation
 - Pause/resume does not open a new WebSocket connection — the original connection is reused
 
 **Row detail:**
+
 - Clicking a row opens the detail panel with full event data
 - Clicking a different row updates the detail panel
 - The detail panel closes when expected
 
 **Unmount & WebSocket cleanup:**
+
 - Navigating away from `EventStreamView` closes the WebSocket connection
 - Navigating back establishes a fresh connection — no duplicate connections
 - After navigating away, no further event rows accumulate on the (now unmounted) view
@@ -319,6 +346,7 @@ Unit tests in Vitest continue to own isolated logic coverage. The E2E suite is a
 ## Documentation
 
 A `packages/e2e/README.md` is included covering:
+
 - Prerequisites (Node >= 20, built packages)
 - Running the suite (`npm run test:e2e`)
 - Running a single spec file (`playwright test tests/auth/login.spec.ts`)

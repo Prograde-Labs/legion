@@ -180,7 +180,9 @@ describe('MCPToolSource — env variable interpolation', () => {
     await source.load();
     // Headers are passed through verbatim inside requestInit; interpolation is the caller's responsibility.
     expect(MockSSE).toHaveBeenCalledOnce();
-    const secondArg = MockSSE.mock.calls[0][1] as { requestInit?: { headers?: Record<string, string> } };
+    const secondArg = MockSSE.mock.calls[0][1] as {
+      requestInit?: { headers?: Record<string, string> };
+    };
     expect(secondArg.requestInit?.headers?.Authorization).toBe('Bearer ${TEST_MCP_KEY}');
   });
 });

@@ -44,9 +44,9 @@ Provider API keys belong in global config (`~/.config/legion/config.json`) or en
 
 ### Environment variables
 
-| Variable | Purpose |
-|---|---|
-| `LEGION_WORKSPACE` | Override the workspace root directory |
+| Variable                    | Purpose                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------- |
+| `LEGION_WORKSPACE`          | Override the workspace root directory                                                             |
 | `LEGION_BOOTSTRAP_PASSWORD` | Set a deterministic password for the bootstrap operator (useful for Docker/scripted provisioning) |
 
 ## Architecture
@@ -78,24 +78,24 @@ packages/
 
 The web connector exposes an authenticated tool-execution gateway — every collective operation is a tool call, no bespoke CRUD endpoints:
 
-| Route | Description |
-|---|---|
-| `POST /api/auth/login` | Verify password, establish session (JWT) |
-| `POST /api/auth/logout` | Clear session |
-| `GET /api/auth/me` | Authenticated participant info |
-| `POST /api/execute` | Execute a named tool as the authenticated participant |
-| `GET /ws` | Live event stream via WebSocket (authenticated) |
-| `GET /api/health` | Process liveness check (unauthenticated) |
-| `GET /` | Vue SPA |
+| Route                   | Description                                           |
+| ----------------------- | ----------------------------------------------------- |
+| `POST /api/auth/login`  | Verify password, establish session (JWT)              |
+| `POST /api/auth/logout` | Clear session                                         |
+| `GET /api/auth/me`      | Authenticated participant info                        |
+| `POST /api/execute`     | Execute a named tool as the authenticated participant |
+| `GET /ws`               | Live event stream via WebSocket (authenticated)       |
+| `GET /api/health`       | Process liveness check (unauthenticated)              |
+| `GET /`                 | Vue SPA                                               |
 
 ## Participant types
 
-| Type | Driver | Description |
-|---|---|---|
-| `agent` | LLM agentic loop | Calls tools, receives results, repeats until done |
-| `service` | Code module (`LegionService` interface) | Reactive code-backed participant |
-| `user` | None (connector-driven) | Human user reached through a connector |
-| `mock` | Scripted responses | Deterministic responses for testing |
+| Type      | Driver                                  | Description                                       |
+| --------- | --------------------------------------- | ------------------------------------------------- |
+| `agent`   | LLM agentic loop                        | Calls tools, receives results, repeats until done |
+| `service` | Code module (`LegionService` interface) | Reactive code-backed participant                  |
+| `user`    | None (connector-driven)                 | Human user reached through a connector            |
+| `mock`    | Scripted responses                      | Deterministic responses for testing               |
 
 ## Conversation model
 
@@ -117,9 +117,15 @@ Any npm module can be a Legion service by exporting a `LegionService` object:
 
 ```typescript
 export const service: LegionService = {
-  async start(ctx) { /* ... */ },
-  async stop() { /* ... */ },
-  async onMessage(msg, ctx) { /* optional */ },
+  async start(ctx) {
+    /* ... */
+  },
+  async stop() {
+    /* ... */
+  },
+  async onMessage(msg, ctx) {
+    /* optional */
+  },
 };
 ```
 

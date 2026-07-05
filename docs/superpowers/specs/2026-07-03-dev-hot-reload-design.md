@@ -11,13 +11,13 @@ Replace the current full-rebuild-on-every-change workflow with a development mod
 
 The monorepo has five packages:
 
-| Package | Role |
-|---|---|
-| `packages/types` | Shared TypeScript types |
-| `packages/core` | Business logic engine |
+| Package            | Role                                 |
+| ------------------ | ------------------------------------ |
+| `packages/types`   | Shared TypeScript types              |
+| `packages/core`    | Business logic engine                |
 | `packages/runtime` | Fastify server + WebSocket connector |
-| `packages/web` | Vue 3 + Vite SPA |
-| `packages/e2e` | Playwright tests |
+| `packages/web`     | Vue 3 + Vite SPA                     |
+| `packages/e2e`     | Playwright tests                     |
 
 Currently `packages/core`, `packages/types`, and `packages/runtime` must be compiled to `dist/` before anything can run. `bin/legion.js` imports from `packages/runtime/dist/`. Changes to any TypeScript source require a full `tsc --build` before they are visible.
 
@@ -108,13 +108,13 @@ New devDependencies:
 
 ## Files Changed
 
-| File | Change |
-|---|---|
-| `tsconfig.dev.json` | New — path aliases for tsx |
-| `packages/runtime/bin/legion.js` | Parse `--dev` flag, pass `{ dev }` to `LegionProcess.start()` |
-| `packages/runtime/src/LegionProcess.ts` | Accept `options?: { dev?: boolean }`, thread `dev` to `WebConnector` |
+| File                                          | Change                                                                       |
+| --------------------------------------------- | ---------------------------------------------------------------------------- |
+| `tsconfig.dev.json`                           | New — path aliases for tsx                                                   |
+| `packages/runtime/bin/legion.js`              | Parse `--dev` flag, pass `{ dev }` to `LegionProcess.start()`                |
+| `packages/runtime/src/LegionProcess.ts`       | Accept `options?: { dev?: boolean }`, thread `dev` to `WebConnector`         |
 | `packages/runtime/src/server/WebConnector.ts` | Add `dev?: boolean` to deps; swap static plugin for Vite middleware when dev |
-| `package.json` | Add `dev` script, add `tsx` devDependency |
+| `package.json`                                | Add `dev` script, add `tsx` devDependency                                    |
 
 ## Error Handling
 

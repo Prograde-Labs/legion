@@ -15,6 +15,7 @@
 ## File Structure
 
 **Backend (create/modify):**
+
 - `packages/core/src/conversation/ConversationStore.ts` — add `delete` to the interface.
 - `packages/core/src/conversation/FileConversationStore.ts` — implement recursive cascade delete.
 - `packages/core/src/conversation/FileConversationStore.test.ts` — add delete tests.
@@ -24,6 +25,7 @@
 - `.legion/collective/participants/operator.json` — add `"delete_conversation": "auto"` to `tools`.
 
 **Frontend (modify):**
+
 - `packages/web/src/components/conversations/ConversationList.vue` — hover trash icon on each row; emit `delete`.
 - `packages/web/src/components/conversations/ConversationThread.vue` — header trash button; emit `delete`.
 - `packages/web/src/views/ConversationsView.vue` — `pendingDeleteId` state, confirm modal, `deleteConversation` handler, list refresh + navigation.
@@ -33,6 +35,7 @@
 ## Task 1: Add `delete` to `ConversationStore` interface
 
 **Files:**
+
 - Modify: `packages/core/src/conversation/ConversationStore.ts`
 
 - [ ] **Step 1: Add the `delete` method signature to the interface**
@@ -54,6 +57,7 @@ Expected: TypeScript errors in `FileConversationStore.ts` complaining that `dele
 ## Task 2: Implement `FileConversationStore.delete` with recursive cascade
 
 **Files:**
+
 - Modify: `packages/core/src/conversation/FileConversationStore.ts`
 - Test: `packages/core/src/conversation/FileConversationStore.test.ts`
 
@@ -62,101 +66,101 @@ Expected: TypeScript errors in `FileConversationStore.ts` complaining that `dele
 Append to `packages/core/src/conversation/FileConversationStore.test.ts`:
 
 ```ts
-  it('delete removes a childless conversation', async () => {
-    const created = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    expect(await store.exists(created.id)).toBe(true);
+it('delete removes a childless conversation', async () => {
+  const created = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  expect(await store.exists(created.id)).toBe(true);
 
-    await store.delete(created.id);
+  await store.delete(created.id);
 
-    expect(await store.exists(created.id)).toBe(false);
-    expect(await store.load(created.id)).toBeNull();
+  expect(await store.exists(created.id)).toBe(false);
+  expect(await store.load(created.id)).toBeNull();
+});
+
+it('delete cascades to direct children', async () => {
+  const parent = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  const child = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: parent.id,
+    parentToolCallId: 'tc-a',
+  });
+  await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
   });
 
-  it('delete cascades to direct children', async () => {
-    const parent = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    const child = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: parent.id,
-      parentToolCallId: 'tc-a',
-    });
-    await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
+  await store.delete(parent.id);
 
-    await store.delete(parent.id);
+  expect(await store.exists(parent.id)).toBe(false);
+  expect(await store.exists(child.id)).toBe(false);
+  const remaining = await store.list({ includeSubThreads: true });
+  expect(remaining.map((m) => m.id)).not.toContain(parent.id);
+  expect(remaining.map((m) => m.id)).not.toContain(child.id);
+});
 
-    expect(await store.exists(parent.id)).toBe(false);
-    expect(await store.exists(child.id)).toBe(false);
-    const remaining = await store.list({ includeSubThreads: true });
-    expect(remaining.map((m) => m.id)).not.toContain(parent.id);
-    expect(remaining.map((m) => m.id)).not.toContain(child.id);
+it('delete cascades recursively to grandchildren', async () => {
+  const root = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  const child = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: root.id,
+    parentToolCallId: 'tc-1',
+  });
+  const grandchild = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    parentConversationId: child.id,
+    parentToolCallId: 'tc-2',
+  });
+  await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
   });
 
-  it('delete cascades recursively to grandchildren', async () => {
-    const root = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    const child = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: root.id,
-      parentToolCallId: 'tc-1',
-    });
-    const grandchild = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: child.id,
-      parentToolCallId: 'tc-2',
-    });
-    await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
+  await store.delete(root.id);
 
-    await store.delete(root.id);
+  expect(await store.exists(root.id)).toBe(false);
+  expect(await store.exists(child.id)).toBe(false);
+  expect(await store.exists(grandchild.id)).toBe(false);
+});
 
-    expect(await store.exists(root.id)).toBe(false);
-    expect(await store.exists(child.id)).toBe(false);
-    expect(await store.exists(grandchild.id)).toBe(false);
+it('delete is idempotent when the id does not exist', async () => {
+  await expect(store.delete('conv-missing')).resolves.toBeUndefined();
+});
+
+it('delete leaves unrelated conversations intact', async () => {
+  const a = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+  });
+  const b = await store.create({
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
   });
 
-  it('delete is idempotent when the id does not exist', async () => {
-    await expect(store.delete('conv-missing')).resolves.toBeUndefined();
-  });
+  await store.delete(a.id);
 
-  it('delete leaves unrelated conversations intact', async () => {
-    const a = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    const b = await store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-
-    await store.delete(a.id);
-
-    expect(await store.exists(b.id)).toBe(true);
-  });
+  expect(await store.exists(b.id)).toBe(true);
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -203,6 +207,7 @@ git commit -m "feat(core): FileConversationStore.delete cascades to sub-threads"
 ## Task 3: Add `delete_conversation` management tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Test: `packages/core/src/tools/management-tools.test.ts`
 
@@ -270,7 +275,10 @@ describe('delete_conversation', () => {
 
   it('returns success when the id does not exist', async () => {
     const { context } = await makeContext();
-    const result = await deleteConversationTool.execute({ conversationId: 'conv-missing' }, context);
+    const result = await deleteConversationTool.execute(
+      { conversationId: 'conv-missing' },
+      context,
+    );
     expect(result.status).toBe('success');
   });
 
@@ -301,7 +309,8 @@ Add to `packages/core/src/tools/management-tools.ts` immediately after the `list
 ```ts
 export const deleteConversationTool: Tool = {
   name: 'delete_conversation',
-  description: 'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
+  description:
+    'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
   parameters: {
     type: 'object',
     properties: {
@@ -367,6 +376,7 @@ git commit -m "feat(core): add delete_conversation management tool"
 ## Task 4: Grant `delete_conversation` to the operator by default
 
 **Files:**
+
 - Modify: `packages/core/src/collective/default-participants.ts`
 - Modify: `.legion/collective/participants/operator.json`
 
@@ -457,6 +467,7 @@ git commit -m "feat: grant delete_conversation tool to operator by default"
 ## Task 5: Sidebar hover trash icon on `ConversationList.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/components/conversations/ConversationList.vue`
 
 - [ ] **Step 1: Extend the component's emits and add the trash icon**
@@ -542,6 +553,7 @@ git commit -m "feat(web): hover trash icon on conversation list rows"
 ## Task 6: Thread header trash button on `ConversationThread.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/components/conversations/ConversationThread.vue`
 
 - [ ] **Step 1: Extend emits and add the header button**
@@ -558,8 +570,8 @@ const emit = defineEmits<{
 Replace the existing thread header block (currently just showing `recipientName`):
 
 ```vue
-    <!-- Thread header -->
-    <div class="flex items-center gap-2 px-4 py-3 border-b border-navy-800 flex-shrink-0">
+<!-- Thread header -->
+<div class="flex items-center gap-2 px-4 py-3 border-b border-navy-800 flex-shrink-0">
       <span v-if="conversationId" class="text-sm font-medium text-slate-200">
         {{ recipientName ?? conversationId }}
       </span>
@@ -597,6 +609,7 @@ git commit -m "feat(web): delete button in conversation thread header"
 ## Task 7: Confirm dialog and deletion flow in `ConversationsView.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/views/ConversationsView.vue`
 
 - [ ] **Step 1: Wire up the delete flow**
@@ -627,7 +640,9 @@ const participants = ref<BaseParticipant[]>([]);
 const pendingApprovalIds = ref<Set<string>>(new Set());
 
 const isDraft = computed(() => route.path === '/conversations/new');
-const activeId = computed(() => isDraft.value ? null : (route.params.id as string | undefined) ?? null);
+const activeId = computed(() =>
+  isDraft.value ? null : ((route.params.id as string | undefined) ?? null),
+);
 
 // Resolved recipient for existing conversations or draft
 const draftRecipientId = ref<string | null>(null);
@@ -667,9 +682,10 @@ const pendingDeleteId = ref<string | null>(null);
 const deleting = ref(false);
 
 async function loadConversations() {
-  const filter = listMode.value === 'mine' && myParticipantId.value
-    ? { participantId: myParticipantId.value }
-    : {};
+  const filter =
+    listMode.value === 'mine' && myParticipantId.value
+      ? { participantId: myParticipantId.value }
+      : {};
   const result = await execute<{ conversations: ConversationMeta[] }>('list_conversations', filter);
   conversations.value = result.conversations;
 }
@@ -727,7 +743,10 @@ on('conversation:created', () => void loadConversations());
 
 // Track pending approvals for amber dot
 on('approval:requested', (payload) => {
-  pendingApprovalIds.value = new Set([...pendingApprovalIds.value, (payload as any).conversationId]);
+  pendingApprovalIds.value = new Set([
+    ...pendingApprovalIds.value,
+    (payload as any).conversationId,
+  ]);
 });
 on('approval:resolved', (payload) => {
   const next = new Set(pendingApprovalIds.value);
@@ -746,88 +765,92 @@ Replace the `<template>` block with:
 ```vue
 <template>
   <AppLayout>
-  <div class="flex h-full">
-    <!-- Left: conversation list -->
-    <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
-      <ConversationList
-        :conversations="conversations"
-        :active-id="activeId"
-        :my-participant-id="myParticipantId ?? ''"
-        :mode="listMode"
-        :pending-approval-ids="pendingApprovalIds"
-        @select="selectConversation"
-        @update:mode="listMode = $event"
-        @delete="requestDelete"
-      />
-    </div>
+    <div class="flex h-full">
+      <!-- Left: conversation list -->
+      <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
+        <ConversationList
+          :conversations="conversations"
+          :active-id="activeId"
+          :my-participant-id="myParticipantId ?? ''"
+          :mode="listMode"
+          :pending-approval-ids="pendingApprovalIds"
+          @select="selectConversation"
+          @update:mode="listMode = $event"
+          @delete="requestDelete"
+        />
+      </div>
 
-    <!-- Right: thread -->
-    <div class="flex-1 flex flex-col min-w-0">
-      <!-- Draft: "To:" header bar -->
-      <div v-if="isDraft" class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-800 flex-shrink-0">
-        <span class="text-xs text-slate-500 flex-shrink-0">To:</span>
-        <div class="flex-1 max-w-xs">
-          <SearchableCombobox
-            :options="agentOptions"
-            placeholder="Select agent..."
-            @select="onDraftRecipientSelect"
-          />
+      <!-- Right: thread -->
+      <div class="flex-1 flex flex-col min-w-0">
+        <!-- Draft: "To:" header bar -->
+        <div
+          v-if="isDraft"
+          class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-800 flex-shrink-0"
+        >
+          <span class="text-xs text-slate-500 flex-shrink-0">To:</span>
+          <div class="flex-1 max-w-xs">
+            <SearchableCombobox
+              :options="agentOptions"
+              placeholder="Select agent..."
+              @select="onDraftRecipientSelect"
+            />
+          </div>
+        </div>
+
+        <!-- Thread pane -->
+        <ConversationThread
+          v-if="activeId || isDraft"
+          :key="activeId ?? 'draft'"
+          :conversation-id="activeId"
+          :mode="threadMode"
+          :my-participant-id="myParticipantId ?? ''"
+          :recipient-id="recipientId ?? undefined"
+          :recipient-name="recipientName ?? undefined"
+          @sent="onMessageSent"
+          @delete="requestDelete"
+        />
+
+        <!-- No selection -->
+        <div v-else class="flex-1 flex items-center justify-center text-slate-600 text-sm">
+          Select a conversation or start a new one
         </div>
       </div>
 
-      <!-- Thread pane -->
-      <ConversationThread
-        v-if="activeId || isDraft"
-        :key="activeId ?? 'draft'"
-        :conversation-id="activeId"
-        :mode="threadMode"
-        :my-participant-id="myParticipantId ?? ''"
-        :recipient-id="recipientId ?? undefined"
-        :recipient-name="recipientName ?? undefined"
-        @sent="onMessageSent"
-        @delete="requestDelete"
-      />
-
-      <!-- No selection -->
-      <div v-else class="flex-1 flex items-center justify-center text-slate-600 text-sm">
-        Select a conversation or start a new one
-      </div>
-    </div>
-
-    <!-- Delete confirmation modal -->
-    <div
-      v-if="pendingDeleteId"
-      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-      @click.self="cancelDelete"
-    >
-      <div class="bg-navy-900 border border-navy-700 rounded-lg shadow-xl max-w-sm w-full mx-4">
-        <div class="px-4 py-3 border-b border-navy-800">
-          <span class="text-sm font-medium text-slate-200">Delete conversation?</span>
-        </div>
-        <div class="px-4 py-4 text-sm text-slate-400">
-          This will permanently delete this conversation and any nested delegations. This cannot be undone.
-        </div>
-        <div class="px-4 py-3 flex justify-end gap-2 border-t border-navy-800">
-          <button
-            type="button"
-            class="text-xs px-3 py-1.5 rounded border border-navy-700 text-slate-400 hover:text-slate-200 hover:bg-navy-800 transition-colors"
-            :disabled="deleting"
-            @click="cancelDelete"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
-            :disabled="deleting"
-            @click="confirmDelete"
-          >
-            Delete
-          </button>
+      <!-- Delete confirmation modal -->
+      <div
+        v-if="pendingDeleteId"
+        class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+        @click.self="cancelDelete"
+      >
+        <div class="bg-navy-900 border border-navy-700 rounded-lg shadow-xl max-w-sm w-full mx-4">
+          <div class="px-4 py-3 border-b border-navy-800">
+            <span class="text-sm font-medium text-slate-200">Delete conversation?</span>
+          </div>
+          <div class="px-4 py-4 text-sm text-slate-400">
+            This will permanently delete this conversation and any nested delegations. This cannot
+            be undone.
+          </div>
+          <div class="px-4 py-3 flex justify-end gap-2 border-t border-navy-800">
+            <button
+              type="button"
+              class="text-xs px-3 py-1.5 rounded border border-navy-700 text-slate-400 hover:text-slate-200 hover:bg-navy-800 transition-colors"
+              :disabled="deleting"
+              @click="cancelDelete"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+              :disabled="deleting"
+              @click="confirmDelete"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
   </AppLayout>
 </template>
 ```
@@ -922,12 +945,12 @@ Expected: Clean working tree, no untracked files introduced by this work.
 
 ## Verification commands reference
 
-| Task | Command | Expected |
-|---|---|---|
-| Store delete tests | `npx vitest run packages/core/src/conversation/FileConversationStore.test.ts -t "delete"` | All 5 pass |
-| Tool tests | `npx vitest run packages/core/src/tools/management-tools.test.ts -t "delete_conversation"` | All 4 pass |
-| Core suite | `npx vitest run packages/core/src` | All pass |
-| Web typecheck | `npx vue-tsc --noEmit -p packages/web/tsconfig.json` | No errors |
-| Web tests | `npm test --workspace packages/web` | All pass |
-| Full build | `npm run build` | Succeeds |
-| Full test suite | `npm test` | All pass |
+| Task               | Command                                                                                    | Expected   |
+| ------------------ | ------------------------------------------------------------------------------------------ | ---------- |
+| Store delete tests | `npx vitest run packages/core/src/conversation/FileConversationStore.test.ts -t "delete"`  | All 5 pass |
+| Tool tests         | `npx vitest run packages/core/src/tools/management-tools.test.ts -t "delete_conversation"` | All 4 pass |
+| Core suite         | `npx vitest run packages/core/src`                                                         | All pass   |
+| Web typecheck      | `npx vue-tsc --noEmit -p packages/web/tsconfig.json`                                       | No errors  |
+| Web tests          | `npm test --workspace packages/web`                                                        | All pass   |
+| Full build         | `npm run build`                                                                            | Succeeds   |
+| Full test suite    | `npm test`                                                                                 | All pass   |

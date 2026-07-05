@@ -11,10 +11,7 @@ export class Collective {
 
   constructor(eventBus: EventBus);
   constructor(storage: Storage, participants: ParticipantConfig[]);
-  constructor(
-    storageOrEventBus: Storage | EventBus,
-    participants?: ParticipantConfig[],
-  ) {
+  constructor(storageOrEventBus: Storage | EventBus, participants?: ParticipantConfig[]) {
     if (storageOrEventBus instanceof EventBus) {
       this._eventBus = storageOrEventBus;
     } else {
@@ -24,8 +21,12 @@ export class Collective {
   }
 
   private _eventBus?: EventBus;
-  get eventBus(): EventBus | undefined { return this._eventBus; }
-  set eventBus(v: EventBus | undefined) { this._eventBus = v; }
+  get eventBus(): EventBus | undefined {
+    return this._eventBus;
+  }
+  set eventBus(v: EventBus | undefined) {
+    this._eventBus = v;
+  }
   private storage?: Storage;
 
   get storageForWriting(): Storage | undefined {

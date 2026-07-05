@@ -63,7 +63,12 @@ describe('ApprovalCard', () => {
 
   it('shows resolved state when decision prop is reject', () => {
     const wrapper = mount(ApprovalCard, {
-      props: { ...pendingProps, resolved: true, decision: 'reject', resolvedMessage: 'Not allowed' },
+      props: {
+        ...pendingProps,
+        resolved: true,
+        decision: 'reject',
+        resolvedMessage: 'Not allowed',
+      },
     });
     expect(wrapper.text()).toContain('Denied');
     expect(wrapper.text()).toContain('Not allowed');

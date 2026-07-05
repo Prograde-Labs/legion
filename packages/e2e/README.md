@@ -24,6 +24,7 @@ npm run test:e2e -- tests/auth/login.spec.ts
 ## How server lifecycle works
 
 `global-setup.ts` runs once before all tests:
+
 1. Creates a temp workspace dir at `/tmp/legion-e2e-<timestamp>/`
 2. Starts a mock OpenAI-compatible HTTP server in-process on port **4001**
 3. Spawns the Legion server via `node packages/runtime/bin/legion.js` on port **4000**
@@ -38,9 +39,9 @@ provider, and removes the temp workspace.
 
 `mock-provider/server.ts` implements two OpenAI endpoints:
 
-| Endpoint | Response |
-|---|---|
-| `GET /v1/models` | `{ data: [{ id: "mock-model" }] }` |
+| Endpoint                    | Response                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `GET /v1/models`            | `{ data: [{ id: "mock-model" }] }`                                            |
 | `POST /v1/chat/completions` | `{ choices: [{ message: { role: "assistant", content: "mock response" } }] }` |
 
 To add a custom response for a specific prompt, modify `chatResponse()` in `server.ts`
@@ -59,6 +60,7 @@ to inspect the request body and return different content based on the messages.
 The `LEGION_BOOTSTRAP_PASSWORD` env var is read by `LegionProcess.start()` when seeding a
 fresh workspace. It sets the initial operator password deterministically instead of using a
 random UUID. Useful for:
+
 - Docker deployments where the password must be provided via env
 - Scripted provisioning where you need to know the password in advance
 

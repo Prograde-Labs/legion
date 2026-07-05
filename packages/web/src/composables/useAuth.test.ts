@@ -50,7 +50,9 @@ describe('useAuth', () => {
     // Create a fake JWT with exp far in the future
     const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
     const futureExp = Math.floor(Date.now() / 1000) + 3600;
-    const payload = Buffer.from(JSON.stringify({ sub: 'p1', exp: futureExp })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ sub: 'p1', exp: futureExp })).toString(
+      'base64url',
+    );
     const fakeToken = `${header}.${payload}.sig`;
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,

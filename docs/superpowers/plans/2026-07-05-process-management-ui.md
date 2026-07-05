@@ -16,35 +16,36 @@
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `packages/web/src/components/processes/ProcessStatusDot.vue` | Colour-coded dot per `ProcessStatus` |
-| `packages/web/src/components/processes/ProcessStatusDot.test.ts` | Unit tests |
-| `packages/web/src/components/processes/AnsiOutput.vue` | ANSI-to-HTML renderer, scroll-lock, owns `AnsiUp` instance |
-| `packages/web/src/components/processes/AnsiOutput.test.ts` | Unit tests |
-| `packages/web/src/composables/useProcesses.ts` | List fetching + 5s polling singleton |
-| `packages/web/src/composables/useProcesses.test.ts` | Unit tests |
-| `packages/web/src/composables/useProcess.ts` | Single process: handle, chunks, WS subscription, actions |
-| `packages/web/src/composables/useProcess.test.ts` | Unit tests |
-| `packages/web/src/components/processes/ProcessStartForm.vue` | Inline start form (command, args, name, cwd, tty, shell) |
-| `packages/web/src/components/processes/ProcessStartForm.test.ts` | Unit tests |
-| `packages/web/src/components/processes/ProcessList.vue` | Left sidebar process list |
-| `packages/web/src/components/processes/ProcessDetail.vue` | Terminal-first detail pane |
-| `packages/web/src/views/ProcessesView.vue` | Root view orchestrator |
+| File                                                             | Responsibility                                             |
+| ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| `packages/web/src/components/processes/ProcessStatusDot.vue`     | Colour-coded dot per `ProcessStatus`                       |
+| `packages/web/src/components/processes/ProcessStatusDot.test.ts` | Unit tests                                                 |
+| `packages/web/src/components/processes/AnsiOutput.vue`           | ANSI-to-HTML renderer, scroll-lock, owns `AnsiUp` instance |
+| `packages/web/src/components/processes/AnsiOutput.test.ts`       | Unit tests                                                 |
+| `packages/web/src/composables/useProcesses.ts`                   | List fetching + 5s polling singleton                       |
+| `packages/web/src/composables/useProcesses.test.ts`              | Unit tests                                                 |
+| `packages/web/src/composables/useProcess.ts`                     | Single process: handle, chunks, WS subscription, actions   |
+| `packages/web/src/composables/useProcess.test.ts`                | Unit tests                                                 |
+| `packages/web/src/components/processes/ProcessStartForm.vue`     | Inline start form (command, args, name, cwd, tty, shell)   |
+| `packages/web/src/components/processes/ProcessStartForm.test.ts` | Unit tests                                                 |
+| `packages/web/src/components/processes/ProcessList.vue`          | Left sidebar process list                                  |
+| `packages/web/src/components/processes/ProcessDetail.vue`        | Terminal-first detail pane                                 |
+| `packages/web/src/views/ProcessesView.vue`                       | Root view orchestrator                                     |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `packages/web/package.json` | Add `ansi_up` dependency |
-| `packages/web/src/router/index.ts` | Add `/processes` + `/processes/:id` routes |
-| `packages/web/src/components/layout/AppSidebar.vue` | Add Processes nav entry |
+| File                                                | Change                                     |
+| --------------------------------------------------- | ------------------------------------------ |
+| `packages/web/package.json`                         | Add `ansi_up` dependency                   |
+| `packages/web/src/router/index.ts`                  | Add `/processes` + `/processes/:id` routes |
+| `packages/web/src/components/layout/AppSidebar.vue` | Add Processes nav entry                    |
 
 ---
 
 ## Task 1: Add `ansi_up` dependency
 
 **Files:**
+
 - Modify: `packages/web/package.json`
 
 - [ ] **Step 1: Add `ansi_up` to dependencies**
@@ -103,6 +104,7 @@ git commit -m "feat(web): add ansi_up dependency"
 ## Task 2: `ProcessStatusDot.vue`
 
 **Files:**
+
 - Create: `packages/web/src/components/processes/ProcessStatusDot.vue`
 - Create: `packages/web/src/components/processes/ProcessStatusDot.test.ts`
 
@@ -209,6 +211,7 @@ git commit -m "feat(web): add ProcessStatusDot component"
 ## Task 3: `AnsiOutput.vue`
 
 **Files:**
+
 - Create: `packages/web/src/components/processes/AnsiOutput.vue`
 - Create: `packages/web/src/components/processes/AnsiOutput.test.ts`
 
@@ -335,8 +338,7 @@ function processNewChunks(): void {
 
 function onScroll(): void {
   if (!preEl.value) return;
-  atBottom.value =
-    preEl.value.scrollHeight - preEl.value.scrollTop - preEl.value.clientHeight < 50;
+  atBottom.value = preEl.value.scrollHeight - preEl.value.scrollTop - preEl.value.clientHeight < 50;
 }
 
 function scrollToBottom(): void {
@@ -396,6 +398,7 @@ git commit -m "feat(web): add AnsiOutput component"
 ## Task 4: `useProcesses.ts`
 
 **Files:**
+
 - Create: `packages/web/src/composables/useProcesses.ts`
 - Create: `packages/web/src/composables/useProcesses.test.ts`
 
@@ -444,7 +447,9 @@ describe('useProcesses', () => {
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
-      setup() { return useProcesses(); },
+      setup() {
+        return useProcesses();
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -458,17 +463,27 @@ describe('useProcesses', () => {
     const { useExecute } = (await import('./useExecute.js')) as any;
     const fakeProcesses = [
       {
-        id: 'proc-1', command: 'sleep', args: ['10'], cwd: '/tmp',
-        tty: false, shell: false, startedAt: '2026-01-01T00:00:00Z',
-        startedByParticipantId: 'op', pid: 1234, status: 'running',
-        exitCode: null, exitedAt: null,
+        id: 'proc-1',
+        command: 'sleep',
+        args: ['10'],
+        cwd: '/tmp',
+        tty: false,
+        shell: false,
+        startedAt: '2026-01-01T00:00:00Z',
+        startedByParticipantId: 'op',
+        pid: 1234,
+        status: 'running',
+        exitCode: null,
+        exitedAt: null,
       },
     ];
     useExecute.mockReturnValue({ execute: vi.fn().mockResolvedValue(fakeProcesses) });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
-      setup() { return useProcesses(); },
+      setup() {
+        return useProcesses();
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -486,7 +501,9 @@ describe('useProcesses', () => {
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
-      setup() { return useProcesses(); },
+      setup() {
+        return useProcesses();
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -503,21 +520,32 @@ describe('useProcesses', () => {
 
   it('refresh() re-fetches and updates processes', async () => {
     const { useExecute } = (await import('./useExecute.js')) as any;
-    const executeMock = vi.fn()
+    const executeMock = vi
+      .fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
-          id: 'proc-2', command: 'echo', args: [], cwd: '/tmp',
-          tty: false, shell: false, startedAt: '2026-01-01T00:00:00Z',
-          startedByParticipantId: 'op', pid: 999, status: 'exited',
-          exitCode: 0, exitedAt: '2026-01-01T00:00:01Z',
+          id: 'proc-2',
+          command: 'echo',
+          args: [],
+          cwd: '/tmp',
+          tty: false,
+          shell: false,
+          startedAt: '2026-01-01T00:00:00Z',
+          startedByParticipantId: 'op',
+          pid: 999,
+          status: 'exited',
+          exitCode: 0,
+          exitedAt: '2026-01-01T00:00:01Z',
         },
       ]);
     useExecute.mockReturnValue({ execute: executeMock });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
-      setup() { return useProcesses(); },
+      setup() {
+        return useProcesses();
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -612,6 +640,7 @@ git commit -m "feat(web): add useProcesses composable"
 ## Task 5: `useProcess.ts`
 
 **Files:**
+
 - Create: `packages/web/src/composables/useProcess.ts`
 - Create: `packages/web/src/composables/useProcess.test.ts`
 
@@ -647,10 +676,18 @@ vi.mock('./useExecute.js', () => ({
 }));
 
 const RUNNING_HANDLE = {
-  id: 'proc-1', command: 'sleep', args: ['30'], cwd: '/tmp',
-  tty: false, shell: false, startedAt: '2026-01-01T00:00:00.000Z',
-  startedByParticipantId: 'op', pid: 9999, status: 'running',
-  exitCode: null, exitedAt: null,
+  id: 'proc-1',
+  command: 'sleep',
+  args: ['30'],
+  cwd: '/tmp',
+  tty: false,
+  shell: false,
+  startedAt: '2026-01-01T00:00:00.000Z',
+  startedByParticipantId: 'op',
+  pid: 9999,
+  status: 'running',
+  exitCode: null,
+  exitedAt: null,
 };
 
 const EXITED_HANDLE = {
@@ -687,7 +724,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa('hello'), totalBytes: 5, from: 0 }); // read_process_output
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -703,7 +742,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa('hello world'), totalBytes: 11, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -718,7 +759,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -733,7 +776,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa('old output'), totalBytes: 10, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -750,13 +795,20 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
 
-    emit({ type: 'process:output', processId: 'proc-1', stream: 'stdout', data: btoa('new line\n') });
+    emit({
+      type: 'process:output',
+      processId: 'proc-1',
+      stream: 'stdout',
+      data: btoa('new line\n'),
+    });
     await nextTick();
 
     expect((w.vm as any).chunks).toContain('new line\n');
@@ -769,7 +821,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -789,7 +843,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -809,7 +865,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -822,13 +880,20 @@ describe('useProcess', () => {
 
   it('stop() calls stop_process and updates handle', async () => {
     const { useProcess } = await import('./useProcess.js');
-    const stoppedHandle = { ...RUNNING_HANDLE, status: 'killed', exitCode: null, exitedAt: '2026-01-01T00:01:00.000Z' };
-    executeMock.mockResolvedValueOnce(RUNNING_HANDLE);     // get_process
+    const stoppedHandle = {
+      ...RUNNING_HANDLE,
+      status: 'killed',
+      exitCode: null,
+      exitedAt: '2026-01-01T00:01:00.000Z',
+    };
+    executeMock.mockResolvedValueOnce(RUNNING_HANDLE); // get_process
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 }); // read_output
-    executeMock.mockResolvedValueOnce(stoppedHandle);      // stop_process
+    executeMock.mockResolvedValueOnce(stoppedHandle); // stop_process
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -847,14 +912,19 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ ok: true });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
 
     await (w.vm as any).send('hello\n');
-    expect(executeMock).toHaveBeenCalledWith('write_process_input', { id: 'proc-1', data: 'hello\n' });
+    expect(executeMock).toHaveBeenCalledWith('write_process_input', {
+      id: 'proc-1',
+      data: 'hello\n',
+    });
     w.unmount();
   });
 
@@ -865,7 +935,9 @@ describe('useProcess', () => {
     executeMock.mockResolvedValueOnce({ ok: true, id: 'proc-1' });
 
     const TestComponent = defineComponent({
-      setup() { return useProcess('proc-1'); },
+      setup() {
+        return useProcess('proc-1');
+      },
       template: '<div/>',
     });
     const w = mount(TestComponent);
@@ -1029,6 +1101,7 @@ git commit -m "feat(web): add useProcess composable"
 ## Task 6: `ProcessStartForm.vue`
 
 **Files:**
+
 - Create: `packages/web/src/components/processes/ProcessStartForm.vue`
 - Create: `packages/web/src/components/processes/ProcessStartForm.test.ts`
 
@@ -1076,7 +1149,20 @@ describe('ProcessStartForm', () => {
 
   it('calls start_process with correct args on submit', async () => {
     const { default: ProcessStartForm } = await import('./ProcessStartForm.vue');
-    executeMock.mockResolvedValue({ id: 'proc-new', status: 'running', command: 'npm', args: ['run', 'dev'], cwd: '/tmp', tty: false, shell: false, startedAt: '2026-01-01T00:00:00Z', startedByParticipantId: 'op', pid: 1, exitCode: null, exitedAt: null });
+    executeMock.mockResolvedValue({
+      id: 'proc-new',
+      status: 'running',
+      command: 'npm',
+      args: ['run', 'dev'],
+      cwd: '/tmp',
+      tty: false,
+      shell: false,
+      startedAt: '2026-01-01T00:00:00Z',
+      startedByParticipantId: 'op',
+      pid: 1,
+      exitCode: null,
+      exitedAt: null,
+    });
 
     const w = mount(ProcessStartForm);
     await w.find('input[placeholder*="command"]').setValue('npm');
@@ -1085,15 +1171,31 @@ describe('ProcessStartForm', () => {
     await w.find('button[type="submit"]').trigger('click');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(executeMock).toHaveBeenCalledWith('start_process', expect.objectContaining({
-      command: 'npm',
-      args: ['run', 'dev'],
-    }));
+    expect(executeMock).toHaveBeenCalledWith(
+      'start_process',
+      expect.objectContaining({
+        command: 'npm',
+        args: ['run', 'dev'],
+      }),
+    );
   });
 
   it('emits started event with process id on success', async () => {
     const { default: ProcessStartForm } = await import('./ProcessStartForm.vue');
-    executeMock.mockResolvedValue({ id: 'proc-new', status: 'running', command: 'echo', args: [], cwd: '/tmp', tty: false, shell: false, startedAt: '2026-01-01T00:00:00Z', startedByParticipantId: 'op', pid: 1, exitCode: null, exitedAt: null });
+    executeMock.mockResolvedValue({
+      id: 'proc-new',
+      status: 'running',
+      command: 'echo',
+      args: [],
+      cwd: '/tmp',
+      tty: false,
+      shell: false,
+      startedAt: '2026-01-01T00:00:00Z',
+      startedByParticipantId: 'op',
+      pid: 1,
+      exitCode: null,
+      exitedAt: null,
+    });
 
     const w = mount(ProcessStartForm);
     await w.find('input[placeholder*="command"]').setValue('echo');
@@ -1123,18 +1225,34 @@ describe('ProcessStartForm', () => {
 
   it('splits args string on spaces', async () => {
     const { default: ProcessStartForm } = await import('./ProcessStartForm.vue');
-    executeMock.mockResolvedValue({ id: 'proc-x', status: 'running', command: 'npm', args: ['run', 'build'], cwd: '/tmp', tty: false, shell: false, startedAt: '2026-01-01T00:00:00Z', startedByParticipantId: 'op', pid: 2, exitCode: null, exitedAt: null });
+    executeMock.mockResolvedValue({
+      id: 'proc-x',
+      status: 'running',
+      command: 'npm',
+      args: ['run', 'build'],
+      cwd: '/tmp',
+      tty: false,
+      shell: false,
+      startedAt: '2026-01-01T00:00:00Z',
+      startedByParticipantId: 'op',
+      pid: 2,
+      exitCode: null,
+      exitedAt: null,
+    });
 
     const w = mount(ProcessStartForm);
     await w.find('input[placeholder*="command"]').setValue('npm');
-    await w.find('input[placeholder*="args"]').setValue('run  build');  // extra space
+    await w.find('input[placeholder*="args"]').setValue('run  build'); // extra space
     await nextTick();
     await w.find('button[type="submit"]').trigger('click');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(executeMock).toHaveBeenCalledWith('start_process', expect.objectContaining({
-      args: ['run', 'build'],  // extra space stripped
-    }));
+    expect(executeMock).toHaveBeenCalledWith(
+      'start_process',
+      expect.objectContaining({
+        args: ['run', 'build'], // extra space stripped
+      }),
+    );
   });
 });
 ```
@@ -1205,7 +1323,9 @@ async function onSubmit(): Promise<void> {
 
       <div class="space-y-3">
         <div>
-          <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1">Command</label>
+          <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1"
+            >Command</label
+          >
           <input
             v-model="command"
             placeholder="command e.g. npm"
@@ -1226,7 +1346,9 @@ async function onSubmit(): Promise<void> {
 
         <div class="flex gap-3">
           <div class="flex-1">
-            <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1">Name (optional)</label>
+            <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1"
+              >Name (optional)</label
+            >
             <input
               v-model="name"
               placeholder="display name"
@@ -1234,7 +1356,9 @@ async function onSubmit(): Promise<void> {
             />
           </div>
           <div class="flex-1">
-            <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1">Working dir (optional)</label>
+            <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1"
+              >Working dir (optional)</label
+            >
             <input
               v-model="cwd"
               placeholder="/path/to/dir"
@@ -1265,9 +1389,11 @@ async function onSubmit(): Promise<void> {
           type="submit"
           :disabled="!canSubmit"
           class="w-full px-4 py-2 text-xs font-semibold rounded border transition-colors"
-          :class="canSubmit
-            ? 'bg-cyan-400/10 border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/20'
-            : 'border-navy-700 text-navy-600 cursor-not-allowed'"
+          :class="
+            canSubmit
+              ? 'bg-cyan-400/10 border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/20'
+              : 'border-navy-700 text-navy-600 cursor-not-allowed'
+          "
           @click="onSubmit"
         >
           {{ submitting ? 'Starting…' : '▶ Start process' }}
@@ -1298,6 +1424,7 @@ git commit -m "feat(web): add ProcessStartForm component"
 ## Task 7: `ProcessList.vue`
 
 **Files:**
+
 - Create: `packages/web/src/components/processes/ProcessList.vue`
 
 No separate test — pure display component; behaviour covered by `ProcessesView` integration.
@@ -1338,7 +1465,9 @@ const sorted = computed(() =>
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0">
+    <div
+      class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0"
+    >
       <span class="text-xs uppercase tracking-wider text-slate-500">Processes</span>
       <button
         class="text-xs px-2 py-0.5 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700"
@@ -1372,10 +1501,7 @@ const sorted = computed(() =>
         </div>
       </div>
 
-      <div
-        v-if="sorted.length === 0"
-        class="px-3 py-6 text-xs text-navy-600 text-center"
-      >
+      <div v-if="sorted.length === 0" class="px-3 py-6 text-xs text-navy-600 text-center">
         No processes yet
       </div>
     </div>
@@ -1403,6 +1529,7 @@ git commit -m "feat(web): add ProcessList component"
 ## Task 8: `ProcessDetail.vue`
 
 **Files:**
+
 - Create: `packages/web/src/components/processes/ProcessDetail.vue`
 
 - [ ] **Step 1: Implement `ProcessDetail.vue`**
@@ -1426,10 +1553,16 @@ const now = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | null = null;
 
 function startTimer(): void {
-  if (!timer) timer = setInterval(() => { now.value = Date.now(); }, 1000);
+  if (!timer)
+    timer = setInterval(() => {
+      now.value = Date.now();
+    }, 1000);
 }
 function stopTimer(): void {
-  if (timer) { clearInterval(timer); timer = null; }
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
 }
 
 watch(
@@ -1446,9 +1579,7 @@ onUnmounted(stopTimer);
 const elapsed = computed(() => {
   if (!handle.value) return '';
   const start = new Date(handle.value.startedAt).getTime();
-  const end = handle.value.exitedAt
-    ? new Date(handle.value.exitedAt).getTime()
-    : now.value;
+  const end = handle.value.exitedAt ? new Date(handle.value.exitedAt).getTime() : now.value;
   const s = Math.floor((end - start) / 1000);
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -1475,7 +1606,11 @@ async function onSend(): Promise<void> {
 
 async function onStop(): Promise<void> {
   stopping.value = true;
-  try { await stop(); } finally { stopping.value = false; }
+  try {
+    await stop();
+  } finally {
+    stopping.value = false;
+  }
 }
 
 async function onDelete(): Promise<void> {
@@ -1491,9 +1626,11 @@ async function onDelete(): Promise<void> {
 
 <template>
   <div class="flex flex-col h-full min-h-0">
-
     <!-- Loading state -->
-    <div v-if="!handle && !error" class="flex-1 flex items-center justify-center text-navy-600 text-xs">
+    <div
+      v-if="!handle && !error"
+      class="flex-1 flex items-center justify-center text-navy-600 text-xs"
+    >
       Loading…
     </div>
 
@@ -1509,12 +1646,17 @@ async function onDelete(): Promise<void> {
         <ProcessStatusDot :status="handle.status" />
         <span class="text-xs font-semibold text-slate-100 font-mono truncate">
           {{ handle.name ?? handle.command }}
-          <span v-if="handle.args.length" class="text-navy-400 font-normal"> {{ handle.args.join(' ') }}</span>
+          <span v-if="handle.args.length" class="text-navy-400 font-normal">
+            {{ handle.args.join(' ') }}</span
+          >
         </span>
         <span class="text-[10px] text-navy-500">pid {{ handle.pid }}</span>
         <span class="text-[10px] text-navy-500">{{ elapsed }}</span>
-        <span v-if="handle.exitCode !== null" class="text-[10px]"
-          :class="handle.exitCode === 0 ? 'text-green-400' : 'text-red-400'">
+        <span
+          v-if="handle.exitCode !== null"
+          class="text-[10px]"
+          :class="handle.exitCode === 0 ? 'text-green-400' : 'text-red-400'"
+        >
           exit {{ handle.exitCode }}
         </span>
 
@@ -1522,9 +1664,11 @@ async function onDelete(): Promise<void> {
           <button
             :disabled="!isRunning || stopping"
             class="text-xs px-3 py-1 rounded border transition-colors"
-            :class="isRunning
-              ? 'border-red-500/40 text-red-400 hover:bg-red-950/30'
-              : 'border-navy-700 text-navy-600 cursor-not-allowed'"
+            :class="
+              isRunning
+                ? 'border-red-500/40 text-red-400 hover:bg-red-950/30'
+                : 'border-navy-700 text-navy-600 cursor-not-allowed'
+            "
             @click="onStop"
           >
             {{ stopping ? 'Stopping…' : '■ Stop' }}
@@ -1532,9 +1676,11 @@ async function onDelete(): Promise<void> {
           <button
             :disabled="isRunning || deleting"
             class="text-xs px-3 py-1 rounded border transition-colors"
-            :class="!isRunning
-              ? 'border-navy-600 text-navy-400 hover:text-slate-300 hover:border-navy-500'
-              : 'border-navy-800 text-navy-700 cursor-not-allowed'"
+            :class="
+              !isRunning
+                ? 'border-navy-600 text-navy-400 hover:text-slate-300 hover:border-navy-500'
+                : 'border-navy-800 text-navy-700 cursor-not-allowed'
+            "
             @click="onDelete"
           >
             {{ deleting ? 'Deleting…' : 'Delete' }}
@@ -1589,6 +1735,7 @@ git commit -m "feat(web): add ProcessDetail component"
 ## Task 9: `ProcessesView.vue`
 
 **Files:**
+
 - Create: `packages/web/src/views/ProcessesView.vue`
 
 - [ ] **Step 1: Implement `ProcessesView.vue`**
@@ -1665,6 +1812,7 @@ git commit -m "feat(web): add ProcessesView"
 ## Task 10: Router + Sidebar wiring
 
 **Files:**
+
 - Modify: `packages/web/src/router/index.ts`
 - Modify: `packages/web/src/components/layout/AppSidebar.vue`
 
@@ -1827,28 +1975,28 @@ git commit -m "feat(web): process management UI — list, detail, terminal outpu
 
 ### Spec coverage check
 
-| Spec requirement | Task |
-|---|---|
-| `/processes` + `/processes/:id` routes | Task 10 |
-| `ProcessesView` — split view orchestrator | Task 9 |
-| `ProcessList` — left sidebar, all statuses, sorted by startedAt desc | Task 7 |
-| `ProcessStatusDot` — colour per status | Task 2 |
-| `ProcessStartForm` — command/args/name/cwd/tty/shell, always `start_process` | Task 6 |
-| `ProcessDetail` — terminal-first, header bar, AnsiOutput, stdin footer | Task 8 |
-| `AnsiOutput` — owns `AnsiUp` instance, scroll-lock, scroll-to-bottom button | Task 3 |
-| `useProcesses` — list fetching, 5s polling, singleton | Task 4 |
-| `useProcess` — handle, chunks (raw strings), WS subscription, stop/send/del | Task 5 |
-| `ansi_up` dependency | Task 1 |
-| Sidebar nav entry | Task 10 |
-| `:key="activeId"` on `ProcessDetail` (destroy/recreate) | Task 9 |
-| `read_process_output` with `decode: 'base64'` on mount | Task 5 |
-| `subscribe_process` / `unsubscribe_process` WS messages | Task 5 |
-| `process:output` → `atob` → push to chunks | Task 5 |
-| `process:exited` → update handle status + exitCode | Task 5 |
-| Elapsed timer (live for running, final for stopped) | Task 8 |
-| Stop button disabled when not running | Task 8 |
-| Delete button disabled when running | Task 8 |
-| Stdin footer hidden when not running | Task 8 |
+| Spec requirement                                                             | Task    |
+| ---------------------------------------------------------------------------- | ------- |
+| `/processes` + `/processes/:id` routes                                       | Task 10 |
+| `ProcessesView` — split view orchestrator                                    | Task 9  |
+| `ProcessList` — left sidebar, all statuses, sorted by startedAt desc         | Task 7  |
+| `ProcessStatusDot` — colour per status                                       | Task 2  |
+| `ProcessStartForm` — command/args/name/cwd/tty/shell, always `start_process` | Task 6  |
+| `ProcessDetail` — terminal-first, header bar, AnsiOutput, stdin footer       | Task 8  |
+| `AnsiOutput` — owns `AnsiUp` instance, scroll-lock, scroll-to-bottom button  | Task 3  |
+| `useProcesses` — list fetching, 5s polling, singleton                        | Task 4  |
+| `useProcess` — handle, chunks (raw strings), WS subscription, stop/send/del  | Task 5  |
+| `ansi_up` dependency                                                         | Task 1  |
+| Sidebar nav entry                                                            | Task 10 |
+| `:key="activeId"` on `ProcessDetail` (destroy/recreate)                      | Task 9  |
+| `read_process_output` with `decode: 'base64'` on mount                       | Task 5  |
+| `subscribe_process` / `unsubscribe_process` WS messages                      | Task 5  |
+| `process:output` → `atob` → push to chunks                                   | Task 5  |
+| `process:exited` → update handle status + exitCode                           | Task 5  |
+| Elapsed timer (live for running, final for stopped)                          | Task 8  |
+| Stop button disabled when not running                                        | Task 8  |
+| Delete button disabled when running                                          | Task 8  |
+| Stdin footer hidden when not running                                         | Task 8  |
 
 ### Placeholder scan
 

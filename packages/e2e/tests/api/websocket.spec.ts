@@ -6,7 +6,8 @@ test.describe('WebSocket /ws', () => {
     // Navigate to any page to give the browser context a same-origin base
     await page.goto('/');
 
-    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const wsUrl =
+      connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     const connected = await page.evaluate(
       async ({ wsUrl, tok }: { wsUrl: string; tok: string }) => {
@@ -35,7 +36,8 @@ test.describe('WebSocket /ws', () => {
   test('rejects connection with no token (closes with 4401)', async ({ page, connInfo }) => {
     await page.goto('/');
 
-    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const wsUrl =
+      connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     const closeCode = await page.evaluate(
       async ({ wsUrl }: { wsUrl: string }) => {
@@ -59,7 +61,8 @@ test.describe('WebSocket /ws', () => {
   test('rejects connection with invalid token (closes with 4401)', async ({ page, connInfo }) => {
     await page.goto('/');
 
-    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const wsUrl =
+      connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     const closeCode = await page.evaluate(
       async ({ wsUrl }: { wsUrl: string }) => {
@@ -79,11 +82,16 @@ test.describe('WebSocket /ws', () => {
     expect(closeCode).toBe(4401);
   });
 
-  test('after execute, at least one event arrives over WebSocket within 2s', async ({ authPage, api, connInfo }) => {
+  test('after execute, at least one event arrives over WebSocket within 2s', async ({
+    authPage,
+    api,
+    connInfo,
+  }) => {
     const { page, token } = authPage;
     await page.goto('/');
 
-    const wsUrl = connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const wsUrl =
+      connInfo.serverUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
 
     // Open authenticated WS connection and start listening for events in a single evaluate,
     // so there is no race between registering the listener and triggering the tool call.

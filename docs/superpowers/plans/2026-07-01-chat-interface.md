@@ -16,43 +16,44 @@
 
 ### New files
 
-| File | Purpose |
-|---|---|
-| `packages/types/src/events.ts` | Modified — no new file |
-| `packages/web/src/composables/useWebSocket.ts` | Raw WS transport singleton |
-| `packages/web/src/composables/useWebSocket.test.ts` | Unit tests |
-| `packages/web/src/composables/useConversation.ts` | Conversation state + live updates |
-| `packages/web/src/composables/useConversation.test.ts` | Unit tests |
-| `packages/web/src/components/conversations/MessageBubble.vue` | Single chat bubble |
-| `packages/web/src/components/conversations/MessageBubble.test.ts` | Component tests |
-| `packages/web/src/components/conversations/ApprovalCard.vue` | Inline approval request |
-| `packages/web/src/components/conversations/ApprovalCard.test.ts` | Component tests |
-| `packages/web/src/components/common/SearchableCombobox.vue` | Reusable filtered dropdown |
-| `packages/web/src/components/common/SearchableCombobox.test.ts` | Component tests |
-| `packages/runtime/src/server/event-filter.ts` | `isRelevantToParticipant` pure function |
-| `packages/runtime/src/server/event-filter.test.ts` | Unit tests |
+| File                                                              | Purpose                                 |
+| ----------------------------------------------------------------- | --------------------------------------- |
+| `packages/types/src/events.ts`                                    | Modified — no new file                  |
+| `packages/web/src/composables/useWebSocket.ts`                    | Raw WS transport singleton              |
+| `packages/web/src/composables/useWebSocket.test.ts`               | Unit tests                              |
+| `packages/web/src/composables/useConversation.ts`                 | Conversation state + live updates       |
+| `packages/web/src/composables/useConversation.test.ts`            | Unit tests                              |
+| `packages/web/src/components/conversations/MessageBubble.vue`     | Single chat bubble                      |
+| `packages/web/src/components/conversations/MessageBubble.test.ts` | Component tests                         |
+| `packages/web/src/components/conversations/ApprovalCard.vue`      | Inline approval request                 |
+| `packages/web/src/components/conversations/ApprovalCard.test.ts`  | Component tests                         |
+| `packages/web/src/components/common/SearchableCombobox.vue`       | Reusable filtered dropdown              |
+| `packages/web/src/components/common/SearchableCombobox.test.ts`   | Component tests                         |
+| `packages/runtime/src/server/event-filter.ts`                     | `isRelevantToParticipant` pure function |
+| `packages/runtime/src/server/event-filter.test.ts`                | Unit tests                              |
 
 ### Modified files
 
-| File | What changes |
-|---|---|
-| `packages/types/src/conversation.ts` | Add `participants: string[]` to `ConversationMeta` |
-| `packages/core/src/conversation/FileConversationStore.ts` | Populate `participants` in `list()`, add `participantId` filter |
-| `packages/core/src/tools/management-tools.ts` | `list_conversations` delegates to `conversationStore.list()`, adds `participantId` param |
-| `packages/runtime/src/server/WebConnector.ts` | Import and apply `isRelevantToParticipant` in `onAny` handler |
-| `packages/web/src/composables/useEventStream.ts` | Refactor to use `useWebSocket`, add typed filtered `on()`, auto-cleanup |
-| `packages/web/src/composables/useEventStream.test.ts` | Add filter and cleanup tests |
-| `packages/web/src/views/ParticipantsView.vue` | Fix subscribe leak — capture unsubscribe, add `onUnmounted` |
-| `packages/web/src/views/ConversationsView.vue` | Add Mine/All toggle, New button, draft state, wire useConversation |
-| `packages/web/src/components/conversations/ConversationList.vue` | Mine/All toggle, +New button, amber dot |
-| `packages/web/src/components/conversations/ConversationThread.vue` | Add mode prop, bubble rendering, composer, thinking indicator |
-| `packages/web/src/router/index.ts` | Add `/conversations/new` route |
+| File                                                               | What changes                                                                             |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `packages/types/src/conversation.ts`                               | Add `participants: string[]` to `ConversationMeta`                                       |
+| `packages/core/src/conversation/FileConversationStore.ts`          | Populate `participants` in `list()`, add `participantId` filter                          |
+| `packages/core/src/tools/management-tools.ts`                      | `list_conversations` delegates to `conversationStore.list()`, adds `participantId` param |
+| `packages/runtime/src/server/WebConnector.ts`                      | Import and apply `isRelevantToParticipant` in `onAny` handler                            |
+| `packages/web/src/composables/useEventStream.ts`                   | Refactor to use `useWebSocket`, add typed filtered `on()`, auto-cleanup                  |
+| `packages/web/src/composables/useEventStream.test.ts`              | Add filter and cleanup tests                                                             |
+| `packages/web/src/views/ParticipantsView.vue`                      | Fix subscribe leak — capture unsubscribe, add `onUnmounted`                              |
+| `packages/web/src/views/ConversationsView.vue`                     | Add Mine/All toggle, New button, draft state, wire useConversation                       |
+| `packages/web/src/components/conversations/ConversationList.vue`   | Mine/All toggle, +New button, amber dot                                                  |
+| `packages/web/src/components/conversations/ConversationThread.vue` | Add mode prop, bubble rendering, composer, thinking indicator                            |
+| `packages/web/src/router/index.ts`                                 | Add `/conversations/new` route                                                           |
 
 ---
 
 ## Task 1: Add `participants` to `ConversationMeta`
 
 **Files:**
+
 - Modify: `packages/types/src/conversation.ts:41-47`
 
 - [ ] **Write the failing test**
@@ -83,6 +84,7 @@ it('list() includes participants from both senderId and recipientId', async () =
 cd /home/chris/source/javascript/legion-v2
 npm test -- --reporter=verbose packages/core/src/conversation/FileConversationStore.test.ts
 ```
+
 Expected: fail — `participants` does not exist on `ConversationMeta`.
 
 - [ ] **Add `participants` to `ConversationMeta`**
@@ -160,6 +162,7 @@ async list(filter?: ConversationFilter): Promise<ConversationMeta[]> {
 ```bash
 npm test -- --reporter=verbose packages/core/src/conversation/FileConversationStore.test.ts
 ```
+
 Expected: PASS.
 
 - [ ] **Commit**
@@ -174,6 +177,7 @@ git commit -m "feat: add participants field to ConversationMeta with senderId/re
 ## Task 2: Add `participantId` filter to `list_conversations` tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts:239-265`
 
 The current `listConversationsTool` does its own storage scan and returns `ConversationSummary[]`. We replace it to delegate to `context.conversationStore.list()` which now handles filtering and returns `ConversationMeta[]`.
@@ -224,6 +228,7 @@ it('list_conversations filters by participantId', async () => {
 ```bash
 npm test -- --reporter=verbose packages/core/src/tools/management-tools.test.ts
 ```
+
 Expected: fail — tool does not accept `participantId` parameter.
 
 - [ ] **Rewrite `listConversationsTool`**
@@ -233,7 +238,8 @@ Replace lines 239–265 in `packages/core/src/tools/management-tools.ts`:
 ```ts
 const listConversationsTool: Tool = {
   name: 'list_conversations',
-  description: 'List conversations. Pass participantId to filter to conversations involving that participant.',
+  description:
+    'List conversations. Pass participantId to filter to conversations involving that participant.',
   parameters: {
     type: 'object',
     properties: {
@@ -294,6 +300,7 @@ export interface ConversationFilter {
 ```bash
 npm test -- --reporter=verbose packages/core/src/tools/management-tools.test.ts
 ```
+
 Expected: PASS.
 
 - [ ] **Run full test suite to check for regressions**
@@ -301,6 +308,7 @@ Expected: PASS.
 ```bash
 npm test
 ```
+
 Expected: all existing tests pass.
 
 - [ ] **Commit**
@@ -315,6 +323,7 @@ git commit -m "feat: list_conversations delegates to conversationStore.list() wi
 ## Task 3: Participant-scoped WebSocket event filtering
 
 **Files:**
+
 - Create: `packages/runtime/src/server/event-filter.ts`
 - Create: `packages/runtime/src/server/event-filter.test.ts`
 - Modify: `packages/runtime/src/server/WebConnector.ts:168-173`
@@ -336,12 +345,18 @@ describe('isRelevantToParticipant', () => {
   });
 
   it('always passes conversation:created', () => {
-    expect(isRelevantToParticipant('conversation:created', { conversationId: 'c1' }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant('conversation:created', { conversationId: 'c1' }, pid, false),
+    ).toBe(true);
   });
 
   it('always passes participant:active and participant:retired', () => {
-    expect(isRelevantToParticipant('participant:active', { participantId: 'x' }, pid, false)).toBe(true);
-    expect(isRelevantToParticipant('participant:retired', { participantId: 'x' }, pid, false)).toBe(true);
+    expect(isRelevantToParticipant('participant:active', { participantId: 'x' }, pid, false)).toBe(
+      true,
+    );
+    expect(isRelevantToParticipant('participant:retired', { participantId: 'x' }, pid, false)).toBe(
+      true,
+    );
   });
 
   it('always passes error', () => {
@@ -349,59 +364,163 @@ describe('isRelevantToParticipant', () => {
   });
 
   it('passes message:sent when senderId matches', () => {
-    expect(isRelevantToParticipant('message:sent', { senderId: pid, recipientId: 'agent-1', conversationId: 'c1', messageId: 'm1' }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'message:sent',
+        { senderId: pid, recipientId: 'agent-1', conversationId: 'c1', messageId: 'm1' },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('passes message:sent when recipientId matches', () => {
-    expect(isRelevantToParticipant('message:sent', { senderId: 'agent-1', recipientId: pid, conversationId: 'c1', messageId: 'm1' }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'message:sent',
+        { senderId: 'agent-1', recipientId: pid, conversationId: 'c1', messageId: 'm1' },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('drops message:sent for unrelated participants', () => {
-    expect(isRelevantToParticipant('message:sent', { senderId: 'agent-1', recipientId: 'agent-2', conversationId: 'c1', messageId: 'm1' }, pid, false)).toBe(false);
+    expect(
+      isRelevantToParticipant(
+        'message:sent',
+        { senderId: 'agent-1', recipientId: 'agent-2', conversationId: 'c1', messageId: 'm1' },
+        pid,
+        false,
+      ),
+    ).toBe(false);
   });
 
   it('passes message:delivered when recipientId matches', () => {
-    expect(isRelevantToParticipant('message:delivered', { recipientId: pid, conversationId: 'c1', messageId: 'm1' }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'message:delivered',
+        { recipientId: pid, conversationId: 'c1', messageId: 'm1' },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('drops message:delivered for other recipients', () => {
-    expect(isRelevantToParticipant('message:delivered', { recipientId: 'agent-1', conversationId: 'c1', messageId: 'm1' }, pid, false)).toBe(false);
+    expect(
+      isRelevantToParticipant(
+        'message:delivered',
+        { recipientId: 'agent-1', conversationId: 'c1', messageId: 'm1' },
+        pid,
+        false,
+      ),
+    ).toBe(false);
   });
 
   it('passes tool:call when participantId matches', () => {
-    expect(isRelevantToParticipant('tool:call', { participantId: pid, conversationId: 'c1', toolName: 'x', toolCallId: 't1' }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'tool:call',
+        { participantId: pid, conversationId: 'c1', toolName: 'x', toolCallId: 't1' },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('drops tool:call for other participants', () => {
-    expect(isRelevantToParticipant('tool:call', { participantId: 'agent-1', conversationId: 'c1', toolName: 'x', toolCallId: 't1' }, pid, false)).toBe(false);
+    expect(
+      isRelevantToParticipant(
+        'tool:call',
+        { participantId: 'agent-1', conversationId: 'c1', toolName: 'x', toolCallId: 't1' },
+        pid,
+        false,
+      ),
+    ).toBe(false);
   });
 
   it('passes tool:result when participantId matches', () => {
-    expect(isRelevantToParticipant('tool:result', { participantId: pid, conversationId: 'c1', toolName: 'x', toolCallId: 't1', result: { status: 'success', data: null } }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'tool:result',
+        {
+          participantId: pid,
+          conversationId: 'c1',
+          toolName: 'x',
+          toolCallId: 't1',
+          result: { status: 'success', data: null },
+        },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('passes iteration when participantId matches', () => {
-    expect(isRelevantToParticipant('iteration', { participantId: pid, conversationId: 'c1', iteration: 0 }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'iteration',
+        { participantId: pid, conversationId: 'c1', iteration: 0 },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('drops iteration for other participants', () => {
-    expect(isRelevantToParticipant('iteration', { participantId: 'agent-1', conversationId: 'c1', iteration: 0 }, pid, false)).toBe(false);
+    expect(
+      isRelevantToParticipant(
+        'iteration',
+        { participantId: 'agent-1', conversationId: 'c1', iteration: 0 },
+        pid,
+        false,
+      ),
+    ).toBe(false);
   });
 
   it('passes approval:requested for operators regardless of requesterId', () => {
-    expect(isRelevantToParticipant('approval:requested', { approvalId: 'a1', requesterId: 'agent-1', conversationId: 'c1', toolName: 'x', args: {} }, pid, true)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'approval:requested',
+        { approvalId: 'a1', requesterId: 'agent-1', conversationId: 'c1', toolName: 'x', args: {} },
+        pid,
+        true,
+      ),
+    ).toBe(true);
   });
 
   it('drops approval:requested for non-operators who are not the requester', () => {
-    expect(isRelevantToParticipant('approval:requested', { approvalId: 'a1', requesterId: 'agent-1', conversationId: 'c1', toolName: 'x', args: {} }, 'agent-2', false)).toBe(false);
+    expect(
+      isRelevantToParticipant(
+        'approval:requested',
+        { approvalId: 'a1', requesterId: 'agent-1', conversationId: 'c1', toolName: 'x', args: {} },
+        'agent-2',
+        false,
+      ),
+    ).toBe(false);
   });
 
   it('passes approval:requested to the requester themselves', () => {
-    expect(isRelevantToParticipant('approval:requested', { approvalId: 'a1', requesterId: pid, conversationId: 'c1', toolName: 'x', args: {} }, pid, false)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'approval:requested',
+        { approvalId: 'a1', requesterId: pid, conversationId: 'c1', toolName: 'x', args: {} },
+        pid,
+        false,
+      ),
+    ).toBe(true);
   });
 
   it('passes approval:resolved for operators', () => {
-    expect(isRelevantToParticipant('approval:resolved', { approvalId: 'a1', requesterId: 'agent-1', conversationId: 'c1', approved: true }, pid, true)).toBe(true);
+    expect(
+      isRelevantToParticipant(
+        'approval:resolved',
+        { approvalId: 'a1', requesterId: 'agent-1', conversationId: 'c1', approved: true },
+        pid,
+        true,
+      ),
+    ).toBe(true);
   });
 
   it('drops unknown event types', () => {
@@ -415,6 +534,7 @@ describe('isRelevantToParticipant', () => {
 ```bash
 npm test -- --reporter=verbose packages/runtime/src/server/event-filter.test.ts
 ```
+
 Expected: fail — module does not exist.
 
 - [ ] **Create `event-filter.ts`**
@@ -479,6 +599,7 @@ export function isRelevantToParticipant(
 ```bash
 npm test -- --reporter=verbose packages/runtime/src/server/event-filter.test.ts
 ```
+
 Expected: all pass.
 
 - [ ] **Wire `isRelevantToParticipant` into `WebConnector`**
@@ -486,11 +607,13 @@ Expected: all pass.
 In `packages/runtime/src/server/WebConnector.ts`:
 
 Add import at the top:
+
 ```ts
 import { isRelevantToParticipant } from './event-filter.js';
 ```
 
 `WebConnectorDeps` needs to expose `collective` so we can check `isOperator` at auth time. Check if `Collective` is already in `WebConnectorDeps` (around lines 15–27). If not, add it:
+
 ```ts
 import type { Collective } from '@legion/core';
 
@@ -501,12 +624,14 @@ interface WebConnectorDeps {
 ```
 
 Then in `handleWebSocket()`, after the participant is resolved from the JWT (around line 155–160), resolve `isOperator`:
+
 ```ts
 const participant = this.deps.collective.get(participantId);
 const isOperator = participant?.operator === true;
 ```
 
 Then update the `onAny` handler (lines 168–173) to filter:
+
 ```ts
 const handler = (event: string, payload: unknown) => {
   if (
@@ -526,6 +651,7 @@ If `collective` is not already passed into `WebConnector` via `LegionProcess.ts`
 ```bash
 npm test -- --reporter=verbose packages/runtime
 ```
+
 Expected: all pass.
 
 - [ ] **Commit**
@@ -540,6 +666,7 @@ git commit -m "feat: scope WebSocket event delivery to authenticated participant
 ## Task 4: Extract `useWebSocket` composable
 
 **Files:**
+
 - Create: `packages/web/src/composables/useWebSocket.ts`
 - Create: `packages/web/src/composables/useWebSocket.test.ts`
 
@@ -583,6 +710,7 @@ describe('useWebSocket', () => {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/composables/useWebSocket.test.ts
 ```
+
 Expected: fail — module does not exist.
 
 - [ ] **Create `useWebSocket.ts`**
@@ -615,9 +743,17 @@ function connect(): void {
 
   ws.addEventListener('message', (evt) => {
     let parsed: unknown;
-    try { parsed = JSON.parse(evt.data as string); } catch { return; }
+    try {
+      parsed = JSON.parse(evt.data as string);
+    } catch {
+      return;
+    }
     for (const handler of [...handlers]) {
-      try { handler(parsed); } catch { /* isolate */ }
+      try {
+        handler(parsed);
+      } catch {
+        /* isolate */
+      }
     }
   });
 
@@ -661,6 +797,7 @@ export function useWebSocket() {
 ```
 
 Note: `useAuth` must expose `getToken()`. Check current `useAuth.ts` — if it doesn't, add it:
+
 ```ts
 // in useAuth.ts
 function getToken(): string | null {
@@ -675,6 +812,7 @@ return { ..., getToken };
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/composables/useWebSocket.test.ts
 ```
+
 Expected: PASS.
 
 - [ ] **Commit**
@@ -689,6 +827,7 @@ git commit -m "feat: extract useWebSocket singleton composable from useEventStre
 ## Task 5: Refactor `useEventStream` to use `useWebSocket` with typed filtered subscriptions and auto-cleanup
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useEventStream.ts`
 - Modify: `packages/web/src/composables/useEventStream.test.ts`
 
@@ -730,7 +869,11 @@ describe('useEventStream', () => {
     const { on } = useEventStream();
     const off = on('message:sent', (payload) => received.push(payload));
 
-    ws._emit({ type: 'event', event: 'message:sent', data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' } });
+    ws._emit({
+      type: 'event',
+      event: 'message:sent',
+      data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' },
+    });
     expect(received).toHaveLength(1);
 
     off();
@@ -745,10 +888,18 @@ describe('useEventStream', () => {
     const { on } = useEventStream();
     const off = on('message:sent', (p) => received.push(p), { conversationId: 'c1' });
 
-    ws._emit({ type: 'event', event: 'message:sent', data: { conversationId: 'c2', senderId: 'op', recipientId: 'ag' } });
+    ws._emit({
+      type: 'event',
+      event: 'message:sent',
+      data: { conversationId: 'c2', senderId: 'op', recipientId: 'ag' },
+    });
     expect(received).toHaveLength(0);
 
-    ws._emit({ type: 'event', event: 'message:sent', data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' } });
+    ws._emit({
+      type: 'event',
+      event: 'message:sent',
+      data: { conversationId: 'c1', senderId: 'op', recipientId: 'ag' },
+    });
     expect(received).toHaveLength(1);
 
     off();
@@ -770,11 +921,19 @@ describe('useEventStream', () => {
     });
 
     const wrapper = mount(TestComponent);
-    ws._emit({ type: 'event', event: 'iteration', data: { conversationId: 'c1', participantId: 'ag', iteration: 0 } });
+    ws._emit({
+      type: 'event',
+      event: 'iteration',
+      data: { conversationId: 'c1', participantId: 'ag', iteration: 0 },
+    });
     expect(received).toHaveLength(1);
 
     await wrapper.unmount();
-    ws._emit({ type: 'event', event: 'iteration', data: { conversationId: 'c1', participantId: 'ag', iteration: 1 } });
+    ws._emit({
+      type: 'event',
+      event: 'iteration',
+      data: { conversationId: 'c1', participantId: 'ag', iteration: 1 },
+    });
     // handler should have been removed — no new events
     expect(received).toHaveLength(1);
   });
@@ -786,6 +945,7 @@ describe('useEventStream', () => {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/composables/useEventStream.test.ts
 ```
+
 Expected: fail — new `on()` API does not exist yet.
 
 - [ ] **Rewrite `useEventStream.ts`**
@@ -819,7 +979,11 @@ function ensureConnected(): void {
         const payload = msg.data as Record<string, unknown>;
         if (payload['conversationId'] !== sub.filter.conversationId) continue;
       }
-      try { sub.handler(msg.data); } catch { /* isolate */ }
+      try {
+        sub.handler(msg.data);
+      } catch {
+        /* isolate */
+      }
     }
   });
 }
@@ -855,6 +1019,7 @@ export function useEventStream() {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/composables/useEventStream.test.ts
 ```
+
 Expected: all pass.
 
 - [ ] **Commit**
@@ -869,6 +1034,7 @@ git commit -m "refactor: useEventStream uses useWebSocket, adds typed filtered o
 ## Task 6: Fix `ParticipantsView` subscribe leak
 
 **Files:**
+
 - Modify: `packages/web/src/views/ParticipantsView.vue:31-36`
 
 - [ ] **Fix the leak**
@@ -914,6 +1080,7 @@ This ensures `getCurrentInstance()` is available when `on()` is called, so auto-
 ```bash
 cd packages/web && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Commit**
@@ -928,6 +1095,7 @@ git commit -m "fix: remove useEventStream subscription leak in ParticipantsView"
 ## Task 7: Create `useConversation` composable
 
 **Files:**
+
 - Create: `packages/web/src/composables/useConversation.ts`
 - Create: `packages/web/src/composables/useConversation.test.ts`
 
@@ -948,8 +1116,24 @@ vi.mock('./useExecute.js', () => ({
     execute: vi.fn().mockResolvedValue({
       id: 'c1',
       messages: {
-        'm1': { id: 'm1', parentId: null, senderId: 'operator', recipientId: 'agent-1', role: 'user', content: 'hi', status: 'active' },
-        'm2': { id: 'm2', parentId: 'm1', senderId: 'agent-1', recipientId: 'operator', role: 'assistant', content: 'hello', status: 'active' },
+        m1: {
+          id: 'm1',
+          parentId: null,
+          senderId: 'operator',
+          recipientId: 'agent-1',
+          role: 'user',
+          content: 'hi',
+          status: 'active',
+        },
+        m2: {
+          id: 'm2',
+          parentId: 'm1',
+          senderId: 'agent-1',
+          recipientId: 'operator',
+          role: 'assistant',
+          content: 'hello',
+          status: 'active',
+        },
       },
       activeBranchHead: 'm2',
       schemaVersion: '2.0',
@@ -1000,6 +1184,7 @@ describe('useConversation', () => {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/composables/useConversation.test.ts
 ```
+
 Expected: fail — module does not exist.
 
 - [ ] **Create `useConversation.ts`**
@@ -1035,7 +1220,7 @@ export function useConversation(conversationId: string | null) {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
-  const iterationFired = ref(false);  // set when iteration event arrives
+  const iterationFired = ref(false); // set when iteration event arrives
 
   const isThinking = computed(() => {
     if (isThinkingLocal.value || iterationFired.value) return true;
@@ -1065,36 +1250,58 @@ export function useConversation(conversationId: string | null) {
   }
 
   if (conversationId) {
-    on('message:sent', (payload) => {
-      // Reload conversation to get the new message in correct chain order
-      void load();
-      // If assistant message arrived, clear thinking state
-      if ((payload as any).role === 'assistant') {
+    on(
+      'message:sent',
+      (payload) => {
+        // Reload conversation to get the new message in correct chain order
+        void load();
+        // If assistant message arrived, clear thinking state
+        if ((payload as any).role === 'assistant') {
+          isThinkingLocal.value = false;
+          iterationFired.value = false;
+        }
+      },
+      { conversationId },
+    );
+
+    on(
+      'iteration',
+      () => {
+        iterationFired.value = true;
+      },
+      { conversationId },
+    );
+
+    on(
+      'approval:requested',
+      () => {
         isThinkingLocal.value = false;
         iterationFired.value = false;
-      }
-    }, { conversationId });
+        void load(); // reload to get the pending_approval tool result
+      },
+      { conversationId },
+    );
 
-    on('iteration', () => {
-      iterationFired.value = true;
-    }, { conversationId });
+    on(
+      'approval:resolved',
+      () => {
+        iterationFired.value = true; // agent will resume
+        void load();
+      },
+      { conversationId },
+    );
 
-    on('approval:requested', () => {
-      isThinkingLocal.value = false;
-      iterationFired.value = false;
-      void load(); // reload to get the pending_approval tool result
-    }, { conversationId });
+    on(
+      'tool:result',
+      () => {
+        void load(); // keep tool call blocks in sync
+      },
+      { conversationId },
+    );
 
-    on('approval:resolved', () => {
-      iterationFired.value = true; // agent will resume
+    onMounted(() => {
       void load();
-    }, { conversationId });
-
-    on('tool:result', () => {
-      void load(); // keep tool call blocks in sync
-    }, { conversationId });
-
-    onMounted(() => { void load(); });
+    });
   }
 
   return { messages, loading, error, isThinking, load, markSent };
@@ -1106,6 +1313,7 @@ export function useConversation(conversationId: string | null) {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/composables/useConversation.test.ts
 ```
+
 Expected: PASS.
 
 - [ ] **Commit**
@@ -1120,6 +1328,7 @@ git commit -m "feat: add useConversation composable with live event updates and 
 ## Task 8: `SearchableCombobox` component
 
 **Files:**
+
 - Create: `packages/web/src/components/common/SearchableCombobox.vue`
 - Create: `packages/web/src/components/common/SearchableCombobox.test.ts`
 
@@ -1140,18 +1349,24 @@ const options = [
 
 describe('SearchableCombobox', () => {
   it('renders the placeholder when no value is selected', () => {
-    const wrapper = mount(SearchableCombobox, { props: { options, placeholder: 'Select agent...' } });
+    const wrapper = mount(SearchableCombobox, {
+      props: { options, placeholder: 'Select agent...' },
+    });
     expect(wrapper.text()).toContain('Select agent...');
   });
 
   it('shows all options when input is focused', async () => {
-    const wrapper = mount(SearchableCombobox, { props: { options, placeholder: 'Select agent...' } });
+    const wrapper = mount(SearchableCombobox, {
+      props: { options, placeholder: 'Select agent...' },
+    });
     await wrapper.find('input').trigger('focus');
     expect(wrapper.findAll('[data-option]')).toHaveLength(3);
   });
 
   it('filters options by input text', async () => {
-    const wrapper = mount(SearchableCombobox, { props: { options, placeholder: 'Select agent...' } });
+    const wrapper = mount(SearchableCombobox, {
+      props: { options, placeholder: 'Select agent...' },
+    });
     await wrapper.find('input').trigger('focus');
     await wrapper.find('input').setValue('atlas');
     const visibleOptions = wrapper.findAll('[data-option]');
@@ -1160,14 +1375,18 @@ describe('SearchableCombobox', () => {
   });
 
   it('emits select with value when option is clicked', async () => {
-    const wrapper = mount(SearchableCombobox, { props: { options, placeholder: 'Select agent...' } });
+    const wrapper = mount(SearchableCombobox, {
+      props: { options, placeholder: 'Select agent...' },
+    });
     await wrapper.find('input').trigger('focus');
     await wrapper.findAll('[data-option]')[0].trigger('click');
     expect(wrapper.emitted('select')).toEqual([['agent-1']]);
   });
 
   it('closes dropdown after selection', async () => {
-    const wrapper = mount(SearchableCombobox, { props: { options, placeholder: 'Select agent...' } });
+    const wrapper = mount(SearchableCombobox, {
+      props: { options, placeholder: 'Select agent...' },
+    });
     await wrapper.find('input').trigger('focus');
     await wrapper.findAll('[data-option]')[0].trigger('click');
     expect(wrapper.findAll('[data-option]')).toHaveLength(0);
@@ -1180,6 +1399,7 @@ describe('SearchableCombobox', () => {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/components/common/SearchableCombobox.test.ts
 ```
+
 Expected: fail — component does not exist.
 
 - [ ] **Create `SearchableCombobox.vue`**
@@ -1206,9 +1426,7 @@ const open = ref(false);
 const selectedLabel = ref('');
 
 const filtered = computed(() =>
-  props.options.filter((o) =>
-    o.label.toLowerCase().includes(query.value.toLowerCase()),
-  ),
+  props.options.filter((o) => o.label.toLowerCase().includes(query.value.toLowerCase())),
 );
 
 function onFocus() {
@@ -1217,7 +1435,9 @@ function onFocus() {
 
 function onBlur() {
   // Delay so click on option fires first
-  setTimeout(() => { open.value = false; }, 150);
+  setTimeout(() => {
+    open.value = false;
+  }, 150);
 }
 
 function select(option: { value: string; label: string }) {
@@ -1252,9 +1472,7 @@ function select(option: { value: string; label: string }) {
       >
         {{ option.label }}
       </li>
-      <li v-if="filtered.length === 0" class="px-3 py-2 text-sm text-slate-500">
-        No results
-      </li>
+      <li v-if="filtered.length === 0" class="px-3 py-2 text-sm text-slate-500">No results</li>
     </ul>
   </div>
 </template>
@@ -1265,6 +1483,7 @@ function select(option: { value: string; label: string }) {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/components/common/SearchableCombobox.test.ts
 ```
+
 Expected: all pass.
 
 - [ ] **Commit**
@@ -1279,6 +1498,7 @@ git commit -m "feat: add SearchableCombobox reusable component"
 ## Task 9: `MessageBubble` component
 
 **Files:**
+
 - Create: `packages/web/src/components/conversations/MessageBubble.vue`
 - Create: `packages/web/src/components/conversations/MessageBubble.test.ts`
 
@@ -1350,6 +1570,7 @@ describe('MessageBubble', () => {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/components/conversations/MessageBubble.test.ts
 ```
+
 Expected: fail — component does not exist.
 
 - [ ] **Create `MessageBubble.vue`**
@@ -1368,11 +1589,7 @@ defineProps<{
 </script>
 
 <template>
-  <div
-    data-bubble
-    class="flex flex-col gap-1"
-    :class="isOwn ? 'items-end' : 'items-start'"
-  >
+  <div data-bubble class="flex flex-col gap-1" :class="isOwn ? 'items-end' : 'items-start'">
     <div
       class="max-w-[72%] px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words"
       :class="
@@ -1401,6 +1618,7 @@ defineProps<{
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/components/conversations/MessageBubble.test.ts
 ```
+
 Expected: all pass.
 
 - [ ] **Commit**
@@ -1415,6 +1633,7 @@ git commit -m "feat: add MessageBubble component for chat thread rendering"
 ## Task 10: `ApprovalCard` component
 
 **Files:**
+
 - Create: `packages/web/src/components/conversations/ApprovalCard.vue`
 - Create: `packages/web/src/components/conversations/ApprovalCard.test.ts`
 
@@ -1488,7 +1707,12 @@ describe('ApprovalCard', () => {
 
   it('shows resolved state when decision prop is reject', () => {
     const wrapper = mount(ApprovalCard, {
-      props: { ...pendingProps, resolved: true, decision: 'reject', resolvedMessage: 'Not allowed' },
+      props: {
+        ...pendingProps,
+        resolved: true,
+        decision: 'reject',
+        resolvedMessage: 'Not allowed',
+      },
     });
     expect(wrapper.text()).toContain('Denied');
     expect(wrapper.text()).toContain('Not allowed');
@@ -1501,6 +1725,7 @@ describe('ApprovalCard', () => {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/components/conversations/ApprovalCard.test.ts
 ```
+
 Expected: fail — component does not exist.
 
 - [ ] **Create `ApprovalCard.vue`**
@@ -1598,7 +1823,11 @@ async function submit(decision: 'approve' | 'reject') {
   <div
     v-else
     class="border rounded-lg p-3 flex flex-col gap-1"
-    :class="decision === 'approve' ? 'border-emerald-900 bg-emerald-950/20' : 'border-red-950 bg-red-950/20'"
+    :class="
+      decision === 'approve'
+        ? 'border-emerald-900 bg-emerald-950/20'
+        : 'border-red-950 bg-red-950/20'
+    "
   >
     <div class="flex items-center gap-2">
       <span class="text-xs font-mono text-slate-400">{{ toolName }}</span>
@@ -1621,6 +1850,7 @@ async function submit(decision: 'approve' | 'reject') {
 ```bash
 cd packages/web && npx vitest run --reporter=verbose src/components/conversations/ApprovalCard.test.ts
 ```
+
 Expected: all pass.
 
 - [ ] **Commit**
@@ -1635,6 +1865,7 @@ git commit -m "feat: add ApprovalCard component for inline tool approval in chat
 ## Task 11: Update router — add `/conversations/new`
 
 **Files:**
+
 - Modify: `packages/web/src/router/index.ts`
 
 - [ ] **Add the `/conversations/new` route**
@@ -1655,13 +1886,41 @@ The full routes array should look like:
 const routes = [
   { path: '/login', component: () => import('../views/LoginView.vue') },
   { path: '/', redirect: '/participants' },
-  { path: '/participants', component: () => import('../views/ParticipantsView.vue'), meta: { requiresAuth: true } },
-  { path: '/conversations', component: () => import('../views/ConversationsView.vue'), meta: { requiresAuth: true } },
-  { path: '/conversations/new', component: () => import('../views/ConversationsView.vue'), meta: { requiresAuth: true } },
-  { path: '/conversations/:id', component: () => import('../views/ConversationsView.vue'), meta: { requiresAuth: true } },
-  { path: '/events', component: () => import('../views/EventStreamView.vue'), meta: { requiresAuth: true } },
-  { path: '/config', component: () => import('../views/ConfigView.vue'), meta: { requiresAuth: true } },
-  { path: '/config/credentials', component: () => import('../views/ConfigView.vue'), meta: { requiresAuth: true } },
+  {
+    path: '/participants',
+    component: () => import('../views/ParticipantsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/conversations',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/conversations/new',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/conversations/:id',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/events',
+    component: () => import('../views/EventStreamView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config',
+    component: () => import('../views/ConfigView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/config/credentials',
+    component: () => import('../views/ConfigView.vue'),
+    meta: { requiresAuth: true },
+  },
 ];
 ```
 
@@ -1670,6 +1929,7 @@ const routes = [
 ```bash
 cd packages/web && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Commit**
@@ -1684,6 +1944,7 @@ git commit -m "feat: add /conversations/new route for draft conversation state"
 ## Task 12: Update `ConversationList` — Mine/All toggle, +New button, amber dot
 
 **Files:**
+
 - Modify: `packages/web/src/components/conversations/ConversationList.vue`
 
 - [ ] **Rewrite `ConversationList.vue`**
@@ -1722,7 +1983,9 @@ const pendingApprovalIds = defineProps<{ pendingApprovalIds?: Set<string> }>();
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0">
+    <div
+      class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0"
+    >
       <span class="text-xs uppercase tracking-wider text-slate-500">Conversations</span>
       <button
         class="text-xs px-2 py-0.5 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700"
@@ -1736,14 +1999,22 @@ const pendingApprovalIds = defineProps<{ pendingApprovalIds?: Set<string> }>();
     <div class="flex gap-1 px-3 py-2 border-b border-navy-800 flex-shrink-0">
       <button
         class="text-xs px-3 py-0.5 rounded-full transition-colors"
-        :class="mode === 'mine' ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500 border border-navy-700 hover:text-slate-300'"
+        :class="
+          mode === 'mine'
+            ? 'bg-cyan-800 text-cyan-200'
+            : 'text-slate-500 border border-navy-700 hover:text-slate-300'
+        "
         @click="emit('update:mode', 'mine')"
       >
         Mine
       </button>
       <button
         class="text-xs px-3 py-0.5 rounded-full transition-colors"
-        :class="mode === 'all' ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500 border border-navy-700 hover:text-slate-300'"
+        :class="
+          mode === 'all'
+            ? 'bg-cyan-800 text-cyan-200'
+            : 'text-slate-500 border border-navy-700 hover:text-slate-300'
+        "
         @click="emit('update:mode', 'all')"
       >
         All
@@ -1766,7 +2037,7 @@ const pendingApprovalIds = defineProps<{ pendingApprovalIds?: Set<string> }>();
         />
 
         <div class="text-sm text-slate-200 truncate pr-4">
-          {{ conv.participants.filter(p => p !== myParticipantId).join(', ') || conv.id }}
+          {{ conv.participants.filter((p) => p !== myParticipantId).join(', ') || conv.id }}
         </div>
         <div class="text-xs text-slate-600 mt-0.5 font-mono truncate">
           {{ conv.id }}
@@ -1786,6 +2057,7 @@ const pendingApprovalIds = defineProps<{ pendingApprovalIds?: Set<string> }>();
 ```bash
 cd packages/web && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Commit**
@@ -1800,6 +2072,7 @@ git commit -m "feat: add Mine/All toggle, +New button, and pending approval ambe
 ## Task 13: Update `ConversationThread` — add chat mode with bubbles, composer, thinking indicator
 
 **Files:**
+
 - Modify: `packages/web/src/components/conversations/ConversationThread.vue`
 
 - [ ] **Rewrite `ConversationThread.vue`**
@@ -1832,10 +2105,11 @@ const composerText = ref('');
 const sending = ref(false);
 const threadEl = ref<HTMLElement | null>(null);
 
-const canSend = computed(() =>
-  props.mode === 'chat' &&
-  composerText.value.trim().length > 0 &&
-  props.recipientName !== undefined, // recipient must be known (from conversationId or draft picker)
+const canSend = computed(
+  () =>
+    props.mode === 'chat' &&
+    composerText.value.trim().length > 0 &&
+    props.recipientName !== undefined, // recipient must be known (from conversationId or draft picker)
 );
 
 async function send(recipientId: string) {
@@ -1877,13 +2151,15 @@ function isOwnMessage(msg: MessageData): boolean {
 function getPendingApprovalId(msg: MessageData): string | null {
   if (!msg.toolResults) return null;
   const pending = msg.toolResults.find((tr) => tr.result.status === 'pending_approval');
-  return pending ? (pending.result as any).approvalId ?? null : null;
+  return pending ? ((pending.result as any).approvalId ?? null) : null;
 }
 
 function getResolvedToolResult(msg: MessageData) {
-  return msg.toolResults?.find(
-    (tr) => tr.result.status === 'rejected' || tr.result.status === 'success',
-  ) ?? null;
+  return (
+    msg.toolResults?.find(
+      (tr) => tr.result.status === 'rejected' || tr.result.status === 'success',
+    ) ?? null
+  );
 }
 </script>
 
@@ -1903,7 +2179,10 @@ function getResolvedToolResult(msg: MessageData) {
 
       <template v-else-if="mode === 'chat'">
         <!-- Empty state for draft -->
-        <div v-if="messages.length === 0 && !conversationId" class="flex-1 flex items-center justify-center">
+        <div
+          v-if="messages.length === 0 && !conversationId"
+          class="flex-1 flex items-center justify-center"
+        >
           <div class="text-center text-slate-600 text-sm">
             Send a message to start the conversation
           </div>
@@ -1922,21 +2201,21 @@ function getResolvedToolResult(msg: MessageData) {
               v-for="tc in msg.toolCalls"
               :key="tc.toolCallId"
               :tool-call="tc"
-              :tool-result="msg.toolResults?.find(tr => tr.toolCallId === tc.toolCallId) ?? null"
+              :tool-result="msg.toolResults?.find((tr) => tr.toolCallId === tc.toolCallId) ?? null"
             />
             <!-- Approval card for pending_approval tool results -->
             <ApprovalCard
-              v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'pending_approval')"
+              v-for="tr in msg.toolResults?.filter((tr) => tr.result.status === 'pending_approval')"
               :key="tr.toolCallId"
               :approval-id="(tr.result as any).approvalId"
               :tool-name="tr.toolName"
-              :args="msg.toolCalls?.find(tc => tc.toolCallId === tr.toolCallId)?.args ?? {}"
+              :args="msg.toolCalls?.find((tc) => tc.toolCallId === tr.toolCallId)?.args ?? {}"
               :resolved="false"
               :decision="null"
             />
             <!-- Resolved approval cards -->
             <ApprovalCard
-              v-for="tr in msg.toolResults?.filter(tr => tr.result.status === 'rejected')"
+              v-for="tr in msg.toolResults?.filter((tr) => tr.result.status === 'rejected')"
               :key="`resolved-${tr.toolCallId}`"
               :approval-id="''"
               :tool-name="tr.toolName"
@@ -1981,7 +2260,11 @@ function getResolvedToolResult(msg: MessageData) {
         <button
           :disabled="!canSend || sending"
           class="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-          :class="canSend ? 'bg-cyan-700 text-white hover:bg-cyan-600' : 'bg-navy-800 text-slate-600 cursor-not-allowed'"
+          :class="
+            canSend
+              ? 'bg-cyan-700 text-white hover:bg-cyan-600'
+              : 'bg-navy-800 text-slate-600 cursor-not-allowed'
+          "
           @click="send(recipientName ?? '')"
         >
           Send
@@ -2000,6 +2283,7 @@ function getResolvedToolResult(msg: MessageData) {
 ```bash
 cd packages/web && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Commit**
@@ -2014,6 +2298,7 @@ git commit -m "feat: add chat mode to ConversationThread with bubbles, composer,
 ## Task 14: Rewrite `ConversationsView` — draft state, Mine/All, participant resolution
 
 **Files:**
+
 - Modify: `packages/web/src/views/ConversationsView.vue`
 
 - [ ] **Rewrite `ConversationsView.vue`**
@@ -2043,7 +2328,9 @@ const participants = ref<BaseParticipant[]>([]);
 const pendingApprovalIds = ref<Set<string>>(new Set());
 
 const isDraft = computed(() => route.path === '/conversations/new');
-const activeId = computed(() => isDraft.value ? null : (route.params.id as string | undefined) ?? null);
+const activeId = computed(() =>
+  isDraft.value ? null : ((route.params.id as string | undefined) ?? null),
+);
 
 // Resolved recipient for existing conversations or draft
 const draftRecipientId = ref<string | null>(null);
@@ -2079,9 +2366,10 @@ const agentOptions = computed(() =>
 );
 
 async function loadConversations() {
-  const filter = listMode.value === 'mine' && myParticipantId.value
-    ? { participantId: myParticipantId.value }
-    : {};
+  const filter =
+    listMode.value === 'mine' && myParticipantId.value
+      ? { participantId: myParticipantId.value }
+      : {};
   conversations.value = await execute<ConversationMeta[]>('list_conversations', filter);
 }
 
@@ -2114,7 +2402,10 @@ on('conversation:created', () => void loadConversations());
 
 // Track pending approvals for amber dot
 on('approval:requested', (payload) => {
-  pendingApprovalIds.value = new Set([...pendingApprovalIds.value, (payload as any).conversationId]);
+  pendingApprovalIds.value = new Set([
+    ...pendingApprovalIds.value,
+    (payload as any).conversationId,
+  ]);
 });
 on('approval:resolved', (payload) => {
   const next = new Set(pendingApprovalIds.value);
@@ -2145,7 +2436,10 @@ onMounted(async () => {
     <!-- Right: thread -->
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Draft: "To:" header bar -->
-      <div v-if="isDraft" class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-800 flex-shrink-0">
+      <div
+        v-if="isDraft"
+        class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-800 flex-shrink-0"
+      >
         <span class="text-xs text-slate-500 flex-shrink-0">To:</span>
         <div class="flex-1 max-w-xs">
           <SearchableCombobox
@@ -2181,6 +2475,7 @@ onMounted(async () => {
 ```bash
 cd packages/web && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Commit**
@@ -2200,6 +2495,7 @@ git commit -m "feat: rewrite ConversationsView with draft state, Mine/All toggle
 cd /home/chris/source/javascript/legion-v2
 npm run build --workspace=packages/web
 ```
+
 Expected: clean build, no errors.
 
 - [ ] **Run full test suite**
@@ -2207,6 +2503,7 @@ Expected: clean build, no errors.
 ```bash
 npm test
 ```
+
 Expected: all tests pass.
 
 - [ ] **Start Legion and manually verify**
@@ -2238,24 +2535,24 @@ git commit -m "chore: plan 12 chat interface complete"
 
 ### Spec coverage check
 
-| Spec section | Covered by task |
-|---|---|
-| `communicate` in operator tools | Pre-existing — `communicate` already in MANAGEMENT_TOOLS (verified in research) |
-| `ConversationMeta.participants` field | Task 1 |
-| `list_conversations` participantId filter | Task 2 |
-| Participant-scoped WebSocket event filtering | Task 3 |
-| `useWebSocket` singleton | Task 4 |
-| `useEventStream` refactor with typed filtered `on()` and auto-cleanup | Task 5 |
-| Fix `ParticipantsView` leak | Task 6 |
-| `useConversation` composable | Task 7 |
-| `SearchableCombobox` | Task 8 |
-| `MessageBubble` | Task 9 |
-| `ApprovalCard` | Task 10 |
-| `/conversations/new` route | Task 11 |
-| `ConversationList` Mine/All/+New/amber dot | Task 12 |
-| `ConversationThread` chat mode | Task 13 |
-| `ConversationsView` orchestration | Task 14 |
-| Build + smoke test | Task 15 |
+| Spec section                                                          | Covered by task                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `communicate` in operator tools                                       | Pre-existing — `communicate` already in MANAGEMENT_TOOLS (verified in research) |
+| `ConversationMeta.participants` field                                 | Task 1                                                                          |
+| `list_conversations` participantId filter                             | Task 2                                                                          |
+| Participant-scoped WebSocket event filtering                          | Task 3                                                                          |
+| `useWebSocket` singleton                                              | Task 4                                                                          |
+| `useEventStream` refactor with typed filtered `on()` and auto-cleanup | Task 5                                                                          |
+| Fix `ParticipantsView` leak                                           | Task 6                                                                          |
+| `useConversation` composable                                          | Task 7                                                                          |
+| `SearchableCombobox`                                                  | Task 8                                                                          |
+| `MessageBubble`                                                       | Task 9                                                                          |
+| `ApprovalCard`                                                        | Task 10                                                                         |
+| `/conversations/new` route                                            | Task 11                                                                         |
+| `ConversationList` Mine/All/+New/amber dot                            | Task 12                                                                         |
+| `ConversationThread` chat mode                                        | Task 13                                                                         |
+| `ConversationsView` orchestration                                     | Task 14                                                                         |
+| Build + smoke test                                                    | Task 15                                                                         |
 
 All spec requirements covered.
 

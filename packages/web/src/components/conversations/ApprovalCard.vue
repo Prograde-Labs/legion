@@ -88,7 +88,11 @@ async function submit(decision: 'approve' | 'reject') {
   <div
     v-else
     class="border rounded-lg p-3 flex flex-col gap-1"
-    :class="decision === 'approve' ? 'border-emerald-900 bg-emerald-950/20' : 'border-red-950 bg-red-950/20'"
+    :class="
+      decision === 'approve'
+        ? 'border-emerald-900 bg-emerald-950/20'
+        : 'border-red-950 bg-red-950/20'
+    "
   >
     <div class="flex items-center gap-2">
       <span class="text-xs font-mono text-slate-400">{{ toolName }}</span>

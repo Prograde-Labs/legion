@@ -14,19 +14,20 @@
 
 ## File Map
 
-| File | Action | What changes |
-|---|---|---|
-| `tsconfig.dev.json` | **Create** | Root-level tsconfig with `paths` aliases pointing workspace packages to their `src/` |
-| `packages/runtime/bin/legion.js` | **Modify** | Parse `--dev` flag; pass `{ dev }` to `LegionProcess.start()` |
-| `packages/runtime/src/LegionProcess.ts` | **Modify** | Accept `options?: { dev?: boolean }`; derive `webSrcPath` in dev; pass `dev` + `webSrcPath` to `WebConnector` |
+| File                                          | Action     | What changes                                                                                                                         |
+| --------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `tsconfig.dev.json`                           | **Create** | Root-level tsconfig with `paths` aliases pointing workspace packages to their `src/`                                                 |
+| `packages/runtime/bin/legion.js`              | **Modify** | Parse `--dev` flag; pass `{ dev }` to `LegionProcess.start()`                                                                        |
+| `packages/runtime/src/LegionProcess.ts`       | **Modify** | Accept `options?: { dev?: boolean }`; derive `webSrcPath` in dev; pass `dev` + `webSrcPath` to `WebConnector`                        |
 | `packages/runtime/src/server/WebConnector.ts` | **Modify** | Add `dev?: boolean` + `webSrcPath?: string` to deps; swap static plugin for Vite middleware when `dev: true`; close Vite on `stop()` |
-| `package.json` (root) | **Modify** | Add `dev` script; add `tsx` devDependency |
+| `package.json` (root)                         | **Modify** | Add `dev` script; add `tsx` devDependency                                                                                            |
 
 ---
 
 ## Task 1: Add `tsconfig.dev.json`
 
 **Files:**
+
 - Create: `tsconfig.dev.json`
 
 This file tells `tsx` to resolve `@legion/core` and `@legion/types` from their TypeScript source rather than their compiled `dist/` directories. Without this, `tsx` would try to import `packages/core/dist/index.js` which may not exist.
@@ -68,6 +69,7 @@ git commit -m "feat(dev): add tsconfig.dev.json with workspace path aliases for 
 ## Task 2: Add `tsx` devDependency and `dev` script to root `package.json`
 
 **Files:**
+
 - Modify: `package.json`
 
 - [ ] **Step 1: Install `tsx` as a root devDependency**
@@ -116,6 +118,7 @@ git commit -m "feat(dev): add tsx dependency and npm run dev script"
 ## Task 3: Extend `bin/legion.js` to parse `--dev` flag
 
 **Files:**
+
 - Modify: `packages/runtime/bin/legion.js`
 
 The current `bin/legion.js` imports from `../dist/LegionProcess.js`. In dev mode (run via `tsx`), we want it to import from the TypeScript source instead. `tsx` will handle the `.ts` → `.js` extension remapping at runtime.
@@ -153,10 +156,13 @@ process.on('SIGTERM', shutdown);
 **Important:** The import path changes from `'../dist/LegionProcess.js'` to `'../src/LegionProcess.js'`. When this file is run in production via `node packages/runtime/bin/legion.js`, Node will resolve `../src/LegionProcess.js` — but production users should still run the compiled output. To preserve production behaviour, update the `start` script in the root `package.json` to point to the compiled dist:
 
 In `package.json`, change:
+
 ```json
 "start": "node packages/runtime/bin/legion.js",
 ```
+
 to:
+
 ```json
 "start": "node packages/runtime/dist/LegionProcess.js",
 ```
@@ -198,6 +204,7 @@ process.on('SIGTERM', shutdown);
 ```
 
 This means:
+
 - `npm run dev` → `tsx --watch` → `--dev` flag set → imports `../src/LegionProcess.js` → tsx resolves all `.ts` transitively
 - `npm start` → `node` → no `--dev` → imports `../dist/LegionProcess.js` → compiled output as before
 
@@ -223,6 +230,7 @@ git commit -m "feat(dev): extend bin/legion.js with --dev flag and conditional s
 ## Task 4: Extend `LegionProcess.start()` to accept `{ dev }` option
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts`
 
 - [ ] **Step 1: Add `StartOptions` type and update the `start` signature**
@@ -230,11 +238,13 @@ git commit -m "feat(dev): extend bin/legion.js with --dev flag and conditional s
 At the top of `LegionProcess.ts`, below the existing imports, add the options type. Then update the `start` method signature on line 58:
 
 Change:
+
 ```ts
 static async start(workspaceRoot: string): Promise<LegionProcess> {
 ```
 
 To:
+
 ```ts
 export interface StartOptions {
   dev?: boolean;
@@ -265,11 +275,9 @@ const dev = options.dev ?? false;
 // In dev mode, point Vite at the web package source root (contains index.html + src/).
 // In production, serve the pre-built static files from web/dist/.
 const webSrcPath = dev
-  ? join(_dirname, '..', '..', '..', 'web')          // packages/runtime/src/ → packages/web/
+  ? join(_dirname, '..', '..', '..', 'web') // packages/runtime/src/ → packages/web/
   : undefined;
-const webDistPath = dev
-  ? undefined
-  : join(_dirname, '..', '..', 'web', 'dist');        // packages/runtime/dist/ → packages/web/dist/
+const webDistPath = dev ? undefined : join(_dirname, '..', '..', 'web', 'dist'); // packages/runtime/dist/ → packages/web/dist/
 
 const webConnector = new WebConnector({
   collective,
@@ -306,6 +314,7 @@ git commit -m "feat(dev): thread dev option and webSrcPath through LegionProcess
 ## Task 5: Add Vite middleware dev branch to `WebConnector`
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/WebConnector.ts`
 
 This is the core change. When `dev: true`, instead of serving static files from `dist/`, we spin up a Vite dev server in middleware mode and hand it all unmatched requests. Vite handles HMR, transforms, and the SPA fallback.
@@ -374,11 +383,7 @@ if (this.deps.dev) {
   // Register Vite middleware — must come AFTER Fastify routes so API routes take priority
   app.addHook('onRequest', async (req, reply) => {
     // Skip Fastify-handled routes
-    if (
-      req.url.startsWith('/api/') ||
-      req.url.startsWith('/ws') ||
-      req.url === '/health'
-    ) {
+    if (req.url.startsWith('/api/') || req.url.startsWith('/ws') || req.url === '/health') {
       return;
     }
     await new Promise<void>((resolve, reject) => {

@@ -22,7 +22,7 @@ export class FileConversationStore implements ConversationStore {
     const now = nowIso();
     const conversation: ConversationData = {
       ...data,
-      messages: (data?.messages) ?? {},
+      messages: data?.messages ?? {},
       id: createConversationId(),
       createdAt: now,
       updatedAt: now,

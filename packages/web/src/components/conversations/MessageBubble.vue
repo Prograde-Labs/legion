@@ -10,11 +10,7 @@ defineProps<{
 </script>
 
 <template>
-  <div
-    data-bubble
-    class="flex flex-col gap-1"
-    :class="isOwn ? 'items-end' : 'items-start'"
-  >
+  <div data-bubble class="flex flex-col gap-1" :class="isOwn ? 'items-end' : 'items-start'">
     <MarkdownContent
       v-if="message.content?.trim()"
       :content="message.content.trim()"

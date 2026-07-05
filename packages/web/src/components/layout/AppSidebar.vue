@@ -9,6 +9,7 @@ const nav = [
   { label: 'Participants', icon: '👤', to: '/participants' },
   { label: 'Conversations', icon: '💬', to: '/conversations' },
   { label: 'Events', icon: '⚡', to: '/events' },
+  { label: 'Processes', icon: '⚙', to: '/processes' },
   { label: 'Config', icon: '⚙️', to: '/config' },
 ];
 

@@ -12,36 +12,37 @@
 
 ## File Map
 
-| Action | Path | Responsibility |
-|--------|------|----------------|
-| Modify | `packages/types/src/config.ts` | New `ProviderConfig`, `ProviderModel`, `ModelConfig`, `RoutingConfig`, `LocalConfig`, `SystemConfig`; remove `defaultModel`, `providers` from `WorkspaceConfig` |
-| Modify | `packages/types/src/participant.ts` | Remove `providerId` from `AgentConfig` |
-| Modify | `packages/types/src/index.ts` | Export `SystemConfig`, `LocalConfig`, `RoutingConfig`, `ProviderModel` |
-| Create | `packages/core/src/providers/SystemProviderStore.ts` | Reads `~/.config/legion/providers/`, constructs providers by type |
-| Create | `packages/core/src/providers/SystemProviderStore.test.ts` | Unit tests using `MemoryStorage` |
-| Delete | `packages/core/src/providers/ProviderRegistry.ts` | Dead code — removed |
-| Delete | `packages/core/src/providers/ProviderStore.ts` | Replaced by `SystemProviderStore` |
-| Delete | `packages/core/src/providers/ProviderStore.test.ts` | Tests for deleted file |
-| Modify | `packages/core/src/providers/Provider.ts` | Add optional `listModels?()` and `ProviderModel` interface |
-| Modify | `packages/core/src/providers/OpenAICompatibleProvider.ts` | Implement `listModels()`, change constructor to accept `apiKey` directly |
-| Create | `packages/core/src/providers/ModelRouter.ts` | Resolves model ID → provider via routing config + `SystemProviderStore` |
-| Create | `packages/core/src/providers/ModelRouter.test.ts` | Unit tests for routing resolution algorithm |
-| Modify | `packages/core/src/runtime/AgentRuntime.ts` | Accept `ModelRouter`; call `router.resolve(agent.model.model)` |
-| Modify | `packages/core/src/runtime/AgentRuntime.test.ts` | Replace `MockProviderStore` with `MockModelRouter` |
-| Modify | `packages/core/src/index.ts` | Export `SystemProviderStore`, `ModelRouter`; remove `ProviderRegistry`, `ProviderStore` |
-| Modify | `packages/runtime/src/LegionProcess.ts` | Load `SystemConfig` + `LocalConfig`; construct `SystemProviderStore` + `ModelRouter`; ensure `.gitignore` entry |
-| Modify | `packages/runtime/src/server/runtime-tools.ts` | Replace all 4 tools with new 6 tools; remove credential tools |
-| Modify | `packages/web/src/views/ConfigView.vue` | Remove Credentials tab; add Routing tab; update Providers tab |
-| Delete | `packages/web/src/components/config/CredentialSlideOver.vue` | Removed — no separate credential concept |
-| Modify | `packages/web/src/components/config/ProviderSlideOver.vue` | Add `apiKey` field; remove `credentialKey`/`defaultModel` |
-| Create | `packages/web/src/components/config/RoutingEditor.vue` | Per-model routing config editor (system + workspace) |
-| Modify | `packages/web/src/components/participants/ParticipantSlideOver.vue` | Replace provider dropdown + text model input with searchable model dropdown |
+| Action | Path                                                                | Responsibility                                                                                                                                                  |
+| ------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Modify | `packages/types/src/config.ts`                                      | New `ProviderConfig`, `ProviderModel`, `ModelConfig`, `RoutingConfig`, `LocalConfig`, `SystemConfig`; remove `defaultModel`, `providers` from `WorkspaceConfig` |
+| Modify | `packages/types/src/participant.ts`                                 | Remove `providerId` from `AgentConfig`                                                                                                                          |
+| Modify | `packages/types/src/index.ts`                                       | Export `SystemConfig`, `LocalConfig`, `RoutingConfig`, `ProviderModel`                                                                                          |
+| Create | `packages/core/src/providers/SystemProviderStore.ts`                | Reads `~/.config/legion/providers/`, constructs providers by type                                                                                               |
+| Create | `packages/core/src/providers/SystemProviderStore.test.ts`           | Unit tests using `MemoryStorage`                                                                                                                                |
+| Delete | `packages/core/src/providers/ProviderRegistry.ts`                   | Dead code — removed                                                                                                                                             |
+| Delete | `packages/core/src/providers/ProviderStore.ts`                      | Replaced by `SystemProviderStore`                                                                                                                               |
+| Delete | `packages/core/src/providers/ProviderStore.test.ts`                 | Tests for deleted file                                                                                                                                          |
+| Modify | `packages/core/src/providers/Provider.ts`                           | Add optional `listModels?()` and `ProviderModel` interface                                                                                                      |
+| Modify | `packages/core/src/providers/OpenAICompatibleProvider.ts`           | Implement `listModels()`, change constructor to accept `apiKey` directly                                                                                        |
+| Create | `packages/core/src/providers/ModelRouter.ts`                        | Resolves model ID → provider via routing config + `SystemProviderStore`                                                                                         |
+| Create | `packages/core/src/providers/ModelRouter.test.ts`                   | Unit tests for routing resolution algorithm                                                                                                                     |
+| Modify | `packages/core/src/runtime/AgentRuntime.ts`                         | Accept `ModelRouter`; call `router.resolve(agent.model.model)`                                                                                                  |
+| Modify | `packages/core/src/runtime/AgentRuntime.test.ts`                    | Replace `MockProviderStore` with `MockModelRouter`                                                                                                              |
+| Modify | `packages/core/src/index.ts`                                        | Export `SystemProviderStore`, `ModelRouter`; remove `ProviderRegistry`, `ProviderStore`                                                                         |
+| Modify | `packages/runtime/src/LegionProcess.ts`                             | Load `SystemConfig` + `LocalConfig`; construct `SystemProviderStore` + `ModelRouter`; ensure `.gitignore` entry                                                 |
+| Modify | `packages/runtime/src/server/runtime-tools.ts`                      | Replace all 4 tools with new 6 tools; remove credential tools                                                                                                   |
+| Modify | `packages/web/src/views/ConfigView.vue`                             | Remove Credentials tab; add Routing tab; update Providers tab                                                                                                   |
+| Delete | `packages/web/src/components/config/CredentialSlideOver.vue`        | Removed — no separate credential concept                                                                                                                        |
+| Modify | `packages/web/src/components/config/ProviderSlideOver.vue`          | Add `apiKey` field; remove `credentialKey`/`defaultModel`                                                                                                       |
+| Create | `packages/web/src/components/config/RoutingEditor.vue`              | Per-model routing config editor (system + workspace)                                                                                                            |
+| Modify | `packages/web/src/components/participants/ParticipantSlideOver.vue` | Replace provider dropdown + text model input with searchable model dropdown                                                                                     |
 
 ---
 
 ## Task 1: Update Type System
 
 **Files:**
+
 - Modify: `packages/types/src/config.ts`
 - Modify: `packages/types/src/participant.ts`
 - Modify: `packages/types/src/index.ts`
@@ -183,6 +184,7 @@ git commit -m "feat(types): new ProviderConfig/ModelConfig/RoutingConfig shapes;
 ## Task 2: `SystemProviderStore` + delete dead code
 
 **Files:**
+
 - Create: `packages/core/src/providers/SystemProviderStore.ts`
 - Create: `packages/core/src/providers/SystemProviderStore.test.ts`
 - Delete: `packages/core/src/providers/ProviderRegistry.ts`
@@ -464,12 +466,14 @@ rm packages/core/src/providers/ProviderStore.test.ts
 - [ ] **Step 7: Update `packages/core/src/index.ts` — remove deleted exports, add new**
 
 Replace these lines:
+
 ```typescript
 export * from './providers/ProviderRegistry.js';
 export * from './providers/ProviderStore.js';
 ```
 
 With:
+
 ```typescript
 export * from './providers/SystemProviderStore.js';
 export * from './providers/ModelRouter.js';
@@ -495,6 +499,7 @@ git commit -m "feat(providers): add SystemProviderStore; delete ProviderRegistry
 ## Task 3: Extend `Provider` interface + update `OpenAICompatibleProvider`
 
 **Files:**
+
 - Modify: `packages/core/src/providers/Provider.ts`
 - Modify: `packages/core/src/providers/OpenAICompatibleProvider.ts`
 
@@ -625,16 +630,70 @@ interface StaticModelData {
 
 const STATIC_MODEL_DATA: Record<string, StaticModelData> = {
   // OpenAI
-  'gpt-4o': { name: 'GPT-4o', contextWindow: 128000, inputCostPer1kTokens: 0.0025, outputCostPer1kTokens: 0.01, capabilities: ['vision', 'tools', 'json_mode'] },
-  'gpt-4o-mini': { name: 'GPT-4o mini', contextWindow: 128000, inputCostPer1kTokens: 0.00015, outputCostPer1kTokens: 0.0006, capabilities: ['vision', 'tools', 'json_mode'] },
-  'gpt-4-turbo': { name: 'GPT-4 Turbo', contextWindow: 128000, inputCostPer1kTokens: 0.01, outputCostPer1kTokens: 0.03, capabilities: ['vision', 'tools', 'json_mode'] },
-  'gpt-3.5-turbo': { name: 'GPT-3.5 Turbo', contextWindow: 16385, inputCostPer1kTokens: 0.0005, outputCostPer1kTokens: 0.0015, capabilities: ['tools', 'json_mode'] },
-  'o1': { name: 'o1', contextWindow: 200000, inputCostPer1kTokens: 0.015, outputCostPer1kTokens: 0.06, capabilities: ['tools'] },
-  'o1-mini': { name: 'o1 mini', contextWindow: 128000, inputCostPer1kTokens: 0.003, outputCostPer1kTokens: 0.012, capabilities: ['tools'] },
+  'gpt-4o': {
+    name: 'GPT-4o',
+    contextWindow: 128000,
+    inputCostPer1kTokens: 0.0025,
+    outputCostPer1kTokens: 0.01,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'gpt-4o-mini': {
+    name: 'GPT-4o mini',
+    contextWindow: 128000,
+    inputCostPer1kTokens: 0.00015,
+    outputCostPer1kTokens: 0.0006,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'gpt-4-turbo': {
+    name: 'GPT-4 Turbo',
+    contextWindow: 128000,
+    inputCostPer1kTokens: 0.01,
+    outputCostPer1kTokens: 0.03,
+    capabilities: ['vision', 'tools', 'json_mode'],
+  },
+  'gpt-3.5-turbo': {
+    name: 'GPT-3.5 Turbo',
+    contextWindow: 16385,
+    inputCostPer1kTokens: 0.0005,
+    outputCostPer1kTokens: 0.0015,
+    capabilities: ['tools', 'json_mode'],
+  },
+  o1: {
+    name: 'o1',
+    contextWindow: 200000,
+    inputCostPer1kTokens: 0.015,
+    outputCostPer1kTokens: 0.06,
+    capabilities: ['tools'],
+  },
+  'o1-mini': {
+    name: 'o1 mini',
+    contextWindow: 128000,
+    inputCostPer1kTokens: 0.003,
+    outputCostPer1kTokens: 0.012,
+    capabilities: ['tools'],
+  },
   // Anthropic (via OpenAI-compatible proxy e.g. OpenRouter)
-  'claude-opus-4-5': { name: 'Claude Opus 4.5', contextWindow: 200000, inputCostPer1kTokens: 0.015, outputCostPer1kTokens: 0.075, capabilities: ['vision', 'tools'] },
-  'claude-sonnet-4-5': { name: 'Claude Sonnet 4.5', contextWindow: 200000, inputCostPer1kTokens: 0.003, outputCostPer1kTokens: 0.015, capabilities: ['vision', 'tools'] },
-  'claude-haiku-4-5': { name: 'Claude Haiku 4.5', contextWindow: 200000, inputCostPer1kTokens: 0.0008, outputCostPer1kTokens: 0.004, capabilities: ['vision', 'tools'] },
+  'claude-opus-4-5': {
+    name: 'Claude Opus 4.5',
+    contextWindow: 200000,
+    inputCostPer1kTokens: 0.015,
+    outputCostPer1kTokens: 0.075,
+    capabilities: ['vision', 'tools'],
+  },
+  'claude-sonnet-4-5': {
+    name: 'Claude Sonnet 4.5',
+    contextWindow: 200000,
+    inputCostPer1kTokens: 0.003,
+    outputCostPer1kTokens: 0.015,
+    capabilities: ['vision', 'tools'],
+  },
+  'claude-haiku-4-5': {
+    name: 'Claude Haiku 4.5',
+    contextWindow: 200000,
+    inputCostPer1kTokens: 0.0008,
+    outputCostPer1kTokens: 0.004,
+    capabilities: ['vision', 'tools'],
+  },
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -777,6 +836,7 @@ git commit -m "feat(providers): add listModels() to Provider interface; OpenAICo
 ## Task 4: `ModelRouter` + wire into `AgentRuntime`
 
 **Files:**
+
 - Create: `packages/core/src/providers/ModelRouter.ts`
 - Create: `packages/core/src/providers/ModelRouter.test.ts`
 - Modify: `packages/core/src/runtime/AgentRuntime.ts`
@@ -820,9 +880,13 @@ interface StubStore {
   get(name: string): Promise<Provider | null>;
 }
 
-function makeStore(entries: Array<{ config: ProviderConfig; provider: Provider | null }>): StubStore {
+function makeStore(
+  entries: Array<{ config: ProviderConfig; provider: Provider | null }>,
+): StubStore {
   return {
-    async list() { return entries.map((e) => e.config); },
+    async list() {
+      return entries.map((e) => e.config);
+    },
     async get(name: string) {
       return entries.find((e) => e.config.name === name)?.provider ?? null;
     },
@@ -863,8 +927,14 @@ describe('ModelRouter', () => {
     const providerA = makeProvider(['gpt-4o']);
     const providerB = makeProvider(['gpt-4o']);
     const store = makeStore([
-      { config: { name: 'ProviderA', type: 'openai-compatible', priority: 2 }, provider: providerA },
-      { config: { name: 'ProviderB', type: 'openai-compatible', priority: 1 }, provider: providerB },
+      {
+        config: { name: 'ProviderA', type: 'openai-compatible', priority: 2 },
+        provider: providerA,
+      },
+      {
+        config: { name: 'ProviderB', type: 'openai-compatible', priority: 1 },
+        provider: providerB,
+      },
     ]);
     // System routing specifies ProviderA despite lower priority
     const systemRouting: RoutingConfig = { models: { 'gpt-4o': ['ProviderA'] } };
@@ -877,8 +947,14 @@ describe('ModelRouter', () => {
     const providerA = makeProvider(['gpt-4o']);
     const providerB = makeProvider(['gpt-4o']);
     const store = makeStore([
-      { config: { name: 'ProviderA', type: 'openai-compatible', priority: 1 }, provider: providerA },
-      { config: { name: 'ProviderB', type: 'openai-compatible', priority: 2 }, provider: providerB },
+      {
+        config: { name: 'ProviderA', type: 'openai-compatible', priority: 1 },
+        provider: providerA,
+      },
+      {
+        config: { name: 'ProviderB', type: 'openai-compatible', priority: 2 },
+        provider: providerB,
+      },
     ]);
     const systemRouting: RoutingConfig = { models: { 'gpt-4o': ['ProviderA'] } };
     const workspaceRouting: RoutingConfig = { models: { 'gpt-4o': ['ProviderB'] } };
@@ -891,7 +967,10 @@ describe('ModelRouter', () => {
     const providerB = makeProvider(['gpt-4o']);
     const store = makeStore([
       // ProviderA not in store
-      { config: { name: 'ProviderB', type: 'openai-compatible', priority: 2 }, provider: providerB },
+      {
+        config: { name: 'ProviderB', type: 'openai-compatible', priority: 2 },
+        provider: providerB,
+      },
     ]);
     const systemRouting: RoutingConfig = { models: { 'gpt-4o': ['ProviderA', 'ProviderB'] } };
     const router = new ModelRouter(store as any, systemRouting, {});
@@ -903,8 +982,14 @@ describe('ModelRouter', () => {
     const providerHigh = makeProvider(['gpt-4o']);
     const providerLow = makeProvider(['gpt-4o']);
     const store = makeStore([
-      { config: { name: 'HighPriority', type: 'openai-compatible', priority: 1 }, provider: providerHigh },
-      { config: { name: 'LowPriority', type: 'openai-compatible', priority: 2 }, provider: providerLow },
+      {
+        config: { name: 'HighPriority', type: 'openai-compatible', priority: 1 },
+        provider: providerHigh,
+      },
+      {
+        config: { name: 'LowPriority', type: 'openai-compatible', priority: 2 },
+        provider: providerLow,
+      },
     ]);
     const router = new ModelRouter(store as any, {}, {});
     const result = await router.resolve('gpt-4o');
@@ -1023,15 +1108,19 @@ Expected: all tests PASS
 Replace the import at line 3 and the constructor/provider-resolution section:
 
 Replace:
+
 ```typescript
 import type { ProviderStore } from '../providers/ProviderStore.js';
 ```
+
 With:
+
 ```typescript
 import type { ModelRouter } from '../providers/ModelRouter.js';
 ```
 
 Replace the class constructor and provider lookup lines (lines 45–62):
+
 ```typescript
 export class AgentRuntime implements Runtime {
   constructor(
@@ -1060,6 +1149,7 @@ Leave all remaining code in the file (the rest of `handle()` and `processResumed
 Replace the `MockProviderStore` class (lines 24–32) and update all usages. Find and replace:
 
 Old helper class:
+
 ```typescript
 class MockProviderStore extends ProviderStore {
   constructor(private mockProviders: Map<string, Provider>) {
@@ -1073,6 +1163,7 @@ class MockProviderStore extends ProviderStore {
 ```
 
 New helper class — replace the above with:
+
 ```typescript
 class MockModelRouter {
   constructor(private mockProviders: Map<string, Provider>) {}
@@ -1084,12 +1175,14 @@ class MockModelRouter {
 ```
 
 Update the import — remove `ProviderStore` import, it's no longer needed:
+
 ```typescript
 // Remove this line entirely:
 import { ProviderStore } from '../providers/ProviderStore.js';
 ```
 
 Add `ModelRouter` import (for typing only — not strictly needed since MockModelRouter is structural):
+
 ```typescript
 import type { ModelRouter } from '../providers/ModelRouter.js';
 ```
@@ -1111,14 +1204,18 @@ const agentConfig: AgentConfig = {
 ```
 
 Change the mock provider creation in `makeSetup`:
+
 ```typescript
 // Old:
 const providerStore = new MockProviderStore(new Map([['test', mockProvider]]));
 // New (key is model ID):
-const router = new MockModelRouter(new Map([['test-model', mockProvider]])) as unknown as ModelRouter;
+const router = new MockModelRouter(
+  new Map([['test-model', mockProvider]]),
+) as unknown as ModelRouter;
 ```
 
 Change the return value:
+
 ```typescript
 return { context, thread, eventBus, inbound, router };
 ```
@@ -1126,6 +1223,7 @@ return { context, thread, eventBus, inbound, router };
 Update all destructuring sites in tests from `providerStore` to `router`, and all `new AgentRuntime('agent-1', providerStore)` to `new AgentRuntime('agent-1', router)`.
 
 For the inline describe blocks (`maxIterations`, `deny`, `requires_approval`), find all occurrences of:
+
 - `model: { provider: 'scripted', model: 'test' }` → change to `model: { model: 'test' }`
 - `new MockProviderStore(new Map([['scripted', provider]]))` → `new MockModelRouter(new Map([['test', provider]])) as unknown as ModelRouter`
 - `new MockProviderStore(new Map([['scripted', loopingProvider]]))` → `new MockModelRouter(new Map([['m', loopingProvider]])) as unknown as ModelRouter`
@@ -1133,6 +1231,7 @@ For the inline describe blocks (`maxIterations`, `deny`, `requires_approval`), f
 - `new AgentRuntime('agent-1', providerStore)` → `new AgentRuntime('agent-1', providerStore as unknown as ModelRouter)` — actually, rename the variable: `const router = new MockModelRouter(...)` and use `new AgentRuntime('agent-1', router as unknown as ModelRouter)`
 
 The "no provider registered" test — update the error message expectation to match the new text:
+
 ```typescript
 it('returns an error message when no provider is registered for the agent model', async () => {
   const emptyRouter = new MockModelRouter(new Map()) as unknown as ModelRouter;
@@ -1167,6 +1266,7 @@ git commit -m "feat(routing): add ModelRouter; AgentRuntime resolves providers b
 ## Task 5: Update `LegionProcess` + runtime tools
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts`
 - Modify: `packages/runtime/src/server/runtime-tools.ts`
 
@@ -1187,7 +1287,8 @@ interface RuntimeToolDeps {
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
-  const { systemStore, systemRouting, workspaceRouting, saveSystemRouting, saveWorkspaceRouting } = deps;
+  const { systemStore, systemRouting, workspaceRouting, saveSystemRouting, saveWorkspaceRouting } =
+    deps;
 
   return [
     {
@@ -1252,7 +1353,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
 
     {
       name: 'list_models',
-      description: 'List all models across all providers that support model discovery. Optionally filter to a single provider.',
+      description:
+        'List all models across all providers that support model discovery. Optionally filter to a single provider.',
       parameters: {
         type: 'object',
         properties: {
@@ -1303,7 +1405,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
 
     {
       name: 'save_routing',
-      description: 'Save routing configuration to system (~/.config/legion/config.json) or workspace (config.local.json). scope must be "system" or "workspace".',
+      description:
+        'Save routing configuration to system (~/.config/legion/config.json) or workspace (config.local.json). scope must be "system" or "workspace".',
       parameters: {
         type: 'object',
         properties: {
@@ -1373,10 +1476,17 @@ import {
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
-import type { ConversationData, RoutingConfig, SystemConfig, LocalConfig, ToolResult } from '@legion/types';
+import type {
+  ConversationData,
+  RoutingConfig,
+  SystemConfig,
+  LocalConfig,
+  ToolResult,
+} from '@legion/types';
 ```
 
 Add two new imports at the top of the file after the existing node imports:
+
 ```typescript
 import { homedir } from 'node:os';
 ```
@@ -1692,6 +1802,7 @@ git commit -m "feat(runtime): SystemProviderStore + ModelRouter wired; system/lo
 ## Task 6: Update UI
 
 **Files:**
+
 - Modify: `packages/web/src/views/ConfigView.vue`
 - Delete: `packages/web/src/components/config/CredentialSlideOver.vue`
 - Modify: `packages/web/src/components/config/ProviderSlideOver.vue`
@@ -1834,7 +1945,9 @@ async function save() {
           min="1"
           class="w-20 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none"
         />
-        <p class="text-[10px] text-navy-500 mt-1">Lower number = higher priority (used for auto-routing).</p>
+        <p class="text-[10px] text-navy-500 mt-1">
+          Lower number = higher priority (used for auto-routing).
+        </p>
       </div>
     </div>
     <template #footer>
@@ -1898,13 +2011,19 @@ function removeRow(index: number) {
 function moveProviderUp(rowIndex: number, provIndex: number) {
   if (provIndex === 0) return;
   const providers = rows.value[rowIndex].providers;
-  [providers[provIndex - 1], providers[provIndex]] = [providers[provIndex], providers[provIndex - 1]];
+  [providers[provIndex - 1], providers[provIndex]] = [
+    providers[provIndex],
+    providers[provIndex - 1],
+  ];
 }
 
 function moveProviderDown(rowIndex: number, provIndex: number) {
   const providers = rows.value[rowIndex].providers;
   if (provIndex === providers.length - 1) return;
-  [providers[provIndex], providers[provIndex + 1]] = [providers[provIndex + 1], providers[provIndex]];
+  [providers[provIndex], providers[provIndex + 1]] = [
+    providers[provIndex + 1],
+    providers[provIndex],
+  ];
 }
 
 function addProvider(rowIndex: number, providerName: string) {
@@ -1956,11 +2075,7 @@ async function save() {
       </div>
       <!-- Provider priority list -->
       <div class="space-y-1">
-        <div
-          v-for="(prov, provIndex) in row.providers"
-          :key="prov"
-          class="flex items-center gap-1"
-        >
+        <div v-for="(prov, provIndex) in row.providers" :key="prov" class="flex items-center gap-1">
           <span class="text-[10px] text-navy-400 w-4">{{ provIndex + 1 }}.</span>
           <span
             class="flex-1 text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded"
@@ -1995,7 +2110,12 @@ async function save() {
       <!-- Add provider to row -->
       <select
         v-if="availableForRow(rowIndex).length > 0"
-        @change="(e) => { addProvider(rowIndex, (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; }"
+        @change="
+          (e) => {
+            addProvider(rowIndex, (e.target as HTMLSelectElement).value);
+            (e.target as HTMLSelectElement).value = '';
+          }
+        "
         class="w-full bg-navy-900 border border-navy-600 rounded px-2 py-1 text-[10px] text-navy-400"
       >
         <option value="">+ Add provider…</option>
@@ -2059,7 +2179,10 @@ const loadError = ref<string | null>(null);
 async function load() {
   try {
     providers.value = await execute<ProviderConfig[]>('list_providers', {});
-    const routing = await execute<{ system: RoutingConfig; workspace: RoutingConfig }>('get_routing', {});
+    const routing = await execute<{ system: RoutingConfig; workspace: RoutingConfig }>(
+      'get_routing',
+      {},
+    );
     systemRouting.value = routing.system ?? {};
     workspaceRouting.value = routing.workspace ?? {};
     loadError.value = null;
@@ -2112,7 +2235,10 @@ async function deleteProvider(name: string) {
     </div>
 
     <div class="p-5">
-      <div v-if="loadError" class="mb-4 text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded p-3">
+      <div
+        v-if="loadError"
+        class="mb-4 text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded p-3"
+      >
         {{ loadError }}
       </div>
 
@@ -2120,7 +2246,9 @@ async function deleteProvider(name: string) {
       <template v-if="activeTab === 'providers'">
         <div class="flex items-start justify-between mb-4">
           <p class="text-xs text-navy-400 max-w-lg leading-relaxed">
-            System-level LLM providers. Stored in <code class="font-mono text-navy-300">~/.config/legion/providers/</code> and shared across all workspaces.
+            System-level LLM providers. Stored in
+            <code class="font-mono text-navy-300">~/.config/legion/providers/</code> and shared
+            across all workspaces.
           </p>
           <button
             @click="openProvider(null)"
@@ -2191,7 +2319,8 @@ async function deleteProvider(name: string) {
           <div>
             <h2 class="text-xs font-semibold text-slate-100 mb-1">System routing</h2>
             <p class="text-[10px] text-navy-400 mb-3">
-              Stored in <code class="font-mono text-navy-300">~/.config/legion/config.json</code>. Applies to all workspaces.
+              Stored in <code class="font-mono text-navy-300">~/.config/legion/config.json</code>.
+              Applies to all workspaces.
             </p>
             <RoutingEditor
               scope="system"
@@ -2203,7 +2332,8 @@ async function deleteProvider(name: string) {
           <div class="border-t border-navy-700 pt-6">
             <h2 class="text-xs font-semibold text-slate-100 mb-1">Workspace routing</h2>
             <p class="text-[10px] text-navy-400 mb-3">
-              Stored in <code class="font-mono text-navy-300">.legion/config.local.json</code> — local only, not tracked by git.
+              Stored in <code class="font-mono text-navy-300">.legion/config.local.json</code> —
+              local only, not tracked by git.
             </p>
             <RoutingEditor
               scope="workspace"
@@ -2260,6 +2390,7 @@ const filteredModels = computed(() =>
 ```
 
 In the `watch` for `props.open`, update the edit-mode loading:
+
 ```typescript
 // Replace:
 const modelCfg = p.model as { provider: string; model: string } | undefined;
@@ -2272,6 +2403,7 @@ model.value = modelCfg?.model ?? '';
 ```
 
 In the new-mode reset block:
+
 ```typescript
 // Remove: providerId.value = props.providers[0]?.name ?? '';
 // Add:
@@ -2280,6 +2412,7 @@ model.value = '';
 ```
 
 Update the `save()` function — remove `providerId` from model payload:
+
 ```typescript
 // Replace:
 model: { provider: providerId.value, model: model.value },
@@ -2296,7 +2429,9 @@ In the template, replace the Provider `<select>` block and Model `<input>` block
   >
   <!-- Selected model display -->
   <div v-if="selectedModel && !showModelDropdown" class="flex items-center gap-2">
-    <span class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono">
+    <span
+      class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono"
+    >
       {{ selectedModel }}
     </span>
     <button
@@ -2355,6 +2490,7 @@ grep -r 'ParticipantSlideOver' /home/chris/source/javascript/legion-v2/packages/
 ```
 
 Open that file and:
+
 1. Add a `list_models` call alongside existing data loading
 2. Replace `:providers="providers"` with `:available-models="availableModels"`
 

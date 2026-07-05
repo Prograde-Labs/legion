@@ -17,9 +17,7 @@ const open = ref(false);
 const selectedLabel = ref('');
 
 const filtered = computed(() =>
-  props.options.filter((o) =>
-    o.label.toLowerCase().includes(query.value.toLowerCase()),
-  ),
+  props.options.filter((o) => o.label.toLowerCase().includes(query.value.toLowerCase())),
 );
 
 function onFocus() {
@@ -28,7 +26,9 @@ function onFocus() {
 
 function onBlur() {
   // Delay so click on option fires first
-  setTimeout(() => { open.value = false; }, 150);
+  setTimeout(() => {
+    open.value = false;
+  }, 150);
 }
 
 function select(option: { value: string; label: string }) {
@@ -63,9 +63,7 @@ function select(option: { value: string; label: string }) {
       >
         {{ option.label }}
       </li>
-      <li v-if="filtered.length === 0" class="px-3 py-2 text-sm text-slate-500">
-        No results
-      </li>
+      <li v-if="filtered.length === 0" class="px-3 py-2 text-sm text-slate-500">No results</li>
     </ul>
   </div>
 </template>

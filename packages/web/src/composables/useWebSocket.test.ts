@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-
 // We test the public interface only — not the internal WebSocket construction
 describe('useWebSocket', () => {
   beforeEach(() => {

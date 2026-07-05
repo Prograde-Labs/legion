@@ -28,7 +28,9 @@ test.describe('ParticipantsView', () => {
     await expect(page.getByText('New agent', { exact: true })).toBeVisible();
   });
 
-  test('filling and submitting the form creates participant in table (no reload)', async ({ authPage }) => {
+  test('filling and submitting the form creates participant in table (no reload)', async ({
+    authPage,
+  }) => {
     const { page } = authPage;
     await page.goto('/#/participants');
 
@@ -55,7 +57,9 @@ test.describe('ParticipantsView', () => {
     await page.getByRole('button', { name: 'Save' }).click();
 
     // Wait for new row to appear (confirms save completed and slide-over closed)
-    await expect(page.getByRole('row').filter({ hasText: 'ui-test-agent-2' })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('row').filter({ hasText: 'ui-test-agent-2' })).toBeVisible({
+      timeout: 3000,
+    });
 
     // Only one slide-over panel in the DOM
     await expect(page.locator('.w-96')).toHaveCount(1);
@@ -96,7 +100,9 @@ test.describe('ParticipantsView', () => {
     // Wait for slide-over to close and table to update
     await expect(page.locator('.w-96').first()).not.toBeVisible({ timeout: 3000 });
     // Row should now show Retired status (row opacity changes, Active text gone)
-    await expect(page.getByRole('row').filter({ hasText: 'ui-test-agent' }).getByText('Retired')).toBeVisible();
+    await expect(
+      page.getByRole('row').filter({ hasText: 'ui-test-agent' }).getByText('Retired'),
+    ).toBeVisible();
   });
 
   test('navigating away and back re-fetches data (not stale)', async ({ authPage }) => {

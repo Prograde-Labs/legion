@@ -22,13 +22,14 @@ Both currently render content as `{{ content }}` — plain text with `whitespace
 
 Three packages are added; all have been risk-assessed.
 
-| Package | Role | Risk assessment |
-|---|---|---|
-| `markdown-it` v14 | Markdown → HTML parser | Low. HTML disabled by default, 100% CommonMark compliant, actively maintained (last publish: 2 days ago), 11-year track record. Single maintainer is the only risk flag. |
-| `shiki` + `@shikijs/markdown-it` | Syntax highlighting | Low. Published today (v4.3.1). Maintained by Anthony Fu (Vite/VitePress/UnoCSS core team). Used by VitePress — Vue's own docs framework — in production. VS Code-quality TextMate grammars. Inline style tokens (no external CSS file). `createJavaScriptRegexEngine()` eliminates the WASM dependency. |
-| `dompurify` | HTML sanitization | Low. Maintained by cure53 (professional security research firm), 46M weekly downloads, last published 16 days ago, zero runtime dependencies, 10 KB gzip. |
+| Package                          | Role                   | Risk assessment                                                                                                                                                                                                                                                                                         |
+| -------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `markdown-it` v14                | Markdown → HTML parser | Low. HTML disabled by default, 100% CommonMark compliant, actively maintained (last publish: 2 days ago), 11-year track record. Single maintainer is the only risk flag.                                                                                                                                |
+| `shiki` + `@shikijs/markdown-it` | Syntax highlighting    | Low. Published today (v4.3.1). Maintained by Anthony Fu (Vite/VitePress/UnoCSS core team). Used by VitePress — Vue's own docs framework — in production. VS Code-quality TextMate grammars. Inline style tokens (no external CSS file). `createJavaScriptRegexEngine()` eliminates the WASM dependency. |
+| `dompurify`                      | HTML sanitization      | Low. Maintained by cure53 (professional security research firm), 46M weekly downloads, last published 16 days ago, zero runtime dependencies, 10 KB gzip.                                                                                                                                               |
 
 **Rejected alternatives:**
+
 - `marked` — unsafe defaults (HTML pass-through); 18 historical CVEs; requires mandatory sanitization everywhere or XSS risk.
 - `highlight.js` — 2-year npm publish gap; 107 open PRs; requires external CSS file; no first-party markdown-it plugin.
 - `lowlight` — sole maintainer, 19 months stale, wraps highlight.js with no added value for Vue 3.
@@ -42,8 +43,8 @@ Three packages are added; all have been risk-assessed.
 A module-level singleton (not a Vue composable — this is a rendering/lifecycle concern, not a data/service concern). Holds the initialized `markdown-it` instance with Shiki wired in. Exports:
 
 ```ts
-export async function ensureReady(): Promise<void>
-export function render(content: string): string
+export async function ensureReady(): Promise<void>;
+export function render(content: string): string;
 ```
 
 `ensureReady()` is idempotent — it initializes on the first call and is a no-op on all subsequent calls. Multiple `MarkdownContent` instances calling it concurrently share the same initialization promise; Shiki is only created once.
@@ -68,10 +69,13 @@ The component handles copy button clicks via event delegation on its root elemen
 #### Modified: `MessageBubble.vue`
 
 Replace:
+
 ```html
 {{ message.content?.trim() }}
 ```
+
 With:
+
 ```html
 <MarkdownContent :content="message.content?.trim() ?? ''" />
 ```
@@ -81,10 +85,13 @@ Remove `whitespace-pre-wrap` (markdown-it handles whitespace). The `v-if` guard 
 #### Modified: `SubThreadBlock.vue`
 
 Replace:
+
 ```html
 <p class="text-[11px] text-slate-300 leading-relaxed">{{ msg.content }}</p>
 ```
+
 With:
+
 ```html
 <MarkdownContent :content="msg.content" class="text-[11px] text-slate-300 leading-relaxed" />
 ```
@@ -118,12 +125,20 @@ raw message content
 createHighlighter({
   themes: ['github-dark'],
   langs: [
-    'typescript', 'javascript', 'python',
-    'bash', 'shell', 'json', 'yaml',
-    'html', 'css', 'markdown', 'sql',
+    'typescript',
+    'javascript',
+    'python',
+    'bash',
+    'shell',
+    'json',
+    'yaml',
+    'html',
+    'css',
+    'markdown',
+    'sql',
   ],
   engine: createJavaScriptRegexEngine(), // no WASM
-})
+});
 ```
 
 **Theme: `github-dark`** — selected for its neutral, high-contrast dark palette that complements the navy UI without competing with it.
@@ -138,15 +153,20 @@ Shiki's `postprocess` hook wraps each rendered `<pre>` in a `<div class="code-bl
 
 ```ts
 function onRootClick(e: MouseEvent) {
-  const btn = (e.target as HTMLElement).closest('[data-copy-code]')
-  if (!btn) return
-  const code = btn.closest('.code-block')?.querySelector('pre')?.textContent ?? ''
-  navigator.clipboard.writeText(code).then(() => {
-    btn.textContent = 'Copied!'
-    setTimeout(() => { btn.textContent = 'Copy' }, 2000)
-  }).catch(() => {
-    btn.textContent = 'Copy' // silent failure — permissions denied
-  })
+  const btn = (e.target as HTMLElement).closest('[data-copy-code]');
+  if (!btn) return;
+  const code = btn.closest('.code-block')?.querySelector('pre')?.textContent ?? '';
+  navigator.clipboard
+    .writeText(code)
+    .then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+      }, 2000);
+    })
+    .catch(() => {
+      btn.textContent = 'Copy'; // silent failure — permissions denied
+    });
 }
 ```
 
@@ -154,11 +174,11 @@ No additional library required. Clipboard API is supported in all modern browser
 
 ## Error Handling
 
-| Scenario | Behaviour |
-|---|---|
+| Scenario                              | Behaviour                                                                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Shiki init fails (e.g. runtime error) | `ensureReady()` catches and swallows the error; `render()` falls back to HTML-escaped plain text permanently. No crash, no broken UI. |
-| `md.render()` throws | Not expected — markdown-it is resilient to all input. If it does throw, `MarkdownContent` catches and renders escaped plain text. |
-| `navigator.clipboard` rejects | Copy button silently resets to "Copy" label. No error surfaced to the user. |
+| `md.render()` throws                  | Not expected — markdown-it is resilient to all input. If it does throw, `MarkdownContent` catches and renders escaped plain text.     |
+| `navigator.clipboard` rejects         | Copy button silently resets to "Copy" label. No error surfaced to the user.                                                           |
 
 ## Testing
 
@@ -171,12 +191,12 @@ No unit tests for the markdown rendering pipeline itself — markdown-it and Shi
 
 ## Files Changed
 
-| File | Change |
-|---|---|
-| `packages/web/package.json` | Add `markdown-it`, `shiki`, `@shikijs/markdown-it`, `dompurify`; add `@types/markdown-it`, `@types/dompurify` to devDeps |
-| `packages/web/src/lib/markdown.ts` | **New** — singleton init + render function |
-| `packages/web/src/components/MarkdownContent.vue` | **New** — reusable markdown rendering component |
-| `packages/web/src/components/conversations/MessageBubble.vue` | Replace plain text interpolation with `<MarkdownContent>` |
-| `packages/web/src/components/conversations/SubThreadBlock.vue` | Replace plain text interpolation with `<MarkdownContent>` |
-| `packages/web/src/assets/style.css` | Add `.md-content` prose styles and copy button styles |
-| `packages/e2e/` | Two new test scenarios |
+| File                                                           | Change                                                                                                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `packages/web/package.json`                                    | Add `markdown-it`, `shiki`, `@shikijs/markdown-it`, `dompurify`; add `@types/markdown-it`, `@types/dompurify` to devDeps |
+| `packages/web/src/lib/markdown.ts`                             | **New** — singleton init + render function                                                                               |
+| `packages/web/src/components/MarkdownContent.vue`              | **New** — reusable markdown rendering component                                                                          |
+| `packages/web/src/components/conversations/MessageBubble.vue`  | Replace plain text interpolation with `<MarkdownContent>`                                                                |
+| `packages/web/src/components/conversations/SubThreadBlock.vue` | Replace plain text interpolation with `<MarkdownContent>`                                                                |
+| `packages/web/src/assets/style.css`                            | Add `.md-content` prose styles and copy button styles                                                                    |
+| `packages/e2e/`                                                | Two new test scenarios                                                                                                   |

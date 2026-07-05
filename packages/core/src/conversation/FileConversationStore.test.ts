@@ -186,7 +186,11 @@ describe('FileConversationStore', () => {
   });
 
   it('delete removes a childless conversation', async () => {
-    const created = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const created = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
     expect(await store.exists(created.id)).toBe(true);
     await store.delete(created.id);
     expect(await store.exists(created.id)).toBe(false);
@@ -195,7 +199,13 @@ describe('FileConversationStore', () => {
 
   it('delete cascades to direct children', async () => {
     const parent = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
-    const child = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, parentConversationId: parent.id, parentToolCallId: 'tc-a' });
+    const child = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-a',
+    });
     await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     await store.delete(parent.id);
     expect(await store.exists(parent.id)).toBe(false);
@@ -207,8 +217,20 @@ describe('FileConversationStore', () => {
 
   it('delete cascades recursively to grandchildren', async () => {
     const root = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
-    const child = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, parentConversationId: root.id, parentToolCallId: 'tc-1' });
-    const grandchild = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {}, parentConversationId: child.id, parentToolCallId: 'tc-2' });
+    const child = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: root.id,
+      parentToolCallId: 'tc-1',
+    });
+    const grandchild = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: child.id,
+      parentToolCallId: 'tc-2',
+    });
     await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     await store.delete(root.id);
     expect(await store.exists(root.id)).toBe(false);
