@@ -4,7 +4,9 @@ import type { ProviderUsage } from './Provider.js';
 import type { Provider } from './Provider.js';
 import type { ModelPricing, PricingSource } from './PricingSource.js';
 
-export type ProviderLookup = (providerId: string) => Provider | undefined;
+export type ProviderLookup = (
+  providerId: string,
+) => Promise<Provider | undefined> | Provider | undefined;
 
 export class UsageCalculator {
   constructor(
@@ -81,7 +83,7 @@ export class UsageCalculator {
     providerId: string,
     modelId: string,
   ): Promise<ModelPricing | undefined> {
-    const provider = this.lookupProvider(providerId);
+    const provider = await this.lookupProvider(providerId);
     if (provider?.pricingSource) {
       const pricing = await provider.pricingSource().resolve(providerId, modelId);
       if (pricing) return pricing;
@@ -89,10 +91,10 @@ export class UsageCalculator {
     return this.defaultPricingSource.resolve(providerId, modelId);
   }
 
-  private lookupProvider(providerId: string): Provider | undefined {
+  private async lookupProvider(providerId: string): Promise<Provider | undefined> {
     if (this.providers instanceof Map) {
       return this.providers.get(providerId);
     }
-    return this.providers(providerId);
+    return await this.providers(providerId);
   }
 }

@@ -30,6 +30,11 @@ class MockModelRouter {
   async resolve(modelId: string): Promise<Provider | null> {
     return this.mockProviders.get(modelId) ?? null;
   }
+
+  async resolveWithId(modelId: string): Promise<{ provider: Provider; providerId: string } | null> {
+    const provider = this.mockProviders.get(modelId);
+    return provider ? { provider, providerId: 'mock-provider' } : null;
+  }
 }
 
 /** A provider that cycles through a scripted sequence of responses. */

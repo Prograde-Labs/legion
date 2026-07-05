@@ -6,6 +6,7 @@ import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../too
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
+import type { MessageUsage } from '@legion/types';
 
 export interface SendOptions {
   senderId: string;
@@ -98,12 +99,14 @@ export class MessageRouter implements MessageRouterPort {
     senderId: string,
     recipientId: string,
     content: string,
+    usage?: MessageUsage,
   ): Promise<void> {
     const responseMsg = await thread.append({
       senderId,
       recipientId,
       role: 'assistant',
       content,
+      usage,
     });
     this.eventBus.emit('message:sent', {
       conversationId: thread.id,
@@ -242,7 +245,13 @@ export class MessageRouter implements MessageRouterPort {
     defaultRecipientId: string,
   ): Promise<MessageRouterResult> {
     if (result.kind === 'response') {
-      await this.persistResponse(thread, senderId, defaultRecipientId, result.content);
+      await this.persistResponse(
+        thread,
+        senderId,
+        defaultRecipientId,
+        result.content,
+        result.usage,
+      );
       return { conversationId: thread.id, response: result.content, status: 'success' };
     }
     if (result.kind === 'pending_approval') {
@@ -272,6 +281,7 @@ export class MessageRouter implements MessageRouterPort {
         recipientId: replyTarget,
         role: 'assistant',
         content: result.content,
+        usage: result.usage,
       });
       this.eventBus.emit('message:delivered', {
         conversationId: thread.id,

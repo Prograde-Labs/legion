@@ -24,6 +24,8 @@ import {
   ServiceManager,
   SystemProviderStore,
   ModelRouter,
+  ModelsDevPricingSource,
+  UsageCalculator,
   // Global tools
   communicateTool,
   approvalResponseTool,
@@ -193,8 +195,12 @@ export class LegionProcess {
     runtimeRegistry.registerFactory('service', (id) => serviceManager.getRuntime(id));
 
     // Register agent factory
+    const pricingSource = new ModelsDevPricingSource(join(systemConfigDir, 'cache', 'models-dev'));
+    const usageCalculator = new UsageCalculator(pricingSource, (providerId: string) =>
+      systemStore.get(providerId).then((p) => p ?? undefined),
+    );
     runtimeRegistry.registerFactory('agent', (id) => {
-      return new AgentRuntime(id, modelRouter);
+      return new AgentRuntime(id, modelRouter, usageCalculator);
     });
 
     // ── Step 9: Initialise web connector ─────────────────────────────────────

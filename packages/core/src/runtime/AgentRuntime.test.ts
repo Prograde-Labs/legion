@@ -36,6 +36,11 @@ class MockModelRouter {
   async resolve(modelId: string): Promise<Provider | null> {
     return this.mockProviders.get(modelId) ?? null;
   }
+
+  async resolveWithId(modelId: string): Promise<{ provider: Provider; providerId: string } | null> {
+    const provider = this.mockProviders.get(modelId);
+    return provider ? { provider, providerId: 'mock-provider' } : null;
+  }
 }
 
 async function makeSetup(providerResponses: ProviderResponse[]) {
@@ -253,7 +258,7 @@ describe('AgentRuntime', () => {
 
   it('returns a graceful error response when model resolution throws', async () => {
     const throwingRouter = {
-      async resolve() {
+      async resolveWithId() {
         throw new Error('resolve failed');
       },
     } as ModelRouter;
@@ -279,7 +284,7 @@ describe('AgentRuntime', () => {
     expect(result).toEqual({ kind: 'response', content: '[AgentRuntime error: fetch failed]' });
   });
 
-  it('attaches usage from ProviderResponse to the persisted assistant message', async () => {
+  it('attaches usage from ProviderResponse to the returned response', async () => {
     const { context, inbound, router } = await makeSetup([
       {
         content: 'I used some tokens',
@@ -301,19 +306,23 @@ describe('AgentRuntime', () => {
       new Map(),
     );
     const runtime = new AgentRuntime('agent-1', router, calc);
-    await runtime.handle(inbound, context);
+    const result = await runtime.handle(inbound, context);
 
-    const chain = context.conversation.activeChain;
-    const assistantMsg = chain.find((m) => m.role === 'assistant');
-    expect(assistantMsg?.usage).toEqual({
-      input: 86,
-      output: 250,
-      reasoning: 50,
-      cache: { read: 1920, write: 0 },
-      cost: 0.005615, // provider cost override used directly
-      modelId: 'test-model',
-      providerId: 'unknown',
+    expect(result).toEqual({
+      kind: 'response',
+      content: 'I used some tokens',
+      usage: {
+        input: 86,
+        output: 250,
+        reasoning: 50,
+        cache: { read: 1920, write: 0 },
+        cost: 0.005615, // provider cost override used directly
+        modelId: 'test-model',
+        providerId: 'mock-provider',
+      },
     });
+    // No assistant message persisted by AgentRuntime — caller persists.
+    expect(context.conversation.activeChain).toHaveLength(1);
   });
 
   it('computes usage via calculator when ProviderResponse has no cost override', async () => {
@@ -335,27 +344,25 @@ describe('AgentRuntime', () => {
       new Map(),
     );
     const runtime = new AgentRuntime('agent-1', router, calc);
-    await runtime.handle(inbound, context);
+    const result = await runtime.handle(inbound, context);
 
-    const chain = context.conversation.activeChain;
-    const assistantMsg = chain.find((m) => m.role === 'assistant');
-    expect(assistantMsg?.usage).toBeDefined();
-    expect(assistantMsg?.usage?.input).toBe(100);
-    expect(assistantMsg?.usage?.output).toBe(50);
-    expect(assistantMsg?.usage?.cost).toBeCloseTo(0.00075, 6); // 100*2.5/1e6 + 50*10/1e6
+    expect(result.kind).toBe('response');
+    if (result.kind !== 'response') return;
+    expect(result.usage).toBeDefined();
+    expect(result.usage?.input).toBe(100);
+    expect(result.usage?.output).toBe(50);
+    expect(result.usage?.cost).toBeCloseTo(0.00075, 6); // 100*2.5/1e6 + 50*10/1e6
   });
 
-  it('persists assistant message without usage when ProviderResponse omits usage', async () => {
+  it('returns response without usage when ProviderResponse omits usage', async () => {
     const { context, inbound, router } = await makeSetup([
       { content: 'no usage', toolCalls: [], stopReason: 'stop' },
     ]);
     const calc = new UsageCalculator(new MockPricingSource({}), new Map());
     const runtime = new AgentRuntime('agent-1', router, calc);
-    await runtime.handle(inbound, context);
+    const result = await runtime.handle(inbound, context);
 
-    const chain = context.conversation.activeChain;
-    const assistantMsg = chain.find((m) => m.role === 'assistant');
-    expect(assistantMsg?.usage).toBeUndefined();
+    expect(result).toEqual({ kind: 'response', content: 'no usage' });
   });
 });
 
