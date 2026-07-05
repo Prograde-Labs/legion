@@ -102,6 +102,8 @@ This powers:
 
 ### 6.4 Tool-policy payload shape
 
+> **Superseded:** The `defaultPolicy` parameter on `create_agent`/`modify_agent` and the UI "Default policy" selector have been removed as of the 2026-07-04 tool policy simplification (see `docs/superpowers/specs/2026-07-04-tool-policy-simplification-design.md`). The `tools` map is now the sole source of truth; absent tools are hidden.
+
 `create_agent` / `modify_agent` accept a `defaultPolicy` (`allow` | `require-approval` | `deny`) plus the per-tool `toolPolicies` override map. The server composes the final `tools` policy record: unspecified tools resolve to the default policy, overrides win per-tool. Policy string mapping stays consistent with the existing `AuthEngine` vocabulary (`auto` / `requires_approval` / `deny`), with the UI's `allow` mapping to `auto`.
 
 ---

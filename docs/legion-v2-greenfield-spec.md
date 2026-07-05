@@ -435,14 +435,14 @@ When `MessageRouter` routes a message to a connector-bound participant (normal d
 authorize(participantId, tool, args, participantPolicies?)
   // → { authorized: boolean, reason? }
   //   'auto'              → { authorized: true }
-  //   'deny'              → { authorized: false }
   //   'requires_approval' → { authorized: false } — must be approved by someone with authority
+  //   absent from map     → { authorized: false, reason: 'hidden' } — not visible to LLM
 
 hasAuthority(approverAuthority, requesterId, tool, args)
   // → boolean
 ```
 
-Policy resolution order: participant per-tool policy → engine per-tool policy → engine default → built-in default → fail-safe `requires_approval`.
+Policy resolution: participant per-tool policy. Tools absent from the participant's `tools` map are hidden from the LLM and cannot be called.
 
 The principal is always `context.participant`. An agent's LLM tool call, a service's `callTool`, and a participant acting through a boundary connector are all authorized identically — no special-casing by type or channel.
 
