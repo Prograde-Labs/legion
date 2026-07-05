@@ -50,16 +50,6 @@ function emit(data: unknown): void {
   for (const h of wsHandlers) h(data);
 }
 
-function makeComponent(id: string) {
-  return defineComponent({
-    setup() {
-      // Lazy import to pick up mocks
-      return { _id: id };
-    },
-    template: '<div/>',
-  });
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   wsHandlers.clear();
