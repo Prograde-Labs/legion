@@ -212,4 +212,54 @@ describe('ModelsDevPricingSource', () => {
 
     expect(pricing).toBeDefined();
   });
+
+  it('prefers tiers over legacy context_over_200k (no duplicate tiers)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          models: {
+            'mixed-model': {
+              id: 'mixed-model',
+              cost: {
+                input: 1,
+                output: 2,
+                cache_read: 0.5,
+                cache_write: 1,
+                tiers: [
+                  {
+                    tier: { type: 'context', size: 200000 },
+                    input: 2,
+                    output: 4,
+                    cache_read: 1,
+                    cache_write: 2,
+                  },
+                ],
+                context_over_200k: {
+                  input: 999,
+                  output: 999,
+                  cache_read: 999,
+                  cache_write: 999,
+                },
+              },
+            },
+          },
+        }),
+    });
+
+    const source = new ModelsDevPricingSource(cacheDir);
+    const pricing = await source.resolve('test', 'mixed-model');
+
+    expect(pricing?.tiers).toEqual([
+      {
+        tier: { type: 'context', size: 200000 },
+        input: 2,
+        output: 4,
+        cache: { read: 1, write: 2 },
+      },
+    ]);
+    // Legacy field ignored — no duplicate, no 999 values
+    expect(pricing?.tiers).toHaveLength(1);
+    expect(pricing?.tiers?.[0].input).not.toBe(999);
+  });
 });

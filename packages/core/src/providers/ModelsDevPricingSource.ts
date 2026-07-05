@@ -87,10 +87,8 @@ function mapCost(cost: ModelsDevCost | undefined): ModelPricing | undefined {
       output: t.output,
       cache: { read: t.cache_read ?? 0, write: t.cache_write ?? 0 },
     }));
-  }
-  if (cost.context_over_200k) {
+  } else if (cost.context_over_200k) {
     result.tiers = [
-      ...(result.tiers ?? []),
       {
         tier: { type: 'context', size: 200000 },
         input: cost.context_over_200k.input,
