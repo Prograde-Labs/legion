@@ -29,7 +29,7 @@ export interface ToolCallResult {
   result: ToolResult;
 }
 
-export type ToolPolicy = 'auto' | 'deny' | 'requires_approval';
+export type ToolPolicy = 'auto' | 'requires_approval';
 
 export interface ApprovalAuthority {
   // Tools this participant may approve on behalf of others.
