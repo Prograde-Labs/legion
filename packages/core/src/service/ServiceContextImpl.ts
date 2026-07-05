@@ -94,8 +94,10 @@ export class ServiceContextImpl implements ServiceContext {
     if (!authResult.authorized) {
       const reason =
         authResult.reason === 'requires_approval'
-          ? 'requires_approval — no authority chain in service context (denied)'
-          : (authResult.reason ?? 'denied');
+          ? 'requires_approval — no authority chain in service context'
+          : authResult.reason === 'hidden'
+            ? 'tool not available to this participant'
+            : (authResult.reason ?? 'not authorized');
       return { status: 'error', error: reason };
     }
 

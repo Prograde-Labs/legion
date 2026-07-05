@@ -21,7 +21,6 @@ const selectedModel = ref('');
 const showModelDropdown = ref(false);
 const systemPrompt = ref('');
 const maxIterations = ref(20);
-const defaultPolicy = ref<'allow' | 'require-approval' | 'deny'>('allow');
 const overrides = ref<ToolOverride[]>([]);
 const saving = ref(false);
 
@@ -53,34 +52,12 @@ watch(
         maxIterations.value = (p.maxIterations as number) ?? 20;
 
         const tools = (p.tools as Record<string, string>) ?? {};
-        const toolEntries = Object.entries(tools);
-        const policyCounts: Record<string, number> = {};
-        for (const [, policy] of toolEntries) {
-          const uiPolicy =
-            policy === 'auto'
-              ? 'allow'
-              : policy === 'requires_approval'
-                ? 'require-approval'
-                : 'deny';
-          policyCounts[uiPolicy] = (policyCounts[uiPolicy] ?? 0) + 1;
-        }
-        const sorted = Object.entries(policyCounts).sort((a, b) => b[1] - a[1]);
-        defaultPolicy.value = (sorted[0]?.[0] as 'allow' | 'require-approval' | 'deny') ?? 'allow';
-
-        const defaultRuntime =
-          defaultPolicy.value === 'allow'
-            ? 'auto'
-            : defaultPolicy.value === 'require-approval'
-              ? 'requires_approval'
-              : 'deny';
-        overrides.value = toolEntries
-          .filter(([, policy]) => policy !== defaultRuntime)
-          .map(([tool, policy]) => ({
-            tool,
-            source: 'built-in',
-            enabled: policy !== 'deny',
-            requireApproval: policy === 'requires_approval',
-          }));
+        overrides.value = Object.entries(tools).map(([tool, policy]) => ({
+          tool,
+          source: 'built-in',
+          enabled: true,
+          requireApproval: policy === 'requires_approval',
+        }));
       } catch {
         // Fallback: empty form
       }
@@ -90,7 +67,6 @@ watch(
       selectedModel.value = '';
       systemPrompt.value = '';
       maxIterations.value = 20;
-      defaultPolicy.value = 'allow';
       overrides.value = [];
     }
   },
@@ -99,11 +75,10 @@ watch(
 async function save() {
   saving.value = true;
   try {
-    const toolPolicies = Object.fromEntries(
-      overrides.value.map((o) => [
-        o.tool,
-        o.requireApproval ? 'require-approval' : o.enabled ? 'allow' : 'deny',
-      ]),
+    const tools = Object.fromEntries(
+      overrides.value
+        .filter((o) => o.enabled)
+        .map((o) => [o.tool, o.requireApproval ? 'requires_approval' : 'auto']),
     );
     if (props.participantId) {
       await execute('modify_agent', {
@@ -112,8 +87,7 @@ async function save() {
         model: { model: selectedModel.value || model.value },
         systemPrompt: systemPrompt.value,
         maxIterations: maxIterations.value,
-        defaultPolicy: defaultPolicy.value,
-        toolPolicies,
+        tools,
       });
     } else {
       const id =
@@ -126,8 +100,7 @@ async function save() {
         name: name.value,
         systemPrompt: systemPrompt.value || 'You are a helpful agent.',
         model: { model: selectedModel.value || model.value },
-        defaultPolicy: defaultPolicy.value,
-        toolPolicies,
+        tools,
       });
     }
     emit('saved');
@@ -267,10 +240,8 @@ async function retire() {
 
     <ToolPolicyEditor
       v-else
-      :default-policy="defaultPolicy"
       :overrides="overrides"
       :available-tools="availableTools"
-      @update:default-policy="(v) => (defaultPolicy = v as typeof defaultPolicy)"
       @update:overrides="(v) => (overrides = v)"
     />
 

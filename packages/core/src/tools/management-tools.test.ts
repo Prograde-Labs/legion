@@ -9,6 +9,7 @@ import {
   getParticipantTool,
   getConversationTool,
   setToolPolicyTool,
+  removeToolPolicyTool,
   setCredentialTool,
   modifyAgentTool,
   listConversationsTool,
@@ -25,8 +26,15 @@ async function makeContext() {
   await collective.seedDefaultsIfEmpty();
   const conversationStore = new FileConversationStore(storage);
   const toolRegistry = new ToolRegistry();
-  // Register mock tools so composeTools has tool names to work with
-  for (const name of ['communicate', 'list_participants', 'list_tools', 'get_participant', 'list_conversations', 'get_conversation']) {
+  // Register mock tools in the registry
+  for (const name of [
+    'communicate',
+    'list_participants',
+    'list_tools',
+    'get_participant',
+    'list_conversations',
+    'get_conversation',
+  ]) {
     toolRegistry.register({
       name,
       description: `mock ${name}`,
@@ -68,11 +76,7 @@ async function buildTestDeps(options: { storage?: MemoryStorage } = {}) {
   };
 }
 
-async function invokeManagementTool(
-  name: string,
-  args: unknown,
-  deps: TestDeps,
-): Promise<unknown> {
+async function invokeManagementTool(name: string, args: unknown, deps: TestDeps): Promise<unknown> {
   const tool = deps.toolRegistry.get(name);
   if (!tool) throw new Error(`Tool not found: ${name}`);
   const conversationStore = new FileConversationStore(deps.storage);
@@ -216,8 +220,7 @@ describe('management tools', () => {
         name: 'Test Agent',
         systemPrompt: 'You are a test agent.',
         model: { model: 'gpt-4o' },
-        toolPolicies: { communicate: 'auto' },
-        defaultPolicy: 'auto',
+        tools: { communicate: 'auto' },
       },
       context,
     );
@@ -267,8 +270,7 @@ describe('management tools', () => {
         name: 'Source Agent',
         systemPrompt: 'You are helpful.',
         model: { model: 'gpt-4o' },
-        defaultPolicy: 'auto',
-        toolPolicies: { communicate: 'auto' },
+        tools: { communicate: 'auto' },
       },
       context,
     );
@@ -310,26 +312,6 @@ describe('management tools', () => {
       maxTokens: 100,
     });
   });
-
-  it('create_agent composes tools from defaultPolicy + toolPolicies', async () => {
-    const { context, collective } = await makeContext();
-    await createAgentTool.execute(
-      {
-        id: 'policy-agent',
-        name: 'Policy Agent',
-        systemPrompt: 'You are helpful.',
-        model: { model: 'gpt-4o' },
-        defaultPolicy: 'require-approval',
-        toolPolicies: { communicate: 'allow' },
-      },
-      context,
-    );
-    const p = collective.get('policy-agent') as any;
-    // communicate should be 'auto' (allow → auto mapping)
-    expect(p.tools['communicate']).toBe('auto');
-    // Other tools should default to 'requires_approval'
-    expect(p.tools['list_participants']).toBe('requires_approval');
-  });
 });
 
 describe('modify_agent', () => {
@@ -342,7 +324,7 @@ describe('modify_agent', () => {
         name: 'bot-1',
         model: { model: 'gpt-4o' },
         systemPrompt: '',
-        defaultPolicy: 'auto',
+        tools: {},
       },
       deps,
     )) as { status: string; data: { id: string } };
@@ -361,20 +343,18 @@ describe('modify_agent', () => {
     expect(p.systemPrompt).toBe('Be concise.');
   });
 
-  it('modify_agent updates the collective record (not agents/ file)', async () => {
+  it('modify_agent replaces tools map when tools arg is provided', async () => {
     const { context, collective } = await makeContext();
-    // Create first
     await createAgentTool.execute(
       {
         id: 'mod-agent',
         name: 'Before',
         systemPrompt: 'Original prompt.',
         model: { model: 'gpt-4o' },
-        defaultPolicy: 'auto',
+        tools: { communicate: 'auto', list_participants: 'auto' },
       },
       context,
     );
-    // Modify
     const result = await modifyAgentTool.execute(
       {
         id: 'mod-agent',
@@ -382,8 +362,7 @@ describe('modify_agent', () => {
         model: { model: 'claude-3' },
         systemPrompt: 'Updated prompt.',
         maxIterations: 10,
-        defaultPolicy: 'deny',
-        toolPolicies: { communicate: 'allow' },
+        tools: { communicate: 'requires_approval' },
       },
       context,
     );
@@ -394,8 +373,8 @@ describe('modify_agent', () => {
     expect(p.model).toEqual({ model: 'claude-3' });
     expect(p.systemPrompt).toBe('Updated prompt.');
     expect(p.maxIterations).toBe(10);
-    expect(p.tools['communicate']).toBe('auto'); // override
-    expect(p.tools['list_participants']).toBe('deny'); // default
+    expect(p.tools['communicate']).toBe('requires_approval');
+    expect(p.tools['list_participants']).toBeUndefined(); // replaced, not merged
   });
 
   it('updates name in Collective', async () => {
@@ -458,36 +437,52 @@ describe('modify_agent', () => {
       maxTokens: 200,
     });
   });
+});
 
-  it('modify_agent with new defaultPolicy re-baselines all non-overridden tools', async () => {
-    const { context, collective } = await makeContext();
-    // Create with defaultPolicy 'auto'
-    await createAgentTool.execute(
+describe('remove_tool_policy', () => {
+  it('removes a tool entry from the participant tools map', async () => {
+    const deps = await buildTestDeps({});
+    await invokeManagementTool(
+      'create_agent',
       {
-        id: 'rebase-agent',
-        name: 'Rebase Agent',
-        systemPrompt: 'Test.',
+        id: 'policy-bot',
+        name: 'Policy Bot',
+        systemPrompt: 'test',
         model: { model: 'gpt-4o' },
-        defaultPolicy: 'auto',
+        tools: { communicate: 'auto', list_participants: 'requires_approval' },
       },
-      context,
+      deps,
     );
-    // All tools should be 'auto'
-    let p = collective.get('rebase-agent') as any;
-    expect(p.tools['communicate']).toBe('auto');
-    expect(p.tools['list_participants']).toBe('auto');
+    const result = await invokeManagementTool(
+      'remove_tool_policy',
+      { participantId: 'policy-bot', tool: 'communicate' },
+      deps,
+    );
+    expect((result as { status: string }).status).toBe('success');
+    const p = deps.collective.get('policy-bot') as any;
+    expect(p.tools['communicate']).toBeUndefined();
+    expect(p.tools['list_participants']).toBe('requires_approval'); // untouched
+  });
 
-    // Modify with new defaultPolicy 'deny' — should re-baseline
-    await modifyAgentTool.execute(
+  it('removing a non-existent tool entry is a no-op (succeeds)', async () => {
+    const deps = await buildTestDeps({});
+    await invokeManagementTool(
+      'create_agent',
       {
-        id: 'rebase-agent',
-        defaultPolicy: 'deny',
+        id: 'policy-bot-2',
+        name: 'Policy Bot 2',
+        systemPrompt: 'test',
+        model: { model: 'gpt-4o' },
+        tools: {},
       },
-      context,
+      deps,
     );
-    p = collective.get('rebase-agent') as any;
-    expect(p.tools['communicate']).toBe('deny');
-    expect(p.tools['list_participants']).toBe('deny');
+    const result = await invokeManagementTool(
+      'remove_tool_policy',
+      { participantId: 'policy-bot-2', tool: 'nonexistent' },
+      deps,
+    );
+    expect((result as { status: string }).status).toBe('success');
   });
 });
 
@@ -506,7 +501,9 @@ describe('list_conversations', () => {
     const storage = new MemoryStorage();
     const deps = await buildTestDeps({ storage });
     const result = await invokeManagementTool('list_conversations', {}, deps);
-    expect((result as { status: string; data: { conversations: unknown[] } }).data.conversations).toEqual([]);
+    expect(
+      (result as { status: string; data: { conversations: unknown[] } }).data.conversations,
+    ).toEqual([]);
   });
 
   it('returns summaries for stored conversations', async () => {
@@ -531,7 +528,10 @@ describe('list_conversations', () => {
     });
     const deps = await buildTestDeps({ storage });
     const result = await invokeManagementTool('list_conversations', {}, deps);
-    expect((result as { status: string; data: { conversations: { id: string }[] } }).data.conversations[0]?.id).toBe(conv.id);
+    expect(
+      (result as { status: string; data: { conversations: { id: string }[] } }).data
+        .conversations[0]?.id,
+    ).toBe(conv.id);
   });
 
   it('get_conversation includes subThreads keyed by parentToolCallId', async () => {
@@ -578,7 +578,10 @@ describe('list_conversations', () => {
 
     const result = await getConversationTool.execute({ conversationId: parent.id }, context);
     expect(result.status).toBe('success');
-    const data = result.data as { id: string; subThreads: Record<string, { id: string; messages: unknown[] }> };
+    const data = result.data as {
+      id: string;
+      subThreads: Record<string, { id: string; messages: unknown[] }>;
+    };
     expect(data.id).toBe(parent.id);
     expect(data.subThreads).toBeDefined();
     expect(data.subThreads['tc-delegate']).toBeDefined();
@@ -641,9 +644,18 @@ describe('list_conversations', () => {
     });
 
     const deps = await buildTestDeps({ storage });
-    const result = await invokeManagementTool('list_conversations', { participantId: 'operator' }, deps);
+    const result = await invokeManagementTool(
+      'list_conversations',
+      { participantId: 'operator' },
+      deps,
+    );
     expect(result.status).toBe('success');
-    const conversations = (result as { status: string; data: { conversations: { id: string; participants: string[] }[] } }).data.conversations;
+    const conversations = (
+      result as {
+        status: string;
+        data: { conversations: { id: string; participants: string[] }[] };
+      }
+    ).data.conversations;
     expect(conversations).toHaveLength(1);
     expect(conversations[0].id).toBe(conv1.id);
     expect(conversations[0].participants).toContain('operator');
@@ -687,7 +699,10 @@ describe('delete_conversation', () => {
 
   it('returns success when the id does not exist', async () => {
     const { context } = await makeContext();
-    const result = await deleteConversationTool.execute({ conversationId: 'conv-missing' }, context);
+    const result = await deleteConversationTool.execute(
+      { conversationId: 'conv-missing' },
+      context,
+    );
     expect(result.status).toBe('success');
   });
 

@@ -11,7 +11,7 @@ Legion is not a chat app you start and stop. It is a persistent process that ext
 - **Participants** — Agents (LLM-driven), services (code modules), users (humans via connectors), and mocks (testing). Each has tool policies and approval authority profiles.
 - **Conversations** — Persistent, branching message threads stored as key-value maps with full edit/prune/compaction history.
 - **Communicate tool** — The primary inter-participant messaging mechanism, supporting both synchronous calls and fire-and-forget async dispatch via `replyTo`.
-- **AuthEngine** — Pure policy resolver answering whether a tool call is `auto`, `deny`, or `requires_approval`. Approval requests bubble up the call chain to boundary connectors.
+- **AuthEngine** — Pure policy resolver answering whether a tool call is `auto`, `requires_approval`, or `hidden` (absent from participant's tools map). Only tools explicitly listed in a participant's `tools` map are visible to the LLM. Approval requests bubble up the caller chain until reaching an authorized approver or boundary connector. If no authority is found, the call fails closed.
 - **Connectors** — Channels that bridge participants to external entities (web, Teams, Slack). Authentication is connector-internal; core knows nothing about identity providers.
 - **MCP tool sources** — External MCP servers register tools into a global registry, namespaced as `mcp__<server>__<tool>`.
 
@@ -109,7 +109,7 @@ All historical nodes remain in storage and are fully recoverable.
 
 ## Authorization & approval
 
-`AuthEngine` resolves tool policies through a priority chain: participant per-tool policy → engine default → built-in default → fail-safe `requires_approval`. When a call requires approval, the request bubbles up the caller chain until it reaches an authorized approver or a boundary connector (which posts to the external human). If no authority is found, the call fails closed.
+`AuthEngine` resolves tool policies from the participant's `tools` map only. Tools absent from the map are hidden from the LLM entirely. When a call requires approval, the request bubbles up the caller chain until it reaches an authorized approver or a boundary connector (which posts to the external human). If no authority is found, the call fails closed.
 
 ## Service SDK
 

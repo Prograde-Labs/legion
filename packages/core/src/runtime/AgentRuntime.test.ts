@@ -265,25 +265,25 @@ describe('AgentRuntime', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Auth: deny policy
+// Auth: hidden tool (absent from tools map) — LLM never sees it
 // ---------------------------------------------------------------------------
-describe('AgentRuntime: auth – deny policy', () => {
+describe('AgentRuntime: auth – hidden tool (absent from map)', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'legion-ar-deny-'));
+    dir = await mkdtemp(join(tmpdir(), 'legion-ar-hidden-'));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('returns error tool result for a denied tool; LLM continues', async () => {
+  it('tool absent from map is not presented to LLM; LLM responds directly', async () => {
     const storage = new MemoryStorage();
     await storage.writeJson('collective/participants/agent-1.json', {
       id: 'agent-1',
       name: 'A',
       type: 'agent',
       status: 'active',
-      tools: { echo: 'deny' }, // echo is denied
+      tools: {}, // echo is absent — hidden from LLM
       systemPrompt: 'You are an assistant.',
       model: { model: 'test' },
     });
@@ -295,18 +295,12 @@ describe('AgentRuntime: auth – deny policy', () => {
       store,
     );
 
-    // Provider: first return tool call to 'echo', then return text after seeing denied result
+    // Provider: should never receive echo as an available tool — returns text directly
+    let toolsSeenByProvider: string[] = [];
     const provider: Provider = {
-      async complete(_msgs, _tools) {
-        const last = _msgs[_msgs.length - 1];
-        if (last.role === 'tool') {
-          return { content: 'Got denied result', toolCalls: [], stopReason: 'stop' };
-        }
-        return {
-          content: null,
-          toolCalls: [{ id: 'tc-deny', name: 'echo', arguments: { text: 'hi' } }],
-          stopReason: 'tool_calls',
-        };
+      async complete(_msgs, tools) {
+        toolsSeenByProvider = (tools ?? []).map((t) => t.name);
+        return { content: 'No tools available', toolCalls: [], stopReason: 'stop' };
       },
     };
     const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
@@ -337,7 +331,7 @@ describe('AgentRuntime: auth – deny policy', () => {
       workspaceRoot: dir,
       communicationDepth: 0,
       toolRegistry,
-      authEngine: new AuthEngine(), // default fail-safe
+      authEngine: new AuthEngine(),
       pendingApprovalRegistry: new PendingApprovalRegistry(),
       messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
     } as unknown as RuntimeContext;
@@ -357,13 +351,110 @@ describe('AgentRuntime: auth – deny policy', () => {
     const runtime = new AgentRuntime('agent-1', router);
     const result = await runtime.handle(incoming, context);
 
+    // LLM never saw echo
+    expect(toolsSeenByProvider).not.toContain('echo');
     expect(result.kind).toBe('response');
-    expect((result as { kind: string; content: string }).content).toBe('Got denied result');
+    expect((result as { kind: string; content: string }).content).toBe('No tools available');
+  });
 
-    // The tool result in the conversation should carry status:'error'
+  it('hallucinated tool call to absent tool hits hidden guard with error result', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('collective/participants/agent-1.json', {
+      id: 'agent-1',
+      name: 'A',
+      type: 'agent',
+      status: 'active',
+      tools: {}, // echo is absent — hidden from LLM
+      systemPrompt: 'You are an assistant.',
+      model: { model: 'test' },
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(new FileStorage(dir));
+    const eventBus = new EventBus();
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+
+    // Provider: first call hallucinates a call to echo (which it never saw);
+    // second call returns plain text after the hidden-guard error result.
+    let toolsSeenByProvider: string[] = [];
+    let call = 0;
+    const provider: Provider = {
+      async complete(_msgs, tools) {
+        call++;
+        toolsSeenByProvider = (tools ?? []).map((t) => t.name);
+        if (call === 1) {
+          return {
+            content: 'calling echo',
+            toolCalls: [{ id: 'tc-hidden', name: 'echo', arguments: { text: 'hi' } }],
+            stopReason: 'tool_calls',
+          };
+        }
+        return { content: 'Recovered', toolCalls: [], stopReason: 'stop' };
+      },
+    };
+    const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
+
+    const echoTool: Tool = {
+      name: 'echo',
+      description: 'echo',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      } as JSONSchema,
+      async execute(args) {
+        return { status: 'success', data: (args as { text: string }).text };
+      },
+    };
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(echoTool);
+
+    const context: RuntimeContext = {
+      participant: collective.getOrThrow('agent-1'),
+      conversationId: thread.id,
+      conversation: thread,
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry,
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+      messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
+    } as unknown as RuntimeContext;
+
+    const incoming: MessageData = {
+      id: 'msg-1',
+      parentId: null,
+      conversationId: thread.id,
+      senderId: 'op',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'use echo',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    };
+
+    const runtime = new AgentRuntime('agent-1', router);
+    const result = await runtime.handle(incoming, context);
+
+    // LLM never saw echo as an available tool
+    expect(toolsSeenByProvider).not.toContain('echo');
+    expect(result.kind).toBe('response');
+    expect((result as { kind: string; content: string }).content).toBe('Recovered');
+
+    // The hallucinated tool call was recorded as an error result via the hidden guard
     const chain = thread.activeChain;
-    const toolTurn = chain.find((m) => m.toolResults && m.toolResults.length > 0);
-    expect(toolTurn?.toolResults?.[0].result.status).toBe('error');
+    const toolTurn = chain.find((m) => m.toolCalls?.some((tc) => tc.name === 'echo'));
+    expect(toolTurn).toBeDefined();
+    const hiddenResult = toolTurn?.toolResults?.find((tr) => tr.name === 'echo');
+    expect(hiddenResult).toBeDefined();
+    expect(hiddenResult?.result.status).toBe('error');
+    expect(hiddenResult?.result.error).toMatch(/not available/i);
   });
 });
 

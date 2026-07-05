@@ -61,7 +61,7 @@ async function setup() {
     collective,
     store,
     toolRegistry,
-    authEngine: new AuthEngine({ defaultPolicy: 'auto' }),
+    authEngine: new AuthEngine(),
     pendingApprovalRegistry: new PendingApprovalRegistry(),
     messageRouter: mockRouter,
     eventBus,

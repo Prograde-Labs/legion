@@ -41,7 +41,7 @@ export const service = {
     // ── Assemble real dependencies ─────────────────────────────────────────────
     const storage = new FileStorage(dir);
     const store = new FileConversationStore(storage);
-    const authEngine = new AuthEngine({ defaultPolicy: 'auto' });
+    const authEngine = new AuthEngine();
     const pendingApprovalRegistry = new PendingApprovalRegistry();
     const eventBus = { emit: vi.fn(), on: vi.fn(), once: vi.fn(), off: vi.fn() } as any;
 

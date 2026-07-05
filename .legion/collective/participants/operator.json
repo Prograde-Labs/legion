@@ -14,6 +14,7 @@
     "get_conversation": "auto",
     "delete_conversation": "auto",
     "set_tool_policy": "auto",
+    "remove_tool_policy": "auto",
     "set_credential": "auto",
     "approval_response": "auto",
     "list_providers": "auto",

@@ -102,10 +102,10 @@ export class AgentRuntime implements Runtime {
       agent.systemPrompt,
     );
 
-    // Present all non-deny tools to the LLM. Auth check runs at execution time.
+    // Present only tools in the participant's tools map to the LLM. Auth check runs at execution time.
     const providerTools: ProviderTool[] = context.toolRegistry
       .list()
-      .filter((tool) => (agent.tools[tool.name] ?? 'requires_approval') !== 'deny')
+      .filter((tool) => agent.tools[tool.name] !== undefined)
       .map((tool) => ({
         name: tool.name,
         description: tool.description,
@@ -143,25 +143,13 @@ export class AgentRuntime implements Runtime {
             agent.tools,
           );
 
-          if (authResult.reason === 'deny') {
-            // Denied tools bypass ToolRegistry — emit events here
-            context.eventBus.emit('tool:call', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              callId: tc.id,
-            });
+          if (authResult.reason === 'hidden') {
+            // Unreachable in normal operation — filter above excludes absent tools.
+            // Defensive guard for direct authorize() calls that bypass the filter.
             toolResults.push({
               id: tc.id,
               name: tc.name,
-              result: { status: 'error', error: `Tool '${tc.name}' is denied for this agent` },
-            });
-            context.eventBus.emit('tool:result', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              callId: tc.id,
-              status: 'error',
+              result: { status: 'error', error: `Tool '${tc.name}' not available` },
             });
             continue;
           }

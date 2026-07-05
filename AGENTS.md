@@ -11,7 +11,7 @@ Guiding philosophy (see `docs/legion-v2-greenfield-spec.md` for full design):
 - **One process, one collective.** No routing/auth/delivery logic branches on participant `type`; type only describes the internal driver.
 - **`communicate` tool is the hub.** Sync (blocks until response) or fire-and-forget (with `replyTo` naming a participant). `MessageRouter` replaces any "session" concept.
 - **Conversations are branching message trees**, not arrays. Keyed map of messages; active chain reconstructed by walking `parentId` from `activeBranchHead` to root. Supports edit/re-run, prune, compaction — all historical nodes remain recoverable.
-- **AuthEngine is a pure predicate** answering `auto` / `deny` / `requires_approval`. Approval bubbles up the call chain emergently to an authorized approver or boundary connector; fails closed if none.
+- **AuthEngine is a pure predicate** answering `auto` / `requires_approval` / `hidden` (absent). Only tools explicitly listed in a participant's `tools` map are visible to the LLM. Approval bubbles up the call chain emergently to an authorized approver or boundary connector; fails closed if none.
 - **Management actions are ordinary authorized tool calls** — no separate permission layer. `create_agent`, `retire_agent`, policy edits are tools gated by the acting participant's `ToolPolicy`.
 - **MCP servers are tool sources, not participants.** Declared in workspace config; tools registered as `mcp__<server>__<tool>` in the global `ToolRegistry`.
 - **Connectors are channels, not participants.** Boundary connectors map external identities to participants; core knows nothing about identity providers.

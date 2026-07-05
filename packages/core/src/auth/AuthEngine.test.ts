@@ -7,37 +7,28 @@ describe('AuthEngine.authorize', () => {
     const policies: Record<string, ToolPolicy> = { file_read: 'auto' };
     const result = engine.authorize('p1', 'file_read', {}, policies);
     expect(result.authorized).toBe(true);
+    expect(result.reason).toBe('auto');
   });
 
-  it('honors a participant per-tool deny policy', () => {
-    const engine = new AuthEngine();
-    const result = engine.authorize('p1', 'file_write', {}, { file_write: 'deny' });
-    expect(result.authorized).toBe(false);
-    expect(result.reason).toBe('deny');
-  });
-
-  it('returns not-authorized with requires_approval reason', () => {
+  it('returns not-authorized with requires_approval reason when policy is requires_approval', () => {
     const engine = new AuthEngine();
     const result = engine.authorize('p1', 'danger', {}, { danger: 'requires_approval' });
     expect(result.authorized).toBe(false);
     expect(result.reason).toBe('requires_approval');
   });
 
-  it('falls back to engine per-tool policy when participant has none', () => {
-    const engine = new AuthEngine({ toolPolicies: { file_read: 'auto' } });
-    expect(engine.authorize('p1', 'file_read', {}, {}).authorized).toBe(true);
-  });
-
-  it('falls back to engine default policy', () => {
-    const engine = new AuthEngine({ defaultPolicy: 'auto' });
-    expect(engine.authorize('p1', 'whatever', {}, {}).authorized).toBe(true);
-  });
-
-  it('fail-safe is requires_approval when nothing matches', () => {
+  it('absent tool is hidden — not authorized, reason hidden', () => {
     const engine = new AuthEngine();
     const result = engine.authorize('p1', 'unknown_tool', {}, {});
     expect(result.authorized).toBe(false);
-    expect(result.reason).toBe('requires_approval');
+    expect(result.reason).toBe('hidden');
+  });
+
+  it('absent tool with undefined policies is hidden', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize('p1', 'any_tool', {}, undefined);
+    expect(result.authorized).toBe(false);
+    expect(result.reason).toBe('hidden');
   });
 });
 
