@@ -18,35 +18,6 @@ function sanitizeModelConfig(model: ModelConfig): ModelConfig {
   return sanitized;
 }
 
-/** Map UI policy vocabulary to runtime ToolPolicy. */
-function normalizePolicy(p: string): ToolPolicy {
-  if (p === 'allow') return 'auto';
-  if (p === 'require-approval') return 'requires_approval';
-  return p as ToolPolicy;
-}
-
-/** Compose the full tools map from defaultPolicy + per-tool overrides. */
-function composeTools(
-  defaultPolicy: string | undefined,
-  toolPolicies: Record<string, string> | undefined,
-  allToolNames: string[],
-  existing?: Record<string, ToolPolicy>,
-): Record<string, ToolPolicy> {
-  const dp = normalizePolicy(defaultPolicy ?? 'auto');
-  const overrides: Record<string, ToolPolicy> = {};
-  if (toolPolicies) {
-    for (const [tool, policy] of Object.entries(toolPolicies)) {
-      overrides[tool] = normalizePolicy(policy);
-    }
-  }
-  const tools: Record<string, ToolPolicy> = {};
-  const names = new Set([...allToolNames, ...Object.keys(overrides), ...(existing ? Object.keys(existing) : [])]);
-  for (const name of names) {
-    tools[name] = overrides[name] ?? existing?.[name] ?? dp;
-  }
-  return tools;
-}
-
 export const createAgentTool: Tool = {
   name: 'create_agent',
   description: 'Create a new agent participant in the collective.',
@@ -57,34 +28,34 @@ export const createAgentTool: Tool = {
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
       model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
-      defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
-      toolPolicies: { type: 'object' },
-      tools: { type: 'object' },
+      tools: {
+        type: 'object',
+        description:
+          'Map of tool name to policy (auto or requires_approval). Absent tools are hidden from the agent.',
+      },
+      maxIterations: { type: 'number' },
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, systemPrompt, model, defaultPolicy, toolPolicies, tools } = args as {
+    const { id, name, systemPrompt, model, tools, maxIterations } = args as {
       id: string;
       name: string;
       systemPrompt: string;
       model: ModelConfig;
-      defaultPolicy?: string;
-      toolPolicies?: Record<string, string>;
       tools?: Record<string, ToolPolicy>;
+      maxIterations?: number;
     };
     try {
       const collective = requireCollective(context);
-      const allToolNames = context.toolRegistry.listAll();
-      const composedTools = tools ?? composeTools(defaultPolicy, toolPolicies, allToolNames);
       const config: AgentConfig = {
         id,
         name,
         type: 'agent',
-        tools: composedTools,
+        tools: tools ?? {},
         systemPrompt,
         model: sanitizeModelConfig(model),
-        maxIterations: 20,
+        maxIterations: maxIterations ?? 20,
         status: 'active',
       };
       await collective.add(config);
@@ -162,7 +133,7 @@ export const setToolPolicyTool: Tool = {
     properties: {
       participantId: { type: 'string' },
       tool: { type: 'string' },
-      policy: { type: 'string', enum: ['auto', 'deny', 'requires_approval'] },
+      policy: { type: 'string', enum: ['auto', 'requires_approval'] },
     },
     required: ['participantId', 'tool', 'policy'],
   },
@@ -178,6 +149,34 @@ export const setToolPolicyTool: Tool = {
       const tools = { ...participant.tools, [tool]: policy };
       await collective.update(participantId, { tools });
       return { status: 'success', data: { participantId, tool, policy } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const removeToolPolicyTool: Tool = {
+  name: 'remove_tool_policy',
+  description:
+    "Remove a tool from a participant's tools map, hiding it from the LLM. " +
+    'The tool will no longer be visible or callable by the participant.',
+  parameters: {
+    type: 'object',
+    properties: {
+      participantId: { type: 'string' },
+      tool: { type: 'string' },
+    },
+    required: ['participantId', 'tool'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const { participantId, tool } = args as { participantId: string; tool: string };
+    try {
+      const collective = requireCollective(context);
+      const participant = collective.getOrThrow(participantId);
+      const tools = { ...participant.tools };
+      delete tools[tool];
+      await collective.update(participantId, { tools });
+      return { status: 'success', data: { participantId, tool } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
@@ -257,7 +256,8 @@ export const setCredentialTool: Tool = {
 
 export const modifyAgentTool: Tool = {
   name: 'modify_agent',
-  description: 'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
+  description:
+    'Update an existing agent — name, model, system prompt, max iterations, tool policies.',
   parameters: {
     type: 'object',
     properties: {
@@ -266,47 +266,46 @@ export const modifyAgentTool: Tool = {
       model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
-      defaultPolicy: { type: 'string', enum: ['auto', 'allow', 'requires_approval', 'require-approval', 'deny'] },
-      toolPolicies: { type: 'object' },
+      tools: {
+        type: 'object',
+        description:
+          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access.',
+      },
     },
     required: ['id'],
   } as JSONSchema,
   async execute(args, context: ToolContext): Promise<ToolResult> {
-    const { id, name, model, systemPrompt, maxIterations, defaultPolicy, toolPolicies } = args as {
+    const { id, name, model, systemPrompt, maxIterations, tools } = args as {
       id: string;
       name?: string;
       model?: ModelConfig | string;
       systemPrompt?: string;
       maxIterations?: number;
-      defaultPolicy?: string;
-      toolPolicies?: Record<string, string>;
+      tools?: Record<string, ToolPolicy>;
     };
     try {
       const collective = requireCollective(context);
       const existing = collective.get(id);
       if (!existing) return { status: 'error', error: `Agent not found: ${id}` };
-      if (existing.type !== 'agent') return { status: 'error', error: `Participant ${id} is not an agent` };
+      if (existing.type !== 'agent')
+        return { status: 'error', error: `Participant ${id} is not an agent` };
 
       const agent = existing as AgentConfig;
-      // Handle string shorthand by keeping existing model options and changing only id.
-      const updatedModel: ModelConfig = typeof model === 'string'
-        ? sanitizeModelConfig({
-            model,
-            temperature: agent.model.temperature,
-            maxTokens: agent.model.maxTokens,
-          })
-        : sanitizeModelConfig(model ?? agent.model);
-      const allToolNames = context.toolRegistry.listAll();
-      const composedTools = (defaultPolicy || toolPolicies)
-        ? composeTools(defaultPolicy, toolPolicies, allToolNames, defaultPolicy ? undefined : agent.tools)
-        : agent.tools;
+      const updatedModel: ModelConfig =
+        typeof model === 'string'
+          ? sanitizeModelConfig({
+              model,
+              temperature: agent.model.temperature,
+              maxTokens: agent.model.maxTokens,
+            })
+          : sanitizeModelConfig(model ?? agent.model);
 
       await collective.update(id, {
         name: name ?? agent.name,
         model: updatedModel,
         systemPrompt: systemPrompt ?? agent.systemPrompt,
         maxIterations: maxIterations ?? agent.maxIterations,
-        tools: composedTools,
+        tools: tools ?? agent.tools,
       });
 
       return { status: 'success', data: collective.getOrThrow(id) };
@@ -329,7 +328,8 @@ export const listToolsTool: Tool = {
 
 export const listConversationsTool: Tool = {
   name: 'list_conversations',
-  description: 'List conversations. Pass participantId to filter to conversations involving that participant.',
+  description:
+    'List conversations. Pass participantId to filter to conversations involving that participant.',
   parameters: {
     type: 'object',
     properties: {
@@ -343,7 +343,10 @@ export const listConversationsTool: Tool = {
       },
     },
   },
-  async execute(args: { participantId?: string; since?: string }, context: ToolContext): Promise<ToolResult> {
+  async execute(
+    args: { participantId?: string; since?: string },
+    context: ToolContext,
+  ): Promise<ToolResult> {
     try {
       const conversations = await context.conversationStore!.list({
         participantId: args.participantId,
@@ -358,7 +361,8 @@ export const listConversationsTool: Tool = {
 
 export const deleteConversationTool: Tool = {
   name: 'delete_conversation',
-  description: 'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
+  description:
+    'Permanently delete a conversation and any nested sub-threads (agent-to-agent delegations).',
   parameters: {
     type: 'object',
     properties: {
@@ -389,6 +393,7 @@ export const managementTools: Tool[] = [
   listParticipantsTool,
   getParticipantTool,
   setToolPolicyTool,
+  removeToolPolicyTool,
   getConversationTool,
   setCredentialTool,
   modifyAgentTool,
