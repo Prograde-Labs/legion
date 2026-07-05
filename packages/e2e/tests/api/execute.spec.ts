@@ -115,7 +115,7 @@ test.describe('POST /api/execute — management tools', () => {
         model: 'mock-model-v2',
         systemPrompt: 'you are helpful',
         maxIterations: 5,
-        toolPolicies: {},
+        tools: {},
       },
     );
     expect(result.status).toBe('success');
