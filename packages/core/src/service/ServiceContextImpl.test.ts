@@ -66,7 +66,7 @@ async function setup() {
     scopedStorage: storage.scope('services/svc-test'),
     rawStorage: storage,
     workspaceRoot: dir,
-    authEngine: new AuthEngine({ defaultPolicy: 'auto' }),
+    authEngine: new AuthEngine(),
     pendingApprovalRegistry: {
       create: vi.fn(),
       get: vi.fn(),
@@ -126,17 +126,16 @@ describe('ServiceContextImpl', () => {
       expect(result).toEqual({ status: 'success', data: 'file content' });
     });
 
-    it('returns error result when tool is denied', async () => {
+    it('returns error result when tool is not in participant tools map (hidden)', async () => {
       const { dir: d, deps } = await setup();
       dir = d;
       const ctx = new ServiceContextImpl({
         ...deps,
-        participant: { ...BASE_CONFIG, tools: {} },
-        authEngine: new AuthEngine({ defaultPolicy: 'deny' }),
+        participant: { ...BASE_CONFIG, tools: {} }, // file_read absent = hidden
       });
       const result = await ctx.callTool('file_read', {});
       expect(result.status).toBe('error');
-      expect((result as any).error).toMatch(/deny/i);
+      expect((result as any).error).toMatch(/not available/i);
     });
 
     it('fails closed for requires_approval (no authority chain in service context)', async () => {
