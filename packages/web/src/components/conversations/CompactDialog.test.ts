@@ -23,6 +23,8 @@ describe('CompactDialog', () => {
 
   it('emits compact with selected agent and instruction', async () => {
     const wrapper = mount(CompactDialog, { props: { messages, agents: [{ id: 'agent-x', name: 'Agent X' }] } });
+    const advancedBtn = wrapper.findAll('button[type="button"]').find((b) => b.text().includes('Advanced'));
+    await advancedBtn!.trigger('click');
     await wrapper.get('select').setValue('agent-x');
     await wrapper.get('textarea').setValue('custom instruction');
     await wrapper.get('button[data-compact]').trigger('click');
