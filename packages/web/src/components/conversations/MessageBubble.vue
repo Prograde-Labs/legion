@@ -118,7 +118,7 @@ function switchRelative(delta: number) {
           <button
             type="button"
             class="block w-full rounded px-2 py-1 text-left hover:bg-navy-800"
-            @click="emit('compactAbove', message.id)"
+            @click="emit('compactAbove', message.id); menuOpen = false;"
           >
             Compact above
           </button>
@@ -127,7 +127,7 @@ function switchRelative(delta: number) {
               data-confirm-prune
               type="button"
               class="block w-full rounded px-2 py-1 text-left text-red-400 hover:bg-navy-800"
-              @click="emit('prune', message.id)"
+              @click="emit('prune', message.id); menuOpen = false; confirmingPrune = false;"
             >
               Confirm prune
             </button>
