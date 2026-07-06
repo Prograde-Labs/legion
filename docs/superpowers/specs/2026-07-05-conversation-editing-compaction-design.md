@@ -8,7 +8,7 @@
 
 ## Overview
 
-The conversation tree data model (schemaVersion 2.0) and all core operations (`editMessage`, `pruneMessage`, `compactRange`, `getActiveChain`) are already implemented in `packages/core/src/conversation/conversation-ops.ts`. No new storage or type changes are needed.
+The conversation tree data model (schemaVersion 2.0) and all core operations (`editMessage`, `pruneMessage`, `compactRange`, `getActiveChain`) are already implemented in `packages/core/src/conversation/conversation-ops.ts`. No new storage-layer type changes are needed — `MessageData` on disk is unchanged. The web-facing response type gains an optional `alternates` field (assembled at query time), and `validateConversation` gets a narrowed root invariant to support compacting to the start of a conversation.
 
 What is missing:
 
@@ -109,8 +109,17 @@ Switches the active branch to a sibling node (same `parentId`). Handles both edi
 **Flow:**
 1. Load conversation, verify `messageId` exists
 2. Determine if target is a **compacted** node (the sibling is a compacted message, meaning the active chain has a summary node at this position):
-   - If yes (**uncompact path**): find the summary node that contains `messageId` in its `compacts` array. Mark all messages in `compacts` as `status: "active"`. Mark the summary node as `status: "superseded"`. Repoint the message whose `parentId` was the summary node back to the last compacted message's ID. Set `activeBranchHead` to the deepest descendant of the restored chain (the original leaf before compaction, which is the last message in `compacts`).
-   - If no (**edit branch path**): walk forward from `messageId` to find the deepest previously-active descendant (messages that were on the active chain before the edit branched away from them). Set `activeBranchHead` to that leaf, or to `messageId` itself if no descendants exist.
+   - If yes (**uncompact path**):
+     - Find the summary node whose `compacts` array contains `messageId`
+     - Mark all messages in `compacts` as `status: "active"`
+     - Mark the summary node as `status: "superseded"`
+     - Repoint the message whose `parentId === summaryNode.id` back to the last compacted message's ID
+     - If `activeBranchHead === summaryNode.id` (summary was the leaf — i.e. the compacted span reached the end of the conversation), set `activeBranchHead` to the last message in `compacts`. Otherwise leave `activeBranchHead` unchanged — the existing head is already beyond the summary node, and the chain now routes correctly through the restored messages.
+   - If no (**edit branch path**):
+     - Find the current active sibling (the node with the same `parentId` as `messageId` that is currently `status: "active"`)
+     - Mark that sibling as `status: "superseded"`
+     - Mark `messageId` as `status: "active"`
+     - Walk forward from `messageId`: find all descendants whose `status === "active"` by scanning for messages with `parentId === messageId`, then their children, until no more active children exist. Set `activeBranchHead` to the deepest such descendant, or to `messageId` itself if none exist.
 3. Save updated conversation
 4. Return `{ activeBranchHead: string }`
 
@@ -129,12 +138,14 @@ If siblings exist, the message response includes:
 ```ts
 alternates?: {
   id: string,
-  content: string,
+  content: string,   // preview text (may be truncated for display)
   timestamp: string
 }[]
 ```
 
-This field is assembled at query time and is never stored on disk. It does not appear on `MessageData` in storage — only in the `get_conversation` tool response. The web type `MessageData` (as used by the frontend) is extended with this optional field.
+Alternates are sorted by `timestamp` ascending. For a summary node, the single alternate is the original first compacted message — `switch_branch` on that ID triggers the uncompact path which restores the full chain.
+
+This field is assembled at query time and is never stored on disk. It does not appear on `MessageData` in storage — only in the `get_conversation` tool response. The web-facing `MessageData` type (used by the frontend composable) is extended with this optional field.
 
 ---
 
@@ -150,9 +161,10 @@ This field is assembled at query time and is never stored on disk. It does not a
 ‹  2/2  ›
 ```
 
-- `‹` calls `switchBranch(alternate.id)`, then reloads. Disabled (greyed) at oldest version.
-- `›` navigates toward the newest version. Disabled at newest.
-- The count reflects position among all versions (original + edits).
+- `alternates` is sorted by `timestamp` ascending — index 0 is the oldest version, last is newest
+- The current message is always the one on the active chain; its position in the full ordered list (current + alternates) determines the `N/M` count
+- `‹` calls `switchBranch(alternates[currentIndex - 1].id)`, then reloads. Disabled at oldest version.
+- `›` calls `switchBranch(alternates[currentIndex + 1].id)`, then reloads. Disabled at newest version.
 
 **2. ⋮ context menu trigger** — always visible, small pill button. Opens a dropdown menu:
 
@@ -193,7 +205,7 @@ A **⊞ Compact** button is added to the conversation header alongside the exist
 - Range preview: first message (role + content truncated) · · · M more · · · last message
 - **Compact** (primary) and **Cancel** buttons
 - **Advanced ▾** collapsed section containing:
-  - Agent selector — dropdown populated from `list_participants` (all participants), required before Compact is enabled
+  - Agent selector — dropdown populated from `list_participants` filtered to `type: "agent"` participants only, required before Compact is enabled
   - Instruction textarea — pre-filled with the default summarisation prompt, fully editable
 
 The "Compact above" context menu item sets the range to `[firstMessageId … thisMessageId]` and opens the same dialog.
