@@ -32,6 +32,7 @@ Rewrites the content of a past message, creating a new branch node per the tree 
 **Args:** `{ conversationId: string, messageId: string, newContent: string }`
 
 **Flow:**
+
 1. Load conversation from store
 2. Call `editMessage(conversation, messageId, newContent)` — creates a new node with `editOf`, marks original `superseded`
 3. Save updated conversation
@@ -48,6 +49,7 @@ Removes a message from the active chain while preserving it in storage.
 **Args:** `{ conversationId: string, messageId: string }`
 
 **Flow:**
+
 1. Load conversation from store
 2. Call `pruneMessage(conversation, messageId, context.participant.id)` — sets `status: "pruned"`, walks `activeBranchHead` back to parent if needed
 3. Save updated conversation
@@ -62,6 +64,7 @@ Triggers the agent runtime to respond to the current `activeBranchHead` without 
 **Args:** `{ conversationId: string, agentId: string }`
 
 **Flow:**
+
 1. Look up the agent participant by `agentId` in the collective
 2. Trigger the agent's runtime against the current `activeBranchHead` of the conversation (same entry point as when a `communicate` message is delivered, but without prepending a new message node)
 3. Agent generates a response appended to the active chain; the `message:delivered` event fires when complete (same as `communicate`)
@@ -76,6 +79,7 @@ Triggers the agent runtime to respond to the current `activeBranchHead` without 
 Collapses a span of messages into a summary node using a Legion agent for summarisation, staying fully within Legion's participant/communicate model.
 
 **Args:**
+
 ```ts
 {
   conversationId: string,
@@ -86,9 +90,10 @@ Collapses a span of messages into a summary node using a Legion agent for summar
 ```
 
 **Flow:**
+
 1. Load conversation from store
 2. Format the target messages as a readable transcript (role: content, one per line)
-3. Build prompt using `instruction` if provided, otherwise the default:  
+3. Build prompt using `instruction` if provided, otherwise the default:
    > "Summarise the following conversation segment concisely, preserving key decisions, facts, and outcomes."
 4. Call `agentId` via the MessageRouter sync communicate pathway (same mechanism as the `communicate` tool's blocking request-response) with the formatted transcript + prompt
 5. Use the agent's reply content as `summaryContent`
@@ -107,6 +112,7 @@ Switches the active branch to a sibling node (same `parentId`). Handles both edi
 **Args:** `{ conversationId: string, messageId: string }`
 
 **Flow:**
+
 1. Load conversation, verify `messageId` exists
 2. Determine if target is a **compacted** node (the sibling is a compacted message, meaning the active chain has a summary node at this position):
    - If yes (**uncompact path**):
@@ -168,11 +174,11 @@ This field is assembled at query time and is never stored on disk. It does not a
 
 **2. ⋮ context menu trigger** — always visible, small pill button. Opens a dropdown menu:
 
-| Item | Action |
-|---|---|
-| ✏ Edit | Enter inline edit state |
-| ✕ Prune | Show inline prune confirm |
-| *(divider)* | |
+| Item            | Action                                                     |
+| --------------- | ---------------------------------------------------------- |
+| ✏ Edit          | Enter inline edit state                                    |
+| ✕ Prune         | Show inline prune confirm                                  |
+| _(divider)_     |                                                            |
 | ⊞ Compact above | Open compact dialog, pre-range set to start → this message |
 
 **Inline edit state:**
@@ -188,6 +194,7 @@ The `edited` badge is shown on any message where `message.editOf` is set (i.e. i
 **Inline prune confirm:**
 
 The context menu swaps its content to:
+
 - **Confirm prune** (red text)
 - **Cancel**
 
@@ -217,21 +224,21 @@ The "Compact above" context menu item sets the range to `[firstMessageId … thi
 Five new functions added, all following the existing pattern of `execute()` → `load()`:
 
 ```ts
-async function editMessage(messageId: string, newContent: string): Promise<string>
+async function editMessage(messageId: string, newContent: string): Promise<string>;
 // returns newMessageId; caller decides whether to then call generate()
 
-async function generate(agentId: string): Promise<void>
+async function generate(agentId: string): Promise<void>;
 // triggers agent; markSent()-style thinking indicator shown immediately
 
-async function pruneMessage(messageId: string): Promise<void>
+async function pruneMessage(messageId: string): Promise<void>;
 
 async function compactConversation(
   messageIds: string[],
   agentId?: string,
   instruction?: string,
-): Promise<void>
+): Promise<void>;
 
-async function switchBranch(messageId: string): Promise<void>
+async function switchBranch(messageId: string): Promise<void>;
 ```
 
 ---
@@ -239,6 +246,7 @@ async function switchBranch(messageId: string): Promise<void>
 ## Interaction Flows
 
 ### Edit → Save & re-run
+
 1. User clicks ⋮ → Edit on a user message
 2. Bubble becomes textarea; user modifies content
 3. User clicks "Save & re-run"
@@ -247,15 +255,18 @@ async function switchBranch(messageId: string): Promise<void>
 6. `load()` — conversation reloaded; edited badge visible, agent response appears
 
 ### Edit → Save only
+
 Steps 1–4 same, step 5 skipped. Edited badge shown, no agent loop triggered.
 
 ### Regenerate (emergent)
+
 1. User clicks ⋮ → Prune on the last assistant message
 2. Confirm prune — head moves to preceding user message
 3. User clicks ⋮ → (or a future "Regenerate" shortcut) which calls `generate(agentId)`
 4. Agent produces a fresh response
 
 ### Compact (from header)
+
 1. User clicks ⊞ Compact in header
 2. Compact dialog opens, full active chain pre-selected
 3. User optionally expands Advanced, selects agent, adjusts instruction
@@ -264,6 +275,7 @@ Steps 1–4 same, step 5 skipped. Edited badge shown, no agent loop triggered.
 6. Agent summarises; summary node replaces span in active chain; `load()` reloads
 
 ### Branch switch
+
 1. User sees `‹ 2/2 ›` on an edited message
 2. Clicks `‹`
 3. `switchBranch(alternateId)` — `activeBranchHead` moves to the alternate branch
@@ -276,6 +288,7 @@ Steps 1–4 same, step 5 skipped. Edited badge shown, no agent loop triggered.
 Summary nodes (`type: "summary"`) appear in the active chain in place of the compacted messages. They must be visually distinct from regular bubbles so the user understands the content is compressed.
 
 Rendering in `MessageBubble.vue`:
+
 - A **"Summary"** label/badge above the bubble content (e.g. small pill: `⊞ Summary`)
 - Slightly different bubble background (e.g. `bg-navy-700` with a left accent border in cyan) to distinguish from regular messages
 - The branch navigator (`‹ 1/2 ›`) appears in the metadata row as with edited messages — clicking `‹` invokes `switch_branch` with the original first compacted message, which triggers the uncompact path
@@ -318,14 +331,14 @@ No additional event types are needed.
 
 ## Files Touched
 
-| File | Change |
-|---|---|
-| `packages/core/src/conversation/conversation-ops.ts` | Update `validateConversation` root invariant to allow compacted messages with `parentId: null` |
-| `packages/core/src/tools/management-tools.ts` | Add `edit_message`, `prune_message`, `compact_conversation`, `generate`, `switch_branch`; register all in `managementTools[]` |
-| `packages/core/src/tools/management-tools.test.ts` | Tests for all five new tools |
-| `packages/web/src/components/conversations/MessageBubble.vue` | ⋮ button, context menu, edit state, prune confirm, branch navigator |
-| `packages/web/src/components/conversations/MessageBubble.test.ts` | Tests for new UI states |
-| `packages/web/src/components/conversations/ConversationThread.vue` | Header compact button, wire compact dialog |
-| `packages/web/src/components/conversations/CompactDialog.vue` | New compact confirmation component |
-| `packages/web/src/composables/useConversation.ts` | Five new functions |
-| `packages/web/src/composables/useConversation.test.ts` | Tests for new composable functions |
+| File                                                               | Change                                                                                                                        |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/conversation/conversation-ops.ts`               | Update `validateConversation` root invariant to allow compacted messages with `parentId: null`                                |
+| `packages/core/src/tools/management-tools.ts`                      | Add `edit_message`, `prune_message`, `compact_conversation`, `generate`, `switch_branch`; register all in `managementTools[]` |
+| `packages/core/src/tools/management-tools.test.ts`                 | Tests for all five new tools                                                                                                  |
+| `packages/web/src/components/conversations/MessageBubble.vue`      | ⋮ button, context menu, edit state, prune confirm, branch navigator                                                           |
+| `packages/web/src/components/conversations/MessageBubble.test.ts`  | Tests for new UI states                                                                                                       |
+| `packages/web/src/components/conversations/ConversationThread.vue` | Header compact button, wire compact dialog                                                                                    |
+| `packages/web/src/components/conversations/CompactDialog.vue`      | New compact confirmation component                                                                                            |
+| `packages/web/src/composables/useConversation.ts`                  | Five new functions                                                                                                            |
+| `packages/web/src/composables/useConversation.test.ts`             | Tests for new composable functions                                                                                            |

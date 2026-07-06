@@ -24,8 +24,12 @@ const advancedOpen = ref(false);
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
     <div class="w-full max-w-lg rounded-xl border border-navy-700 bg-navy-900 p-4 shadow-xl">
       <div class="flex items-center justify-between gap-3">
-        <h2 class="text-sm font-semibold text-slate-100">Compacting {{ messages.length }} messages</h2>
-        <button type="button" class="text-slate-500 hover:text-slate-200" @click="emit('cancel')">x</button>
+        <h2 class="text-sm font-semibold text-slate-100">
+          Compacting {{ messages.length }} messages
+        </h2>
+        <button type="button" class="text-slate-500 hover:text-slate-200" @click="emit('cancel')">
+          x
+        </button>
       </div>
 
       <div class="mt-3 rounded-lg border border-navy-800 bg-navy-950 p-3 text-xs text-slate-400">
@@ -55,7 +59,9 @@ const advancedOpen = ref(false);
             class="mt-1 w-full rounded border border-navy-700 bg-navy-950 px-2 py-1.5 text-sm text-slate-200"
           >
             <option value="">Select agent...</option>
-            <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
+            <option v-for="agent in agents" :key="agent.id" :value="agent.id">
+              {{ agent.name }}
+            </option>
           </select>
         </label>
 

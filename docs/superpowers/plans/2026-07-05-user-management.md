@@ -13,17 +13,20 @@
 ## File Map
 
 **Modified (backend):**
+
 - `packages/core/src/tools/management-tools.ts` — add `createUserTool`, `modifyUserTool`, `setApprovalAuthorityTool`; update `setCredentialTool` min-length; add all three to `managementTools` array
 - `packages/core/src/tools/management-tools.test.ts` — update `'hunter2'` (7 chars) → `'hunter2!'` (8 chars); add describe blocks for all three new tools + min-length test
 - `packages/core/src/collective/default-participants.ts` — add `create_user`, `modify_user`, `set_approval_authority` to `MANAGEMENT_TOOLS`
 
 **Modified (frontend):**
+
 - `packages/web/src/components/participants/ParticipantSlideOver.vue` → **rename** to `AgentSlideOver.vue`; add Approval authority tab
 - `packages/web/src/views/ParticipantsView.vue` — Type column, "+ New user" / "+ New agent" buttons, type-dispatched slide-overs
 - `packages/web/src/router/index.ts` — add `/account` route
 - `packages/web/src/components/layout/AppSidebar.vue` — add Account nav entry
 
 **Created (frontend):**
+
 - `packages/web/src/components/participants/ApprovalAuthorityEditor.vue`
 - `packages/web/src/components/participants/ApprovalAuthorityEditor.test.ts`
 - `packages/web/src/components/participants/UserSlideOver.vue`
@@ -35,6 +38,7 @@
 ## Task 1: `set_credential` min-length validation
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Modify: `packages/core/src/tools/management-tools.test.ts`
 
@@ -134,17 +138,20 @@ git commit -m "feat(core): set_credential minimum 8-character password guard"
 ## Task 2: `create_user` tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Modify: `packages/core/src/tools/management-tools.test.ts`
 
 - [ ] **Step 1: Update imports in `management-tools.ts`**
 
 Find the top import line:
+
 ```typescript
 import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig } from '@legion/types';
 ```
 
 Replace with:
+
 ```typescript
 import type {
   JSONSchema,
@@ -190,10 +197,7 @@ Add a new describe block after the existing `describe('remove_tool_policy', ...)
 describe('create_user', () => {
   it('adds a user participant with type user and status active', async () => {
     const { context, collective } = await makeContext();
-    const result = await createUserTool.execute(
-      { id: 'alice', name: 'Alice' },
-      context,
-    );
+    const result = await createUserTool.execute({ id: 'alice', name: 'Alice' }, context);
     expect(result.status).toBe('success');
     const p = collective.get('alice');
     expect(p?.type).toBe('user');
@@ -360,6 +364,7 @@ git commit -m "feat(core): add create_user management tool"
 ## Task 3: `modify_user` tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Modify: `packages/core/src/tools/management-tools.test.ts`
 
@@ -384,10 +389,7 @@ describe('modify_user', () => {
   it('updates tools map', async () => {
     const { context, collective } = await makeContext();
     await makeUser(context, 'alice', 'Alice');
-    await modifyUserTool.execute(
-      { id: 'alice', tools: { communicate: 'auto' } },
-      context,
-    );
+    await modifyUserTool.execute({ id: 'alice', tools: { communicate: 'auto' } }, context);
     expect(collective.get('alice')?.tools['communicate']).toBe('auto');
   });
 
@@ -562,6 +564,7 @@ git commit -m "feat(core): add modify_user management tool"
 ## Task 4: `set_approval_authority` tool
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Modify: `packages/core/src/tools/management-tools.test.ts`
 
@@ -730,6 +733,7 @@ git commit -m "feat(core): add set_approval_authority management tool"
 ## Task 5: Register new tools
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts`
 - Modify: `packages/core/src/collective/default-participants.ts`
 
@@ -820,6 +824,7 @@ git commit -m "feat(core): register create_user, modify_user, set_approval_autho
 ## Task 6: `ApprovalAuthorityEditor.vue` component
 
 **Files:**
+
 - Create: `packages/web/src/components/participants/ApprovalAuthorityEditor.vue`
 - Create: `packages/web/src/components/participants/ApprovalAuthorityEditor.test.ts`
 
@@ -911,20 +916,15 @@ function toggle(event: Event) {
       Approval authority allows this participant to approve tool calls on behalf of others.
     </p>
     <label class="flex items-center gap-2 cursor-pointer select-none">
-      <input
-        type="checkbox"
-        :checked="hasFullAuthority"
-        @change="toggle"
-        class="accent-cyan-400"
-      />
-      <span class="text-xs text-slate-200">Full approval authority (all tools, all participants)</span>
+      <input type="checkbox" :checked="hasFullAuthority" @change="toggle" class="accent-cyan-400" />
+      <span class="text-xs text-slate-200"
+        >Full approval authority (all tools, all participants)</span
+      >
     </label>
     <p v-if="hasFullAuthority" class="text-[10px] text-cyan-400">
       This participant can approve any tool call from any participant.
     </p>
-    <p v-else class="text-[10px] text-navy-600 italic">
-      No approval authority configured.
-    </p>
+    <p v-else class="text-[10px] text-navy-600 italic">No approval authority configured.</p>
   </div>
 </template>
 ```
@@ -950,6 +950,7 @@ git commit -m "feat(web): add ApprovalAuthorityEditor shared component"
 ## Task 7: Rename `ParticipantSlideOver.vue` → `AgentSlideOver.vue` + add Approval authority tab
 
 **Files:**
+
 - Rename: `packages/web/src/components/participants/ParticipantSlideOver.vue` → `AgentSlideOver.vue`
 - Modify: `packages/web/src/views/ParticipantsView.vue` (import path update — full rewrite happens in Task 9; just fix the import for now)
 
@@ -963,10 +964,13 @@ mv packages/web/src/components/participants/ParticipantSlideOver.vue \
 - [ ] **Step 2: Update the import in `ParticipantsView.vue`**
 
 In `packages/web/src/views/ParticipantsView.vue`, change:
+
 ```typescript
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
 ```
+
 to:
+
 ```typescript
 import AgentSlideOver from '../components/participants/AgentSlideOver.vue';
 ```
@@ -1141,13 +1145,18 @@ async function retire() {
       </button>
     </div>
 
-    <div v-if="saveError" class="mx-5 mt-4 px-3 py-2 bg-red-900/30 border border-red-700 rounded text-xs text-red-400">
+    <div
+      v-if="saveError"
+      class="mx-5 mt-4 px-3 py-2 bg-red-900/30 border border-red-700 rounded text-xs text-red-400"
+    >
       {{ saveError }}
     </div>
 
     <div v-if="tab === 'basic'" class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Name</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Name</label
+        >
         <input
           v-model="name"
           :readonly="!!participantId"
@@ -1155,13 +1164,20 @@ async function retire() {
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Model</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Model</label
+        >
         <div v-if="selectedModel && !showModelDropdown" class="flex items-center gap-2">
-          <span class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono">
+          <span
+            class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono"
+          >
             {{ selectedModel }}
           </span>
           <button
-            @click="showModelDropdown = true; modelSearch = '';"
+            @click="
+              showModelDropdown = true;
+              modelSearch = '';
+            "
             class="text-[10px] text-navy-400 hover:text-slate-200 border border-navy-600 rounded px-2 py-1.5"
           >
             Change
@@ -1174,10 +1190,17 @@ async function retire() {
             @focus="showModelDropdown = true"
             class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none focus:border-cyan-400/40"
           />
-          <div v-if="showModelDropdown" class="border border-navy-600 rounded bg-navy-950 max-h-48 overflow-y-auto">
+          <div
+            v-if="showModelDropdown"
+            class="border border-navy-600 rounded bg-navy-950 max-h-48 overflow-y-auto"
+          >
             <button
               v-if="modelSearch && !filteredModels.some((m) => m.id === modelSearch)"
-              @click="selectedModel = modelSearch; model = modelSearch; showModelDropdown = false;"
+              @click="
+                selectedModel = modelSearch;
+                model = modelSearch;
+                showModelDropdown = false;
+              "
               class="w-full text-left px-3 py-2 text-xs text-navy-400 hover:bg-navy-800 font-mono border-b border-navy-700"
             >
               Use "{{ modelSearch }}" (not in discovery list)
@@ -1185,20 +1208,30 @@ async function retire() {
             <button
               v-for="m in filteredModels"
               :key="m.id"
-              @click="selectedModel = m.id; model = m.id; modelSearch = ''; showModelDropdown = false;"
+              @click="
+                selectedModel = m.id;
+                model = m.id;
+                modelSearch = '';
+                showModelDropdown = false;
+              "
               class="w-full text-left px-3 py-2 hover:bg-navy-800"
             >
               <span class="text-xs font-mono text-slate-100">{{ m.id }}</span>
               <span class="text-[10px] text-navy-500 ml-2">{{ m.provider }}</span>
             </button>
-            <p v-if="filteredModels.length === 0 && !modelSearch" class="px-3 py-2 text-[10px] text-navy-600 italic">
+            <p
+              v-if="filteredModels.length === 0 && !modelSearch"
+              class="px-3 py-2 text-[10px] text-navy-600 italic"
+            >
               No models discovered. Configure providers first.
             </p>
           </div>
         </div>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">System prompt</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >System prompt</label
+        >
         <textarea
           v-model="systemPrompt"
           rows="6"
@@ -1206,7 +1239,9 @@ async function retire() {
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Max iterations</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Max iterations</label
+        >
         <input
           v-model.number="maxIterations"
           type="number"
@@ -1280,6 +1315,7 @@ git commit -m "feat(web): rename ParticipantSlideOver to AgentSlideOver, add app
 ## Task 8: `UserSlideOver.vue` + test
 
 **Files:**
+
 - Create: `packages/web/src/components/participants/UserSlideOver.vue`
 - Create: `packages/web/src/components/participants/UserSlideOver.test.ts`
 
@@ -1335,7 +1371,12 @@ describe('UserSlideOver', () => {
     });
     await w.find('input[placeholder="Name"]').setValue('New User');
     await w.find('button.save-btn').trigger('click');
-    await vi.waitFor(() => expect(executeMock).toHaveBeenCalledWith('create_user', expect.objectContaining({ name: 'New User' })));
+    await vi.waitFor(() =>
+      expect(executeMock).toHaveBeenCalledWith(
+        'create_user',
+        expect.objectContaining({ name: 'New User' }),
+      ),
+    );
   });
 
   it('calls modify_user on save when editing an existing user', async () => {
@@ -1349,10 +1390,17 @@ describe('UserSlideOver', () => {
       },
     });
     // Wait for get_participant to be called on open
-    await vi.waitFor(() => expect(executeMock).toHaveBeenCalledWith('get_participant', { id: 'alice' }));
+    await vi.waitFor(() =>
+      expect(executeMock).toHaveBeenCalledWith('get_participant', { id: 'alice' }),
+    );
     executeMock.mockResolvedValue({});
     await w.find('button.save-btn').trigger('click');
-    await vi.waitFor(() => expect(executeMock).toHaveBeenCalledWith('modify_user', expect.objectContaining({ id: 'alice' })));
+    await vi.waitFor(() =>
+      expect(executeMock).toHaveBeenCalledWith(
+        'modify_user',
+        expect.objectContaining({ id: 'alice' }),
+      ),
+    );
   });
 
   it('calls set_credential after save when password is filled', async () => {
@@ -1387,7 +1435,9 @@ describe('UserSlideOver', () => {
         allParticipants: [],
       },
     });
-    await vi.waitFor(() => expect(executeMock).toHaveBeenCalledWith('get_participant', { id: 'alice' }));
+    await vi.waitFor(() =>
+      expect(executeMock).toHaveBeenCalledWith('get_participant', { id: 'alice' }),
+    );
     executeMock.mockClear();
     executeMock.mockResolvedValue({});
     await w.find('button.save-btn').trigger('click');
@@ -1406,7 +1456,9 @@ describe('UserSlideOver', () => {
         allParticipants: [],
       },
     });
-    await vi.waitFor(() => expect(executeMock).toHaveBeenCalledWith('get_participant', { id: 'operator' }));
+    await vi.waitFor(() =>
+      expect(executeMock).toHaveBeenCalledWith('get_participant', { id: 'operator' }),
+    );
     expect(w.find('[data-retire-btn]').exists()).toBe(false);
   });
 
@@ -1505,8 +1557,7 @@ watch(
         name.value = (p.name as string) ?? '';
         operator.value = (p.operator as boolean) ?? false;
         isProtected.value = (p.protected as boolean) ?? false;
-        identities.value =
-          (p.identities as Array<{ connector: string; externalId: string }>) ?? [];
+        identities.value = (p.identities as Array<{ connector: string; externalId: string }>) ?? [];
         const tools = (p.tools as Record<string, string>) ?? {};
         overrides.value = Object.entries(tools).map(([tool, policy]) => ({
           tool,
@@ -1587,11 +1638,7 @@ async function retire() {
 </script>
 
 <template>
-  <SlideOver
-    :open="open"
-    :title="participantId ? 'Edit user' : 'New user'"
-    @close="emit('close')"
-  >
+  <SlideOver :open="open" :title="participantId ? 'Edit user' : 'New user'" @close="emit('close')">
     <div class="flex border-b border-navy-600 bg-navy-900">
       <button
         v-for="t in ['basic', 'tools', 'approval'] as const"
@@ -1617,11 +1664,15 @@ async function retire() {
 
     <div v-if="tab === 'basic'" class="p-5 space-y-4">
       <div v-if="participantId">
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">ID</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >ID</label
+        >
         <span class="font-mono text-xs text-navy-400">{{ participantId }}</span>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Name</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Name</label
+        >
         <input
           v-model="name"
           placeholder="Name"
@@ -1747,6 +1798,7 @@ git commit -m "feat(web): add UserSlideOver component"
 ## Task 9: `ParticipantsView.vue` — Type column, two New buttons, type dispatch
 
 **Files:**
+
 - Modify: `packages/web/src/views/ParticipantsView.vue`
 
 - [ ] **Step 1: Replace the entire content of `ParticipantsView.vue`**
@@ -1867,17 +1919,36 @@ function typeCls(type: string): string {
       </div>
     </div>
 
-    <div v-if="loadError" class="mx-5 mt-4 px-3 py-2 bg-red-900/30 border border-red-700 rounded text-xs text-red-400">
+    <div
+      v-if="loadError"
+      class="mx-5 mt-4 px-3 py-2 bg-red-900/30 border border-red-700 rounded text-xs text-red-400"
+    >
       {{ loadError }}
     </div>
 
     <table class="w-full border-collapse text-xs">
       <thead>
         <tr class="border-b border-navy-700">
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Status</th>
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Type</th>
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Name</th>
-          <th class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold">Model</th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Status
+          </th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Type
+          </th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Name
+          </th>
+          <th
+            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+          >
+            Model
+          </th>
           <th />
         </tr>
       </thead>
@@ -1972,6 +2043,7 @@ git commit -m "feat(web): type column, dual new buttons, type-dispatched slide-o
 ## Task 10: `AccountView.vue` + route + sidebar
 
 **Files:**
+
 - Create: `packages/web/src/views/AccountView.vue`
 - Modify: `packages/web/src/router/index.ts`
 - Modify: `packages/web/src/components/layout/AppSidebar.vue`
@@ -2038,15 +2110,22 @@ async function changePassword() {
 
     <div class="max-w-md p-5 space-y-6">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Participant ID</label>
+        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+          >Participant ID</label
+        >
         <span class="font-mono text-xs text-navy-400">{{ participantId ?? '—' }}</span>
       </div>
 
       <div class="space-y-4">
-        <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold">Change password</p>
+        <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold">
+          Change password
+        </p>
 
         <div>
-          <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">New password</label>
+          <label
+            class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+            >New password</label
+          >
           <div class="flex gap-2">
             <input
               v-model="newPassword"
@@ -2064,7 +2143,10 @@ async function changePassword() {
         </div>
 
         <div>
-          <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1">Confirm password</label>
+          <label
+            class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+            >Confirm password</label
+          >
           <div class="flex gap-2">
             <input
               v-model="confirmPassword"
