@@ -12,6 +12,7 @@ import {
   switchBranchTool,
   pruneMessageTool,
   compactConversationTool,
+  generateTool,
   getConversationTool,
   setToolPolicyTool,
   removeToolPolicyTool,
@@ -513,6 +514,42 @@ describe('management tools', () => {
       status: 'error',
       error:
         'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
+    });
+  });
+
+  it('generate delegates to messageRouter.generate', async () => {
+    const { context } = await makeContext();
+    await createAgentTool.execute(
+      {
+        id: 'agent-x',
+        name: 'X',
+        systemPrompt: 's',
+        model: { model: 'm' },
+        tools: {},
+      },
+      context,
+    );
+    const generate = vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'dispatched' });
+    const ctx = {
+      ...context,
+      messageRouter: { send: vi.fn(), resume: vi.fn(), generate },
+    } as unknown as ToolContext;
+
+    const result = await generateTool.execute({ conversationId: 'c1', agentId: 'agent-x' }, ctx);
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual({ status: 'success' });
+    expect(generate).toHaveBeenCalledWith('c1', 'agent-x', ctx);
+  });
+
+  it('generate rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await generateTool.execute({ conversationId: 123, agentId: null }, context);
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId and agentId must be strings',
     });
   });
 

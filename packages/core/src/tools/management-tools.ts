@@ -485,6 +485,40 @@ export const compactConversationTool: Tool = {
   },
 };
 
+export const generateTool: Tool = {
+  name: 'generate',
+  description: 'Trigger an agent response from the current active conversation branch.',
+  parameters: {
+    type: 'object',
+    properties: { conversationId: { type: 'string' }, agentId: { type: 'string' } },
+    required: ['conversationId', 'agentId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; agentId?: unknown };
+    if (typeof input.conversationId !== 'string' || typeof input.agentId !== 'string') {
+      return { status: 'error', error: 'conversationId and agentId must be strings' };
+    }
+    const { conversationId, agentId } = input;
+    if (!context.messageRouter) {
+      return { status: 'error', error: 'messageRouter unavailable in context' };
+    }
+    try {
+      const participant = requireCollective(context).get(agentId);
+      if (!participant) return { status: 'error', error: `Participant not found: ${agentId}` };
+      if (participant.type !== 'agent') {
+        return { status: 'error', error: `Participant ${agentId} is not an agent` };
+      }
+      const result = await context.messageRouter.generate(conversationId, agentId, context);
+      if (result.status === 'error') {
+        return { status: 'error', error: result.error ?? 'Generate failed' };
+      }
+      return { status: 'success', data: { status: 'success' } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
 export const getConversationTool: Tool = {
   name: 'get_conversation',
   description: 'Load a conversation, its active message chain, and any sub-threads.',
