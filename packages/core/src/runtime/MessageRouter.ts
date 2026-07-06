@@ -41,17 +41,15 @@ export class MessageRouter implements MessageRouterPort {
     const next = new Promise<void>((res) => {
       release = res;
     });
-    this.locks.set(
-      conversationId,
-      prev.then(() => next),
-    );
+    const queued = prev.then(() => next);
+    this.locks.set(conversationId, queued);
     return prev.then(async () => {
       try {
         return await fn();
       } finally {
         release();
         // Best-effort cleanup: remove if no one else queued after us.
-        if (this.locks.get(conversationId) === prev.then(() => next)) {
+        if (this.locks.get(conversationId) === queued) {
           this.locks.delete(conversationId);
         }
       }
@@ -318,12 +316,12 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     opts: SendOptions,
   ): Promise<void> {
-    try {
-      const result = await runtime.handle(inbound, runtimeContext);
-      if (result.kind !== 'response') return;
-      const replyTarget = opts.replyTo!;
-      await this.withLock(thread.id, async () => {
-        await thread.reload();
+    await this.withLock(thread.id, async () => {
+      await thread.reload();
+      try {
+        const result = await runtime.handle(inbound, runtimeContext);
+        if (result.kind !== 'response') return;
+        const replyTarget = opts.replyTo!;
         const responseMsg = await thread.append({
           senderId: opts.recipientId,
           recipientId: replyTarget,
@@ -336,12 +334,9 @@ export class MessageRouter implements MessageRouterPort {
           recipientId: replyTarget,
           messageId: responseMsg.id,
         });
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const replyTarget = opts.replyTo!;
-      await this.withLock(thread.id, async () => {
-        await thread.reload();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const replyTarget = opts.replyTo!;
         const responseMsg = await thread.append({
           senderId: opts.recipientId,
           recipientId: replyTarget,
@@ -353,7 +348,7 @@ export class MessageRouter implements MessageRouterPort {
           recipientId: replyTarget,
           messageId: responseMsg.id,
         });
-      });
-    }
+      }
+    });
   }
 }

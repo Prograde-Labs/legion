@@ -324,7 +324,7 @@ describe('MessageRouter: fire-and-forget', () => {
     });
     await firstStarted;
 
-    await router.send({
+    const second = router.send({
       senderId: 'op',
       recipientId: 'slow',
       message: 'second',
@@ -333,12 +333,105 @@ describe('MessageRouter: fire-and-forget', () => {
     });
 
     releaseFirst();
-    await router.drain();
+    await Promise.all([second, router.drain()]);
 
     const conv = await store.load(first.conversationId);
     const contents = Object.values(conv!.messages).map((m) => m.content);
     expect(contents).toEqual(
       expect.arrayContaining(['first', 'second', 'second response', 'first response']),
+    );
+  });
+
+  it('preserves internal runtime appends and queued sends during background dispatch', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/agent.json', {
+      id: 'agent',
+      name: 'Agent',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    let calls = 0;
+    let releaseInternalAppend!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    registry.registerFactory('mock', () => ({
+      async handle(_incoming, context) {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted();
+          await new Promise<void>((release) => {
+            releaseInternalAppend = release;
+          });
+          await context.conversation.append({
+            senderId: 'agent',
+            recipientId: 'agent',
+            role: 'assistant',
+            content: 'tool-call turn',
+          });
+          return { kind: 'response', content: 'first response' };
+        }
+        return { kind: 'response', content: 'second response' };
+      },
+    }));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'first',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await firstStarted;
+
+    const second = router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'second',
+      conversationId: first.conversationId,
+      context: baseContext,
+    });
+
+    releaseInternalAppend();
+    await Promise.all([second, router.drain()]);
+
+    const conv = await store.load(first.conversationId);
+    const contents = Object.values(conv!.messages).map((m) => m.content);
+    expect(contents).toEqual(
+      expect.arrayContaining([
+        'first',
+        'tool-call turn',
+        'first response',
+        'second',
+        'second response',
+      ]),
     );
   });
 });
@@ -474,6 +567,36 @@ describe('MessageRouter: resume()', () => {
     const conv = await store.load(conversationId);
     const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
+  });
+});
+
+describe('MessageRouter: generate()', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-generate-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('dispatches from the latest incoming user message without appending another user message', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const sent = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'original',
+      context: baseContext,
+    });
+
+    const result = await router.generate(sent.conversationId, 'mock-1', baseContext);
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+
+    const conv = await store.load(sent.conversationId);
+    const messages = Object.values(conv!.messages);
+    expect(messages.filter((m) => m.role === 'user')).toHaveLength(1);
+    expect(messages.filter((m) => m.role === 'assistant')).toHaveLength(2);
   });
 });
 
