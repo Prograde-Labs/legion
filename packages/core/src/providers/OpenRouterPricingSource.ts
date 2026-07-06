@@ -62,7 +62,7 @@ function mapPricing(p: OpenRouterPricing | undefined): ModelPricing | undefined 
   };
 }
 
-export class ModelsDevPricingSource implements PricingSource {
+export class OpenRouterPricingSource implements PricingSource {
   private cached: CachedData | null = null;
 
   constructor(private cacheDir: string) {}

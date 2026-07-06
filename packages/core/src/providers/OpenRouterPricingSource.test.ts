@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ModelsDevPricingSource } from './ModelsDevPricingSource.js';
+import { OpenRouterPricingSource } from './OpenRouterPricingSource.js';
 
 const SAMPLE_OPENROUTER_JSON = {
   data: [
@@ -35,7 +35,7 @@ const SAMPLE_OPENROUTER_JSON = {
   ],
 };
 
-describe('ModelsDevPricingSource', () => {
+describe('OpenRouterPricingSource', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let cacheDir: string;
 
@@ -56,7 +56,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('openai', 'openai/gpt-4o');
 
     expect(pricing).toEqual({
@@ -73,7 +73,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('OpenRouter', 'z-ai/glm-5.2');
 
     expect(pricing).toEqual({
@@ -89,7 +89,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     await source.resolve('openai', 'openai/gpt-4o');
     await source.resolve('anthropic', 'anthropic/claude-sonnet-4-5');
 
@@ -103,10 +103,10 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source1 = new ModelsDevPricingSource(cacheDir);
+    const source1 = new OpenRouterPricingSource(cacheDir);
     await source1.resolve('openai', 'openai/gpt-4o');
 
-    const source2 = new ModelsDevPricingSource(cacheDir);
+    const source2 = new OpenRouterPricingSource(cacheDir);
     const pricing = await source2.resolve('openai', 'openai/gpt-4o');
 
     expect(pricing).toEqual({
@@ -123,7 +123,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source1 = new ModelsDevPricingSource(cacheDir);
+    const source1 = new OpenRouterPricingSource(cacheDir);
     await source1.resolve('openai', 'openai/gpt-4o');
 
     const cachePath = join(cacheDir, 'openrouter-models.json');
@@ -131,7 +131,7 @@ describe('ModelsDevPricingSource', () => {
     cached.fetchedAt = Date.now() - 25 * 60 * 60 * 1000;
     writeFileSync(cachePath, JSON.stringify(cached));
 
-    const source2 = new ModelsDevPricingSource(cacheDir);
+    const source2 = new OpenRouterPricingSource(cacheDir);
     await source2.resolve('openai', 'openai/gpt-4o');
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -143,7 +143,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('unknown', 'nonexistent-model');
 
     expect(pricing).toBeUndefined();
@@ -155,7 +155,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('openai', 'us.openai/gpt-4o');
 
     expect(pricing?.input).toBe(0.0000025);
@@ -167,7 +167,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('openai', 'OPENAI/GPT-4O');
 
     expect(pricing?.input).toBe(0.0000025);
@@ -176,7 +176,7 @@ describe('ModelsDevPricingSource', () => {
   it('falls back to hardcoded pricing when fetch fails', async () => {
     fetchMock.mockRejectedValue(new Error('network down'));
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('openai', 'gpt-4o');
 
     expect(pricing).toBeDefined();
@@ -186,7 +186,7 @@ describe('ModelsDevPricingSource', () => {
   it('falls back to hardcoded pricing when fetch returns non-ok', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500 });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('openai', 'gpt-4o');
 
     expect(pricing).toBeDefined();
@@ -198,7 +198,7 @@ describe('ModelsDevPricingSource', () => {
       json: () => Promise.resolve(SAMPLE_OPENROUTER_JSON),
     });
 
-    const source = new ModelsDevPricingSource(cacheDir);
+    const source = new OpenRouterPricingSource(cacheDir);
     const pricing = await source.resolve('OpenRouter', 'z-ai/glm-5.2');
 
     expect(pricing?.cache.write).toBe(0);

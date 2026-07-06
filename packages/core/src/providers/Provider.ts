@@ -75,7 +75,7 @@ export interface Provider {
 
   /**
    * Optional: return a PricingSource for models this provider serves.
-   * If absent, the system-wide ModelsDevPricingSource is used.
+   * If absent, the system-wide OpenRouterPricingSource is used.
    * Providers with bespoke billing (e.g. Copilot AIU, self-hosted) implement this.
    */
   pricingSource?(): PricingSource;
