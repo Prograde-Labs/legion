@@ -322,31 +322,37 @@ export class MessageRouter implements MessageRouterPort {
       const result = await runtime.handle(inbound, runtimeContext);
       if (result.kind !== 'response') return;
       const replyTarget = opts.replyTo!;
-      const responseMsg = await thread.append({
-        senderId: opts.recipientId,
-        recipientId: replyTarget,
-        role: 'assistant',
-        content: result.content,
-        usage: result.usage,
-      });
-      this.eventBus.emit('message:delivered', {
-        conversationId: thread.id,
-        recipientId: replyTarget,
-        messageId: responseMsg.id,
+      await this.withLock(thread.id, async () => {
+        await thread.reload();
+        const responseMsg = await thread.append({
+          senderId: opts.recipientId,
+          recipientId: replyTarget,
+          role: 'assistant',
+          content: result.content,
+          usage: result.usage,
+        });
+        this.eventBus.emit('message:delivered', {
+          conversationId: thread.id,
+          recipientId: replyTarget,
+          messageId: responseMsg.id,
+        });
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const replyTarget = opts.replyTo!;
-      const responseMsg = await thread.append({
-        senderId: opts.recipientId,
-        recipientId: replyTarget,
-        role: 'assistant',
-        content: `[Runtime error: ${msg}]`,
-      });
-      this.eventBus.emit('message:delivered', {
-        conversationId: thread.id,
-        recipientId: replyTarget,
-        messageId: responseMsg.id,
+      await this.withLock(thread.id, async () => {
+        await thread.reload();
+        const responseMsg = await thread.append({
+          senderId: opts.recipientId,
+          recipientId: replyTarget,
+          role: 'assistant',
+          content: `[Runtime error: ${msg}]`,
+        });
+        this.eventBus.emit('message:delivered', {
+          conversationId: thread.id,
+          recipientId: replyTarget,
+          messageId: responseMsg.id,
+        });
       });
     }
   }

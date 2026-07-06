@@ -260,6 +260,87 @@ describe('MessageRouter: fire-and-forget', () => {
     );
     expect(toOp?.content).toMatch(/provider boom/);
   });
+
+  it('preserves intervening conversation updates before persisting a background response', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/slow.json', {
+      id: 'slow',
+      name: 'Slow',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    let calls = 0;
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted();
+          await new Promise<void>((release) => {
+            releaseFirst = release;
+          });
+          return { kind: 'response', content: 'first response' };
+        }
+        return { kind: 'response', content: 'second response' };
+      },
+    }));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'slow',
+      message: 'first',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await firstStarted;
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'slow',
+      message: 'second',
+      conversationId: first.conversationId,
+      context: baseContext,
+    });
+
+    releaseFirst();
+    await router.drain();
+
+    const conv = await store.load(first.conversationId);
+    const contents = Object.values(conv!.messages).map((m) => m.content);
+    expect(contents).toEqual(
+      expect.arrayContaining(['first', 'second', 'second response', 'first response']),
+    );
+  });
 });
 
 describe('MessageRouter: pending_approval result', () => {
