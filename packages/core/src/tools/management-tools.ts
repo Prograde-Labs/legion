@@ -262,7 +262,7 @@ export const editMessageTool: Tool = {
   },
 };
 
-function switchConversationBranch(
+export function switchConversationBranch(
   conversation: ConversationData,
   messageId: string,
 ): ConversationData {

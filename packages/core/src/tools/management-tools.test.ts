@@ -272,6 +272,13 @@ describe('management tools', () => {
       role: 'user',
       content: 'original',
     });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'original response',
+    });
     conv = editMessage(conv, 'm1', 'edited');
     const editedId = conv.activeBranchHead;
     conv = appendMessage(conv, {
@@ -291,8 +298,9 @@ describe('management tools', () => {
     expect(result.status).toBe('success');
     const saved = await conversationStore.load(conv.id);
     expect(saved?.messages['m1'].status).toBe('active');
+    expect(saved?.messages['m2'].status).toBe('active');
     expect(saved?.messages[editedId].status).toBe('superseded');
-    expect(saved?.activeBranchHead).toBe('m1');
+    expect(saved?.activeBranchHead).toBe('m2');
   });
 
   it('switch_branch restores compacted messages when selecting summary alternate', async () => {
