@@ -6,7 +6,7 @@ import type {
   ModelConfig,
   MessageData,
 } from '@legion/types';
-import { getActiveChain } from '../conversation/conversation-ops.js';
+import { editMessage, getActiveChain } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
@@ -213,6 +213,46 @@ function withAlternates(conversationMessages: Record<string, MessageData>, chain
     return alternates.length > 0 ? { ...message, alternates } : message;
   });
 }
+
+export const editMessageTool: Tool = {
+  name: 'edit_message',
+  description: 'Edit an existing message by creating a new branch node.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      messageId: { type: 'string' },
+      newContent: { type: 'string' },
+    },
+    required: ['conversationId', 'messageId', 'newContent'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const { conversationId, messageId, newContent } = args as {
+      conversationId: string;
+      messageId: string;
+      newContent: string;
+    };
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation)
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      const updated = editMessage(conversation, messageId, newContent);
+      await context.conversationStore.save(updated);
+      return {
+        status: 'success',
+        data: {
+          newMessageId: updated.activeBranchHead,
+          activeBranchHead: updated.activeBranchHead,
+        },
+      };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
 
 export const getConversationTool: Tool = {
   name: 'get_conversation',
@@ -492,6 +532,7 @@ export const managementTools: Tool[] = [
   getParticipantTool,
   setToolPolicyTool,
   removeToolPolicyTool,
+  editMessageTool,
   getConversationTool,
   setCredentialTool,
   modifyAgentTool,

@@ -8,6 +8,7 @@ import {
   retireAgentTool,
   listParticipantsTool,
   getParticipantTool,
+  editMessageTool,
   getConversationTool,
   setToolPolicyTool,
   removeToolPolicyTool,
@@ -209,6 +210,36 @@ describe('management tools', () => {
     expect(messages[0].alternates).toEqual([
       { id: 'm1', content: 'original', timestamp: conv.messages['m1'].timestamp },
     ]);
+  });
+
+  it('edit_message creates edited branch and saves it', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'before',
+    });
+    await conversationStore.save(conv);
+
+    const result = await editMessageTool.execute(
+      { conversationId: conv.id, messageId: 'm1', newContent: 'after' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const data = result.data as { newMessageId: string; activeBranchHead: string };
+    expect(data.activeBranchHead).toBe(data.newMessageId);
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m1'].status).toBe('superseded');
+    expect(saved?.messages[data.newMessageId].content).toBe('after');
+    expect(saved?.messages[data.newMessageId].editOf).toBe('m1');
   });
 
   it('get_conversation returns first compacted message as summary alternate', async () => {
