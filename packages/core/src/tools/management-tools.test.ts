@@ -9,6 +9,7 @@ import {
   listParticipantsTool,
   getParticipantTool,
   editMessageTool,
+  switchBranchTool,
   pruneMessageTool,
   getConversationTool,
   setToolPolicyTool,
@@ -254,6 +255,103 @@ describe('management tools', () => {
     expect(result).toEqual({
       status: 'error',
       error: 'conversationId, messageId, and newContent must be strings',
+    });
+  });
+
+  it('switch_branch activates an edited sibling and its active descendants', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'original',
+    });
+    conv = editMessage(conv, 'm1', 'edited');
+    const editedId = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      id: 'm3',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'edited response',
+    });
+    await conversationStore.save(conv);
+
+    const result = await switchBranchTool.execute(
+      { conversationId: conv.id, messageId: 'm1' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m1'].status).toBe('active');
+    expect(saved?.messages[editedId].status).toBe('superseded');
+    expect(saved?.activeBranchHead).toBe('m1');
+  });
+
+  it('switch_branch restores compacted messages when selecting summary alternate', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'start',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'reply',
+    });
+    conv = appendMessage(conv, {
+      id: 'm3',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'after',
+    });
+    conv = compactRange(conv, ['m1', 'm2'], 'summary');
+    const summary = Object.values(conv.messages).find((m) => m.type === 'summary');
+    await conversationStore.save(conv);
+
+    const result = await switchBranchTool.execute(
+      { conversationId: conv.id, messageId: 'm1' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m1'].status).toBe('active');
+    expect(saved?.messages['m2'].status).toBe('active');
+    expect(saved?.messages[summary!.id].status).toBe('superseded');
+    expect(saved?.messages['m3'].parentId).toBe('m2');
+    expect(saved?.activeBranchHead).toBe('m3');
+  });
+
+  it('switch_branch rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await switchBranchTool.execute(
+      { conversationId: 123, messageId: 'm1' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId and messageId must be strings',
     });
   });
 

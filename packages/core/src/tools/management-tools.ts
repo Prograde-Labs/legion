@@ -3,6 +3,7 @@ import type {
   ToolPolicy,
   ToolResult,
   AgentConfig,
+  ConversationData,
   ModelConfig,
   MessageData,
 } from '@legion/types';
@@ -255,6 +256,98 @@ export const editMessageTool: Tool = {
           activeBranchHead: updated.activeBranchHead,
         },
       };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+function switchConversationBranch(
+  conversation: ConversationData,
+  messageId: string,
+): ConversationData {
+  const target = conversation.messages[messageId];
+  if (!target) throw new Error(`Message not found: ${messageId}`);
+
+  const messages: Record<string, MessageData> = { ...conversation.messages };
+  const summary = Object.values(messages).find(
+    (message) => message.type === 'summary' && message.compacts?.includes(messageId),
+  );
+
+  if (target.status === 'compacted' && summary?.compacts?.length) {
+    for (const id of summary.compacts) {
+      messages[id] = { ...messages[id], status: 'active' };
+    }
+    messages[summary.id] = { ...summary, status: 'superseded', supersededBy: messageId };
+    const lastCompactedId = summary.compacts[summary.compacts.length - 1];
+    for (const message of Object.values(messages)) {
+      if (message.parentId === summary.id) {
+        messages[message.id] = { ...message, parentId: lastCompactedId };
+      }
+    }
+    const head =
+      conversation.activeBranchHead === summary.id
+        ? lastCompactedId
+        : conversation.activeBranchHead;
+    return {
+      ...conversation,
+      updatedAt: new Date().toISOString(),
+      activeBranchHead: head,
+      messages,
+    };
+  }
+
+  const activeSibling = Object.values(messages).find(
+    (message) =>
+      message.id !== messageId &&
+      message.parentId === target.parentId &&
+      message.status === 'active',
+  );
+  if (activeSibling) {
+    messages[activeSibling.id] = {
+      ...activeSibling,
+      status: 'superseded',
+      supersededBy: messageId,
+    };
+  }
+  messages[messageId] = { ...target, status: 'active' };
+
+  let head = messageId;
+  for (;;) {
+    const child = Object.values(messages).find(
+      (message) => message.parentId === head && message.status === 'active',
+    );
+    if (!child) break;
+    head = child.id;
+  }
+
+  return { ...conversation, updatedAt: new Date().toISOString(), activeBranchHead: head, messages };
+}
+
+export const switchBranchTool: Tool = {
+  name: 'switch_branch',
+  description: 'Switch the active conversation branch to a sibling message.',
+  parameters: {
+    type: 'object',
+    properties: { conversationId: { type: 'string' }, messageId: { type: 'string' } },
+    required: ['conversationId', 'messageId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; messageId?: unknown };
+    if (typeof input.conversationId !== 'string' || typeof input.messageId !== 'string') {
+      return { status: 'error', error: 'conversationId and messageId must be strings' };
+    }
+    const { conversationId, messageId } = input;
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation)
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      const updated = switchConversationBranch(conversation, messageId);
+      await context.conversationStore.save(updated);
+      return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
