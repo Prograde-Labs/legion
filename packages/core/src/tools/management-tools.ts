@@ -6,7 +6,7 @@ import type {
   ModelConfig,
   MessageData,
 } from '@legion/types';
-import { editMessage, getActiveChain } from '../conversation/conversation-ops.js';
+import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
@@ -255,6 +255,39 @@ export const editMessageTool: Tool = {
           activeBranchHead: updated.activeBranchHead,
         },
       };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const pruneMessageTool: Tool = {
+  name: 'prune_message',
+  description: 'Prune a message from the active conversation chain.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      messageId: { type: 'string' },
+    },
+    required: ['conversationId', 'messageId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; messageId?: unknown };
+    if (typeof input.conversationId !== 'string' || typeof input.messageId !== 'string') {
+      return { status: 'error', error: 'conversationId and messageId must be strings' };
+    }
+    const { conversationId, messageId } = input;
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation)
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      const updated = pruneMessage(conversation, messageId, context.participant.id);
+      await context.conversationStore.save(updated);
+      return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }

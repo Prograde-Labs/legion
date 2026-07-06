@@ -9,6 +9,7 @@ import {
   listParticipantsTool,
   getParticipantTool,
   editMessageTool,
+  pruneMessageTool,
   getConversationTool,
   setToolPolicyTool,
   removeToolPolicyTool,
@@ -253,6 +254,55 @@ describe('management tools', () => {
     expect(result).toEqual({
       status: 'error',
       error: 'conversationId, messageId, and newContent must be strings',
+    });
+  });
+
+  it('prune_message prunes a message and saves the new head', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'prompt',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'answer',
+    });
+    await conversationStore.save(conv);
+
+    const result = await pruneMessageTool.execute(
+      { conversationId: conv.id, messageId: 'm2' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual({ activeBranchHead: 'm1' });
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m2'].status).toBe('pruned');
+    expect(saved?.messages['m2'].prunedBy).toBe('operator');
+  });
+
+  it('prune_message rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await pruneMessageTool.execute(
+      { conversationId: 123, messageId: 'm2' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId and messageId must be strings',
     });
   });
 
