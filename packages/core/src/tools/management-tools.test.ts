@@ -288,6 +288,7 @@ describe('management tools', () => {
     expect(result.status).toBe('success');
     expect(result.data).toEqual({ activeBranchHead: 'm1' });
     const saved = await conversationStore.load(conv.id);
+    expect(saved?.activeBranchHead).toBe('m1');
     expect(saved?.messages['m2'].status).toBe('pruned');
     expect(saved?.messages['m2'].prunedBy).toBe('operator');
   });
