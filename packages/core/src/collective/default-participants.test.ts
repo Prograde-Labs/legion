@@ -17,7 +17,15 @@ describe('createDefaultParticipants', () => {
     expect(operator.tools['create_agent']).toBe('auto');
     expect(operator.tools['communicate']).toBe('auto');
     expect(operator.tools['approval_response']).toBe('auto');
-    expect(operator.tools['edit_message']).toBe('auto');
+    for (const toolName of [
+      'edit_message',
+      'prune_message',
+      'compact_conversation',
+      'generate',
+      'switch_branch',
+    ]) {
+      expect(operator.tools[toolName]).toBe('auto');
+    }
     expect(operator.tools['set_tool_policy']).toBe('auto');
     expect(operator.tools['remove_tool_policy']).toBe('auto');
     expect(operator.tools['save_provider']).toBe('auto');

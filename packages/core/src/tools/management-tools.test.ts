@@ -102,6 +102,22 @@ async function invokeManagementTool(name: string, args: unknown, deps: TestDeps)
 }
 
 describe('management tools', () => {
+  it('registers conversation editing tools', () => {
+    const names = managementTools.map((tool) => tool.name);
+    const conversationEditingTools = [
+      'edit_message',
+      'prune_message',
+      'compact_conversation',
+      'generate',
+      'switch_branch',
+    ];
+
+    expect(names).toEqual(expect.arrayContaining(conversationEditingTools));
+    for (const name of conversationEditingTools) {
+      expect(names.filter((toolName) => toolName === name)).toHaveLength(1);
+    }
+  });
+
   it('create_agent adds a new agent participant', async () => {
     const { context, collective } = await makeContext();
     const result = await createAgentTool.execute(
