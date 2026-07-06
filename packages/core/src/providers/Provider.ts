@@ -1,5 +1,7 @@
 import type { JSONSchema, ModelConfig, ProviderModel } from '@legion/types';
 
+import type { PricingSource } from './PricingSource.js';
+
 /**
  * A message in the LLM conversation thread.
  * `role: 'tool'` carries the result of a function call; use `toolCallId` to match it.
@@ -30,13 +32,27 @@ export interface ProviderTool {
 
 export type ProviderStopReason = 'stop' | 'tool_calls' | 'max_tokens';
 
+/** Raw usage from the provider API. inputTokens includes cached tokens on OpenAI/AI SDK v6. */
+export interface ProviderUsage {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+}
+
 export interface ProviderResponse {
   /** Final assistant text, or null if the LLM only produced tool calls. */
   content: string | null;
   /** Non-empty when stopReason === 'tool_calls'. */
   toolCalls: ProviderToolCall[];
   stopReason: ProviderStopReason;
-  usage?: { promptTokens: number; completionTokens: number };
+  usage?: ProviderUsage;
+  /**
+   * Provider may override cost calculation (e.g. Copilot nano-AIU).
+   * If absent, UsageCalculator computes it via PricingSource.
+   */
+  cost?: number;
 }
 
 /**
@@ -56,4 +72,11 @@ export interface Provider {
    * they must be referenced explicitly via RoutingConfig.
    */
   listModels?(): Promise<ProviderModel[]>;
+
+  /**
+   * Optional: return a PricingSource for models this provider serves.
+   * If absent, the system-wide ModelsDevPricingSource is used.
+   * Providers with bespoke billing (e.g. Copilot AIU, self-hosted) implement this.
+   */
+  pricingSource?(): PricingSource;
 }

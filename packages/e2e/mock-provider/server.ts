@@ -18,7 +18,13 @@ function chatResponse(): string {
         finish_reason: 'stop',
       },
     ],
-    usage: { prompt_tokens: 0, completion_tokens: 1, total_tokens: 1 },
+    usage: {
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      total_tokens: 150,
+      prompt_tokens_details: { cached_tokens: 80 },
+      completion_tokens_details: { reasoning_tokens: 0 },
+    },
   });
 }
 

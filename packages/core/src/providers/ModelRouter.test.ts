@@ -186,4 +186,29 @@ describe('ModelRouter', () => {
 
     expect(result).toBe(fallbackProvider);
   });
+
+  it('resolveWithId returns { provider, providerId } via routing', async () => {
+    const routedProvider = provider();
+    const result = await router(
+      new StubStore([config('routed')], new Map([['routed', routedProvider]])),
+      { models: { 'gpt-4o': ['routed'] } },
+    ).resolveWithId('gpt-4o');
+
+    expect(result).toEqual({ provider: routedProvider, providerId: 'routed' });
+  });
+
+  it('resolveWithId returns providerId from auto-resolution', async () => {
+    const autoProvider = provider([{ id: 'gpt-4o' }]);
+    const result = await router(
+      new StubStore([config('auto')], new Map([['auto', autoProvider]])),
+    ).resolveWithId('gpt-4o');
+
+    expect(result).toEqual({ provider: autoProvider, providerId: 'auto' });
+  });
+
+  it('resolveWithId returns null when no provider matches', async () => {
+    const result = await router(new StubStore([], new Map())).resolveWithId('gpt-4o');
+
+    expect(result).toBeNull();
+  });
 });

@@ -1,4 +1,4 @@
-import type { MessageData, ParticipantConfig } from '@legion/types';
+import type { MessageData, MessageUsage, ParticipantConfig } from '@legion/types';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';
@@ -7,7 +7,7 @@ import type { ApprovalLog } from '../auth/ApprovalLog.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 
 export type RuntimeResult =
-  | { kind: 'response'; content: string }
+  | { kind: 'response'; content: string; usage?: MessageUsage }
   | { kind: 'pending_approval'; approvalRequests: PendingApproval[] }
   | { kind: 'void' };
 

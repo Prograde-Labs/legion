@@ -30,7 +30,22 @@ interface OAIChatResponse {
     message: OAIMessage;
     finish_reason: 'stop' | 'tool_calls' | 'length' | 'content_filter';
   }>;
-  usage?: { prompt_tokens: number; completion_tokens: number };
+  usage?: OAIUsage;
+}
+
+interface OAIUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens?: number;
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+  };
+  completion_tokens_details?: {
+    reasoning_tokens?: number;
+  };
+  /** Anthropic-via-proxy fields (LiteLLM and similar). NOT OpenAI-native. */
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
 interface OAIModelsResponse {
@@ -170,8 +185,12 @@ export class OpenAICompatibleProvider implements Provider {
       stopReason,
       usage: data.usage
         ? {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
+            inputTokens: data.usage.prompt_tokens,
+            outputTokens: data.usage.completion_tokens,
+            reasoningTokens: data.usage.completion_tokens_details?.reasoning_tokens,
+            cacheReadInputTokens:
+              data.usage.prompt_tokens_details?.cached_tokens ?? data.usage.cache_read_input_tokens,
+            cacheWriteInputTokens: data.usage.cache_creation_input_tokens,
           }
         : undefined,
     };

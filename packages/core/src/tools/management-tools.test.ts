@@ -14,8 +14,11 @@ import {
   modifyAgentTool,
   listConversationsTool,
   deleteConversationTool,
+  queryUsageTool,
+  listModelsTool,
   managementTools,
 } from './management-tools.js';
+import type { MessageUsage } from '@legion/types';
 import type { ToolContext } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';
@@ -716,5 +719,154 @@ describe('delete_conversation', () => {
     const result = await deleteConversationTool.execute({ conversationId: conv.id }, context);
     expect(result.status).toBe('success');
     expect((result as { data: { deleted: boolean } }).data).toEqual({ deleted: true });
+  });
+});
+
+describe('query_usage tool', () => {
+  it('returns zero totals when no conversations exist', async () => {
+    const context = await makeContext();
+    const result = await queryUsageTool.execute({}, context);
+    expect(result).toEqual({
+      status: 'success',
+      data: {
+        totals: {
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+          cost: 0,
+          messageCount: 0,
+        },
+      },
+    });
+  });
+
+  it('sums usage across conversations', async () => {
+    const context = await makeContext();
+    const usage: MessageUsage = {
+      input: 100,
+      output: 50,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+      cost: 0.001,
+      modelId: 'gpt-4o',
+      providerId: 'openai',
+    };
+    const conv = await context.conversationStore!.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await context.conversationStore!.appendMessage(conv.id, {
+      id: 'msg-1',
+      parentId: null,
+      conversationId: conv.id,
+      senderId: 'user-1',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    await context.conversationStore!.appendMessage(conv.id, {
+      id: 'msg-2',
+      parentId: 'msg-1',
+      conversationId: conv.id,
+      senderId: 'agent-1',
+      recipientId: 'user-1',
+      role: 'assistant',
+      content: 'hello',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+      usage,
+    });
+
+    const result = await queryUsageTool.execute({}, context);
+    expect(result.status).toBe('success');
+    const data = (result as { data: { totals: { messageCount: number; input: number } } }).data;
+    expect(data.totals.messageCount).toBe(1);
+    expect(data.totals.input).toBe(100);
+  });
+
+  it('groups by model', async () => {
+    const context = await makeContext();
+    const usage1: MessageUsage = {
+      input: 100,
+      output: 50,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+      cost: 0.001,
+      modelId: 'gpt-4o',
+      providerId: 'openai',
+    };
+    const usage2: MessageUsage = {
+      input: 200,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+      cost: 0.005,
+      modelId: 'claude-sonnet-4-5',
+      providerId: 'anthropic',
+    };
+    const conv = await context.conversationStore!.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await context.conversationStore!.appendMessage(conv.id, {
+      id: 'msg-1',
+      parentId: null,
+      conversationId: conv.id,
+      senderId: 'user-1',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    await context.conversationStore!.appendMessage(conv.id, {
+      id: 'msg-2',
+      parentId: 'msg-1',
+      conversationId: conv.id,
+      senderId: 'agent-1',
+      recipientId: 'user-1',
+      role: 'assistant',
+      content: 'r1',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+      usage: usage1,
+    });
+    await context.conversationStore!.updateMessage(conv.id, 'msg-2', {
+      status: 'superseded',
+    });
+    await context.conversationStore!.updateHead(conv.id, 'msg-1');
+    await context.conversationStore!.appendMessage(conv.id, {
+      id: 'msg-3',
+      parentId: 'msg-1',
+      conversationId: conv.id,
+      senderId: 'agent-1',
+      recipientId: 'user-1',
+      role: 'assistant',
+      content: 'r2',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+      usage: usage2,
+    });
+
+    const result = await queryUsageTool.execute({ groupBy: 'model' }, context);
+    expect(result.status).toBe('success');
+    const data = (result as { data: { groups: Array<{ key: string; totals: { input: number } }> } })
+      .data;
+    expect(data.groups).toHaveLength(1);
+    expect(data.groups[0].key).toBe('claude-sonnet-4-5');
+  });
+});
+
+describe('list_models tool', () => {
+  it('returns an empty array when no providers are available', async () => {
+    const context = await makeContext();
+    const result = await listModelsTool.execute({}, context);
+    expect(result.status).toBe('success');
+    expect((result as { data: unknown }).data).toEqual([]);
   });
 });

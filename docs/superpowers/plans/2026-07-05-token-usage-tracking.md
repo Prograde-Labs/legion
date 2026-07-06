@@ -16,35 +16,35 @@
 
 ### New files
 
-| File | Responsibility |
-|---|---|
-| `packages/types/src/usage.ts` | `MessageUsage` type (5 token buckets + cost + model/provider IDs) |
-| `packages/core/src/providers/PricingSource.ts` | `PricingSource` interface + `ModelPricing` type |
-| `packages/core/src/providers/ModelsDevPricingSource.ts` | Default impl: fetch models.dev, 24h cache, hardcoded fallback |
-| `packages/core/src/providers/ModelsDevPricingSource.test.ts` | Unit tests |
-| `packages/core/src/providers/UsageCalculator.ts` | `ProviderUsage` → `MessageUsage` normalization + cost math |
-| `packages/core/src/providers/UsageCalculator.test.ts` | Unit tests |
-| `packages/core/src/usage/usage-types.ts` | `MessageUsageTotals`, `UsageFilter`, `UsageReport`, `GroupBy` |
-| `packages/core/src/usage/UsageQuery.ts` | Aggregate query — walks conversation tree |
-| `packages/core/src/usage/UsageQuery.test.ts` | Unit tests with fixture conversations |
+| File                                                         | Responsibility                                                    |
+| ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `packages/types/src/usage.ts`                                | `MessageUsage` type (5 token buckets + cost + model/provider IDs) |
+| `packages/core/src/providers/PricingSource.ts`               | `PricingSource` interface + `ModelPricing` type                   |
+| `packages/core/src/providers/ModelsDevPricingSource.ts`      | Default impl: fetch models.dev, 24h cache, hardcoded fallback     |
+| `packages/core/src/providers/ModelsDevPricingSource.test.ts` | Unit tests                                                        |
+| `packages/core/src/providers/UsageCalculator.ts`             | `ProviderUsage` → `MessageUsage` normalization + cost math        |
+| `packages/core/src/providers/UsageCalculator.test.ts`        | Unit tests                                                        |
+| `packages/core/src/usage/usage-types.ts`                     | `MessageUsageTotals`, `UsageFilter`, `UsageReport`, `GroupBy`     |
+| `packages/core/src/usage/UsageQuery.ts`                      | Aggregate query — walks conversation tree                         |
+| `packages/core/src/usage/UsageQuery.test.ts`                 | Unit tests with fixture conversations                             |
 
 ### Modified files
 
-| File | Changes |
-|---|---|
-| `packages/types/src/conversation.ts` | Add `usage?: MessageUsage` to `MessageData` |
-| `packages/types/src/index.ts` | Re-export `./usage.js` |
-| `packages/core/src/providers/Provider.ts` | Replace 2-field `usage` with `ProviderUsage`; add `cost?` to `ProviderResponse`; add `pricingSource?()` to `Provider` |
-| `packages/core/src/providers/OpenAICompatibleProvider.ts` | Expand `OAIUsage` type; extract cache/reasoning fields |
-| `packages/core/src/providers/OpenAICompatibleProvider.test.ts` | Update existing tests for new `ProviderUsage` shape; add cache/reasoning test |
-| `packages/core/src/conversation/conversation-ops.ts` | Add `usage` to `NewMessageInput` Partial<Pick<>> |
-| `packages/core/src/runtime/AgentRuntime.ts` | Inject `UsageCalculator`; compute usage after provider call; pass to `append()` |
-| `packages/core/src/runtime/AgentRuntime.test.ts` | Inject mock calculator in `makeSetup`; assert usage on persisted messages |
-| `packages/core/src/tools/management-tools.ts` | Add `query_usage` + `list_models` tools; add to `managementTools` array |
-| `packages/core/src/tools/management-tools.test.ts` | Tests for new tools |
-| `packages/core/src/index.ts` | Export `UsageCalculator`, `UsageQuery`, `PricingSource`, `ModelsDevPricingSource` |
-| `packages/core/package.json` | Add `decimal.js` dependency |
-| `packages/e2e/mock-provider/server.ts` | Expand `usage` to include `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
+| File                                                           | Changes                                                                                                               |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `packages/types/src/conversation.ts`                           | Add `usage?: MessageUsage` to `MessageData`                                                                           |
+| `packages/types/src/index.ts`                                  | Re-export `./usage.js`                                                                                                |
+| `packages/core/src/providers/Provider.ts`                      | Replace 2-field `usage` with `ProviderUsage`; add `cost?` to `ProviderResponse`; add `pricingSource?()` to `Provider` |
+| `packages/core/src/providers/OpenAICompatibleProvider.ts`      | Expand `OAIUsage` type; extract cache/reasoning fields                                                                |
+| `packages/core/src/providers/OpenAICompatibleProvider.test.ts` | Update existing tests for new `ProviderUsage` shape; add cache/reasoning test                                         |
+| `packages/core/src/conversation/conversation-ops.ts`           | Add `usage` to `NewMessageInput` Partial<Pick<>>                                                                      |
+| `packages/core/src/runtime/AgentRuntime.ts`                    | Inject `UsageCalculator`; compute usage after provider call; pass to `append()`                                       |
+| `packages/core/src/runtime/AgentRuntime.test.ts`               | Inject mock calculator in `makeSetup`; assert usage on persisted messages                                             |
+| `packages/core/src/tools/management-tools.ts`                  | Add `query_usage` + `list_models` tools; add to `managementTools` array                                               |
+| `packages/core/src/tools/management-tools.test.ts`             | Tests for new tools                                                                                                   |
+| `packages/core/src/index.ts`                                   | Export `UsageCalculator`, `UsageQuery`, `PricingSource`, `ModelsDevPricingSource`                                     |
+| `packages/core/package.json`                                   | Add `decimal.js` dependency                                                                                           |
+| `packages/e2e/mock-provider/server.ts`                         | Expand `usage` to include `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`        |
 
 ---
 
@@ -280,84 +280,84 @@ follows. Provider.pricingSource?() hook allows per-provider override."
 In `packages/core/src/providers/OpenAICompatibleProvider.test.ts`, add a new test inside the `describe('OpenAICompatibleProvider', ...)` block (before the closing `});`):
 
 ```typescript
-  it('extracts cache and reasoning tokens from prompt_tokens_details and completion_tokens_details', async () => {
-    fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'thinking...', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 2006,
-          completion_tokens: 300,
-          total_tokens: 2306,
-          prompt_tokens_details: { cached_tokens: 1920 },
-          completion_tokens_details: { reasoning_tokens: 50 },
+it('extracts cache and reasoning tokens from prompt_tokens_details and completion_tokens_details', async () => {
+  fetchMock.mockResolvedValue(
+    makeOkResponse({
+      choices: [
+        {
+          message: { role: 'assistant', content: 'thinking...', tool_calls: null },
+          finish_reason: 'stop',
         },
-      }),
-    );
+      ],
+      usage: {
+        prompt_tokens: 2006,
+        completion_tokens: 300,
+        total_tokens: 2306,
+        prompt_tokens_details: { cached_tokens: 1920 },
+        completion_tokens_details: { reasoning_tokens: 50 },
+      },
+    }),
+  );
 
-    const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+  const provider = new OpenAICompatibleProvider();
+  const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
 
-    expect(result.usage).toEqual({
-      inputTokens: 2006,
-      outputTokens: 300,
-      reasoningTokens: 50,
-      cacheReadInputTokens: 1920,
-      cacheWriteInputTokens: undefined,
-    });
+  expect(result.usage).toEqual({
+    inputTokens: 2006,
+    outputTokens: 300,
+    reasoningTokens: 50,
+    cacheReadInputTokens: 1920,
+    cacheWriteInputTokens: undefined,
   });
+});
 
-  it('falls back to cache_read_input_tokens when prompt_tokens_details is absent', async () => {
-    fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'hi', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
-          prompt_tokens: 1000,
-          completion_tokens: 100,
-          cache_read_input_tokens: 800,
-          cache_creation_input_tokens: 200,
+it('falls back to cache_read_input_tokens when prompt_tokens_details is absent', async () => {
+  fetchMock.mockResolvedValue(
+    makeOkResponse({
+      choices: [
+        {
+          message: { role: 'assistant', content: 'hi', tool_calls: null },
+          finish_reason: 'stop',
         },
-      }),
-    );
+      ],
+      usage: {
+        prompt_tokens: 1000,
+        completion_tokens: 100,
+        cache_read_input_tokens: 800,
+        cache_creation_input_tokens: 200,
+      },
+    }),
+  );
 
-    const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+  const provider = new OpenAICompatibleProvider();
+  const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
 
-    expect(result.usage).toEqual({
-      inputTokens: 1000,
-      outputTokens: 100,
-      reasoningTokens: undefined,
-      cacheReadInputTokens: 800,
-      cacheWriteInputTokens: 200,
-    });
+  expect(result.usage).toEqual({
+    inputTokens: 1000,
+    outputTokens: 100,
+    reasoningTokens: undefined,
+    cacheReadInputTokens: 800,
+    cacheWriteInputTokens: 200,
   });
+});
 
-  it('returns undefined usage when API omits usage object', async () => {
-    fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'no usage', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-      }),
-    );
+it('returns undefined usage when API omits usage object', async () => {
+  fetchMock.mockResolvedValue(
+    makeOkResponse({
+      choices: [
+        {
+          message: { role: 'assistant', content: 'no usage', tool_calls: null },
+          finish_reason: 'stop',
+        },
+      ],
+    }),
+  );
 
-    const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+  const provider = new OpenAICompatibleProvider();
+  const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
 
-    expect(result.usage).toBeUndefined();
-  });
+  expect(result.usage).toBeUndefined();
+});
 ```
 
 - [ ] **Step 2: Update the existing test that asserts `result.usage?.promptTokens`**
@@ -365,15 +365,15 @@ In `packages/core/src/providers/OpenAICompatibleProvider.test.ts`, add a new tes
 In the first test (`'uses constructor base URL...'`), find lines 69-70:
 
 ```typescript
-    expect(result.usage?.promptTokens).toBe(10);
-    expect(result.usage?.completionTokens).toBe(5);
+expect(result.usage?.promptTokens).toBe(10);
+expect(result.usage?.completionTokens).toBe(5);
 ```
 
 Replace with:
 
 ```typescript
-    expect(result.usage?.inputTokens).toBe(10);
-    expect(result.usage?.outputTokens).toBe(5);
+expect(result.usage?.inputTokens).toBe(10);
+expect(result.usage?.outputTokens).toBe(5);
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -543,7 +543,13 @@ const SAMPLE_MODELS_JSON = {
         cache_read: 0.3125,
         cache_write: 0,
         tiers: [
-          { tier: { type: 'context', size: 200000 }, input: 2.5, output: 15, cache_read: 0.625, cache_write: 0 },
+          {
+            tier: { type: 'context', size: 200000 },
+            input: 2.5,
+            output: 15,
+            cache_read: 0.625,
+            cache_write: 0,
+          },
         ],
       },
     },
@@ -774,7 +780,7 @@ const HARDCODED_FALLBACK: Record<string, ModelPricing> = {
   'gpt-4o': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } },
   'gpt-4o-mini': { input: 0.15, output: 0.6, cache: { read: 0.075, write: 0.15 } },
   'gpt-4-turbo': { input: 10, output: 30, cache: { read: 5, write: 10 } },
-  'o1': { input: 15, output: 60, cache: { read: 7.5, write: 15 } },
+  o1: { input: 15, output: 60, cache: { read: 7.5, write: 15 } },
   'o1-mini': { input: 1.1, output: 4.4, cache: { read: 0.55, write: 1.1 } },
   'claude-opus-4-5': { input: 15, output: 75, cache: { read: 1.5, write: 18.75 } },
   'claude-sonnet-4-5': { input: 3, output: 15, cache: { read: 0.3, write: 3.75 } },
@@ -784,7 +790,12 @@ const HARDCODED_FALLBACK: Record<string, ModelPricing> = {
     output: 10,
     cache: { read: 0.3125, write: 0 },
     tiers: [
-      { tier: { type: 'context', size: 200000 }, input: 2.5, output: 15, cache: { read: 0.625, write: 0 } },
+      {
+        tier: { type: 'context', size: 200000 },
+        input: 2.5,
+        output: 15,
+        cache: { read: 0.625, write: 0 },
+      },
     ],
   },
   'gemini-2.5-flash': { input: 0.075, output: 0.3, cache: { read: 0.01875, write: 0 } },
@@ -819,7 +830,10 @@ function mapCost(cost: ModelsDevCost | undefined): ModelPricing | undefined {
         tier: { type: 'context', size: 200000 },
         input: cost.context_over_200k.input,
         output: cost.context_over_200k.output,
-        cache: { read: cost.context_over_200k.cache_read ?? 0, write: cost.context_over_200k.cache_write ?? 0 },
+        cache: {
+          read: cost.context_over_200k.cache_read ?? 0,
+          write: cost.context_over_200k.cache_write ?? 0,
+        },
       },
     ];
   }
@@ -948,13 +962,21 @@ const TIERED_PRICING: ModelPricing = {
   output: 10,
   cache: { read: 0.3125, write: 0 },
   tiers: [
-    { tier: { type: 'context', size: 200000 }, input: 2.5, output: 15, cache: { read: 0.625, write: 0 } },
+    {
+      tier: { type: 'context', size: 200000 },
+      input: 2.5,
+      output: 15,
+      cache: { read: 0.625, write: 0 },
+    },
   ],
 };
 
 describe('UsageCalculator', () => {
   it('subtracts cache read and cache write from input tokens', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 2006,
       outputTokens: 300,
@@ -969,7 +991,10 @@ describe('UsageCalculator', () => {
   });
 
   it('subtracts reasoning tokens from output tokens', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 100,
       outputTokens: 300,
@@ -982,7 +1007,10 @@ describe('UsageCalculator', () => {
   });
 
   it('computes cost as sum of (tokens * rate / 1M) for each bucket', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 2006,
       outputTokens: 300,
@@ -998,7 +1026,10 @@ describe('UsageCalculator', () => {
   });
 
   it('charges reasoning tokens at output rate', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 100,
       outputTokens: 300,
@@ -1050,7 +1081,10 @@ describe('UsageCalculator', () => {
   });
 
   it('uses provider cost override when provided', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 100,
       outputTokens: 100,
@@ -1061,7 +1095,10 @@ describe('UsageCalculator', () => {
   });
 
   it('treats undefined optional fields as 0', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 100,
       outputTokens: 50,
@@ -1087,7 +1124,10 @@ describe('UsageCalculator', () => {
   });
 
   it('clamps input to non-negative when cache exceeds input', async () => {
-    const calc = new UsageCalculator(new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }), new Map());
+    const calc = new UsageCalculator(
+      new MockPricingSource({ 'gpt-4o': GPT_4O_PRICING }),
+      new Map(),
+    );
     const raw: ProviderUsage = {
       inputTokens: 50,
       outputTokens: 10,
@@ -1273,7 +1313,10 @@ Replace with:
 ```typescript
 export type NewMessageInput = Pick<MessageData, 'senderId' | 'recipientId' | 'role' | 'content'> &
   Partial<
-    Pick<MessageData, 'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'>
+    Pick<
+      MessageData,
+      'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'
+    >
   >;
 ```
 
@@ -1282,83 +1325,84 @@ export type NewMessageInput = Pick<MessageData, 'senderId' | 'recipientId' | 'ro
 In `packages/core/src/runtime/AgentRuntime.test.ts`, add a new test inside `describe('AgentRuntime', ...)`:
 
 ```typescript
-  it('attaches usage from ProviderResponse to the persisted assistant message', async () => {
-    const { context, inbound, router } = await makeSetup([
-      {
-        content: 'I used some tokens',
-        toolCalls: [],
-        stopReason: 'stop',
-        usage: {
-          inputTokens: 2006,
-          outputTokens: 300,
-          reasoningTokens: 50,
-          cacheReadInputTokens: 1920,
-        },
-        cost: 0.005615,
+it('attaches usage from ProviderResponse to the persisted assistant message', async () => {
+  const { context, inbound, router } = await makeSetup([
+    {
+      content: 'I used some tokens',
+      toolCalls: [],
+      stopReason: 'stop',
+      usage: {
+        inputTokens: 2006,
+        outputTokens: 300,
+        reasoningTokens: 50,
+        cacheReadInputTokens: 1920,
       },
-    ]);
-    const calc = new UsageCalculator(
-      new MockPricingSource({ 'test-model': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } } }),
-      new Map(),
-    );
-    const runtime = new AgentRuntime('agent-1', router, calc);
-    await runtime.handle(inbound, context);
+      cost: 0.005615,
+    },
+  ]);
+  const calc = new UsageCalculator(
+    new MockPricingSource({
+      'test-model': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } },
+    }),
+    new Map(),
+  );
+  const runtime = new AgentRuntime('agent-1', router, calc);
+  await runtime.handle(inbound, context);
 
-    const chain = context.conversation.activeChain;
-    const assistantMsg = chain.find((m) => m.role === 'assistant');
-    expect(assistantMsg?.usage).toEqual({
-      input: 36,
-      output: 250,
-      reasoning: 50,
-      cache: { read: 1920, write: 0 },
-      cost: 0.005615, // provider cost override used directly
-      modelId: 'test-model',
-      providerId: 'unknown',
-    });
+  const chain = context.conversation.activeChain;
+  const assistantMsg = chain.find((m) => m.role === 'assistant');
+  expect(assistantMsg?.usage).toEqual({
+    input: 36,
+    output: 250,
+    reasoning: 50,
+    cache: { read: 1920, write: 0 },
+    cost: 0.005615, // provider cost override used directly
+    modelId: 'test-model',
+    providerId: 'unknown',
   });
+});
 
-  it('computes usage via calculator when ProviderResponse has no cost override', async () => {
-    const { context, inbound, router } = await makeSetup([
-      {
-        content: 'no cost override',
-        toolCalls: [],
-        stopReason: 'stop',
-        usage: {
-          inputTokens: 100,
-          outputTokens: 50,
-        },
+it('computes usage via calculator when ProviderResponse has no cost override', async () => {
+  const { context, inbound, router } = await makeSetup([
+    {
+      content: 'no cost override',
+      toolCalls: [],
+      stopReason: 'stop',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
       },
-    ]);
-    const calc = new UsageCalculator(
-      new MockPricingSource({ 'test-model': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } } }),
-      new Map(),
-    );
-    const runtime = new AgentRuntime('agent-1', router, calc);
-    await runtime.handle(inbound, context);
+    },
+  ]);
+  const calc = new UsageCalculator(
+    new MockPricingSource({
+      'test-model': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } },
+    }),
+    new Map(),
+  );
+  const runtime = new AgentRuntime('agent-1', router, calc);
+  await runtime.handle(inbound, context);
 
-    const chain = context.conversation.activeChain;
-    const assistantMsg = chain.find((m) => m.role === 'assistant');
-    expect(assistantMsg?.usage).toBeDefined();
-    expect(assistantMsg?.usage?.input).toBe(100);
-    expect(assistantMsg?.usage?.output).toBe(50);
-    expect(assistantMsg?.usage?.cost).toBeCloseTo(0.00075, 6); // 100*2.5/1e6 + 50*10/1e6
-  });
+  const chain = context.conversation.activeChain;
+  const assistantMsg = chain.find((m) => m.role === 'assistant');
+  expect(assistantMsg?.usage).toBeDefined();
+  expect(assistantMsg?.usage?.input).toBe(100);
+  expect(assistantMsg?.usage?.output).toBe(50);
+  expect(assistantMsg?.usage?.cost).toBeCloseTo(0.00075, 6); // 100*2.5/1e6 + 50*10/1e6
+});
 
-  it('persists assistant message without usage when ProviderResponse omits usage', async () => {
-    const { context, inbound, router } = await makeSetup([
-      { content: 'no usage', toolCalls: [], stopReason: 'stop' },
-    ]);
-    const calc = new UsageCalculator(
-      new MockPricingSource({}),
-      new Map(),
-    );
-    const runtime = new AgentRuntime('agent-1', router, calc);
-    await runtime.handle(inbound, context);
+it('persists assistant message without usage when ProviderResponse omits usage', async () => {
+  const { context, inbound, router } = await makeSetup([
+    { content: 'no usage', toolCalls: [], stopReason: 'stop' },
+  ]);
+  const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+  const runtime = new AgentRuntime('agent-1', router, calc);
+  await runtime.handle(inbound, context);
 
-    const chain = context.conversation.activeChain;
-    const assistantMsg = chain.find((m) => m.role === 'assistant');
-    expect(assistantMsg?.usage).toBeUndefined();
-  });
+  const chain = context.conversation.activeChain;
+  const assistantMsg = chain.find((m) => m.role === 'assistant');
+  expect(assistantMsg?.usage).toBeUndefined();
+});
 ```
 
 Also add these imports at the top of the test file:
@@ -1380,13 +1424,13 @@ class MockPricingSource implements PricingSource {
 Every `new AgentRuntime('agent-1', router)` call must become `new AgentRuntime('agent-1', router, calc)`. There are 7 such calls in the file. For each, add before the call (or reuse an existing `calc` variable):
 
 ```typescript
-    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+const calc = new UsageCalculator(new MockPricingSource({}), new Map());
 ```
 
 And change the constructor call:
 
 ```typescript
-    const runtime = new AgentRuntime('agent-1', router, calc);
+const runtime = new AgentRuntime('agent-1', router, calc);
 ```
 
 - [ ] **Step 4: Run tests to verify the new ones fail**
@@ -1417,55 +1461,55 @@ Update constructor (lines 46-49):
 Update the final-response return path (line 125-127). Find:
 
 ```typescript
-        if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
-          return { kind: 'response', content: response.content ?? '' };
-        }
+if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
+  return { kind: 'response', content: response.content ?? '' };
+}
 ```
 
 Replace with:
 
 ```typescript
-        if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
-          const usage = await this.computeUsage(agent, response);
-          if (usage) {
-            await context.conversation.append({
-              senderId: this.participantId,
-              recipientId: this.participantId,
-              role: 'assistant',
-              content: response.content ?? '',
-              usage,
-            });
-          }
-          return { kind: 'response', content: response.content ?? '' };
-        }
+if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
+  const usage = await this.computeUsage(agent, response);
+  if (usage) {
+    await context.conversation.append({
+      senderId: this.participantId,
+      recipientId: this.participantId,
+      role: 'assistant',
+      content: response.content ?? '',
+      usage,
+    });
+  }
+  return { kind: 'response', content: response.content ?? '' };
+}
 ```
 
 Update the tool-call turn persistence (lines 202-210). Find:
 
 ```typescript
-        await context.conversation.append({
-          senderId: this.participantId,
-          recipientId: this.participantId,
-          role: 'assistant',
-          content: response.content ?? '',
-          toolCalls: toolCallData,
-          toolResults,
-        });
+await context.conversation.append({
+  senderId: this.participantId,
+  recipientId: this.participantId,
+  role: 'assistant',
+  content: response.content ?? '',
+  toolCalls: toolCallData,
+  toolResults,
+});
 ```
 
 Replace with:
 
 ```typescript
-        const usage = await this.computeUsage(agent, response);
-        await context.conversation.append({
-          senderId: this.participantId,
-          recipientId: this.participantId,
-          role: 'assistant',
-          content: response.content ?? '',
-          toolCalls: toolCallData,
-          toolResults,
-          usage,
-        });
+const usage = await this.computeUsage(agent, response);
+await context.conversation.append({
+  senderId: this.participantId,
+  recipientId: this.participantId,
+  role: 'assistant',
+  content: response.content ?? '',
+  toolCalls: toolCallData,
+  toolResults,
+  usage,
+});
 ```
 
 Add the `computeUsage` private method at the end of the class (before the closing `}`):
@@ -1571,7 +1615,10 @@ export const EMPTY_TOTALS: MessageUsageTotals = {
   messageCount: 0,
 };
 
-export function addUsageToTotals(totals: MessageUsageTotals, usage: MessageUsage): MessageUsageTotals {
+export function addUsageToTotals(
+  totals: MessageUsageTotals,
+  usage: MessageUsage,
+): MessageUsageTotals {
   return {
     input: totals.input + usage.input,
     output: totals.output + usage.output,
@@ -1832,7 +1879,12 @@ describe('UsageQuery', () => {
     const store = new FileConversationStore(storage);
     const conv = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     const thread = new ConversationThread(conv, store);
-    await thread.append({ senderId: 'user-1', recipientId: 'agent-1', role: 'user', content: 'hi' });
+    await thread.append({
+      senderId: 'user-1',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+    });
     const msg1 = await thread.append({
       senderId: 'agent-1',
       recipientId: 'user-1',
@@ -1862,7 +1914,12 @@ describe('UsageQuery', () => {
     const store = new FileConversationStore(storage);
     const conv = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     const thread = new ConversationThread(conv, store);
-    await thread.append({ senderId: 'user-1', recipientId: 'agent-1', role: 'user', content: 'hi' });
+    await thread.append({
+      senderId: 'user-1',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+    });
     const msg = await thread.append({
       senderId: 'agent-1',
       recipientId: 'user-1',
@@ -1884,7 +1941,12 @@ describe('UsageQuery', () => {
     const store = new FileConversationStore(storage);
     const conv = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     const thread = new ConversationThread(conv, store);
-    await thread.append({ senderId: 'user-1', recipientId: 'agent-1', role: 'user', content: 'hi' });
+    await thread.append({
+      senderId: 'user-1',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+    });
     await thread.append({
       senderId: 'agent-1',
       recipientId: 'user-1',
@@ -2183,7 +2245,8 @@ describe('query_usage tool', () => {
 
     const result = await queryUsageTool.execute({ groupBy: 'model' }, context);
     expect(result.status).toBe('success');
-    const data = (result as { data: { groups: Array<{ key: string; totals: { input: number } }> } }).data;
+    const data = (result as { data: { groups: Array<{ key: string; totals: { input: number } }> } })
+      .data;
     expect(data.groups).toHaveLength(1);
     expect(data.groups[0].key).toBe('claude-sonnet-4-5');
   });
@@ -2223,7 +2286,10 @@ export const queryUsageTool: Tool = {
     type: 'object',
     properties: {
       conversationId: { type: 'string', description: 'Scope to one conversation.' },
-      participantId: { type: 'string', description: 'Scope to conversations involving this participant.' },
+      participantId: {
+        type: 'string',
+        description: 'Scope to conversations involving this participant.',
+      },
       modelId: { type: 'string', description: 'Filter to a specific model.' },
       providerId: { type: 'string', description: 'Filter to a specific provider.' },
       since: { type: 'string', description: 'ISO 8601 — only messages after this time.' },
@@ -2440,6 +2506,7 @@ git commit -m "style: format after token usage tracking implementation"
 ## Self-Review Notes
 
 **Spec coverage check:**
+
 - ✅ `MessageUsage` type (Task 1)
 - ✅ `MessageData.usage?` field (Task 1)
 - ✅ `ProviderUsage` type + `ProviderResponse` shape (Task 2)
@@ -2458,6 +2525,7 @@ git commit -m "style: format after token usage tracking implementation"
 - ✅ Testing: unit tests for all new modules, integration via existing AgentRuntime tests
 
 **Known gaps (follow-up, not in this plan):**
+
 - `providerId` is `'unknown'` in `AgentRuntime.computeUsage()` — `ModelRouter.resolve()` returns `Provider` but not its ID. Follow-up: change `resolve()` to return `{ provider, providerId }`.
 - `list_models` tool returns provider stubs, not actual model listings with pricing — requires runtime wiring of `PricingSource` into the tool context. Follow-up: inject `PricingSource` into `ToolContext` and have `list_models` call `provider.listModels()` + `pricingSource.resolve()`.
 - `createManagementTools()` factory does not wire `UsageCalculator` — callers that use the factory (runtime) need to pass it in. Follow-up: update `LegionProcess` to construct `ModelsDevPricingSource` + `UsageCalculator` and inject into `AgentRuntime` factory.

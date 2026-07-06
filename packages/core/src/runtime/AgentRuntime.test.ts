@@ -12,7 +12,9 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
+import { UsageCalculator } from '../providers/UsageCalculator.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
+import type { ModelPricing, PricingSource } from '../providers/PricingSource.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { AgentConfig, JSONSchema, Tool, MessageData } from '@legion/types';
@@ -21,11 +23,23 @@ import type { MessageRouterPort } from '../tools/Tool.js';
 
 // ── Test helper ──────────────────────────────────────────────────────────────
 
+class MockPricingSource implements PricingSource {
+  constructor(private pricing: Record<string, ModelPricing>) {}
+  async resolve(_providerId: string, modelId: string): Promise<ModelPricing | undefined> {
+    return this.pricing[modelId];
+  }
+}
+
 class MockModelRouter {
   constructor(private mockProviders: Map<string, Provider>) {}
 
   async resolve(modelId: string): Promise<Provider | null> {
     return this.mockProviders.get(modelId) ?? null;
+  }
+
+  async resolveWithId(modelId: string): Promise<{ provider: Provider; providerId: string } | null> {
+    const provider = this.mockProviders.get(modelId);
+    return provider ? { provider, providerId: 'mock-provider' } : null;
   }
 }
 
@@ -106,7 +120,8 @@ describe('AgentRuntime', () => {
     const { context, inbound, router } = await makeSetup([
       { content: 'I am happy to help!', toolCalls: [], stopReason: 'stop' },
     ]);
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
     expect(result).toEqual({ kind: 'response', content: 'I am happy to help!' });
     // No extra messages persisted — only the inbound message
@@ -122,7 +137,8 @@ describe('AgentRuntime', () => {
       },
       { content: 'Done echoing!', toolCalls: [], stopReason: 'stop' },
     ]);
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
 
     expect(result).toEqual({ kind: 'response', content: 'Done echoing!' });
@@ -147,7 +163,8 @@ describe('AgentRuntime', () => {
       },
       { content: 'Finished.', toolCalls: [], stopReason: 'stop' },
     ]);
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const events: string[] = [];
     eventBus.on('iteration', () => events.push('iteration'));
     eventBus.on('tool:call', () => events.push('tool:call'));
@@ -222,7 +239,8 @@ describe('AgentRuntime', () => {
       pendingApprovalRegistry: new PendingApprovalRegistry(),
     } as unknown as RuntimeContext;
 
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
     expect((result as { kind: string; content: string }).content).toMatch(/maximum iteration/i);
     expect((result as { kind: string; content: string }).content).toContain('2');
@@ -231,7 +249,8 @@ describe('AgentRuntime', () => {
   it('returns an error message when no provider is registered for the agent model', async () => {
     const emptyRouter = new MockModelRouter(new Map()) as ModelRouter;
     const { context, inbound } = await makeSetup([]);
-    const runtime = new AgentRuntime('agent-1', emptyRouter);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', emptyRouter, calc);
     const result = await runtime.handle(inbound, context);
     expect((result as { kind: string; content: string }).content).toMatch(/no provider/i);
     expect((result as { kind: string; content: string }).content).toMatch(/test-model/);
@@ -239,12 +258,13 @@ describe('AgentRuntime', () => {
 
   it('returns a graceful error response when model resolution throws', async () => {
     const throwingRouter = {
-      async resolve() {
+      async resolveWithId() {
         throw new Error('resolve failed');
       },
     } as ModelRouter;
     const { context, inbound } = await makeSetup([]);
-    const runtime = new AgentRuntime('agent-1', throwingRouter);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', throwingRouter, calc);
     const result = await runtime.handle(inbound, context);
 
     expect(result).toEqual({ kind: 'response', content: '[AgentRuntime error: resolve failed]' });
@@ -258,9 +278,91 @@ describe('AgentRuntime', () => {
     };
     const router = new MockModelRouter(new Map([['test-model', throwingProvider]])) as ModelRouter;
     const { context, inbound } = await makeSetup([]);
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
     expect(result).toEqual({ kind: 'response', content: '[AgentRuntime error: fetch failed]' });
+  });
+
+  it('attaches usage from ProviderResponse to the returned response', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: 'I used some tokens',
+        toolCalls: [],
+        stopReason: 'stop',
+        usage: {
+          inputTokens: 2006,
+          outputTokens: 300,
+          reasoningTokens: 50,
+          cacheReadInputTokens: 1920,
+        },
+        cost: 0.005615,
+      },
+    ]);
+    const calc = new UsageCalculator(
+      new MockPricingSource({
+        'test-model': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } },
+      }),
+      new Map(),
+    );
+    const runtime = new AgentRuntime('agent-1', router, calc);
+    const result = await runtime.handle(inbound, context);
+
+    expect(result).toEqual({
+      kind: 'response',
+      content: 'I used some tokens',
+      usage: {
+        input: 86,
+        output: 250,
+        reasoning: 50,
+        cache: { read: 1920, write: 0 },
+        cost: 0.005615, // provider cost override used directly
+        modelId: 'test-model',
+        providerId: 'mock-provider',
+      },
+    });
+    // No assistant message persisted by AgentRuntime — caller persists.
+    expect(context.conversation.activeChain).toHaveLength(1);
+  });
+
+  it('computes usage via calculator when ProviderResponse has no cost override', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: 'no cost override',
+        toolCalls: [],
+        stopReason: 'stop',
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+        },
+      },
+    ]);
+    const calc = new UsageCalculator(
+      new MockPricingSource({
+        'test-model': { input: 2.5, output: 10, cache: { read: 1.25, write: 2.5 } },
+      }),
+      new Map(),
+    );
+    const runtime = new AgentRuntime('agent-1', router, calc);
+    const result = await runtime.handle(inbound, context);
+
+    expect(result.kind).toBe('response');
+    if (result.kind !== 'response') return;
+    expect(result.usage).toBeDefined();
+    expect(result.usage?.input).toBe(100);
+    expect(result.usage?.output).toBe(50);
+    expect(result.usage?.cost).toBeCloseTo(0.00075, 6); // 100*2.5/1e6 + 50*10/1e6
+  });
+
+  it('returns response without usage when ProviderResponse omits usage', async () => {
+    const { context, inbound, router } = await makeSetup([
+      { content: 'no usage', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
+    const result = await runtime.handle(inbound, context);
+
+    expect(result).toEqual({ kind: 'response', content: 'no usage' });
   });
 });
 
@@ -348,7 +450,8 @@ describe('AgentRuntime: auth – hidden tool (absent from map)', () => {
       timestamp: new Date().toISOString(),
     };
 
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(incoming, context);
 
     // LLM never saw echo
@@ -439,7 +542,8 @@ describe('AgentRuntime: auth – hidden tool (absent from map)', () => {
       timestamp: new Date().toISOString(),
     };
 
-    const runtime = new AgentRuntime('agent-1', router);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(incoming, context);
 
     // LLM never saw echo as an available tool
@@ -551,8 +655,9 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
       timestamp: new Date().toISOString(),
     };
 
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
     return {
-      runtime: new AgentRuntime('agent-1', router),
+      runtime: new AgentRuntime('agent-1', router, calc),
       incoming,
       context,
       thread,

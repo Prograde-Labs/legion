@@ -1,4 +1,5 @@
 import type { ToolCallData, ToolCallResult } from './tool.js';
+import type { MessageUsage } from './usage.js';
 
 export type MessageRole = 'user' | 'assistant';
 export type MessageType = 'message' | 'summary';
@@ -17,6 +18,7 @@ export interface MessageData {
   status: MessageStatus;
   toolCalls?: ToolCallData[];
   toolResults?: ToolCallResult[];
+  usage?: MessageUsage;
   timestamp: string;
 
   editOf?: string;

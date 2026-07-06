@@ -5,6 +5,8 @@ import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
+import { UsageQuery } from '../usage/UsageQuery.js';
+import type { GroupBy, UsageFilter } from '../usage/usage-types.js';
 
 function requireCollective(context: ToolContext): NonNullable<ToolContext['collective']> {
   if (!context.collective) throw new Error('collective unavailable in context');
@@ -387,6 +389,72 @@ export const deleteConversationTool: Tool = {
   },
 };
 
+export const queryUsageTool: Tool = {
+  name: 'query_usage',
+  description: 'Query token usage and cost across conversations. Returns aggregated totals.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string', description: 'Scope to one conversation.' },
+      participantId: {
+        type: 'string',
+        description: 'Scope to conversations involving this participant.',
+      },
+      modelId: { type: 'string', description: 'Filter to a specific model.' },
+      providerId: { type: 'string', description: 'Filter to a specific provider.' },
+      since: { type: 'string', description: 'ISO 8601 — only messages after this time.' },
+      until: { type: 'string', description: 'ISO 8601 — only messages before this time.' },
+      groupBy: {
+        type: 'string',
+        enum: ['model', 'participant', 'conversation', 'day'],
+        description: 'Group results by this dimension. Default: totals only.',
+      },
+    },
+  } as JSONSchema,
+  async execute(args, context: ToolContext): Promise<ToolResult> {
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const filter: UsageFilter = {
+        conversationId: (args as { conversationId?: string }).conversationId,
+        participantId: (args as { participantId?: string }).participantId,
+        modelId: (args as { modelId?: string }).modelId,
+        providerId: (args as { providerId?: string }).providerId,
+        since: (args as { since?: string }).since,
+        until: (args as { until?: string }).until,
+      };
+      const groupBy = (args as { groupBy?: GroupBy }).groupBy;
+      const query = new UsageQuery(context.conversationStore);
+      const report = await query.query({ ...filter, groupBy });
+      return { status: 'success', data: report };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const listModelsTool: Tool = {
+  name: 'list_models',
+  description: 'List available models with their current pricing rates.',
+  parameters: { type: 'object', properties: {}, required: [] } as JSONSchema,
+  async execute(_args, context: ToolContext): Promise<ToolResult> {
+    try {
+      const collective = requireCollective(context);
+      const providers = collective.list().filter((p) => (p.type as string) === 'provider');
+      const models: Array<{ id: string; providerId: string; name?: string }> = [];
+      for (const p of providers) {
+        if (p.id) {
+          models.push({ id: p.id, providerId: p.id, name: p.name });
+        }
+      }
+      return { status: 'success', data: models };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
 export const managementTools: Tool[] = [
   createAgentTool,
   retireAgentTool,
@@ -400,6 +468,7 @@ export const managementTools: Tool[] = [
   listToolsTool,
   listConversationsTool,
   deleteConversationTool,
+  queryUsageTool,
 ];
 
 export function createManagementTools(deps: {

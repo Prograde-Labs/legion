@@ -66,8 +66,8 @@ describe('OpenAICompatibleProvider', () => {
     expect(result.content).toBe('Hello!');
     expect(result.stopReason).toBe('stop');
     expect(result.toolCalls).toEqual([]);
-    expect(result.usage?.promptTokens).toBe(10);
-    expect(result.usage?.completionTokens).toBe(5);
+    expect(result.usage?.inputTokens).toBe(10);
+    expect(result.usage?.outputTokens).toBe(5);
   });
 
   it('does not read API keys from environment variables', async () => {
@@ -195,5 +195,84 @@ describe('OpenAICompatibleProvider', () => {
     const provider = new OpenAICompatibleProvider('https://example.test/v1');
 
     await expect(provider.listModels()).resolves.toEqual([]);
+  });
+
+  it('extracts cache and reasoning tokens from prompt_tokens_details and completion_tokens_details', async () => {
+    fetchMock.mockResolvedValue(
+      makeOkResponse({
+        choices: [
+          {
+            message: { role: 'assistant', content: 'thinking...', tool_calls: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 2006,
+          completion_tokens: 300,
+          total_tokens: 2306,
+          prompt_tokens_details: { cached_tokens: 1920 },
+          completion_tokens_details: { reasoning_tokens: 50 },
+        },
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider();
+    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+
+    expect(result.usage).toEqual({
+      inputTokens: 2006,
+      outputTokens: 300,
+      reasoningTokens: 50,
+      cacheReadInputTokens: 1920,
+      cacheWriteInputTokens: undefined,
+    });
+  });
+
+  it('falls back to cache_read_input_tokens when prompt_tokens_details is absent', async () => {
+    fetchMock.mockResolvedValue(
+      makeOkResponse({
+        choices: [
+          {
+            message: { role: 'assistant', content: 'hi', tool_calls: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 100,
+          cache_read_input_tokens: 800,
+          cache_creation_input_tokens: 200,
+        },
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider();
+    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+
+    expect(result.usage).toEqual({
+      inputTokens: 1000,
+      outputTokens: 100,
+      reasoningTokens: undefined,
+      cacheReadInputTokens: 800,
+      cacheWriteInputTokens: 200,
+    });
+  });
+
+  it('returns undefined usage when API omits usage object', async () => {
+    fetchMock.mockResolvedValue(
+      makeOkResponse({
+        choices: [
+          {
+            message: { role: 'assistant', content: 'no usage', tool_calls: null },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider();
+    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+
+    expect(result.usage).toBeUndefined();
   });
 });
