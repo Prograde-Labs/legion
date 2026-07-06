@@ -123,7 +123,8 @@ export function validateConversation(conversation: ConversationData): string[] {
   // Exactly one non-compacted root (parentId null) when there is at least one message.
   const roots = ids.filter(
     (id) =>
-      conversation.messages[id].parentId === null && conversation.messages[id].status !== 'compacted',
+      conversation.messages[id].parentId === null &&
+      conversation.messages[id].status !== 'compacted',
   );
   if (ids.length > 0 && roots.length !== 1) {
     errors.push(`expected exactly one non-compacted root message, found ${roots.length}`);

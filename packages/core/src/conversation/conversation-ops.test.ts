@@ -173,7 +173,12 @@ describe('conversation-ops: invariants', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
     const id1 = conv.activeBranchHead;
-    conv = appendMessage(conv, { senderId: 'a', recipientId: 'u', role: 'assistant', content: 'two' });
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
     const id2 = conv.activeBranchHead;
 
     conv = compactRange(conv, [id1, id2], 'summary');
