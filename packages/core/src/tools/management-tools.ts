@@ -227,11 +227,18 @@ export const editMessageTool: Tool = {
     required: ['conversationId', 'messageId', 'newContent'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { conversationId, messageId, newContent } = args as {
-      conversationId: string;
-      messageId: string;
-      newContent: string;
-    };
+    const input = args as { conversationId?: unknown; messageId?: unknown; newContent?: unknown };
+    if (
+      typeof input.conversationId !== 'string' ||
+      typeof input.messageId !== 'string' ||
+      typeof input.newContent !== 'string'
+    ) {
+      return {
+        status: 'error',
+        error: 'conversationId, messageId, and newContent must be strings',
+      };
+    }
+    const { conversationId, messageId, newContent } = input;
     if (!context.conversationStore) {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }

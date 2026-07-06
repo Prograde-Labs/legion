@@ -242,6 +242,20 @@ describe('management tools', () => {
     expect(saved?.messages[data.newMessageId].editOf).toBe('m1');
   });
 
+  it('edit_message rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await editMessageTool.execute(
+      { conversationId: 123, messageId: 'm1', newContent: 'after' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId, messageId, and newContent must be strings',
+    });
+  });
+
   it('get_conversation returns first compacted message as summary alternate', async () => {
     const { context, conversationStore } = await makeContext();
     let conv = await conversationStore.create({

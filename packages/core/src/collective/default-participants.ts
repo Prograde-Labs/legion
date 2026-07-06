@@ -12,6 +12,7 @@ const MANAGEMENT_TOOLS = [
   'list_tools',
   'list_conversations',
   'get_conversation',
+  'edit_message',
   'delete_conversation',
   'set_tool_policy',
   'remove_tool_policy',
