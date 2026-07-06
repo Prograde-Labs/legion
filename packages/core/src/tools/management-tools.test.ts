@@ -1,6 +1,7 @@
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
+import { appendMessage, compactRange, editMessage } from '../conversation/conversation-ops.js';
 import { FileCredentialStore } from '../credentials/FileCredentialStore.js';
 import {
   createAgentTool,
@@ -178,6 +179,71 @@ describe('management tools', () => {
     const result = await getConversationTool.execute({ conversationId: conv.id }, context);
     expect(result.status).toBe('success');
     expect((result.data as { messages: unknown[] }).messages.length).toBe(1);
+  });
+
+  it('get_conversation returns superseded siblings as alternates', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'original',
+    });
+    conv = editMessage(conv, 'm1', 'edited');
+    await conversationStore.save(conv);
+
+    const result = await getConversationTool.execute({ conversationId: conv.id }, context);
+
+    expect(result.status).toBe('success');
+    const messages = (
+      result.data as { messages: Array<{ content: string; alternates?: unknown[] }> }
+    ).messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('edited');
+    expect(messages[0].alternates).toEqual([
+      { id: 'm1', content: 'original', timestamp: conv.messages['m1'].timestamp },
+    ]);
+  });
+
+  it('get_conversation returns first compacted message as summary alternate', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'start',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'reply',
+    });
+    conv = compactRange(conv, ['m1', 'm2'], 'summary');
+    await conversationStore.save(conv);
+
+    const result = await getConversationTool.execute({ conversationId: conv.id }, context);
+
+    expect(result.status).toBe('success');
+    const messages = (result.data as { messages: Array<{ type?: string; alternates?: unknown[] }> })
+      .messages;
+    expect(messages[0].type).toBe('summary');
+    expect(messages[0].alternates).toEqual([
+      { id: 'm1', content: 'start', timestamp: conv.messages['m1'].timestamp },
+    ]);
   });
 
   it('create_agent rejects a duplicate id with a tool error', async () => {
