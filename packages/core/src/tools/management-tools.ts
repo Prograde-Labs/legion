@@ -7,7 +7,12 @@ import type {
   ModelConfig,
   MessageData,
 } from '@legion/types';
-import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
+import {
+  compactRange,
+  editMessage,
+  getActiveChain,
+  pruneMessage,
+} from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
@@ -381,6 +386,99 @@ export const pruneMessageTool: Tool = {
       const updated = pruneMessage(conversation, messageId, context.participant.id);
       await context.conversationStore.save(updated);
       return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+const DEFAULT_SUMMARY_INSTRUCTION =
+  'Summarise the following conversation segment concisely, preserving key decisions, facts, and outcomes.';
+
+export const compactConversationTool: Tool = {
+  name: 'compact_conversation',
+  description: 'Compact a range of messages into an agent-generated summary.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      messageIds: { type: 'array', items: { type: 'string' } },
+      agentId: { type: 'string' },
+      instruction: { type: 'string' },
+    },
+    required: ['conversationId', 'messageIds'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as {
+      conversationId?: unknown;
+      messageIds?: unknown;
+      agentId?: unknown;
+      instruction?: unknown;
+    };
+    if (
+      typeof input.conversationId !== 'string' ||
+      !Array.isArray(input.messageIds) ||
+      input.messageIds.length === 0 ||
+      !input.messageIds.every((id) => typeof id === 'string') ||
+      typeof input.agentId !== 'string' ||
+      input.agentId.length === 0 ||
+      (input.instruction !== undefined && typeof input.instruction !== 'string')
+    ) {
+      return {
+        status: 'error',
+        error:
+          'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
+      };
+    }
+    const { conversationId, messageIds, agentId, instruction } = input as {
+      conversationId: string;
+      messageIds: string[];
+      agentId: string;
+      instruction?: string;
+    };
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    if (!context.messageRouter) {
+      return { status: 'error', error: 'messageRouter unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation) {
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      }
+      const targetMessages = messageIds.map((id) => {
+        const message = conversation.messages[id];
+        if (!message) throw new Error(`Message not found: ${id}`);
+        return message;
+      });
+      const transcript = targetMessages
+        .map((message) => `${message.role}: ${message.content}`)
+        .join('\n');
+      const prompt = `${instruction ?? DEFAULT_SUMMARY_INSTRUCTION}\n\n${transcript}`;
+      const summary = await context.messageRouter.send({
+        senderId: context.participant.id,
+        recipientId: agentId,
+        message: prompt,
+        replyTo: undefined,
+        context,
+      });
+      if (summary.status === 'error') {
+        return { status: 'error', error: summary.error ?? 'Summary failed' };
+      }
+      if (!summary.response) {
+        return { status: 'error', error: 'Summary agent returned no response' };
+      }
+      const updated = compactRange(conversation, messageIds, summary.response);
+      await context.conversationStore.save(updated);
+      const summaryNode = Object.values(updated.messages).find(
+        (message) =>
+          message.type === 'summary' && message.compacts?.join('|') === messageIds.join('|'),
+      );
+      return {
+        status: 'success',
+        data: { summaryMessageId: summaryNode?.id, activeBranchHead: updated.activeBranchHead },
+      };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }

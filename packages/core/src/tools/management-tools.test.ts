@@ -11,6 +11,7 @@ import {
   editMessageTool,
   switchBranchTool,
   pruneMessageTool,
+  compactConversationTool,
   getConversationTool,
   setToolPolicyTool,
   removeToolPolicyTool,
@@ -410,6 +411,73 @@ describe('management tools', () => {
     expect(result).toEqual({
       status: 'error',
       error: 'conversationId and messageId must be strings',
+    });
+  });
+
+  it('compact_conversation summarizes through messageRouter and compacts messages', async () => {
+    const { context, conversationStore } = await makeContext();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'conv-summary',
+      status: 'success',
+      response: 'short summary',
+    });
+    const ctx = {
+      ...context,
+      messageRouter: { send, resume: vi.fn(), generate: vi.fn() },
+    } as unknown as ToolContext;
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'hello',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'hi',
+    });
+    await conversationStore.save(conv);
+
+    const result = await compactConversationTool.execute(
+      { conversationId: conv.id, messageIds: ['m1', 'm2'], agentId: 'agent-x' },
+      ctx,
+    );
+
+    expect(result.status).toBe('success');
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: 'operator',
+        recipientId: 'agent-x',
+        replyTo: undefined,
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(expect.not.objectContaining({ conversationId: conv.id }));
+    const saved = await conversationStore.load(conv.id);
+    const summary = Object.values(saved!.messages).find((m) => m.type === 'summary');
+    expect(summary?.content).toBe('short summary');
+    expect(summary?.compacts).toEqual(['m1', 'm2']);
+  });
+
+  it('compact_conversation rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await compactConversationTool.execute(
+      { conversationId: 123, messageIds: [], agentId: '', instruction: 42 },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error:
+        'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
     });
   });
 
