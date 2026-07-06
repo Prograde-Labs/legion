@@ -80,6 +80,12 @@ async function handleEdit(messageId: string, content: string, rerun: boolean) {
   }
 }
 
+function handleCompactAbove(messageId: string) {
+  const idx = messages.value.findIndex((m) => m.id === messageId);
+  if (idx === -1) return;
+  void openCompact(messages.value.slice(0, idx + 1));
+}
+
 async function handleCompact(agentId: string, instruction: string) {
   await compactConversation(
     compactRange.value.map((message) => message.id),
@@ -166,37 +172,38 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
         {{ recipientName ?? conversationId }}
       </span>
       <span v-else class="text-sm text-slate-500">New conversation</span>
-      <button
-        v-if="conversationId && messages.length > 0"
-        type="button"
-        class="ml-auto rounded border border-navy-700 px-2 py-1 text-xs text-cyan-400 hover:bg-navy-800"
-        @click="openCompact(messages)"
-      >
-        Compact
-      </button>
-      <button
-        v-if="conversationId"
-        type="button"
-        class="text-slate-500 hover:text-red-400 transition-colors"
-        title="Delete conversation"
-        @click="emit('delete', conversationId)"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+      <div v-if="conversationId" class="ml-auto flex gap-2">
+        <button
+          v-if="messages.length > 0"
+          type="button"
+          class="rounded border border-navy-700 px-2 py-1 text-xs text-cyan-400 hover:bg-navy-800"
+          @click="openCompact(messages)"
         >
-          <path
-            d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-          />
-        </svg>
-      </button>
+          Compact
+        </button>
+        <button
+          type="button"
+          class="text-slate-500 hover:text-red-400 transition-colors"
+          title="Delete conversation"
+          @click="emit('delete', conversationId)"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Messages -->
@@ -224,12 +231,7 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           @edit="handleEdit"
           @prune="pruneMessage"
           @switch-branch="switchBranch"
-          @compact-above="
-            (messageId) =>
-              openCompact(
-                messages.slice(0, messages.findIndex((m) => m.id === messageId) + 1),
-              )
-          "
+          @compact-above="handleCompactAbove"
         >
           <template v-if="msg.toolCalls?.length" #tools>
             <!-- Tool call indicators: nested sub-thread for delegations, compact for others -->
