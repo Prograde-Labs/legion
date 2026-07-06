@@ -406,7 +406,7 @@ export const compactConversationTool: Tool = {
       agentId: { type: 'string' },
       instruction: { type: 'string' },
     },
-    required: ['conversationId', 'messageIds'],
+    required: ['conversationId', 'messageIds', 'agentId'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
     const input = args as {
@@ -469,11 +469,11 @@ export const compactConversationTool: Tool = {
       if (!summary.response) {
         return { status: 'error', error: 'Summary agent returned no response' };
       }
+      const beforeIds = new Set(Object.keys(conversation.messages));
       const updated = compactRange(conversation, messageIds, summary.response);
       await context.conversationStore.save(updated);
       const summaryNode = Object.values(updated.messages).find(
-        (message) =>
-          message.type === 'summary' && message.compacts?.join('|') === messageIds.join('|'),
+        (message) => message.type === 'summary' && !beforeIds.has(message.id),
       );
       return {
         status: 'success',

@@ -444,6 +444,22 @@ describe('management tools', () => {
       role: 'assistant',
       content: 'hi',
     });
+    conv = appendMessage(conv, {
+      id: 'old-summary',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'assistant',
+      content: 'stale summary',
+      type: 'summary',
+    });
+    conv = {
+      ...conv,
+      activeBranchHead: 'm2',
+      messages: {
+        ...conv.messages,
+        'old-summary': { ...conv.messages['old-summary'], compacts: ['m1', 'm2'] },
+      },
+    };
     await conversationStore.save(conv);
 
     const result = await compactConversationTool.execute(
@@ -460,10 +476,29 @@ describe('management tools', () => {
       }),
     );
     expect(send).toHaveBeenCalledWith(expect.not.objectContaining({ conversationId: conv.id }));
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          'Summarise the following conversation segment concisely, preserving key decisions, facts, and outcomes.',
+        ),
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('user: hello') }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('assistant: hi') }),
+    );
     const saved = await conversationStore.load(conv.id);
-    const summary = Object.values(saved!.messages).find((m) => m.type === 'summary');
+    const summary = Object.values(saved!.messages).find(
+      (m) => m.type === 'summary' && m.content === 'short summary',
+    );
     expect(summary?.content).toBe('short summary');
     expect(summary?.compacts).toEqual(['m1', 'm2']);
+    expect(result.data).toEqual({
+      summaryMessageId: summary?.id,
+      activeBranchHead: saved?.activeBranchHead,
+    });
   });
 
   it('compact_conversation rejects invalid args', async () => {
