@@ -1,4 +1,11 @@
-import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig } from '@legion/types';
+import type {
+  JSONSchema,
+  ToolPolicy,
+  ToolResult,
+  AgentConfig,
+  ModelConfig,
+  MessageData,
+} from '@legion/types';
 import { getActiveChain } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
@@ -185,6 +192,28 @@ export const removeToolPolicyTool: Tool = {
   },
 };
 
+type MessageWithAlternates = MessageData & {
+  alternates?: Array<{ id: string; content: string; timestamp: string }>;
+};
+
+function withAlternates(conversationMessages: Record<string, MessageData>, chain: MessageData[]) {
+  const activeIds = new Set(chain.map((m) => m.id));
+  return chain.map((message): MessageWithAlternates => {
+    const alternates = Object.values(conversationMessages)
+      .filter((candidate) => candidate.id !== message.id)
+      .filter((candidate) => candidate.parentId === message.parentId)
+      .filter((candidate) => !activeIds.has(candidate.id))
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      .map((candidate) => ({
+        id: candidate.id,
+        content: candidate.content,
+        timestamp: candidate.timestamp,
+      }));
+
+    return alternates.length > 0 ? { ...message, alternates } : message;
+  });
+}
+
 export const getConversationTool: Tool = {
   name: 'get_conversation',
   description: 'Load a conversation, its active message chain, and any sub-threads.',
@@ -201,6 +230,7 @@ export const getConversationTool: Tool = {
     const conversation = await context.conversationStore.load(conversationId);
     if (!conversation)
       return { status: 'error', error: `Conversation not found: ${conversationId}` };
+    const chain = getActiveChain(conversation);
 
     // Find sub-threads (child conversations linked to this one)
     const subThreadList = await context.conversationStore.listByParent(conversationId);
@@ -222,7 +252,7 @@ export const getConversationTool: Tool = {
       data: {
         id: conversation.id,
         title: conversation.title,
-        messages: getActiveChain(conversation),
+        messages: withAlternates(conversation.messages, chain),
         parentConversationId: conversation.parentConversationId,
         parentToolCallId: conversation.parentToolCallId,
         subThreads,
