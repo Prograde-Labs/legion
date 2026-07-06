@@ -75,6 +75,15 @@ export class MessageRouter implements MessageRouterPort {
     return new ConversationThread(created, this.store);
   }
 
+  private createAppendSafeThread(thread: ConversationThread): ConversationThread {
+    return new ConversationThread(thread.data, this.store, (guardedThread, append) =>
+      this.withLock(guardedThread.id, async () => {
+        await guardedThread.reload();
+        return append();
+      }),
+    );
+  }
+
   private buildRuntimeContext(
     thread: ConversationThread,
     participantId: string,
@@ -271,7 +280,7 @@ export class MessageRouter implements MessageRouterPort {
         recipientId: participant.id,
         message: lastIncoming.content,
         conversationId,
-        replyTo: lastIncoming.senderId,
+        replyTo: lastIncoming.replyTo ?? lastIncoming.senderId,
         context: toolContext,
       };
 
@@ -316,39 +325,43 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     opts: SendOptions,
   ): Promise<void> {
-    await this.withLock(thread.id, async () => {
-      await thread.reload();
-      try {
-        const result = await runtime.handle(inbound, runtimeContext);
-        if (result.kind !== 'response') return;
-        const replyTarget = opts.replyTo!;
-        const responseMsg = await thread.append({
-          senderId: opts.recipientId,
-          recipientId: replyTarget,
-          role: 'assistant',
-          content: result.content,
-          usage: result.usage,
-        });
-        this.eventBus.emit('message:delivered', {
-          conversationId: thread.id,
-          recipientId: replyTarget,
-          messageId: responseMsg.id,
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const replyTarget = opts.replyTo!;
-        const responseMsg = await thread.append({
-          senderId: opts.recipientId,
-          recipientId: replyTarget,
-          role: 'assistant',
-          content: `[Runtime error: ${msg}]`,
-        });
-        this.eventBus.emit('message:delivered', {
-          conversationId: thread.id,
-          recipientId: replyTarget,
-          messageId: responseMsg.id,
-        });
-      }
-    });
+    await this.withLock(thread.id, async () => undefined);
+    const backgroundThread = this.createAppendSafeThread(thread);
+    const backgroundContext: RuntimeContext = {
+      ...runtimeContext,
+      conversation: backgroundThread,
+    };
+
+    try {
+      const result = await runtime.handle(inbound, backgroundContext);
+      if (result.kind !== 'response') return;
+      const replyTarget = opts.replyTo!;
+      const responseMsg = await backgroundThread.append({
+        senderId: opts.recipientId,
+        recipientId: replyTarget,
+        role: 'assistant',
+        content: result.content,
+        usage: result.usage,
+      });
+      this.eventBus.emit('message:delivered', {
+        conversationId: backgroundThread.id,
+        recipientId: replyTarget,
+        messageId: responseMsg.id,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const replyTarget = opts.replyTo!;
+      const responseMsg = await backgroundThread.append({
+        senderId: opts.recipientId,
+        recipientId: replyTarget,
+        role: 'assistant',
+        content: `[Runtime error: ${msg}]`,
+      });
+      this.eventBus.emit('message:delivered', {
+        conversationId: backgroundThread.id,
+        recipientId: replyTarget,
+        messageId: responseMsg.id,
+      });
+    }
   }
 }

@@ -2,10 +2,13 @@ import type { ConversationData, MessageData, ToolCallResult } from '@legion/type
 import type { ConversationStore } from './ConversationStore.js';
 import { appendMessage, getActiveChain, type NewMessageInput } from './conversation-ops.js';
 
+export type AppendGuard = <T>(thread: ConversationThread, append: () => Promise<T>) => Promise<T>;
+
 export class ConversationThread {
   constructor(
     public data: ConversationData,
     private store: ConversationStore,
+    private appendGuard?: AppendGuard,
   ) {}
 
   get id(): string {
@@ -21,9 +24,12 @@ export class ConversationThread {
   }
 
   async append(input: NewMessageInput): Promise<MessageData> {
-    this.data = appendMessage(this.data, input);
-    await this.store.save(this.data);
-    return this.data.messages[this.data.activeBranchHead];
+    const doAppend = async () => {
+      this.data = appendMessage(this.data, input);
+      await this.store.save(this.data);
+      return this.data.messages[this.data.activeBranchHead];
+    };
+    return this.appendGuard ? this.appendGuard(this, doAppend) : doAppend();
   }
 
   /**

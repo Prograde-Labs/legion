@@ -434,6 +434,76 @@ describe('MessageRouter: fire-and-forget', () => {
       ]),
     );
   });
+
+  it('does not deadlock when background runtime sends to the same conversation', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/agent.json', {
+      id: 'agent',
+      name: 'Agent',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    let calls = 0;
+    registry.registerFactory('mock', () => ({
+      async handle(_incoming, context) {
+        calls += 1;
+        if (calls === 1) {
+          const result = await context.messageRouter.send({
+            senderId: 'agent',
+            recipientId: 'agent',
+            message: 'nested',
+            conversationId: context.conversationId,
+            context,
+          });
+          expect(result.status).toBe('success');
+          return { kind: 'response', content: 'outer response' };
+        }
+        return { kind: 'response', content: 'nested response' };
+      },
+    }));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'outer',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+    const conv = await store.load(result.conversationId);
+    const contents = Object.values(conv!.messages).map((m) => m.content);
+    expect(contents).toEqual(
+      expect.arrayContaining(['outer', 'nested', 'nested response', 'outer response']),
+    );
+  });
 });
 
 describe('MessageRouter: pending_approval result', () => {
@@ -597,6 +667,27 @@ describe('MessageRouter: generate()', () => {
     const messages = Object.values(conv!.messages);
     expect(messages.filter((m) => m.role === 'user')).toHaveLength(1);
     expect(messages.filter((m) => m.role === 'assistant')).toHaveLength(2);
+  });
+
+  it('delivers generated responses to the incoming message replyTo target', async () => {
+    const { router, baseContext, eventBus } = await setup(dir);
+    const delivered: string[] = [];
+    eventBus.on('message:delivered', (p) => delivered.push(p.recipientId));
+
+    const sent = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'original',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await router.drain();
+
+    const result = await router.generate(sent.conversationId, 'mock-1', baseContext);
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    expect(delivered).toEqual(['op', 'op']);
   });
 });
 
