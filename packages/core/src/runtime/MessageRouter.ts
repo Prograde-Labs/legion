@@ -238,6 +238,52 @@ export class MessageRouter implements MessageRouterPort {
     }
   }
 
+  async generate(
+    conversationId: string,
+    participantId: string,
+    toolContext: ToolContext,
+  ): Promise<MessageRouterResult> {
+    return this.withLock(conversationId, async () => {
+      const thread = await this.getThread(conversationId);
+      const participant = this.collective.get(participantId);
+      if (!participant) {
+        return {
+          conversationId,
+          status: 'error',
+          error: new ParticipantNotFoundError(participantId).message,
+        };
+      }
+
+      const lastIncoming = [...thread.activeChain]
+        .reverse()
+        .find((m) => m.recipientId === participantId && m.role === 'user');
+
+      if (!lastIncoming) {
+        return {
+          conversationId,
+          status: 'error',
+          error: `No incoming message to generate from in conversation ${conversationId}`,
+        };
+      }
+
+      const runtime = this.registry.build(participant.type, participant.id);
+      const runtimeContext = this.buildRuntimeContext(thread, participant.id, toolContext, 0);
+      const opts: SendOptions = {
+        senderId: lastIncoming.senderId,
+        recipientId: participant.id,
+        message: lastIncoming.content,
+        conversationId,
+        replyTo: lastIncoming.senderId,
+        context: toolContext,
+      };
+
+      const task = this.dispatchAsync(runtime, lastIncoming, runtimeContext, thread, opts);
+      this.background.add(task);
+      void task.finally(() => this.background.delete(task));
+      return { conversationId: thread.id, status: 'dispatched' };
+    });
+  }
+
   private async handleRuntimeResult(
     result: RuntimeResult,
     thread: ConversationThread,
