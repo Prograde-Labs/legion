@@ -31,6 +31,7 @@ export * from './providers/SystemProviderStore.js';
 export * from './providers/OpenAICompatibleProvider.js';
 export * from './providers/ModelRouter.js';
 export * from './providers/PricingSource.js';
+export * from './providers/ModelsDevPricingSource.js';
 export * from './providers/OpenRouterPricingSource.js';
 export * from './providers/UsageCalculator.js';
 export * from './usage/usage-types.js';

@@ -24,7 +24,7 @@ import {
   ServiceManager,
   SystemProviderStore,
   ModelRouter,
-  OpenRouterPricingSource,
+  ModelsDevPricingSource,
   UsageCalculator,
   // Global tools
   communicateTool,
@@ -195,7 +195,7 @@ export class LegionProcess {
     runtimeRegistry.registerFactory('service', (id) => serviceManager.getRuntime(id));
 
     // Register agent factory
-    const pricingSource = new OpenRouterPricingSource(join(systemConfigDir, 'cache', 'openrouter'));
+    const pricingSource = new ModelsDevPricingSource(join(systemConfigDir, 'cache', 'models-dev'));
     const usageCalculator = new UsageCalculator(pricingSource, (providerId: string) =>
       systemStore.get(providerId).then((p) => p ?? undefined),
     );
