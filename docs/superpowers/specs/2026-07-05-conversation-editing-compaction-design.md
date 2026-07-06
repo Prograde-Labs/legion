@@ -102,16 +102,19 @@ Collapses a span of messages into a summary node using a Legion agent for summar
 
 ### `switch_branch`
 
-Switches the active branch to a different version of a message (a sibling node with the same `parentId`).
+Switches the active branch to a sibling node (same `parentId`). Handles both edit branches (superseded siblings) and compaction undo (compacted siblings of a summary node).
 
 **Args:** `{ conversationId: string, messageId: string }`
 
 **Flow:**
 1. Load conversation, verify `messageId` exists
-2. Walk forward from `messageId` to find the deepest active-status descendant on that branch (if any exist from a prior switch)
-3. Set `activeBranchHead` to that leaf (or `messageId` itself if no descendants)
-4. Save updated conversation
-5. Return `{ activeBranchHead: string }`
+2. Determine if target is a **compacted** node (the sibling is a compacted message, meaning the active chain has a summary node at this position):
+   - If yes (**uncompact path**): find the summary node that contains `messageId` in its `compacts` array. Mark all messages in `compacts` as `status: "active"`. Mark the summary node as `status: "superseded"`. Repoint the message whose `parentId` was the summary node back to the last compacted message's ID. Set `activeBranchHead` to the deepest descendant of the restored chain (the original leaf before compaction, which is the last message in `compacts`).
+   - If no (**edit branch path**): walk forward from `messageId` to find the deepest previously-active descendant (messages that were on the active chain before the edit branched away from them). Set `activeBranchHead` to that leaf, or to `messageId` itself if no descendants exist.
+3. Save updated conversation
+4. Return `{ activeBranchHead: string }`
+
+**Why this works for compaction:** `compactRange` sets the summary node's `parentId = first.parentId`, making the summary and the original first compacted message siblings. `get_conversation` surfaces this as an alternate on the summary bubble. The branch navigator (`‹ ›`) on a summary node therefore lets the user switch back to the original message chain — no separate uncompact tool needed.
 
 ---
 
@@ -119,7 +122,7 @@ Switches the active branch to a different version of a message (a sibling node w
 
 The existing `get_conversation` tool is updated to include alternate versions for messages in the active chain.
 
-For each message returned in the active chain, the tool inspects `conversation.messages` for siblings — other nodes with the same `parentId` that are not on the current active chain (status `superseded` or `active` on a different branch).
+For each message returned in the active chain, the tool inspects `conversation.messages` for siblings — other nodes with the same `parentId` that are not on the current active chain (status `superseded`, `compacted`, or `active` on a different branch). This means summary nodes surface the original compacted message chain as an alternate, enabling undo via the branch navigator.
 
 If siblings exist, the message response includes:
 
@@ -256,6 +259,40 @@ Steps 1–4 same, step 5 skipped. Edited badge shown, no agent loop triggered.
 
 ---
 
+## Summary Node Display
+
+Summary nodes (`type: "summary"`) appear in the active chain in place of the compacted messages. They must be visually distinct from regular bubbles so the user understands the content is compressed.
+
+Rendering in `MessageBubble.vue`:
+- A **"Summary"** label/badge above the bubble content (e.g. small pill: `⊞ Summary`)
+- Slightly different bubble background (e.g. `bg-navy-700` with a left accent border in cyan) to distinguish from regular messages
+- The branch navigator (`‹ 1/2 ›`) appears in the metadata row as with edited messages — clicking `‹` invokes `switch_branch` with the original first compacted message, which triggers the uncompact path
+
+The summary bubble's content is the summarisation text produced by the agent.
+
+---
+
+## Compacting to the Start of the Conversation
+
+Compaction may include the first message (the root, `parentId: null`). In this case both the summary node and the original first compacted message will have `parentId: null`.
+
+The current `validateConversation` invariant ("exactly one root") must be updated to: **exactly one non-compacted message has `parentId: null`**. Compacted messages are permitted to be roots; they are no longer part of the active chain and do not affect traversal.
+
+This update is applied to `conversation-ops.ts:validateConversation`.
+
+---
+
+## UI Sync
+
+All composable operations follow the same pattern for keeping the UI in sync:
+
+- **Synchronous ops** (`editMessage`, `pruneMessage`, `switchBranch`, `compactConversation`): call `execute()` → await result → call `load()`. The conversation reloads immediately after the tool completes.
+- **`generate`**: calls `execute('generate', ...)` then relies on the existing `message:delivered` SSE event → `load()` path, identical to how `communicate` works today. The thinking indicator is shown immediately (via `markSent()`-style flag) while the agent loop runs.
+
+No additional event types are needed.
+
+---
+
 ## What Is Not In Scope
 
 - **Automated compaction** — no middleware hooks, no auto-trigger on context-window threshold
@@ -263,6 +300,7 @@ Steps 1–4 same, step 5 skipped. Edited badge shown, no agent loop triggered.
 - **Per-edit agent override** — re-run always uses the conversation's existing recipient; no per-edit agent selector
 - **Prune recovery UI** — pruned nodes are preserved in storage but not surfaced in the UI
 - **Compaction of sub-threads** — only the top-level conversation active chain is targeted
+- **Dedicated uncompact tool** — undo is handled via `switch_branch` on the summary node's branch navigator
 
 ---
 
@@ -270,6 +308,7 @@ Steps 1–4 same, step 5 skipped. Edited badge shown, no agent loop triggered.
 
 | File | Change |
 |---|---|
+| `packages/core/src/conversation/conversation-ops.ts` | Update `validateConversation` root invariant to allow compacted messages with `parentId: null` |
 | `packages/core/src/tools/management-tools.ts` | Add `edit_message`, `prune_message`, `compact_conversation`, `generate`, `switch_branch`; register all in `managementTools[]` |
 | `packages/core/src/tools/management-tools.test.ts` | Tests for all five new tools |
 | `packages/web/src/components/conversations/MessageBubble.vue` | ⋮ button, context menu, edit state, prune confirm, branch navigator |
