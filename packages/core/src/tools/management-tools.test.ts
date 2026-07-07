@@ -544,7 +544,7 @@ describe('management tools', () => {
     expect(send).toHaveBeenCalledWith(expect.not.objectContaining({ conversationId: conv.id }));
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining('Output exactly the Markdown structure below.'),
+        message: expect.stringContaining('Summarize the following conversation segment concisely.'),
       }),
     );
     expect(send).toHaveBeenCalledWith(

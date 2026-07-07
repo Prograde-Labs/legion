@@ -2,28 +2,8 @@
 import { ref } from 'vue';
 import type { MessageWithAlternates } from '../../composables/useConversation.js';
 
-const DEFAULT_INSTRUCTION = `Output exactly the Markdown structure below. Keep section order unchanged. Do not include the template tags.
-
-## Objective
-- [one or two sentences: what the user is trying to accomplish]
-
-## Key Details
-- [decisions made and why, important facts, constraints, exact context needed to continue, or "(none)"]
-
-## State
-- Completed: [finished work or verified facts; otherwise "(none)"]
-- Active: [current work or investigation; otherwise "(none)"]
-- Blocked: [blockers, errors, or unknowns; otherwise "(none)"]
-
-## Next Steps
-1. [immediate next action, or "(none)"]
-2. [following action if known, or "(none)"]
-
-Rules:
-- Keep every section even if empty.
-- Terse bullets, not prose.
-- Preserve exact file paths, commands, error strings, identifiers, and URLs.
-- Do not mention this summary process.`;
+const DEFAULT_INSTRUCTION =
+  'Summarize the following conversation segment concisely. Capture the main topics discussed, key information exchanged, any decisions or conclusions reached, and the current state of any ongoing discussion or work. Write clearly and be complete enough that the conversation can continue naturally from this summary without the original messages.';
 
 defineProps<{
   messages: MessageWithAlternates[];
