@@ -5,37 +5,43 @@ vi.mock('./useEventStream.js', () => ({
   useEventStream: vi.fn(() => ({ on: vi.fn(() => vi.fn()) })),
 }));
 
+const executeMock = vi.fn().mockResolvedValue({
+  id: 'c1',
+  messages: [],
+  subThreads: {},
+});
+
+const conversationResponse = {
+  id: 'c1',
+  messages: [
+    {
+      id: 'm1',
+      parentId: null,
+      conversationId: 'c1',
+      senderId: 'operator',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'hi',
+      status: 'active',
+      timestamp: '2026-01-01T00:00:00Z',
+    },
+    {
+      id: 'm2',
+      parentId: 'm1',
+      conversationId: 'c1',
+      senderId: 'agent-1',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'hello',
+      status: 'active',
+      timestamp: '2026-01-01T00:00:01Z',
+    },
+  ],
+  subThreads: {},
+};
+
 vi.mock('./useExecute.js', () => ({
-  useExecute: vi.fn(() => ({
-    execute: vi.fn().mockResolvedValue({
-      id: 'c1',
-      messages: [
-        {
-          id: 'm1',
-          parentId: null,
-          conversationId: 'c1',
-          senderId: 'operator',
-          recipientId: 'agent-1',
-          role: 'user',
-          content: 'hi',
-          status: 'active',
-          timestamp: '2026-01-01T00:00:00Z',
-        },
-        {
-          id: 'm2',
-          parentId: 'm1',
-          conversationId: 'c1',
-          senderId: 'agent-1',
-          recipientId: 'operator',
-          role: 'assistant',
-          content: 'hello',
-          status: 'active',
-          timestamp: '2026-01-01T00:00:01Z',
-        },
-      ],
-      subThreads: {},
-    }),
-  })),
+  useExecute: vi.fn(() => ({ execute: executeMock })),
 }));
 
 beforeEach(() => {
@@ -52,6 +58,7 @@ describe('useConversation', () => {
 
   it('loads conversation on mount and populates messages in chain order', async () => {
     const { useConversation } = await import('./useConversation.js');
+    executeMock.mockResolvedValueOnce(conversationResponse);
     const { messages, loading, load } = useConversation('c1');
     await load();
     await nextTick();
@@ -71,10 +78,42 @@ describe('useConversation', () => {
 
   it('thinking is false when last chain message is assistant', async () => {
     const { useConversation } = await import('./useConversation.js');
+    executeMock.mockResolvedValueOnce(conversationResponse);
     const { load, isThinking } = useConversation('c1');
     // mock returns 'm2' (assistant) as head so thinking should be false
     await load();
     await nextTick();
     expect(isThinking.value).toBe(false);
+  });
+
+  it('editMessage executes edit_message and reloads', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    executeMock
+      .mockResolvedValueOnce({ newMessageId: 'm2' })
+      .mockResolvedValueOnce({ messages: [] });
+    const { editMessage } = useConversation('c1');
+
+    await expect(editMessage('m1', 'changed')).resolves.toBe('m2');
+
+    expect(executeMock).toHaveBeenNthCalledWith(1, 'edit_message', {
+      conversationId: 'c1',
+      messageId: 'm1',
+      newContent: 'changed',
+    });
+    expect(executeMock).toHaveBeenNthCalledWith(2, 'get_conversation', { conversationId: 'c1' });
+  });
+
+  it('generate executes generate and marks local thinking without reload', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    executeMock.mockResolvedValueOnce({ status: 'success' });
+    const { generate, isThinking } = useConversation('c1');
+
+    await generate('agent-x');
+
+    expect(isThinking.value).toBe(true);
+    expect(executeMock).toHaveBeenCalledWith('generate', {
+      conversationId: 'c1',
+      agentId: 'agent-x',
+    });
   });
 });

@@ -3,10 +3,14 @@ import { useExecute } from './useExecute.js';
 import { useEventStream } from './useEventStream.js';
 import type { MessageData } from '@legion/types';
 
+export type MessageWithAlternates = MessageData & {
+  alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
+};
+
 export interface SubThreadData {
   id: string;
   title?: string;
-  messages: MessageData[];
+  messages: MessageWithAlternates[];
   parentConversationId?: string;
   parentToolCallId?: string;
 }
@@ -15,7 +19,7 @@ export interface SubThreadData {
 interface ConversationResponse {
   id: string;
   title?: string;
-  messages: MessageData[];
+  messages: MessageWithAlternates[];
   subThreads?: Record<string, SubThreadData>;
 }
 
@@ -23,7 +27,7 @@ export function useConversation(conversationId: string | null) {
   const { execute } = useExecute();
   const { on } = useEventStream();
 
-  const messages = ref<MessageData[]>([]);
+  const messages = ref<MessageWithAlternates[]>([]);
   const subThreads = ref<Record<string, SubThreadData>>({});
   const loading = ref(conversationId !== null);
   const error = ref<string | null>(null);
@@ -62,6 +66,45 @@ export function useConversation(conversationId: string | null) {
 
   function markSent() {
     isThinkingLocal.value = true;
+  }
+
+  async function editMessage(messageId: string, newContent: string): Promise<string> {
+    if (!conversationId) throw new Error('conversationId required');
+    const result = await execute<{ newMessageId: string }>('edit_message', {
+      conversationId,
+      messageId,
+      newContent,
+    });
+    await load();
+    return result.newMessageId;
+  }
+
+  async function generate(agentId: string): Promise<void> {
+    if (!conversationId) throw new Error('conversationId required');
+    markSent();
+    await execute('generate', { conversationId, agentId });
+  }
+
+  async function pruneMessage(messageId: string): Promise<void> {
+    if (!conversationId) throw new Error('conversationId required');
+    await execute('prune_message', { conversationId, messageId });
+    await load();
+  }
+
+  async function compactConversation(
+    messageIds: string[],
+    agentId?: string,
+    instruction?: string,
+  ): Promise<void> {
+    if (!conversationId) throw new Error('conversationId required');
+    await execute('compact_conversation', { conversationId, messageIds, agentId, instruction });
+    await load();
+  }
+
+  async function switchBranch(messageId: string): Promise<void> {
+    if (!conversationId) throw new Error('conversationId required');
+    await execute('switch_branch', { conversationId, messageId });
+    await load();
   }
 
   if (conversationId) {
@@ -129,5 +172,18 @@ export function useConversation(conversationId: string | null) {
     });
   }
 
-  return { messages, subThreads, loading, error, isThinking, load, markSent };
+  return {
+    messages,
+    subThreads,
+    loading,
+    error,
+    isThinking,
+    load,
+    markSent,
+    editMessage,
+    generate,
+    pruneMessage,
+    compactConversation,
+    switchBranch,
+  };
 }

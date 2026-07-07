@@ -41,17 +41,15 @@ export class MessageRouter implements MessageRouterPort {
     const next = new Promise<void>((res) => {
       release = res;
     });
-    this.locks.set(
-      conversationId,
-      prev.then(() => next),
-    );
+    const queued = prev.then(() => next);
+    this.locks.set(conversationId, queued);
     return prev.then(async () => {
       try {
         return await fn();
       } finally {
         release();
         // Best-effort cleanup: remove if no one else queued after us.
-        if (this.locks.get(conversationId) === prev.then(() => next)) {
+        if (this.locks.get(conversationId) === queued) {
           this.locks.delete(conversationId);
         }
       }
@@ -75,6 +73,15 @@ export class MessageRouter implements MessageRouterPort {
     });
     this.eventBus.emit('conversation:created', { conversationId: created.id });
     return new ConversationThread(created, this.store);
+  }
+
+  private createAppendSafeThread(thread: ConversationThread): ConversationThread {
+    return new ConversationThread(thread.data, this.store, (guardedThread, append) =>
+      this.withLock(guardedThread.id, async () => {
+        await guardedThread.reload();
+        return append();
+      }),
+    );
   }
 
   private buildRuntimeContext(
@@ -238,6 +245,52 @@ export class MessageRouter implements MessageRouterPort {
     }
   }
 
+  async generate(
+    conversationId: string,
+    participantId: string,
+    toolContext: ToolContext,
+  ): Promise<MessageRouterResult> {
+    return this.withLock(conversationId, async () => {
+      const thread = await this.getThread(conversationId);
+      const participant = this.collective.get(participantId);
+      if (!participant) {
+        return {
+          conversationId,
+          status: 'error',
+          error: new ParticipantNotFoundError(participantId).message,
+        };
+      }
+
+      const lastIncoming = [...thread.activeChain]
+        .reverse()
+        .find((m) => m.recipientId === participantId && m.role === 'user');
+
+      if (!lastIncoming) {
+        return {
+          conversationId,
+          status: 'error',
+          error: `No incoming message to generate from in conversation ${conversationId}`,
+        };
+      }
+
+      const runtime = this.registry.build(participant.type, participant.id);
+      const runtimeContext = this.buildRuntimeContext(thread, participant.id, toolContext, 0);
+      const opts: SendOptions = {
+        senderId: lastIncoming.senderId,
+        recipientId: participant.id,
+        message: lastIncoming.content,
+        conversationId,
+        replyTo: lastIncoming.replyTo ?? lastIncoming.senderId,
+        context: toolContext,
+      };
+
+      const task = this.dispatchAsync(runtime, lastIncoming, runtimeContext, thread, opts);
+      this.background.add(task);
+      void task.finally(() => this.background.delete(task));
+      return { conversationId: thread.id, status: 'dispatched' };
+    });
+  }
+
   private async handleRuntimeResult(
     result: RuntimeResult,
     thread: ConversationThread,
@@ -272,11 +325,18 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     opts: SendOptions,
   ): Promise<void> {
+    await this.withLock(thread.id, async () => undefined);
+    const backgroundThread = this.createAppendSafeThread(thread);
+    const backgroundContext: RuntimeContext = {
+      ...runtimeContext,
+      conversation: backgroundThread,
+    };
+
     try {
-      const result = await runtime.handle(inbound, runtimeContext);
+      const result = await runtime.handle(inbound, backgroundContext);
       if (result.kind !== 'response') return;
       const replyTarget = opts.replyTo!;
-      const responseMsg = await thread.append({
+      const responseMsg = await backgroundThread.append({
         senderId: opts.recipientId,
         recipientId: replyTarget,
         role: 'assistant',
@@ -284,21 +344,21 @@ export class MessageRouter implements MessageRouterPort {
         usage: result.usage,
       });
       this.eventBus.emit('message:delivered', {
-        conversationId: thread.id,
+        conversationId: backgroundThread.id,
         recipientId: replyTarget,
         messageId: responseMsg.id,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const replyTarget = opts.replyTo!;
-      const responseMsg = await thread.append({
+      const responseMsg = await backgroundThread.append({
         senderId: opts.recipientId,
         recipientId: replyTarget,
         role: 'assistant',
         content: `[Runtime error: ${msg}]`,
       });
       this.eventBus.emit('message:delivered', {
-        conversationId: thread.id,
+        conversationId: backgroundThread.id,
         recipientId: replyTarget,
         messageId: responseMsg.id,
       });

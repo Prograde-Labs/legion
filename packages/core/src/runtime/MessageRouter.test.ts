@@ -260,6 +260,250 @@ describe('MessageRouter: fire-and-forget', () => {
     );
     expect(toOp?.content).toMatch(/provider boom/);
   });
+
+  it('preserves intervening conversation updates before persisting a background response', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/slow.json', {
+      id: 'slow',
+      name: 'Slow',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    let calls = 0;
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted();
+          await new Promise<void>((release) => {
+            releaseFirst = release;
+          });
+          return { kind: 'response', content: 'first response' };
+        }
+        return { kind: 'response', content: 'second response' };
+      },
+    }));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'slow',
+      message: 'first',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await firstStarted;
+
+    const second = router.send({
+      senderId: 'op',
+      recipientId: 'slow',
+      message: 'second',
+      conversationId: first.conversationId,
+      context: baseContext,
+    });
+
+    releaseFirst();
+    await Promise.all([second, router.drain()]);
+
+    const conv = await store.load(first.conversationId);
+    const contents = Object.values(conv!.messages).map((m) => m.content);
+    expect(contents).toEqual(
+      expect.arrayContaining(['first', 'second', 'second response', 'first response']),
+    );
+  });
+
+  it('preserves internal runtime appends and queued sends during background dispatch', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/agent.json', {
+      id: 'agent',
+      name: 'Agent',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    let calls = 0;
+    let releaseInternalAppend!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    registry.registerFactory('mock', () => ({
+      async handle(_incoming, context) {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted();
+          await new Promise<void>((release) => {
+            releaseInternalAppend = release;
+          });
+          await context.conversation.append({
+            senderId: 'agent',
+            recipientId: 'agent',
+            role: 'assistant',
+            content: 'tool-call turn',
+          });
+          return { kind: 'response', content: 'first response' };
+        }
+        return { kind: 'response', content: 'second response' };
+      },
+    }));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const first = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'first',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await firstStarted;
+
+    const second = router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'second',
+      conversationId: first.conversationId,
+      context: baseContext,
+    });
+
+    releaseInternalAppend();
+    await Promise.all([second, router.drain()]);
+
+    const conv = await store.load(first.conversationId);
+    const contents = Object.values(conv!.messages).map((m) => m.content);
+    expect(contents).toEqual(
+      expect.arrayContaining([
+        'first',
+        'tool-call turn',
+        'first response',
+        'second',
+        'second response',
+      ]),
+    );
+  });
+
+  it('does not deadlock when background runtime sends to the same conversation', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/agent.json', {
+      id: 'agent',
+      name: 'Agent',
+      type: 'mock',
+      tools: {},
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(storage);
+    const eventBus = new EventBus();
+    const registry = new RuntimeRegistry();
+
+    let calls = 0;
+    registry.registerFactory('mock', () => ({
+      async handle(_incoming, context) {
+        calls += 1;
+        if (calls === 1) {
+          const result = await context.messageRouter.send({
+            senderId: 'agent',
+            recipientId: 'agent',
+            message: 'nested',
+            conversationId: context.conversationId,
+            context,
+          });
+          expect(result.status).toBe('success');
+          return { kind: 'response', content: 'outer response' };
+        }
+        return { kind: 'response', content: 'nested response' };
+      },
+    }));
+
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'outer',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+    const conv = await store.load(result.conversationId);
+    const contents = Object.values(conv!.messages).map((m) => m.content);
+    expect(contents).toEqual(
+      expect.arrayContaining(['outer', 'nested', 'nested response', 'outer response']),
+    );
+  });
 });
 
 describe('MessageRouter: pending_approval result', () => {
@@ -393,6 +637,57 @@ describe('MessageRouter: resume()', () => {
     const conv = await store.load(conversationId);
     const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
+  });
+});
+
+describe('MessageRouter: generate()', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-generate-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('dispatches from the latest incoming user message without appending another user message', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const sent = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'original',
+      context: baseContext,
+    });
+
+    const result = await router.generate(sent.conversationId, 'mock-1', baseContext);
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+
+    const conv = await store.load(sent.conversationId);
+    const messages = Object.values(conv!.messages);
+    expect(messages.filter((m) => m.role === 'user')).toHaveLength(1);
+    expect(messages.filter((m) => m.role === 'assistant')).toHaveLength(2);
+  });
+
+  it('delivers generated responses to the incoming message replyTo target', async () => {
+    const { router, baseContext, eventBus } = await setup(dir);
+    const delivered: string[] = [];
+    eventBus.on('message:delivered', (p) => delivered.push(p.recipientId));
+
+    const sent = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'original',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await router.drain();
+
+    const result = await router.generate(sent.conversationId, 'mock-1', baseContext);
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    expect(delivered).toEqual(['op', 'op']);
   });
 });
 

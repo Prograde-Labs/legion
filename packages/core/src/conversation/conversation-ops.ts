@@ -120,10 +120,14 @@ export function validateConversation(conversation: ConversationData): string[] {
     errors.push(`activeBranchHead references missing message: ${conversation.activeBranchHead}`);
   }
 
-  // Exactly one root (parentId null) when there is at least one message.
-  const roots = ids.filter((id) => conversation.messages[id].parentId === null);
+  // Exactly one non-compacted root (parentId null) when there is at least one message.
+  const roots = ids.filter(
+    (id) =>
+      conversation.messages[id].parentId === null &&
+      conversation.messages[id].status !== 'compacted',
+  );
   if (ids.length > 0 && roots.length !== 1) {
-    errors.push(`expected exactly one root message, found ${roots.length}`);
+    errors.push(`expected exactly one non-compacted root message, found ${roots.length}`);
   }
 
   // Parent references must exist.
@@ -175,24 +179,28 @@ export function pruneMessage(
   prunedBy: string,
 ): ConversationData {
   const target = requireMessage(conversation, messageId);
-  const messages: Record<string, MessageData> = {
-    ...conversation.messages,
-    [target.id]: {
-      ...target,
-      status: 'pruned',
-      prunedAt: nowIso(),
-      prunedBy,
-    },
-  };
+  const chain = getActiveChain(conversation);
+  const targetIdx = chain.findIndex((m) => m.id === messageId);
+  const now = nowIso();
+  const messages: Record<string, MessageData> = { ...conversation.messages };
+
+  // Always prune the target message.
+  messages[target.id] = { ...target, status: 'pruned', prunedAt: now, prunedBy };
 
   let head = conversation.activeBranchHead;
-  if (head === target.id) {
+
+  if (targetIdx !== -1) {
+    // Target is in the active chain: cascade-prune all descendants and retract head.
+    for (let i = targetIdx + 1; i < chain.length; i++) {
+      const m = chain[i];
+      messages[m.id] = { ...m, status: 'pruned', prunedAt: now, prunedBy };
+    }
     head = target.parentId ?? '';
   }
 
   return {
     ...conversation,
-    updatedAt: nowIso(),
+    updatedAt: now,
     activeBranchHead: head,
     messages,
   };

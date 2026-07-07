@@ -3,10 +3,16 @@ import type {
   ToolPolicy,
   ToolResult,
   AgentConfig,
+  ConversationData,
   ModelConfig,
   MessageData,
 } from '@legion/types';
-import { getActiveChain } from '../conversation/conversation-ops.js';
+import {
+  compactRange,
+  editMessage,
+  getActiveChain,
+  pruneMessage,
+} from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
@@ -193,7 +199,7 @@ export const removeToolPolicyTool: Tool = {
 };
 
 type MessageWithAlternates = MessageData & {
-  alternates?: Array<{ id: string; content: string; timestamp: string }>;
+  alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
 };
 
 function withAlternates(conversationMessages: Record<string, MessageData>, chain: MessageData[]) {
@@ -208,11 +214,318 @@ function withAlternates(conversationMessages: Record<string, MessageData>, chain
         id: candidate.id,
         content: candidate.content,
         timestamp: candidate.timestamp,
+        status: candidate.status,
       }));
 
     return alternates.length > 0 ? { ...message, alternates } : message;
   });
 }
+
+export const editMessageTool: Tool = {
+  name: 'edit_message',
+  description: 'Edit an existing message by creating a new branch node.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      messageId: { type: 'string' },
+      newContent: { type: 'string' },
+    },
+    required: ['conversationId', 'messageId', 'newContent'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; messageId?: unknown; newContent?: unknown };
+    if (
+      typeof input.conversationId !== 'string' ||
+      typeof input.messageId !== 'string' ||
+      typeof input.newContent !== 'string'
+    ) {
+      return {
+        status: 'error',
+        error: 'conversationId, messageId, and newContent must be strings',
+      };
+    }
+    const { conversationId, messageId, newContent } = input;
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation)
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      const updated = editMessage(conversation, messageId, newContent);
+      await context.conversationStore.save(updated);
+      return {
+        status: 'success',
+        data: {
+          newMessageId: updated.activeBranchHead,
+          activeBranchHead: updated.activeBranchHead,
+        },
+      };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export function switchConversationBranch(
+  conversation: ConversationData,
+  messageId: string,
+): ConversationData {
+  const target = conversation.messages[messageId];
+  if (!target) throw new Error(`Message not found: ${messageId}`);
+
+  const messages: Record<string, MessageData> = { ...conversation.messages };
+  const summary = Object.values(messages).find(
+    (message) => message.type === 'summary' && message.compacts?.includes(messageId),
+  );
+
+  if (target.status === 'compacted' && summary?.compacts?.length) {
+    for (const id of summary.compacts) {
+      messages[id] = { ...messages[id], status: 'active' };
+    }
+    messages[summary.id] = { ...summary, status: 'superseded', supersededBy: messageId };
+    const lastCompactedId = summary.compacts[summary.compacts.length - 1];
+    for (const message of Object.values(messages)) {
+      if (message.parentId === summary.id) {
+        messages[message.id] = { ...message, parentId: lastCompactedId };
+      }
+    }
+    const head =
+      conversation.activeBranchHead === summary.id
+        ? lastCompactedId
+        : conversation.activeBranchHead;
+    return {
+      ...conversation,
+      updatedAt: new Date().toISOString(),
+      activeBranchHead: head,
+      messages,
+    };
+  }
+
+  const activeSibling = Object.values(messages).find(
+    (message) =>
+      message.id !== messageId &&
+      message.parentId === target.parentId &&
+      message.status === 'active',
+  );
+  if (activeSibling) {
+    messages[activeSibling.id] = {
+      ...activeSibling,
+      status: 'superseded',
+      supersededBy: messageId,
+    };
+  }
+  messages[messageId] = { ...target, status: 'active' };
+
+  let head = messageId;
+  for (;;) {
+    const child = Object.values(messages).find(
+      (message) => message.parentId === head && message.status === 'active',
+    );
+    if (!child) break;
+    head = child.id;
+  }
+
+  return { ...conversation, updatedAt: new Date().toISOString(), activeBranchHead: head, messages };
+}
+
+export const switchBranchTool: Tool = {
+  name: 'switch_branch',
+  description: 'Switch the active conversation branch to a sibling message.',
+  parameters: {
+    type: 'object',
+    properties: { conversationId: { type: 'string' }, messageId: { type: 'string' } },
+    required: ['conversationId', 'messageId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; messageId?: unknown };
+    if (typeof input.conversationId !== 'string' || typeof input.messageId !== 'string') {
+      return { status: 'error', error: 'conversationId and messageId must be strings' };
+    }
+    const { conversationId, messageId } = input;
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation)
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      const updated = switchConversationBranch(conversation, messageId);
+      await context.conversationStore.save(updated);
+      return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const pruneMessageTool: Tool = {
+  name: 'prune_message',
+  description: 'Prune a message from the active conversation chain.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      messageId: { type: 'string' },
+    },
+    required: ['conversationId', 'messageId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; messageId?: unknown };
+    if (typeof input.conversationId !== 'string' || typeof input.messageId !== 'string') {
+      return { status: 'error', error: 'conversationId and messageId must be strings' };
+    }
+    const { conversationId, messageId } = input;
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation)
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      const updated = pruneMessage(conversation, messageId, context.participant.id);
+      await context.conversationStore.save(updated);
+      return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+const DEFAULT_SUMMARY_INSTRUCTION =
+  'Summarize the following conversation segment concisely. Capture the main topics discussed, key information exchanged, any decisions or conclusions reached, and the current state of any ongoing discussion or work. Write clearly and be complete enough that the conversation can continue naturally from this summary without the original messages.';
+
+export const compactConversationTool: Tool = {
+  name: 'compact_conversation',
+  description: 'Compact a range of messages into an agent-generated summary.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      messageIds: { type: 'array', items: { type: 'string' } },
+      agentId: { type: 'string' },
+      instruction: { type: 'string' },
+    },
+    required: ['conversationId', 'messageIds', 'agentId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as {
+      conversationId?: unknown;
+      messageIds?: unknown;
+      agentId?: unknown;
+      instruction?: unknown;
+    };
+    if (
+      typeof input.conversationId !== 'string' ||
+      !Array.isArray(input.messageIds) ||
+      input.messageIds.length === 0 ||
+      !input.messageIds.every((id) => typeof id === 'string') ||
+      typeof input.agentId !== 'string' ||
+      input.agentId.length === 0 ||
+      (input.instruction !== undefined && typeof input.instruction !== 'string')
+    ) {
+      return {
+        status: 'error',
+        error:
+          'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
+      };
+    }
+    const { conversationId, messageIds, agentId, instruction } = input as {
+      conversationId: string;
+      messageIds: string[];
+      agentId: string;
+      instruction?: string;
+    };
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+    if (!context.messageRouter) {
+      return { status: 'error', error: 'messageRouter unavailable in context' };
+    }
+    try {
+      const conversation = await context.conversationStore.load(conversationId);
+      if (!conversation) {
+        return { status: 'error', error: `Conversation not found: ${conversationId}` };
+      }
+      const targetMessages = messageIds.map((id) => {
+        const message = conversation.messages[id];
+        if (!message) throw new Error(`Message not found: ${id}`);
+        return message;
+      });
+      const transcript = targetMessages
+        .map((message) => {
+          // Label summary nodes distinctly so the compacting agent knows it is
+          // working with an already-summarised block rather than a raw turn.
+          if (message.type === 'summary') {
+            return `[summary of earlier messages]: ${message.content}`;
+          }
+          return `${message.role}: ${message.content}`;
+        })
+        .join('\n');
+      const prompt = `${instruction ?? DEFAULT_SUMMARY_INSTRUCTION}\n\n${transcript}`;
+      const summary = await context.messageRouter.send({
+        senderId: context.participant.id,
+        recipientId: agentId,
+        message: prompt,
+        replyTo: undefined,
+        context,
+      });
+      if (summary.status === 'error') {
+        return { status: 'error', error: summary.error ?? 'Summary failed' };
+      }
+      if (!summary.response) {
+        return { status: 'error', error: 'Summary agent returned no response' };
+      }
+      const beforeIds = new Set(Object.keys(conversation.messages));
+      const updated = compactRange(conversation, messageIds, summary.response);
+      await context.conversationStore.save(updated);
+      const summaryNode = Object.values(updated.messages).find(
+        (message) => message.type === 'summary' && !beforeIds.has(message.id),
+      );
+      return {
+        status: 'success',
+        data: { summaryMessageId: summaryNode?.id, activeBranchHead: updated.activeBranchHead },
+      };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const generateTool: Tool = {
+  name: 'generate',
+  description: 'Trigger an agent response from the current active conversation branch.',
+  parameters: {
+    type: 'object',
+    properties: { conversationId: { type: 'string' }, agentId: { type: 'string' } },
+    required: ['conversationId', 'agentId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = args as { conversationId?: unknown; agentId?: unknown };
+    if (typeof input.conversationId !== 'string' || typeof input.agentId !== 'string') {
+      return { status: 'error', error: 'conversationId and agentId must be strings' };
+    }
+    const { conversationId, agentId } = input;
+    if (!context.messageRouter) {
+      return { status: 'error', error: 'messageRouter unavailable in context' };
+    }
+    try {
+      const participant = requireCollective(context).get(agentId);
+      if (!participant) return { status: 'error', error: `Participant not found: ${agentId}` };
+      if (participant.type !== 'agent') {
+        return { status: 'error', error: `Participant ${agentId} is not an agent` };
+      }
+      const result = await context.messageRouter.generate(conversationId, agentId, context);
+      if (result.status === 'error') {
+        return { status: 'error', error: result.error ?? 'Generate failed' };
+      }
+      return { status: 'success', data: { status: 'success' } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
 
 export const getConversationTool: Tool = {
   name: 'get_conversation',
@@ -492,6 +805,11 @@ export const managementTools: Tool[] = [
   getParticipantTool,
   setToolPolicyTool,
   removeToolPolicyTool,
+  editMessageTool,
+  pruneMessageTool,
+  compactConversationTool,
+  generateTool,
+  switchBranchTool,
   getConversationTool,
   setCredentialTool,
   modifyAgentTool,

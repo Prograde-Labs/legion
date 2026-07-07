@@ -35,6 +35,16 @@ export interface MessageRouterPort {
     participantId: string,
     context: ToolContext,
   ): Promise<MessageRouterResult>;
+
+  /**
+   * Trigger a participant response from the current active branch without
+   * appending a new user message. Used by edit re-run and regenerate flows.
+   */
+  generate(
+    conversationId: string,
+    participantId: string,
+    context: ToolContext,
+  ): Promise<MessageRouterResult>;
 }
 
 /**

@@ -68,6 +68,7 @@ params: { participantId, authority: { tools: string | '*', participants: string 
 ### 4.2 Modified Tools
 
 **`set_credential`** — add minimum password length validation:
+
 - Reject secrets shorter than 8 characters with `Password must be at least 8 characters`.
 - Applies to both admin-set and user self-change paths.
 - Existing short-secret tests updated to use 8+ character values.
@@ -75,6 +76,7 @@ params: { participantId, authority: { tools: string | '*', participants: string 
 ### 4.3 Tool Registration
 
 All three new tools added to:
+
 - `managementTools` array in `management-tools.ts`.
 - `MANAGEMENT_TOOLS` list in `default-participants.ts` (operator gets `auto` policy for all three).
 
@@ -108,6 +110,7 @@ All three new tools added to:
 Tabs: **Basic** | **Tool policies** | **Approval authority**
 
 **Basic tab fields:**
+
 - **ID** — read-only after create (shown as monospace label).
 - **Name** — editable text input. On create this also serves as the login name.
 - **Password** — masked input with reveal toggle. Hint: "Leave blank to keep current password." On create, setting a password calls `set_credential` after `create_user`. On edit, if blank, skips `set_credential`.
@@ -120,6 +123,7 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 **Approval authority tab:** reuses `ApprovalAuthorityEditor.vue`.
 
 **Footer:**
+
 - Left: "Retire user" button — hidden when `protected === true`; disabled when target is the only active operator or when `editingId === currentUserId`.
 - Right: Cancel | Save.
 
@@ -147,18 +151,18 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 
 ## 6. Error Handling
 
-| Scenario | Backend response | UI treatment |
-|---|---|---|
-| `modify_user` on agent id | `Participant ${id} is not a user` | Never reached from UI (type-dispatched), tool defends |
-| `create_user` duplicate id | ConflictError → tool error | Error banner in slide-over |
-| `create_user` duplicate name | Tool error: `Name already in use` | Error banner |
-| `modify_user` name collision | Tool error: `Name already in use` | Error banner |
-| `set_credential` < 8 chars | Tool error: `Password must be at least 8 characters` | Error banner; also client-validated |
-| Retire protected participant | InvariantError → tool error | Retire button hidden |
-| Retire last operator | InvariantError → tool error | Retire button disabled client-side + tool defends |
-| Self-retire | Allowed by backend | Retire button disabled when `editingId === currentUserId` |
-| Network / execute failure | Error response | Error banner above footer; form state preserved for retry |
-| Account password mismatch | Client only | Inline validation error, Save disabled |
+| Scenario                     | Backend response                                     | UI treatment                                              |
+| ---------------------------- | ---------------------------------------------------- | --------------------------------------------------------- |
+| `modify_user` on agent id    | `Participant ${id} is not a user`                    | Never reached from UI (type-dispatched), tool defends     |
+| `create_user` duplicate id   | ConflictError → tool error                           | Error banner in slide-over                                |
+| `create_user` duplicate name | Tool error: `Name already in use`                    | Error banner                                              |
+| `modify_user` name collision | Tool error: `Name already in use`                    | Error banner                                              |
+| `set_credential` < 8 chars   | Tool error: `Password must be at least 8 characters` | Error banner; also client-validated                       |
+| Retire protected participant | InvariantError → tool error                          | Retire button hidden                                      |
+| Retire last operator         | InvariantError → tool error                          | Retire button disabled client-side + tool defends         |
+| Self-retire                  | Allowed by backend                                   | Retire button disabled when `editingId === currentUserId` |
+| Network / execute failure    | Error response                                       | Error banner above footer; form state preserved for retry |
+| Account password mismatch    | Client only                                          | Inline validation error, Save disabled                    |
 
 ## 7. Login & Identity Consistency
 
@@ -173,6 +177,7 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 ### Backend (`packages/core/src/tools/management-tools.test.ts`)
 
 `create_user`:
+
 - Adds participant with `type: 'user'`, `status: 'active'`.
 - Auto-populates `identities` when omitted.
 - Respects provided `identities`.
@@ -181,6 +186,7 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 - Sets `protected: false` always.
 
 `modify_user`:
+
 - Updates name, tools, operator, approvalAuthority, identities.
 - Rejects when target is not a user.
 - Rejects name collision with another participant.
@@ -188,6 +194,7 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 - Triggers last-operator guard via `Collective.update`.
 
 `set_approval_authority`:
+
 - Sets authority on a user.
 - Sets authority on an agent.
 - Clears authority when passed `null`.
@@ -195,12 +202,14 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 - Rejects non-existent participant.
 
 `set_credential` (updated):
+
 - Rejects secret shorter than 8 chars.
 - Existing passing tests updated to use 8+ char secrets.
 
 ### Frontend (`packages/web/src`, happy-dom vitest)
 
 `ParticipantsView.test.ts`:
+
 - Renders Type column.
 - "+ New user" button opens UserSlideOver.
 - "+ New agent" button opens AgentSlideOver.
@@ -209,6 +218,7 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 - Service/mock rows show no Edit button.
 
 `UserSlideOver.test.ts`:
+
 - Loads existing user via `get_participant` on open.
 - Save (edit) calls `modify_user` (with `approvalAuthority` inline); conditionally calls `set_credential` (if password non-empty). No separate `set_approval_authority` call.
 - Save (create) calls `create_user`.
@@ -219,16 +229,19 @@ Tabs: **Basic** | **Tool policies** | **Approval authority**
 - Emits `saved` and `close` on success.
 
 `ApprovalAuthorityEditor.test.ts`:
+
 - Renders current authority values.
 - Emits `update:authority` on change.
 - Clear button emits `null`.
 
 `AgentSlideOver.test.ts` (updated from ParticipantSlideOver.test.ts if it exists):
+
 - Existing tests pass after rename.
 - New: Approval authority tab renders ApprovalAuthorityEditor.
 - New: save calls `set_approval_authority` when authority set.
 
 `AccountView.test.ts`:
+
 - Renders current user name.
 - Save calls `set_credential` with own participantId.
 - Client-side validation: rejects < 8 chars, rejects mismatch.

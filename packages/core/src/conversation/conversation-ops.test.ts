@@ -169,6 +169,23 @@ describe('conversation-ops: invariants', () => {
     expect(validateConversation(conv)).toEqual([]);
   });
 
+  it('allows compacted messages to remain roots after compacting from the start', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
+    const id1 = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'two',
+    });
+    const id2 = conv.activeBranchHead;
+
+    conv = compactRange(conv, [id1, id2], 'summary');
+
+    expect(validateConversation(conv)).toEqual([]);
+  });
+
   it('flags a dangling parentId', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });

@@ -2,7 +2,9 @@
 import { ref, computed, nextTick, watch } from 'vue';
 import { useExecute } from '../../composables/useExecute.js';
 import { useConversation } from '../../composables/useConversation.js';
+import type { MessageWithAlternates } from '../../composables/useConversation.js';
 import MessageBubble from './MessageBubble.vue';
+import CompactDialog from './CompactDialog.vue';
 import ToolCallBlock, { type ToolCallEntry, type MessageEntry } from './ToolCallBlock.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import type { MessageData } from '@legion/types';
@@ -30,13 +32,81 @@ const emit = defineEmits<{
 }>();
 
 const { execute } = useExecute();
-const { messages, subThreads, loading, isThinking, markSent } = useConversation(
-  props.conversationId,
-);
+const {
+  messages,
+  subThreads,
+  loading,
+  isThinking,
+  markSent,
+  editMessage,
+  generate,
+  pruneMessage,
+  compactConversation,
+  switchBranch,
+} = useConversation(props.conversationId);
 
 const composerText = ref('');
 const sending = ref(false);
 const threadEl = ref<HTMLElement | null>(null);
+
+const compactOpen = ref(false);
+const compactRange = ref<MessageWithAlternates[]>([]);
+const compacting = ref(false);
+const participants = ref<Array<{ id: string; name: string; type: string }>>([]);
+
+const agents = computed(() =>
+  participants.value
+    .filter((participant) => participant.type === 'agent')
+    .map((participant) => ({ id: participant.id, name: participant.name })),
+);
+
+async function loadParticipants() {
+  const result = await execute<Array<{ id: string; name: string; type: string }>>(
+    'list_participants',
+    {},
+  );
+  participants.value = result ?? [];
+}
+
+async function openCompact(range: MessageWithAlternates[]) {
+  compactRange.value = range;
+  compactOpen.value = true;
+  await loadParticipants();
+}
+
+async function handleEdit(messageId: string, content: string, rerun: boolean) {
+  await editMessage(messageId, content);
+  if (rerun && props.recipientId) {
+    await generate(props.recipientId);
+  }
+}
+
+function handleCompactAbove(messageId: string) {
+  const idx = messages.value.findIndex((m) => m.id === messageId);
+  if (idx === -1) return;
+  void openCompact(messages.value.slice(0, idx + 1));
+}
+
+async function handleCompact(agentId: string, instruction: string) {
+  compacting.value = true;
+  try {
+    await compactConversation(
+      compactRange.value.map((message) => message.id),
+      agentId,
+      instruction,
+    );
+    compactOpen.value = false;
+  } finally {
+    compacting.value = false;
+  }
+}
+
+async function handleRegenerate(messageId: string) {
+  await pruneMessage(messageId);
+  if (props.recipientId) {
+    await generate(props.recipientId);
+  }
+}
 
 const canSend = computed(
   () =>
@@ -115,29 +185,38 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
         {{ recipientName ?? conversationId }}
       </span>
       <span v-else class="text-sm text-slate-500">New conversation</span>
-      <button
-        v-if="conversationId"
-        type="button"
-        class="ml-auto text-slate-500 hover:text-red-400 transition-colors"
-        title="Delete conversation"
-        @click="emit('delete', conversationId)"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+      <div v-if="conversationId" class="ml-auto flex gap-2">
+        <button
+          v-if="messages.length > 0"
+          type="button"
+          class="rounded border border-navy-700 px-2 py-1 text-xs text-cyan-400 hover:bg-navy-800"
+          @click="openCompact(messages)"
         >
-          <path
-            d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-          />
-        </svg>
-      </button>
+          Compact
+        </button>
+        <button
+          type="button"
+          class="text-slate-500 hover:text-red-400 transition-colors"
+          title="Delete conversation"
+          @click="emit('delete', conversationId)"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path
+              d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Messages -->
@@ -162,6 +241,11 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           :message="msg"
           :is-own="isOwnMessage(msg)"
           :sender-name="isOwnMessage(msg) ? 'you' : (recipientName ?? msg.senderId)"
+          @edit="handleEdit"
+          @prune="pruneMessage"
+          @regenerate="handleRegenerate"
+          @switch-branch="switchBranch"
+          @compact-above="handleCompactAbove"
         >
           <template v-if="msg.toolCalls?.length" #tools>
             <!-- Tool call indicators: nested sub-thread for delegations, compact for others -->
@@ -248,5 +332,14 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
       </div>
       <div class="text-xs text-slate-700 mt-1">Enter to send · Shift+Enter for new line</div>
     </div>
+
+    <CompactDialog
+      v-if="compactOpen"
+      :messages="compactRange"
+      :agents="agents"
+      :loading="compacting"
+      @compact="handleCompact"
+      @cancel="compactOpen = false"
+    />
   </div>
 </template>

@@ -8,6 +8,11 @@ import {
   retireAgentTool,
   listParticipantsTool,
   getParticipantTool,
+  editMessageTool,
+  switchBranchTool,
+  pruneMessageTool,
+  compactConversationTool,
+  generateTool,
   getConversationTool,
   setToolPolicyTool,
   removeToolPolicyTool,
@@ -97,6 +102,22 @@ async function invokeManagementTool(name: string, args: unknown, deps: TestDeps)
 }
 
 describe('management tools', () => {
+  it('registers conversation editing tools', () => {
+    const names = managementTools.map((tool) => tool.name);
+    const conversationEditingTools = [
+      'edit_message',
+      'prune_message',
+      'compact_conversation',
+      'generate',
+      'switch_branch',
+    ];
+
+    expect(names).toEqual(expect.arrayContaining(conversationEditingTools));
+    for (const name of conversationEditingTools) {
+      expect(names.filter((toolName) => toolName === name)).toHaveLength(1);
+    }
+  });
+
   it('create_agent adds a new agent participant', async () => {
     const { context, collective } = await makeContext();
     const result = await createAgentTool.execute(
@@ -207,8 +228,392 @@ describe('management tools', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe('edited');
     expect(messages[0].alternates).toEqual([
-      { id: 'm1', content: 'original', timestamp: conv.messages['m1'].timestamp },
+      {
+        id: 'm1',
+        content: 'original',
+        timestamp: conv.messages['m1'].timestamp,
+        status: 'superseded',
+      },
     ]);
+  });
+
+  it('edit_message creates edited branch and saves it', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'before',
+    });
+    await conversationStore.save(conv);
+
+    const result = await editMessageTool.execute(
+      { conversationId: conv.id, messageId: 'm1', newContent: 'after' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const data = result.data as { newMessageId: string; activeBranchHead: string };
+    expect(data.activeBranchHead).toBe(data.newMessageId);
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m1'].status).toBe('superseded');
+    expect(saved?.messages[data.newMessageId].content).toBe('after');
+    expect(saved?.messages[data.newMessageId].editOf).toBe('m1');
+  });
+
+  it('edit_message rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await editMessageTool.execute(
+      { conversationId: 123, messageId: 'm1', newContent: 'after' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId, messageId, and newContent must be strings',
+    });
+  });
+
+  it('switch_branch activates an edited sibling and its active descendants', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'original',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'original response',
+    });
+    conv = editMessage(conv, 'm1', 'edited');
+    const editedId = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      id: 'm3',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'edited response',
+    });
+    await conversationStore.save(conv);
+
+    const result = await switchBranchTool.execute(
+      { conversationId: conv.id, messageId: 'm1' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m1'].status).toBe('active');
+    expect(saved?.messages['m2'].status).toBe('active');
+    expect(saved?.messages[editedId].status).toBe('superseded');
+    expect(saved?.activeBranchHead).toBe('m2');
+  });
+
+  it('switch_branch restores compacted messages when selecting summary alternate', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'start',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'reply',
+    });
+    conv = appendMessage(conv, {
+      id: 'm3',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'after',
+    });
+    conv = compactRange(conv, ['m1', 'm2'], 'summary');
+    const summary = Object.values(conv.messages).find((m) => m.type === 'summary');
+    await conversationStore.save(conv);
+
+    const result = await switchBranchTool.execute(
+      { conversationId: conv.id, messageId: 'm1' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.messages['m1'].status).toBe('active');
+    expect(saved?.messages['m2'].status).toBe('active');
+    expect(saved?.messages[summary!.id].status).toBe('superseded');
+    expect(saved?.messages['m3'].parentId).toBe('m2');
+    expect(saved?.activeBranchHead).toBe('m3');
+  });
+
+  it('switch_branch rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await switchBranchTool.execute(
+      { conversationId: 123, messageId: 'm1' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId and messageId must be strings',
+    });
+  });
+
+  it('prune_message prunes a message and saves the new head', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'prompt',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'answer',
+    });
+    await conversationStore.save(conv);
+
+    const result = await pruneMessageTool.execute(
+      { conversationId: conv.id, messageId: 'm2' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual({ activeBranchHead: 'm1' });
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.activeBranchHead).toBe('m1');
+    expect(saved?.messages['m2'].status).toBe('pruned');
+    expect(saved?.messages['m2'].prunedBy).toBe('operator');
+  });
+
+  it('prune_message cascade-prunes descendants when pruning a middle message', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'hello',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'hi',
+    });
+    conv = appendMessage(conv, {
+      id: 'm3',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'follow-up',
+    });
+    await conversationStore.save(conv);
+
+    // Prune m2 (middle of chain) — m3 should also be pruned
+    const result = await pruneMessageTool.execute(
+      { conversationId: conv.id, messageId: 'm2' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual({ activeBranchHead: 'm1' });
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.activeBranchHead).toBe('m1');
+    expect(saved?.messages['m2'].status).toBe('pruned');
+    expect(saved?.messages['m3'].status).toBe('pruned');
+  });
+
+  it('prune_message rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await pruneMessageTool.execute(
+      { conversationId: 123, messageId: 'm2' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId and messageId must be strings',
+    });
+  });
+
+  it('compact_conversation summarizes through messageRouter and compacts messages', async () => {
+    const { context, conversationStore } = await makeContext();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'conv-summary',
+      status: 'success',
+      response: 'short summary',
+    });
+    const ctx = {
+      ...context,
+      messageRouter: { send, resume: vi.fn(), generate: vi.fn() },
+    } as unknown as ToolContext;
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'hello',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'hi',
+    });
+    conv = appendMessage(conv, {
+      id: 'old-summary',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'assistant',
+      content: 'stale summary',
+      type: 'summary',
+    });
+    conv = {
+      ...conv,
+      activeBranchHead: 'm2',
+      messages: {
+        ...conv.messages,
+        'old-summary': { ...conv.messages['old-summary'], compacts: ['m1', 'm2'] },
+      },
+    };
+    await conversationStore.save(conv);
+
+    const result = await compactConversationTool.execute(
+      { conversationId: conv.id, messageIds: ['m1', 'm2'], agentId: 'agent-x' },
+      ctx,
+    );
+
+    expect(result.status).toBe('success');
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: 'operator',
+        recipientId: 'agent-x',
+        replyTo: undefined,
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(expect.not.objectContaining({ conversationId: conv.id }));
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Summarize the following conversation segment concisely.'),
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('user: hello') }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('assistant: hi') }),
+    );
+    const saved = await conversationStore.load(conv.id);
+    const summary = Object.values(saved!.messages).find(
+      (m) => m.type === 'summary' && m.content === 'short summary',
+    );
+    expect(summary?.content).toBe('short summary');
+    expect(summary?.compacts).toEqual(['m1', 'm2']);
+    expect(result.data).toEqual({
+      summaryMessageId: summary?.id,
+      activeBranchHead: saved?.activeBranchHead,
+    });
+  });
+
+  it('compact_conversation rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await compactConversationTool.execute(
+      { conversationId: 123, messageIds: [], agentId: '', instruction: 42 },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error:
+        'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
+    });
+  });
+
+  it('generate delegates to messageRouter.generate', async () => {
+    const { context } = await makeContext();
+    await createAgentTool.execute(
+      {
+        id: 'agent-x',
+        name: 'X',
+        systemPrompt: 's',
+        model: { model: 'm' },
+        tools: {},
+      },
+      context,
+    );
+    const generate = vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'dispatched' });
+    const ctx = {
+      ...context,
+      messageRouter: { send: vi.fn(), resume: vi.fn(), generate },
+    } as unknown as ToolContext;
+
+    const result = await generateTool.execute({ conversationId: 'c1', agentId: 'agent-x' }, ctx);
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual({ status: 'success' });
+    expect(generate).toHaveBeenCalledWith('c1', 'agent-x', ctx);
+  });
+
+  it('generate rejects invalid args', async () => {
+    const { context } = await makeContext();
+
+    const result = await generateTool.execute({ conversationId: 123, agentId: null }, context);
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'conversationId and agentId must be strings',
+    });
   });
 
   it('get_conversation returns first compacted message as summary alternate', async () => {
@@ -242,7 +647,7 @@ describe('management tools', () => {
       .messages;
     expect(messages[0].type).toBe('summary');
     expect(messages[0].alternates).toEqual([
-      { id: 'm1', content: 'start', timestamp: conv.messages['m1'].timestamp },
+      { id: 'm1', content: 'start', timestamp: conv.messages['m1'].timestamp, status: 'compacted' },
     ]);
   });
 
