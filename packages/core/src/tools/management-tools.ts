@@ -199,7 +199,7 @@ export const removeToolPolicyTool: Tool = {
 };
 
 type MessageWithAlternates = MessageData & {
-  alternates?: Array<{ id: string; content: string; timestamp: string }>;
+  alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
 };
 
 function withAlternates(conversationMessages: Record<string, MessageData>, chain: MessageData[]) {
@@ -214,6 +214,7 @@ function withAlternates(conversationMessages: Record<string, MessageData>, chain
         id: candidate.id,
         content: candidate.content,
         timestamp: candidate.timestamp,
+        status: candidate.status,
       }));
 
     return alternates.length > 0 ? { ...message, alternates } : message;
@@ -392,8 +393,28 @@ export const pruneMessageTool: Tool = {
   },
 };
 
-const DEFAULT_SUMMARY_INSTRUCTION =
-  'Summarise the following conversation segment concisely, preserving key decisions, facts, and outcomes.';
+const DEFAULT_SUMMARY_INSTRUCTION = `Output exactly the Markdown structure below. Keep section order unchanged. Do not include the template tags.
+
+## Objective
+- [one or two sentences: what the user is trying to accomplish]
+
+## Key Details
+- [decisions made and why, important facts, constraints, exact context needed to continue, or "(none)"]
+
+## State
+- Completed: [finished work or verified facts; otherwise "(none)"]
+- Active: [current work or investigation; otherwise "(none)"]
+- Blocked: [blockers, errors, or unknowns; otherwise "(none)"]
+
+## Next Steps
+1. [immediate next action, or "(none)"]
+2. [following action if known, or "(none)"]
+
+Rules:
+- Keep every section even if empty.
+- Terse bullets, not prose.
+- Preserve exact file paths, commands, error strings, identifiers, and URLs.
+- Do not mention this summary process.`;
 
 export const compactConversationTool: Tool = {
   name: 'compact_conversation',

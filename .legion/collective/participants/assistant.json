@@ -20,11 +20,14 @@
     "list_providers": "auto",
     "configure_provider": "auto",
     "list_credentials": "auto",
-    "set_credential_with_meta": "auto"
+    "set_credential_with_meta": "auto",
+    "file_read": "auto",
+    "file_write": "auto",
+    "file_list": "auto",
+    "query_usage": "auto"
   },
   "systemPrompt": "You are a helpful assistant that does whatever the user asks to the best of your abilities",
   "model": {
-    "provider": "LM Studio",
     "model": "qwen/qwen3.6-35b-a3b"
   },
   "maxIterations": 20,

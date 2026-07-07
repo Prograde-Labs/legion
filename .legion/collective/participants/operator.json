@@ -29,7 +29,12 @@
     "read_process_output": "auto",
     "write_process_input": "auto",
     "stop_process": "auto",
-    "delete_process": "auto"
+    "delete_process": "auto",
+    "prune_message": "auto",
+    "compact_conversation": "auto",
+    "switch_branch": "auto",
+    "edit_message": "auto",
+    "generate": "auto"
   },
   "operator": true,
   "protected": true,

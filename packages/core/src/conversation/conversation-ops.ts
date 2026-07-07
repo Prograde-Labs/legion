@@ -179,24 +179,28 @@ export function pruneMessage(
   prunedBy: string,
 ): ConversationData {
   const target = requireMessage(conversation, messageId);
-  const messages: Record<string, MessageData> = {
-    ...conversation.messages,
-    [target.id]: {
-      ...target,
-      status: 'pruned',
-      prunedAt: nowIso(),
-      prunedBy,
-    },
-  };
+  const chain = getActiveChain(conversation);
+  const targetIdx = chain.findIndex((m) => m.id === messageId);
+  const now = nowIso();
+  const messages: Record<string, MessageData> = { ...conversation.messages };
+
+  // Always prune the target message.
+  messages[target.id] = { ...target, status: 'pruned', prunedAt: now, prunedBy };
 
   let head = conversation.activeBranchHead;
-  if (head === target.id) {
+
+  if (targetIdx !== -1) {
+    // Target is in the active chain: cascade-prune all descendants and retract head.
+    for (let i = targetIdx + 1; i < chain.length; i++) {
+      const m = chain[i];
+      messages[m.id] = { ...m, status: 'pruned', prunedAt: now, prunedBy };
+    }
     head = target.parentId ?? '';
   }
 
   return {
     ...conversation,
-    updatedAt: nowIso(),
+    updatedAt: now,
     activeBranchHead: head,
     messages,
   };

@@ -4,7 +4,7 @@ import { useEventStream } from './useEventStream.js';
 import type { MessageData } from '@legion/types';
 
 export type MessageWithAlternates = MessageData & {
-  alternates?: Array<{ id: string; content: string; timestamp: string }>;
+  alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
 };
 
 export interface SubThreadData {

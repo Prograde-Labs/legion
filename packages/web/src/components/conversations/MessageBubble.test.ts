@@ -87,7 +87,14 @@ describe('MessageBubble', () => {
         message: {
           ...userMessage,
           timestamp: '2026-01-01T00:00:01Z',
-          alternates: [{ id: 'old', content: 'Old text', timestamp: '2026-01-01T00:00:00Z' }],
+          alternates: [
+            {
+              id: 'old',
+              content: 'Old text',
+              timestamp: '2026-01-01T00:00:00Z',
+              status: 'superseded',
+            },
+          ],
         },
         isOwn: true,
         senderName: 'You',
@@ -97,5 +104,32 @@ describe('MessageBubble', () => {
     expect(wrapper.text()).toContain('2/2');
     await wrapper.get('button[data-branch-prev]').trigger('click');
     expect(wrapper.emitted('switchBranch')?.[0]).toEqual(['old']);
+  });
+
+  it('shows previously-pruned badge when message has prunedAt set', () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: {
+          ...userMessage,
+          prunedAt: '2026-01-01T00:00:00Z',
+          prunedBy: 'operator',
+        },
+        isOwn: true,
+        senderName: 'You',
+      },
+    });
+
+    expect(wrapper.text()).toContain('previously pruned');
+  });
+
+  it('emits regenerate for non-own (agent) message', async () => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: agentMessage, isOwn: false, senderName: 'Agent' },
+    });
+
+    await wrapper.get('button[data-menu]').trigger('click');
+    await wrapper.get('button[data-regenerate]').trigger('click');
+
+    expect(wrapper.emitted('regenerate')?.[0]).toEqual(['m2']);
   });
 });

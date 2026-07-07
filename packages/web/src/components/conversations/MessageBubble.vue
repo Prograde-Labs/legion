@@ -12,6 +12,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   edit: [messageId: string, content: string, rerun: boolean];
   prune: [messageId: string];
+  regenerate: [messageId: string];
   compactAbove: [messageId: string];
   switchBranch: [messageId: string];
 }>();
@@ -21,10 +22,17 @@ const editing = ref(false);
 const confirmingPrune = ref(false);
 const editContent = ref(props.message.content);
 
-const versions = computed(() =>
+type VersionEntry = { id: string; content: string; timestamp: string; status?: string };
+
+const versions = computed<VersionEntry[]>(() =>
   [
     ...(props.message.alternates ?? []),
-    { id: props.message.id, content: props.message.content, timestamp: props.message.timestamp },
+    {
+      id: props.message.id,
+      content: props.message.content,
+      timestamp: props.message.timestamp,
+      status: props.message.status,
+    },
   ].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
 );
 
@@ -32,6 +40,9 @@ const currentIndex = computed(() =>
   versions.value.findIndex((version) => version.id === props.message.id),
 );
 const hasAlternates = computed(() => (props.message.alternates?.length ?? 0) > 0);
+
+// True if the currently-displayed version was previously pruned (persisted prunedAt field).
+const wasPruned = computed(() => !!props.message.prunedAt);
 
 function startEdit() {
   editContent.value = props.message.content;
@@ -63,6 +74,10 @@ function switchRelative(delta: number) {
         class="rounded bg-navy-800 px-1.5 py-0.5 text-[10px] text-slate-400"
       >
         edited
+      </span>
+      <!-- Previously-pruned indicator (message was pruned, then switched back) -->
+      <span v-if="wasPruned" class="rounded bg-red-900/50 px-1.5 py-0.5 text-[10px] text-red-400">
+        previously pruned
       </span>
       <div v-if="hasAlternates" class="flex items-center gap-1 rounded bg-navy-900 px-1.5 py-0.5">
         <button
@@ -106,26 +121,34 @@ function switchRelative(delta: number) {
           >
             Edit
           </button>
+
+          <!-- Regenerate for agent messages (non-own) -->
           <button
-            data-prune
-            type="button"
-            class="block w-full rounded px-2 py-1 text-left hover:bg-navy-800"
-            @click="confirmingPrune = true"
-          >
-            Prune
-          </button>
-          <div class="my-1 border-t border-navy-700"></div>
-          <button
+            v-if="!isOwn"
+            data-regenerate
             type="button"
             class="block w-full rounded px-2 py-1 text-left hover:bg-navy-800"
             @click="
-              emit('compactAbove', message.id);
+              emit('regenerate', message.id);
               menuOpen = false;
+              confirmingPrune = false;
             "
           >
-            Compact above
+            Regenerate
           </button>
-          <div v-if="confirmingPrune" class="mt-1 border-t border-navy-700 pt-1">
+
+          <!-- Prune button (or confirm/cancel in-place when confirmingPrune) -->
+          <button
+            v-if="!confirmingPrune"
+            data-prune
+            type="button"
+            class="block w-full rounded px-2 py-1 text-left hover:bg-navy-800"
+            :class="!isOwn ? 'text-slate-500 text-[11px]' : ''"
+            @click="confirmingPrune = true"
+          >
+            {{ isOwn ? 'Prune' : 'Prune only' }}
+          </button>
+          <template v-else>
             <button
               data-confirm-prune
               type="button"
@@ -145,7 +168,19 @@ function switchRelative(delta: number) {
             >
               Cancel
             </button>
-          </div>
+          </template>
+
+          <div class="my-1 border-t border-navy-700"></div>
+          <button
+            type="button"
+            class="block w-full rounded px-2 py-1 text-left hover:bg-navy-800"
+            @click="
+              emit('compactAbove', message.id);
+              menuOpen = false;
+            "
+          >
+            Compact above
+          </button>
         </div>
       </div>
     </div>
@@ -193,7 +228,7 @@ function switchRelative(delta: number) {
     />
 
     <!-- Tool calls / approval cards slot -->
-    <div v-if="$slots.tools" class="max-w-[72%] flex flex-col gap-1.5">
+    <div v-if="$slots.tools" class="flex max-w-[72%] flex-col gap-1.5">
       <slot name="tools" />
     </div>
   </div>

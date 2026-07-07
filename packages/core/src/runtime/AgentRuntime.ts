@@ -25,9 +25,27 @@ const DEFAULT_MAX_ITERATIONS = 20;
  * tool-result message per call, matching the OpenAI Chat Completions format.
  */
 function buildProviderMessages(chain: MessageData[], systemPrompt: string): ProviderMessage[] {
-  const messages: ProviderMessage[] = [{ role: 'system', content: systemPrompt }];
+  // Extract summary nodes and fold them into the system prompt as context.
+  //
+  // Summaries placed anywhere in the chain as 'assistant' role can break
+  // providers that require strict user/assistant alternation (e.g. the first
+  // non-system message must be 'user'). Injecting summaries into the system
+  // message sidesteps all role-ordering issues regardless of where in the
+  // chain the summary sits.
+  const summaries = chain.filter((m) => m.type === 'summary');
+  const regularChain = chain.filter((m) => m.type !== 'summary');
 
-  for (const msg of chain) {
+  let effectiveSystemPrompt = systemPrompt;
+  if (summaries.length > 0) {
+    const ctx = summaries.map((s) => s.content).join('\n\n---\n\n');
+    effectiveSystemPrompt =
+      `${systemPrompt}\n\n` +
+      `<previous_conversation_summary>\n${ctx}\n</previous_conversation_summary>`;
+  }
+
+  const messages: ProviderMessage[] = [{ role: 'system', content: effectiveSystemPrompt }];
+
+  for (const msg of regularChain) {
     if (msg.toolCalls && msg.toolCalls.length > 0) {
       messages.push({
         role: 'assistant',

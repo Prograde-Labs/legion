@@ -51,6 +51,7 @@ const threadEl = ref<HTMLElement | null>(null);
 
 const compactOpen = ref(false);
 const compactRange = ref<MessageWithAlternates[]>([]);
+const compacting = ref(false);
 const participants = ref<Array<{ id: string; name: string; type: string }>>([]);
 
 const agents = computed(() =>
@@ -87,12 +88,24 @@ function handleCompactAbove(messageId: string) {
 }
 
 async function handleCompact(agentId: string, instruction: string) {
-  await compactConversation(
-    compactRange.value.map((message) => message.id),
-    agentId,
-    instruction,
-  );
-  compactOpen.value = false;
+  compacting.value = true;
+  try {
+    await compactConversation(
+      compactRange.value.map((message) => message.id),
+      agentId,
+      instruction,
+    );
+    compactOpen.value = false;
+  } finally {
+    compacting.value = false;
+  }
+}
+
+async function handleRegenerate(messageId: string) {
+  await pruneMessage(messageId);
+  if (props.recipientId) {
+    await generate(props.recipientId);
+  }
 }
 
 const canSend = computed(
@@ -230,6 +243,7 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           :sender-name="isOwnMessage(msg) ? 'you' : (recipientName ?? msg.senderId)"
           @edit="handleEdit"
           @prune="pruneMessage"
+          @regenerate="handleRegenerate"
           @switch-branch="switchBranch"
           @compact-above="handleCompactAbove"
         >
@@ -323,6 +337,7 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
       v-if="compactOpen"
       :messages="compactRange"
       :agents="agents"
+      :loading="compacting"
       @compact="handleCompact"
       @cancel="compactOpen = false"
     />

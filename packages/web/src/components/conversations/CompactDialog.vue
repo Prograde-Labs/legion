@@ -2,12 +2,33 @@
 import { ref } from 'vue';
 import type { MessageWithAlternates } from '../../composables/useConversation.js';
 
-const DEFAULT_INSTRUCTION =
-  'Summarise the following conversation segment concisely, preserving key decisions, facts, and outcomes.';
+const DEFAULT_INSTRUCTION = `Output exactly the Markdown structure below. Keep section order unchanged. Do not include the template tags.
+
+## Objective
+- [one or two sentences: what the user is trying to accomplish]
+
+## Key Details
+- [decisions made and why, important facts, constraints, exact context needed to continue, or "(none)"]
+
+## State
+- Completed: [finished work or verified facts; otherwise "(none)"]
+- Active: [current work or investigation; otherwise "(none)"]
+- Blocked: [blockers, errors, or unknowns; otherwise "(none)"]
+
+## Next Steps
+1. [immediate next action, or "(none)"]
+2. [following action if known, or "(none)"]
+
+Rules:
+- Keep every section even if empty.
+- Terse bullets, not prose.
+- Preserve exact file paths, commands, error strings, identifiers, and URLs.
+- Do not mention this summary process.`;
 
 defineProps<{
   messages: MessageWithAlternates[];
   agents: Array<{ id: string; name: string }>;
+  loading?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -82,16 +103,16 @@ const advancedOpen = ref(false);
         <button
           data-compact
           type="button"
-          :disabled="!selectedAgentId"
+          :disabled="!selectedAgentId || loading"
           class="rounded px-3 py-1.5 text-sm font-medium"
           :class="
-            selectedAgentId
+            selectedAgentId && !loading
               ? 'bg-cyan-700 text-white hover:bg-cyan-600'
               : 'bg-navy-800 text-slate-600 cursor-not-allowed'
           "
           @click="emit('compact', selectedAgentId, instruction)"
         >
-          Compact
+          {{ loading ? 'Compacting...' : 'Compact' }}
         </button>
       </div>
     </div>

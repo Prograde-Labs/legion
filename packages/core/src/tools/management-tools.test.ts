@@ -228,7 +228,12 @@ describe('management tools', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe('edited');
     expect(messages[0].alternates).toEqual([
-      { id: 'm1', content: 'original', timestamp: conv.messages['m1'].timestamp },
+      {
+        id: 'm1',
+        content: 'original',
+        timestamp: conv.messages['m1'].timestamp,
+        status: 'superseded',
+      },
     ]);
   });
 
@@ -417,6 +422,50 @@ describe('management tools', () => {
     expect(saved?.messages['m2'].prunedBy).toBe('operator');
   });
 
+  it('prune_message cascade-prunes descendants when pruning a middle message', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'hello',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'hi',
+    });
+    conv = appendMessage(conv, {
+      id: 'm3',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'follow-up',
+    });
+    await conversationStore.save(conv);
+
+    // Prune m2 (middle of chain) — m3 should also be pruned
+    const result = await pruneMessageTool.execute(
+      { conversationId: conv.id, messageId: 'm2' },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual({ activeBranchHead: 'm1' });
+    const saved = await conversationStore.load(conv.id);
+    expect(saved?.activeBranchHead).toBe('m1');
+    expect(saved?.messages['m2'].status).toBe('pruned');
+    expect(saved?.messages['m3'].status).toBe('pruned');
+  });
+
   it('prune_message rejects invalid args', async () => {
     const { context } = await makeContext();
 
@@ -495,9 +544,7 @@ describe('management tools', () => {
     expect(send).toHaveBeenCalledWith(expect.not.objectContaining({ conversationId: conv.id }));
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: expect.stringContaining(
-          'Summarise the following conversation segment concisely, preserving key decisions, facts, and outcomes.',
-        ),
+        message: expect.stringContaining('Output exactly the Markdown structure below.'),
       }),
     );
     expect(send).toHaveBeenCalledWith(
@@ -600,7 +647,7 @@ describe('management tools', () => {
       .messages;
     expect(messages[0].type).toBe('summary');
     expect(messages[0].alternates).toEqual([
-      { id: 'm1', content: 'start', timestamp: conv.messages['m1'].timestamp },
+      { id: 'm1', content: 'start', timestamp: conv.messages['m1'].timestamp, status: 'compacted' },
     ]);
   });
 
