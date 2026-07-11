@@ -27,10 +27,14 @@ function makeMockToolRegistry(toolResult: ToolResult): ToolRegistryLike {
     get: (name: string) => (name === 'file_read' ? tool : undefined),
     has: (name: string) => name === 'file_read',
     list: () => [tool],
+    listAll: () => ['file_read'],
     execute: async (name: string, _args: unknown, _ctx: unknown) =>
       name === 'file_read'
         ? toolResult
         : ({ status: 'error', error: `Tool '${name}' not found` } as ToolResult),
+    async *stream(name: string) {
+      yield { type: 'stream:error', error: `Tool '${name}' not found` } as any;
+    },
   };
 }
 
