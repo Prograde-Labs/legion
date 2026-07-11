@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -12,9 +13,9 @@ import type {
   ProcessManager,
   ServerConfig,
 } from '@legion/core';
+import { StreamRegistry } from '@legion/core';
 import { verifyToken } from './auth.js';
 import type { JwtSecret } from './auth.js';
-import { isRelevantToParticipant } from './event-filter.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerExecuteRoute } from './routes/execute.js';
@@ -45,6 +46,12 @@ export class WebConnector implements Connector {
   private readonly jwtSecret: JwtSecret = crypto.getRandomValues(new Uint8Array(32));
   /** participantId → active WS sockets (for outbound deliver()). */
   private connections = new Map<string, Set<WebSocket>>();
+  /** connectionId (UUID per socket) → WebSocket */
+  private connectionSockets = new Map<string, WebSocket>();
+  /** connectionId → participantId (for security validation) */
+  private connectionParticipants = new Map<string, string>();
+  /** Transport-internal stream registry */
+  private readonly streamRegistry = new StreamRegistry();
 
   constructor(private deps: WebConnectorDeps) {}
 
@@ -114,6 +121,8 @@ export class WebConnector implements Connector {
       collective: this.deps.collective,
       ctx,
       jwtSecret: this.jwtSecret,
+      streamRegistry: this.streamRegistry,
+      sendToStream: this.sendToStream.bind(this),
     });
 
     // ── WebSocket route ───────────────────────────────────────────────────────
@@ -158,6 +167,8 @@ export class WebConnector implements Connector {
   }
 
   async stop(): Promise<void> {
+    this.connectionSockets.clear();
+    this.connectionParticipants.clear();
     this.connections.clear();
     await this.viteServer?.close();
     this.viteServer = undefined;
@@ -167,21 +178,27 @@ export class WebConnector implements Connector {
 
   // ── WebSocket handler ────────────────────────────────────────────────────────
 
+  /**
+   * Send a stream chunk frame to a specific connection.
+   * Returns false if the socket is gone or the connectionId doesn't belong
+   * to the claimed participant.
+   */
+  sendToStream(connectionId: string, participantId: string, data: object): boolean {
+    if (this.connectionParticipants.get(connectionId) !== participantId) return false;
+    const socket = this.connectionSockets.get(connectionId);
+    if (!socket || (socket as any).readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(data));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private handleWebSocket(socket: WebSocket, ctx: ConnectorContext): void {
     let participantId: string | null = null;
-    let anyOff: (() => void) | null = null;
+    let connectionId: string | null = null;
 
-    const processSubs = new Map<string, Array<() => void>>();
-
-    function detachProcessSub(processId: string): void {
-      const unsubs = processSubs.get(processId);
-      if (unsubs) {
-        for (const u of unsubs) u();
-        processSubs.delete(processId);
-      }
-    }
-
-    // Auth timeout: close if no auth message arrives promptly.
     const authTimer = setTimeout(() => {
       if (!participantId) socket.close(4401, 'Authentication timeout');
     }, WS_AUTH_TIMEOUT_MS);
@@ -210,106 +227,21 @@ export class WebConnector implements Connector {
             if (socket.readyState !== WebSocket.OPEN) return;
             clearTimeout(authTimer);
             participantId = pid;
-            const isOperator = this.deps.collective.get(pid)?.operator === true;
+            connectionId = randomUUID();
 
             // Track connection
             ctx.registry.setActive(pid, this.name);
             const set = this.connections.get(pid) ?? new Set<WebSocket>();
             set.add(socket);
             this.connections.set(pid, set);
+            this.connectionSockets.set(connectionId, socket);
+            this.connectionParticipants.set(connectionId, pid);
 
-            // Acknowledge
-            socket.send(JSON.stringify({ type: 'connected', participantId: pid }));
-
-            // Bridge EventBus events
-            if (!participantId) return;
-            const handler = (event: string, payload: unknown) => {
-              if (
-                socket.readyState === WebSocket.OPEN &&
-                isRelevantToParticipant(event, payload, participantId!, isOperator)
-              ) {
-                socket.send(JSON.stringify({ type: 'event', event, data: payload }));
-              }
-            };
-            anyOff = this.deps.eventBus.onAny(handler);
+            socket.send(JSON.stringify({ type: 'connected', participantId: pid, connectionId }));
           })
           .catch(() => {
             socket.close(4401, 'Invalid token');
           });
-      }
-
-      if (msg.type === 'subscribe_process' && participantId) {
-        const processId = (msg as any).processId as string;
-        if (!processId) return;
-
-        const handle = this.deps.processManager.get(processId);
-        if (!handle) {
-          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'not_found' }));
-          return;
-        }
-        if (handle.status !== 'running') {
-          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }));
-          return;
-        }
-
-        // Authorization: only the process owner or operators can subscribe
-        const isOperator = this.deps.collective.get(participantId)?.operator === true;
-        if (handle.startedByParticipantId !== participantId && !isOperator) {
-          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'forbidden' }));
-          return;
-        }
-
-        // Detach previous subscription for same processId (idempotent re-subscribe)
-        detachProcessSub(processId);
-
-        const send = (type: string, payload: Record<string, unknown>): void => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type, processId, ...payload }));
-          }
-        };
-
-        const offOutput = this.deps.processManager.subscribe(processId, 'output', (evt: any) => {
-          send('process:output', {
-            stream: evt.stream,
-            data: (evt.data as Buffer).toString('base64'),
-          });
-        });
-
-        const offExited = this.deps.processManager.subscribe(processId, 'exited', (evt: any) => {
-          send('process:exited', { exitCode: evt.exitCode, signal: evt.signal ?? null });
-          detachProcessSub(processId);
-        });
-
-        const offError = this.deps.processManager.subscribe(processId, 'error', (evt: any) => {
-          send('process:error', { error: evt.error });
-          detachProcessSub(processId);
-        });
-
-        processSubs.set(processId, [offOutput, offExited, offError]);
-
-        // Re-check status after subscribing — if the process exited between
-        // the initial get() and subscribe(), the 'exited' event already fired
-        // and our listener missed it. Detach and notify.
-        const latestHandle = this.deps.processManager.get(processId);
-        if (!latestHandle || latestHandle.status !== 'running') {
-          detachProcessSub(processId);
-          send('process:exited', {
-            exitCode: latestHandle?.exitCode ?? null,
-            signal: null,
-          });
-          socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'dead' }));
-          return;
-        }
-
-        socket.send(JSON.stringify({ type: 'subscribe_ack', processId, status: 'subscribed' }));
-        return;
-      }
-
-      if (msg.type === 'unsubscribe_process' && participantId) {
-        const processId = (msg as any).processId as string;
-        if (processId) detachProcessSub(processId);
-        socket.send(JSON.stringify({ type: 'unsubscribe_ack', processId }));
-        return;
       }
     });
 
@@ -322,11 +254,10 @@ export class WebConnector implements Connector {
           this.connections.delete(participantId);
         }
       }
-      anyOff?.();
-
-      // Detach all process subscriptions for this socket
-      for (const processId of processSubs.keys()) {
-        detachProcessSub(processId);
+      if (connectionId) {
+        this.connectionSockets.delete(connectionId);
+        this.connectionParticipants.delete(connectionId);
+        this.streamRegistry.cancelAll(connectionId);
       }
     });
 
