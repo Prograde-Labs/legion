@@ -64,7 +64,7 @@ export type ProviderStreamChunk =
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_args_delta'; index: number; delta: string }
-  | { type: 'done'; stopReason: ProviderStopReason; usage?: ProviderUsage };
+  | { type: 'done'; stopReason: ProviderStopReason; usage?: ProviderUsage; cost?: number };
 
 /**
  * LLM provider interface. Implementations are constructed by SystemProviderStore

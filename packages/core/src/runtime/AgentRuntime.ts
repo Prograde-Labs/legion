@@ -1,5 +1,6 @@
 import type {
   AgentConfig,
+  LLMChunk,
   MessageData,
   MessageUsage,
   ToolCallData,
@@ -10,8 +11,10 @@ import type { ModelRouter } from '../providers/ModelRouter.js';
 import type {
   Provider,
   ProviderMessage,
-  ProviderResponse,
+  ProviderStopReason,
+  ProviderStreamChunk,
   ProviderTool,
+  ProviderUsage,
 } from '../providers/Provider.js';
 import type { UsageCalculator } from '../providers/UsageCalculator.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
@@ -72,6 +75,60 @@ function buildProviderMessages(chain: MessageData[], systemPrompt: string): Prov
   return messages;
 }
 
+interface TurnAccumulator {
+  content: string;
+  toolCalls: Map<number, { id: string; name: string; argsBuffer: string }>;
+  stopReason?: ProviderStopReason;
+  usage?: ProviderUsage;
+  cost?: number;
+}
+
+function freshAccumulator(): TurnAccumulator {
+  return { content: '', toolCalls: new Map() };
+}
+
+function accumulateChunk(acc: TurnAccumulator, chunk: ProviderStreamChunk): void {
+  if (chunk.type === 'text_delta') {
+    acc.content += chunk.delta;
+  } else if (chunk.type === 'tool_call_start') {
+    acc.toolCalls.set(chunk.index, { id: chunk.id, name: chunk.name, argsBuffer: '' });
+  } else if (chunk.type === 'tool_call_args_delta') {
+    const tc = acc.toolCalls.get(chunk.index);
+    if (tc) tc.argsBuffer += chunk.delta;
+  } else if (chunk.type === 'done') {
+    acc.stopReason = chunk.stopReason;
+    acc.usage = chunk.usage;
+    acc.cost = chunk.cost;
+  }
+}
+
+function accumulatorToResponse(acc: TurnAccumulator): {
+  content: string | null;
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  stopReason: ProviderStopReason;
+  usage?: ProviderUsage;
+  cost?: number;
+} {
+  const toolCalls = [...acc.toolCalls.values()].map((tc) => ({
+    id: tc.id,
+    name: tc.name,
+    arguments: (() => {
+      try {
+        return JSON.parse(tc.argsBuffer || '{}') as Record<string, unknown>;
+      } catch {
+        return {} as Record<string, unknown>;
+      }
+    })(),
+  }));
+  return {
+    content: acc.content || null,
+    toolCalls,
+    stopReason: acc.stopReason ?? 'stop',
+    usage: acc.usage,
+    cost: acc.cost,
+  };
+}
+
 export class AgentRuntime implements Runtime {
   constructor(
     private participantId: string,
@@ -80,6 +137,23 @@ export class AgentRuntime implements Runtime {
   ) {}
 
   async handle(_incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult> {
+    const gen = this.runLoop(_incoming, context);
+    let next = await gen.next();
+    while (!next.done) next = await gen.next();
+    return next.value;
+  }
+
+  async *handleStream(
+    _incoming: MessageData,
+    context: RuntimeContext,
+  ): AsyncGenerator<LLMChunk, RuntimeResult> {
+    return yield* this.runLoop(_incoming, context);
+  }
+
+  private async *runLoop(
+    _incoming: MessageData,
+    context: RuntimeContext,
+  ): AsyncGenerator<LLMChunk, RuntimeResult> {
     const participant = context.collective.getOrThrow(this.participantId);
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
@@ -154,7 +228,14 @@ export class AgentRuntime implements Runtime {
           iteration: i,
         });
 
-        const response = await provider.complete(messages, providerTools, agent.model);
+        const acc = freshAccumulator();
+        for await (const chunk of provider.stream(messages, providerTools, agent.model)) {
+          accumulateChunk(acc, chunk);
+          if (chunk.type !== 'done') {
+            yield chunk;
+          }
+        }
+        const response = accumulatorToResponse(acc);
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
           const usage = await this.computeUsage(providerId, agent, response);
@@ -370,7 +451,12 @@ export class AgentRuntime implements Runtime {
   private async computeUsage(
     providerId: string | undefined,
     agent: AgentConfig,
-    response: ProviderResponse,
+    response: {
+      content: string | null;
+      stopReason: ProviderStopReason;
+      usage?: ProviderUsage;
+      cost?: number;
+    },
   ): Promise<MessageUsage | undefined> {
     if (!response.usage || !this.usageCalculator) return undefined;
     return this.usageCalculator.compute(
