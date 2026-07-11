@@ -1,8 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
 
-vi.mock('./useEventStream.js', () => ({
-  useEventStream: vi.fn(() => ({ on: vi.fn(() => vi.fn()) })),
+vi.mock('./useToolStream.js', () => ({
+  useToolStream: vi.fn(() => ({
+    start: vi.fn().mockResolvedValue(undefined),
+    cancel: vi.fn().mockResolvedValue(undefined),
+    chunks: { value: [] },
+    done: { value: false },
+    error: { value: null },
+    conversationId: { value: null },
+  })),
+}));
+vi.mock('./useWebSocket.js', () => ({
+  useWebSocket: vi.fn(() => ({
+    getConnectionId: vi.fn(() => 'conn-1'),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    onMessage: vi.fn(() => vi.fn()),
+    send: vi.fn(),
+    onStreamChunk: vi.fn(() => vi.fn()),
+  })),
 }));
 
 const executeMock = vi.fn().mockResolvedValue({
@@ -68,12 +85,12 @@ describe('useConversation', () => {
     expect(messages.value[1].role).toBe('assistant');
   });
 
-  it('returns empty messages and no subscriptions for null id', async () => {
+  it('returns empty messages and no streams for null id', async () => {
     const { useConversation } = await import('./useConversation.js');
-    const { useEventStream } = await import('./useEventStream.js');
+    const { useToolStream } = await import('./useToolStream.js');
     const { messages } = useConversation(null);
     expect(messages.value).toHaveLength(0);
-    expect(useEventStream().on).not.toHaveBeenCalled();
+    expect(useToolStream).not.toHaveBeenCalled();
   });
 
   it('thinking is false when last chain message is assistant', async () => {

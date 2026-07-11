@@ -43,10 +43,7 @@ describe('watch_conversations tool', () => {
     const controller = new AbortController();
     controller.abort();
     const chunks: StreamChunk[] = [];
-    for await (const chunk of watchConversationsTool.stream(
-      {},
-      fakeCtx(bus, controller.signal),
-    )) {
+    for await (const chunk of watchConversationsTool.stream({}, fakeCtx(bus, controller.signal))) {
       chunks.push(chunk);
     }
     expect(chunks).toHaveLength(0);
