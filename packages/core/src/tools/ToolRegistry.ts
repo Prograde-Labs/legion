@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolResult } from '@legion/types';
+import type { StreamChunk, ToolResult } from '@legion/types';
 import { ConflictError, ToolNotFoundError } from '../errors/LegionError.js';
-import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
+import { isStreamingTool } from './Tool.js';
+import type { AnyTool, ToolContext, ToolRegistryLike } from './Tool.js';
 
 export class ToolRegistry implements ToolRegistryLike {
-  private tools = new Map<string, Tool>();
+  private tools = new Map<string, AnyTool>();
 
-  register(tool: Tool): void {
+  register(tool: AnyTool): void {
     if (this.tools.has(tool.name)) {
       throw new ConflictError(`Tool already registered: ${tool.name}`);
     }
@@ -17,7 +18,7 @@ export class ToolRegistry implements ToolRegistryLike {
     this.tools.delete(name);
   }
 
-  get(name: string): Tool | undefined {
+  get(name: string): AnyTool | undefined {
     return this.tools.get(name);
   }
 
@@ -25,7 +26,7 @@ export class ToolRegistry implements ToolRegistryLike {
     return this.tools.has(name);
   }
 
-  list(): Tool[] {
+  list(): AnyTool[] {
     return [...this.tools.values()];
   }
 
@@ -47,6 +48,12 @@ export class ToolRegistry implements ToolRegistryLike {
     });
 
     try {
+      if (isStreamingTool(tool)) {
+        return {
+          status: 'error',
+          error: `Tool ${name} is a streaming tool and cannot be executed synchronously`,
+        };
+      }
       const result = (await tool.execute(args, context)) as ToolResult;
       context.eventBus.emit('tool:result', {
         conversationId: context.conversationId ?? '',
@@ -69,6 +76,26 @@ export class ToolRegistry implements ToolRegistryLike {
         status: 'error',
       });
       return errorResult;
+    }
+  }
+
+  async *stream(name: string, args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      yield { type: 'stream:error', error: new ToolNotFoundError(name).message };
+      return;
+    }
+    if (!isStreamingTool(tool)) {
+      yield { type: 'stream:error', error: `Tool ${name} is not a streaming tool` };
+      return;
+    }
+    try {
+      yield* tool.stream(args, context);
+    } catch (err) {
+      yield {
+        type: 'stream:error',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 }

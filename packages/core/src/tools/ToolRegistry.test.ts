@@ -1,5 +1,7 @@
 import { ToolRegistry } from './ToolRegistry.js';
-import type { Tool, ToolContext } from './Tool.js';
+import { isStreamingTool } from './Tool.js';
+import type { Tool, ToolContext, AnyTool, StreamingTool } from './Tool.js';
+import type { StreamChunk } from '@legion/types';
 import { EventBus } from '../events/EventBus.js';
 
 const echoTool: Tool = {
@@ -62,5 +64,31 @@ describe('ToolRegistry', () => {
     const result = await reg.execute('boom', {}, fakeContext());
     expect(result.status).toBe('error');
     expect(result.error).toContain('kaboom');
+  });
+});
+
+describe('isStreamingTool', () => {
+  it('returns false for a regular Tool', () => {
+    const tool: AnyTool = {
+      name: 'echo',
+      description: 'desc',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' };
+      },
+    };
+    expect(isStreamingTool(tool)).toBe(false);
+  });
+
+  it('returns true for a StreamingTool', () => {
+    const tool: StreamingTool = {
+      name: 'watch',
+      description: 'desc',
+      parameters: { type: 'object' },
+      async *stream(): AsyncGenerator<StreamChunk> {
+        yield { type: 'stream:done', result: { status: 'success' } };
+      },
+    };
+    expect(isStreamingTool(tool)).toBe(true);
   });
 });
