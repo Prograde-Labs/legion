@@ -3,7 +3,8 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useExecute } from '../composables/useExecute.js';
 import { useAuth } from '../composables/useAuth.js';
-import { useEventStream } from '../composables/useEventStream.js';
+import { useToolStream } from '../composables/useToolStream.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
@@ -116,20 +117,33 @@ function cancelDelete() {
 
 watch(listMode, loadConversations);
 
-const { on } = useEventStream();
-on('conversation:created', () => void loadConversations());
+const ws = useWebSocket();
 
-on('approval:requested', (payload) => {
-  pendingApprovalIds.value = new Set([
-    ...pendingApprovalIds.value,
-    (payload as any).conversationId,
-  ]);
+const convStream = useToolStream('watch_conversations', () => ({}), {
+  onChunk: () => void loadConversations(),
 });
-on('approval:resolved', (payload) => {
-  const next = new Set(pendingApprovalIds.value);
-  next.delete((payload as any).conversationId);
-  pendingApprovalIds.value = next;
+
+const activityStream = useToolStream('watch_activity', () => ({}), {
+  onChunk: (chunk) => {
+    if (chunk.type === 'approval:requested') {
+      const p = (chunk as any).data as { conversationId: string };
+      pendingApprovalIds.value = new Set([...pendingApprovalIds.value, p.conversationId]);
+    } else if (chunk.type === 'approval:resolved') {
+      const p = (chunk as any).data as { conversationId: string };
+      const next = new Set(pendingApprovalIds.value);
+      next.delete(p.conversationId);
+      pendingApprovalIds.value = next;
+    }
+  },
 });
+
+watch(
+  () => ws.getConnectionId(),
+  async (id) => {
+    if (!id) return;
+    await Promise.all([convStream.start(), activityStream.start()]);
+  },
+);
 
 onMounted(async () => {
   await Promise.all([loadConversations(), loadParticipants()]);
