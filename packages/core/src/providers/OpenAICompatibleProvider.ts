@@ -3,10 +3,9 @@ import type { ModelConfig, ProviderModel } from '@legion/types';
 import type {
   Provider,
   ProviderMessage,
-  ProviderResponse,
   ProviderStopReason,
+  ProviderStreamChunk,
   ProviderTool,
-  ProviderToolCall,
 } from './Provider.js';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -23,14 +22,6 @@ interface OAIToolCall {
   id: string;
   type: 'function';
   function: { name: string; arguments: string };
-}
-
-interface OAIChatResponse {
-  choices: Array<{
-    message: OAIMessage;
-    finish_reason: 'stop' | 'tool_calls' | 'length' | 'content_filter';
-  }>;
-  usage?: OAIUsage;
 }
 
 interface OAIUsage {
@@ -50,6 +41,22 @@ interface OAIUsage {
 
 interface OAIModelsResponse {
   data?: unknown;
+}
+
+interface OAIStreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string | null;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        type?: 'function';
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason?: 'stop' | 'tool_calls' | 'length' | 'content_filter' | null;
+  }>;
+  usage?: OAIUsage;
 }
 
 const KNOWN_MODEL_METADATA: Record<string, Omit<ProviderModel, 'id'>> = {
@@ -126,14 +133,16 @@ export class OpenAICompatibleProvider implements Provider {
     this.baseUrl = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
   }
 
-  async complete(
+  async *stream(
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,
-  ): Promise<ProviderResponse> {
+  ): AsyncGenerator<ProviderStreamChunk> {
     const body: Record<string, unknown> = {
       model: model.model,
       messages: messages.map(toOAIMessage),
+      stream: true,
+      stream_options: { include_usage: true },
     };
     if (model.temperature !== undefined) body['temperature'] = model.temperature;
     if (model.maxTokens !== undefined) body['max_tokens'] = model.maxTokens;
@@ -159,41 +168,93 @@ export class OpenAICompatibleProvider implements Provider {
       throw new ProviderError(`OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = (await res.json()) as OAIChatResponse;
-    const choice = data.choices[0];
-    if (!choice) {
-      throw new ProviderError('No choices returned from OpenAI-compatible API');
+    if (!res.body) {
+      throw new ProviderError('OpenAI-compatible API returned no response body');
     }
 
-    const msg = choice.message;
-    const toolCalls: ProviderToolCall[] = (msg.tool_calls ?? []).map((tc) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
-    }));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-    const stopReason: ProviderStopReason =
-      choice.finish_reason === 'tool_calls'
-        ? 'tool_calls'
-        : choice.finish_reason === 'length'
-          ? 'max_tokens'
-          : 'stop';
+    let usage: OAIUsage | undefined;
 
-    return {
-      content: msg.content,
-      toolCalls,
-      stopReason,
-      usage: data.usage
-        ? {
-            inputTokens: data.usage.prompt_tokens,
-            outputTokens: data.usage.completion_tokens,
-            reasoningTokens: data.usage.completion_tokens_details?.reasoning_tokens,
-            cacheReadInputTokens:
-              data.usage.prompt_tokens_details?.cached_tokens ?? data.usage.cache_read_input_tokens,
-            cacheWriteInputTokens: data.usage.cache_creation_input_tokens,
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === ':') continue;
+          if (!trimmed.startsWith('data:')) continue;
+
+          const raw = trimmed.slice(5).trim();
+          if (raw === '[DONE]') {
+            break;
           }
-        : undefined,
-    };
+
+          let parsed: OAIStreamChunk;
+          try {
+            parsed = JSON.parse(raw) as OAIStreamChunk;
+          } catch {
+            continue;
+          }
+
+          if (parsed.usage) {
+            usage = parsed.usage;
+          }
+
+          for (const choice of parsed.choices ?? []) {
+            const delta = choice.delta;
+            if (!delta) continue;
+
+            if (delta.content) {
+              yield { type: 'text_delta', delta: delta.content };
+            }
+
+            for (const tc of delta.tool_calls ?? []) {
+              const idx = tc.index;
+              if (tc.id && tc.function?.name) {
+                yield { type: 'tool_call_start', index: idx, id: tc.id, name: tc.function.name };
+              }
+              if (tc.function?.arguments) {
+                yield { type: 'tool_call_args_delta', index: idx, delta: tc.function.arguments };
+              }
+            }
+
+            if (choice.finish_reason) {
+              const stopReason: ProviderStopReason =
+                choice.finish_reason === 'tool_calls'
+                  ? 'tool_calls'
+                  : choice.finish_reason === 'length'
+                    ? 'max_tokens'
+                    : 'stop';
+
+              yield {
+                type: 'done',
+                stopReason,
+                usage: usage
+                  ? {
+                      inputTokens: usage.prompt_tokens,
+                      outputTokens: usage.completion_tokens,
+                      reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+                      cacheReadInputTokens:
+                        usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens,
+                      cacheWriteInputTokens: usage.cache_creation_input_tokens,
+                    }
+                  : undefined,
+              };
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   async listModels(): Promise<ProviderModel[]> {

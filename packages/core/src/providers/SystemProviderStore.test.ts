@@ -23,7 +23,7 @@ describe('SystemProviderStore', () => {
     expect(result).toBeNull();
   });
 
-  it('get() returns Provider with complete function for openai-compatible', async () => {
+  it('get() returns Provider with stream function for openai-compatible', async () => {
     const storage = new MemoryStorage();
     await storage.writeJson('providers/openai.json', providerConfig({ name: 'openai' }));
     const store = new SystemProviderStore(storage);
@@ -31,7 +31,7 @@ describe('SystemProviderStore', () => {
     const provider = await store.get('openai');
 
     expect(provider).not.toBeNull();
-    expect(typeof provider!.complete).toBe('function');
+    expect(typeof provider!.stream).toBe('function');
   });
 
   it('get() returns Provider with listModels for openai-compatible', async () => {

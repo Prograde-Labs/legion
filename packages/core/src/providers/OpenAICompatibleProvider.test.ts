@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { ProviderError } from '../errors/LegionError.js';
 import type { ModelConfig } from '@legion/types';
+import type { ProviderStreamChunk, ProviderUsage } from './Provider.js';
 
 const MODEL: ModelConfig = { model: 'gpt-4o-mini' };
 
@@ -23,6 +24,117 @@ function makeErrResponse(status: number, text: string) {
   };
 }
 
+function makeSseBody(lines: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const chunks = lines.map((l) => encoder.encode(l + '\n'));
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+}
+
+function makeSseOkResponse(data: unknown, usage?: unknown, opts: { finishReason?: string } = {}) {
+  const finishReason = opts.finishReason ?? 'stop';
+  const lines: string[] = [];
+  lines.push(`data: ${JSON.stringify({ choices: [{ delta: data, finish_reason: null }] })}`);
+  if (usage) {
+    lines.push(
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }], usage })}`,
+    );
+  } else {
+    lines.push(
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] })}`,
+    );
+  }
+  lines.push('data: [DONE]');
+
+  return {
+    ok: true,
+    status: 200,
+    body: makeSseBody(lines),
+    text: () => Promise.resolve(JSON.stringify(data)),
+  };
+}
+
+function makeSseToolCallResponse(
+  toolCallDeltas: Array<{
+    index: number;
+    id?: string;
+    function?: { name?: string; arguments?: string };
+  }>,
+  opts: { finishReason?: string; usage?: unknown } = {},
+) {
+  const finishReason = opts.finishReason ?? 'tool_calls';
+  const lines: string[] = [];
+  for (const tc of toolCallDeltas) {
+    lines.push(
+      `data: ${JSON.stringify({
+        choices: [{ delta: { tool_calls: [tc] }, finish_reason: null }],
+      })}`,
+    );
+  }
+  if (opts.usage) {
+    lines.push(
+      `data: ${JSON.stringify({
+        choices: [{ delta: {}, finish_reason: finishReason }],
+        usage: opts.usage,
+      })}`,
+    );
+  } else {
+    lines.push(
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] })}`,
+    );
+  }
+  lines.push('data: [DONE]');
+
+  return {
+    ok: true,
+    status: 200,
+    body: makeSseBody(lines),
+    text: () => Promise.resolve(JSON.stringify(toolCallDeltas)),
+  };
+}
+
+async function drainStream(
+  provider: OpenAICompatibleProvider,
+  messages: Parameters<OpenAICompatibleProvider['stream']>[0],
+  tools: Parameters<OpenAICompatibleProvider['stream']>[1],
+  model: Parameters<OpenAICompatibleProvider['stream']>[2],
+) {
+  let lastDone: { type: 'done'; stopReason: string; usage?: ProviderUsage } | null = null;
+  const deltas: string[] = [];
+  const toolCalls: Array<{ id: string; name: string; argsBuffer: string }> = [];
+  for await (const chunk of provider.stream(messages, tools, model)) {
+    if (chunk.type === 'text_delta') deltas.push(chunk.delta);
+    if (chunk.type === 'tool_call_start')
+      toolCalls.push({ id: chunk.id, name: chunk.name, argsBuffer: '' });
+    if (chunk.type === 'tool_call_args_delta') {
+      const tc = toolCalls[chunk.index];
+      if (tc) tc.argsBuffer += chunk.delta;
+    }
+    if (chunk.type === 'done') lastDone = chunk;
+  }
+  const done = lastDone as { type: 'done'; stopReason: string; usage?: ProviderUsage } | null;
+  return {
+    content: deltas.join('') || null,
+    toolCalls: toolCalls.map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      arguments: (() => {
+        try {
+          return JSON.parse(tc.argsBuffer || '{}') as Record<string, unknown>;
+        } catch {
+          return {} as Record<string, unknown>;
+        }
+      })(),
+    })),
+    stopReason: done?.stopReason ?? 'stop',
+    usage: done?.usage,
+  };
+}
+
 describe('OpenAICompatibleProvider', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -37,19 +149,14 @@ describe('OpenAICompatibleProvider', () => {
 
   it('uses constructor base URL and API key for chat completion requests', async () => {
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'Hello!', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: { prompt_tokens: 10, completion_tokens: 5 },
-      }),
+      makeSseOkResponse(
+        { role: 'assistant', content: 'Hello!', tool_calls: null },
+        { prompt_tokens: 10, completion_tokens: 5 },
+      ),
     );
 
     const provider = new OpenAICompatibleProvider('https://example.test/v1/', 'constructor-key');
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+    const result = await drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL);
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -62,6 +169,7 @@ describe('OpenAICompatibleProvider', () => {
     expect(body['model']).toBe('gpt-4o-mini');
     expect((body['messages'] as unknown[]).length).toBe(1);
     expect(body['tools']).toBeUndefined();
+    expect(body['stream']).toBe(true);
 
     expect(result.content).toBe('Hello!');
     expect(result.stopReason).toBe('stop');
@@ -73,18 +181,11 @@ describe('OpenAICompatibleProvider', () => {
   it('does not read API keys from environment variables', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'env-key');
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'Hello!', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-      }),
+      makeSseOkResponse({ role: 'assistant', content: 'Hello!', tool_calls: null }),
     );
 
     const provider = new OpenAICompatibleProvider('https://example.test/v1');
-    await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+    await drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL);
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(init.headers).not.toMatchObject({ Authorization: 'Bearer env-key' });
@@ -93,28 +194,14 @@ describe('OpenAICompatibleProvider', () => {
 
   it('maps a tool_calls response to ProviderToolCall[]', async () => {
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_abc',
-                  type: 'function',
-                  function: { name: 'echo', arguments: '{"text":"hello world"}' },
-                },
-              ],
-            },
-            finish_reason: 'tool_calls',
-          },
-        ],
-      }),
+      makeSseToolCallResponse([
+        { index: 0, id: 'call_abc', function: { name: 'echo', arguments: '' } },
+        { index: 0, function: { arguments: '{"text":"hello world"}' } },
+      ]),
     );
 
     const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([], [], MODEL);
+    const result = await drainStream(provider, [], [], MODEL);
 
     expect(result.stopReason).toBe('tool_calls');
     expect(result.content).toBeNull();
@@ -128,18 +215,12 @@ describe('OpenAICompatibleProvider', () => {
 
   it('includes tools and tool_choice in the request when tools are provided', async () => {
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'ok', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-      }),
+      makeSseOkResponse({ role: 'assistant', content: 'ok', tool_calls: null }),
     );
 
     const provider = new OpenAICompatibleProvider();
-    await provider.complete(
+    await drainStream(
+      provider,
       [],
       [{ name: 'echo', description: 'echoes', parameters: { type: 'object' } }],
       MODEL,
@@ -160,8 +241,10 @@ describe('OpenAICompatibleProvider', () => {
   it('throws ProviderError on a non-ok HTTP response', async () => {
     fetchMock.mockResolvedValue(makeErrResponse(401, 'Unauthorized'));
     const provider = new OpenAICompatibleProvider();
-    await expect(provider.complete([], [], MODEL)).rejects.toThrow(ProviderError);
-    await expect(provider.complete([], [], MODEL)).rejects.toThrow(/401/);
+    const gen1 = provider.stream([], [], MODEL);
+    await expect(gen1.next()).rejects.toThrow(ProviderError);
+    const gen2 = provider.stream([], [], MODEL);
+    await expect(gen2.next()).rejects.toThrow(/401/);
   });
 
   it('lists model IDs from the models endpoint with known metadata merged in', async () => {
@@ -199,25 +282,20 @@ describe('OpenAICompatibleProvider', () => {
 
   it('extracts cache and reasoning tokens from prompt_tokens_details and completion_tokens_details', async () => {
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'thinking...', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
+      makeSseOkResponse(
+        { role: 'assistant', content: 'thinking...', tool_calls: null },
+        {
           prompt_tokens: 2006,
           completion_tokens: 300,
           total_tokens: 2306,
           prompt_tokens_details: { cached_tokens: 1920 },
           completion_tokens_details: { reasoning_tokens: 50 },
         },
-      }),
+      ),
     );
 
     const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+    const result = await drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL);
 
     expect(result.usage).toEqual({
       inputTokens: 2006,
@@ -230,24 +308,19 @@ describe('OpenAICompatibleProvider', () => {
 
   it('falls back to cache_read_input_tokens when prompt_tokens_details is absent', async () => {
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'hi', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-        usage: {
+      makeSseOkResponse(
+        { role: 'assistant', content: 'hi', tool_calls: null },
+        {
           prompt_tokens: 1000,
           completion_tokens: 100,
           cache_read_input_tokens: 800,
           cache_creation_input_tokens: 200,
         },
-      }),
+      ),
     );
 
     const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+    const result = await drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL);
 
     expect(result.usage).toEqual({
       inputTokens: 1000,
@@ -260,32 +333,100 @@ describe('OpenAICompatibleProvider', () => {
 
   it('returns undefined usage when API omits usage object', async () => {
     fetchMock.mockResolvedValue(
-      makeOkResponse({
-        choices: [
-          {
-            message: { role: 'assistant', content: 'no usage', tool_calls: null },
-            finish_reason: 'stop',
-          },
-        ],
-      }),
+      makeSseOkResponse({ role: 'assistant', content: 'no usage', tool_calls: null }),
     );
 
     const provider = new OpenAICompatibleProvider();
-    const result = await provider.complete([{ role: 'user', content: 'hi' }], [], MODEL);
+    const result = await drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL);
 
     expect(result.usage).toBeUndefined();
   });
 });
 
+describe('OpenAICompatibleProvider.stream()', () => {
+  it('yields text_delta chunks from SSE stream', async () => {
+    const data1 = JSON.stringify({
+      choices: [{ delta: { content: 'Hello' }, finish_reason: null }],
+    });
+    const data2 = JSON.stringify({
+      choices: [{ delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5 },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSseBody([`data: ${data1}`, `data: ${data2}`, 'data: [DONE]']),
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider('https://api.openai.com/v1', 'test-key');
+    const chunks: ProviderStreamChunk[] = [];
+    for await (const chunk of provider.stream([{ role: 'user', content: 'hi' }], [], {
+      model: 'gpt-4o',
+    })) {
+      chunks.push(chunk);
+    }
+
+    vi.unstubAllGlobals();
+
+    expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'Hello')).toBe(true);
+    const done = chunks.find((c) => c.type === 'done');
+    expect(done).toBeDefined();
+    expect((done as { type: 'done'; stopReason: string }).stopReason).toBe('stop');
+  });
+
+  it('yields tool_call chunks for tool calls', async () => {
+    const data1 = JSON.stringify({
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              { index: 0, id: 'tc1', type: 'function', function: { name: 'echo', arguments: '' } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+    const data2 = JSON.stringify({
+      choices: [
+        {
+          delta: { tool_calls: [{ index: 0, function: { arguments: '{"text":"hi"}' } }] },
+          finish_reason: 'tool_calls',
+        },
+      ],
+      usage: { prompt_tokens: 5, completion_tokens: 3 },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSseBody([`data: ${data1}`, `data: ${data2}`, 'data: [DONE]']),
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider('https://api.openai.com/v1', 'test-key');
+    const chunks: ProviderStreamChunk[] = [];
+    for await (const chunk of provider.stream([], [], { model: 'gpt-4o' })) {
+      chunks.push(chunk);
+    }
+
+    vi.unstubAllGlobals();
+
+    expect(chunks.some((c) => c.type === 'tool_call_start')).toBe(true);
+    expect(chunks.some((c) => c.type === 'tool_call_args_delta')).toBe(true);
+  });
+});
+
 describe('Provider interface: stream() contract', () => {
   it('Provider type has stream() but not complete() at interface level', () => {
-    // Compile-time assertions — file fails to compile if these don't hold
     type HasStream = 'stream' extends keyof import('./Provider.js').Provider ? true : false;
     type NoComplete = 'complete' extends keyof import('./Provider.js').Provider ? true : false;
-    // Conditional types that resolve to `never` if the assertion fails, causing a compile error
     type _AssertStream = HasStream extends true ? true : never;
     type _AssertNoComplete = NoComplete extends false ? true : never;
-    // Assign to consts used in expect() so they're not unused
     const _streamCheck: _AssertStream = true;
     const _noCompleteCheck: _AssertNoComplete = true;
     expect(_streamCheck).toBe(true);
