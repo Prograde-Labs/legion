@@ -32,6 +32,12 @@ function makeConnectorContext(
   return {
     submit: vi.fn().mockResolvedValue({ status: 'success', conversationId: 'conv-1' }),
     callTool: vi.fn().mockResolvedValue({ result: toolResult, conversationId: 'conv-test' }),
+    streamTool: vi.fn().mockResolvedValue({
+      gen: (async function* () {
+        yield { type: 'stream:done', result: toolResult };
+      })(),
+      conversationId: 'conv-test',
+    }),
     registry: {
       setActive: vi.fn(),
       clearActive: vi.fn(),
