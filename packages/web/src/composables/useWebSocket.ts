@@ -1,14 +1,18 @@
 import { useAuth } from './useAuth.js';
 import { router } from '../router/index.js';
+import type { StreamChunk } from '@legion/types';
 
 type MessageHandler = (data: unknown) => void;
+type StreamChunkHandler = (chunk: StreamChunk) => void;
 
 // Module-level singleton state — one WebSocket for the entire app
 const handlers = new Set<MessageHandler>();
+const streamHandlers = new Map<string, StreamChunkHandler>();
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let backoff = 1000;
 let stoppedByAuth = false;
+let connectionId: string | null = null;
 
 function connect(): void {
   const { getToken } = useAuth();
@@ -30,6 +34,23 @@ function connect(): void {
     } catch {
       return;
     }
+
+    const msg = parsed as Record<string, unknown>;
+
+    // Handle stream:chunk frames (O(1) routing to registered handler)
+    if (msg['type'] === 'stream:chunk') {
+      const sid = msg['streamId'] as string;
+      const chunk = msg['data'] as StreamChunk;
+      streamHandlers.get(sid)?.(chunk);
+      return;
+    }
+
+    // Handle connected frame — store connectionId
+    if (msg['type'] === 'connected') {
+      connectionId = (msg['connectionId'] as string) ?? null;
+    }
+
+    // Dispatch to all general message handlers
     for (const handler of [...handlers]) {
       try {
         handler(parsed);
@@ -40,6 +61,8 @@ function connect(): void {
   });
 
   ws.addEventListener('close', (evt) => {
+    connectionId = null;
+    streamHandlers.clear();
     if (evt.code === 4401) {
       stoppedByAuth = true;
       const { logout } = useAuth();
@@ -49,6 +72,7 @@ function connect(): void {
     }
     scheduleReconnect();
   });
+
   ws.addEventListener('error', () => ws?.close());
 }
 
@@ -86,6 +110,15 @@ export function useWebSocket() {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(data));
       }
+    },
+    /** Register a handler for chunks of a specific stream. Returns unsubscribe fn. */
+    onStreamChunk(streamId: string, handler: StreamChunkHandler): () => void {
+      streamHandlers.set(streamId, handler);
+      return () => streamHandlers.delete(streamId);
+    },
+    /** Returns the connectionId issued by the server on auth, or null if not connected. */
+    getConnectionId(): string | null {
+      return connectionId;
     },
   };
 }
