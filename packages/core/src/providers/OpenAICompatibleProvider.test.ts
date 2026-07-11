@@ -276,3 +276,19 @@ describe('OpenAICompatibleProvider', () => {
     expect(result.usage).toBeUndefined();
   });
 });
+
+describe('Provider interface: stream() contract', () => {
+  it('Provider type has stream() but not complete() at interface level', () => {
+    // Compile-time assertions — file fails to compile if these don't hold
+    type HasStream = 'stream' extends keyof import('./Provider.js').Provider ? true : false;
+    type NoComplete = 'complete' extends keyof import('./Provider.js').Provider ? true : false;
+    // Conditional types that resolve to `never` if the assertion fails, causing a compile error
+    type _AssertStream = HasStream extends true ? true : never;
+    type _AssertNoComplete = NoComplete extends false ? true : never;
+    // Assign to consts used in expect() so they're not unused
+    const _streamCheck: _AssertStream = true;
+    const _noCompleteCheck: _AssertNoComplete = true;
+    expect(_streamCheck).toBe(true);
+    expect(_noCompleteCheck).toBe(true);
+  });
+});
