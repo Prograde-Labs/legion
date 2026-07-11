@@ -65,7 +65,7 @@ describe('LegionProcess config and runtime tools', () => {
 
     const initialRouting = await web.app.inject({
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'get_routing', args: {} },
     });
@@ -79,7 +79,7 @@ describe('LegionProcess config and runtime tools', () => {
 
     const saveWorkspace = await web.app.inject({
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: {
         tool: 'save_routing',
@@ -93,7 +93,7 @@ describe('LegionProcess config and runtime tools', () => {
 
     const saveSystem = await web.app.inject({
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: {
         tool: 'save_routing',
@@ -107,7 +107,7 @@ describe('LegionProcess config and runtime tools', () => {
 
     const updatedRouting = await web.app.inject({
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'get_routing', args: {} },
     });

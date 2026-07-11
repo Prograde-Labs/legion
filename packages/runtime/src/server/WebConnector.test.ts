@@ -225,7 +225,7 @@ describe('WebConnector: POST /api/execute', () => {
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'list_participants', args: {} },
     });
@@ -246,7 +246,7 @@ describe('WebConnector: POST /api/execute', () => {
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'list_participants' },
     });
