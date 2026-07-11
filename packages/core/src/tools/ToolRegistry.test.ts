@@ -92,3 +92,91 @@ describe('isStreamingTool', () => {
     expect(isStreamingTool(tool)).toBe(true);
   });
 });
+
+async function collect(gen: AsyncGenerator<StreamChunk>): Promise<StreamChunk[]> {
+  const chunks: StreamChunk[] = [];
+  for await (const chunk of gen) chunks.push(chunk);
+  return chunks;
+}
+
+describe('ToolRegistry streaming', () => {
+  it('register accepts a StreamingTool', () => {
+    const reg = new ToolRegistry();
+    const tool: StreamingTool = {
+      name: 'streamer',
+      description: 'yields chunks',
+      parameters: { type: 'object' },
+      async *stream() {
+        yield { type: 'text_delta', delta: 'hi' } satisfies StreamChunk;
+      },
+    };
+    expect(() => reg.register(tool)).not.toThrow();
+    expect(reg.has('streamer')).toBe(true);
+  });
+
+  it('stream() on a regular Tool yields stream:done with the result', async () => {
+    const reg = new ToolRegistry();
+    reg.register(echoTool);
+    const chunks = await collect(reg.stream('echo', { text: 'hi' }, fakeContext()));
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toEqual({ type: 'stream:done', result: { status: 'success', data: 'hi' } });
+  });
+
+  it('stream() on a StreamingTool yields tool chunks then stream:done', async () => {
+    const reg = new ToolRegistry();
+    const tool: StreamingTool = {
+      name: 'delta',
+      description: 'yields text deltas',
+      parameters: { type: 'object' },
+      async *stream() {
+        yield { type: 'text_delta', delta: 'a' } satisfies StreamChunk;
+        yield { type: 'text_delta', delta: 'b' } satisfies StreamChunk;
+      },
+    };
+    reg.register(tool);
+    const chunks = await collect(reg.stream('delta', {}, fakeContext()));
+    expect(chunks).toEqual([
+      { type: 'text_delta', delta: 'a' },
+      { type: 'text_delta', delta: 'b' },
+      { type: 'stream:done', result: { status: 'success' } },
+    ]);
+  });
+
+  it('stream() yields stream:error when tool throws', async () => {
+    const reg = new ToolRegistry();
+    const tool: StreamingTool = {
+      name: 'exploder',
+      description: 'throws',
+      parameters: { type: 'object' },
+      async *stream() {
+        throw new Error('boom');
+        yield { type: 'text_delta', delta: '' } satisfies StreamChunk;
+      },
+    };
+    reg.register(tool);
+    const chunks = await collect(reg.stream('exploder', {}, fakeContext()));
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toEqual({ type: 'stream:error', error: 'boom' });
+  });
+
+  it('stream() yields stream:error for unknown tool', async () => {
+    const reg = new ToolRegistry();
+    const chunks = await collect(reg.stream('nope', {}, fakeContext()));
+    expect(chunks[0].type).toBe('stream:error');
+  });
+
+  it('execute() on a StreamingTool drains and returns result', async () => {
+    const reg = new ToolRegistry();
+    const tool: StreamingTool = {
+      name: 'quick',
+      description: 'streaming but finite',
+      parameters: { type: 'object' },
+      async *stream() {
+        yield { type: 'text_delta', delta: 'x' } satisfies StreamChunk;
+      },
+    };
+    reg.register(tool);
+    const result = await reg.execute('quick', {}, fakeContext());
+    expect(result).toEqual({ status: 'success' });
+  });
+});
