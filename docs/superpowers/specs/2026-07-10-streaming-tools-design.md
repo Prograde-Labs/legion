@@ -8,6 +8,7 @@
 Add streaming support to the Legion tool system via `AsyncGenerator`-based `StreamingTool` interface. Streaming tools replace the `EventBus → WebSocket` bridge as the mechanism for real-time frontend communication, bringing all collective activity under the `AuthEngine` and the single tool interface. LLM output from `communicate` also streams end-to-end.
 
 Two implementation phases share one spec:
+
 - **Phase 1:** Core streaming infrastructure — `StreamingTool` interface, `ToolRegistry` streaming, transport layer (WS routing + SSE fallback), subscription tools, EventBus bridge removal.
 - **Phase 2:** Provider streaming and `communicate` — `Provider.stream()`, `AgentRuntime` generator loop, `MessageRouter.sendStream()`, `communicate` as `StreamingTool`.
 
@@ -72,22 +73,23 @@ export function isStreamingTool(t: AnyTool): t is StreamingTool {
 export type LLMChunk =
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
-  | { type: 'tool_call_args_delta'; index: number; delta: string }
+  | { type: 'tool_call_args_delta'; index: number; delta: string };
 
 // Lifecycle — emitted by registry, never by tool authors
 export type LifecycleChunk =
   | { type: 'stream:done'; result: ToolResult }
-  | { type: 'stream:error'; error: string }
+  | { type: 'stream:error'; error: string };
 
 // Event — from subscription tools, reuses existing LegionEventMap types
 export type EventChunk = {
-  [K in LegionEventName]: { type: K; data: LegionEventMap[K] }
-}[LegionEventName]
+  [K in LegionEventName]: { type: K; data: LegionEventMap[K] };
+}[LegionEventName];
 
-export type StreamChunk = LLMChunk | EventChunk | LifecycleChunk
+export type StreamChunk = LLMChunk | EventChunk | LifecycleChunk;
 ```
 
 **Rules:**
+
 - Tool authors yield `LLMChunk | EventChunk` only.
 - `stream:done` and `stream:error` are injected by `ToolRegistry` — never by tool authors.
 - `seq` is added by the transport layer, not by tools or the registry.
@@ -102,7 +104,7 @@ export type ProviderStreamChunk =
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_args_delta'; index: number; delta: string }
-  | { type: 'done'; stopReason: ProviderStopReason; usage?: ProviderUsage }
+  | { type: 'done'; stopReason: ProviderStopReason; usage?: ProviderUsage };
 ```
 
 The `done` chunk is consumed internally by `AgentRuntime` and never leaks upstream as a `StreamChunk`.
@@ -115,9 +117,9 @@ The `done` chunk is consumed internally by `AgentRuntime` and never leaks upstre
 
 ```ts
 class ToolRegistry {
-  register(tool: AnyTool): void               // updated — accepts Tool | StreamingTool
-  execute(name, args, context): Promise<ToolResult>  // unchanged
-  stream(name, args, context): AsyncGenerator<StreamChunk>  // new
+  register(tool: AnyTool): void; // updated — accepts Tool | StreamingTool
+  execute(name, args, context): Promise<ToolResult>; // unchanged
+  stream(name, args, context): AsyncGenerator<StreamChunk>; // new
 }
 ```
 
@@ -209,6 +211,7 @@ X-Stream-Connection: <connectionId>   →  WS streaming
 `stream=false` always wins if present. Non-streaming tools ignore all headers — the endpoint checks `isStreamingTool()` before deciding.
 
 **WS mode** — detaches immediately:
+
 1. Validate `connectionId` belongs to authenticated participant.
 2. Generate `streamId = crypto.randomUUID()`.
 3. Register stream in `StreamRegistry`.
@@ -216,12 +219,14 @@ X-Stream-Connection: <connectionId>   →  WS streaming
 5. Return HTTP 200 `{ streamId }` immediately.
 
 **SSE mode** — stays attached:
+
 1. Set `Content-Type: text/event-stream`, `Cache-Control: no-cache`.
 2. Iterate `toolRegistry.stream()`.
 3. Write each chunk: `data: {"seq":<n>,"data":<chunk>}\n\n`.
 4. On `stream:done`/`stream:error`: write final chunk, end response.
 
 **Buffered mode:**
+
 1. Call `toolRegistry.execute()` — internally drains the stream.
 2. Return HTTP 200 `ToolResult` as JSON (same shape as today).
 
@@ -230,15 +235,16 @@ X-Stream-Connection: <connectionId>   →  WS streaming
 ```ts
 // packages/core/src/streaming/StreamRegistry.ts
 class StreamRegistry {
-  register(streamId: string, connectionId: string): AbortSignal
-  cancel(streamId: string): void
-  cancelAll(connectionId: string): void  // called on WS close
+  register(streamId: string, connectionId: string): AbortSignal;
+  cancel(streamId: string): void;
+  cancelAll(connectionId: string): void; // called on WS close
 }
 ```
 
 `StreamRegistry` is never exposed to callers of `ToolRegistry`. It is invisible to tool authors. It is an internal implementation detail of the transport layer (HTTP execute route + `WebConnector`).
 
 `ToolContext` gains two additions:
+
 - `signal?: AbortSignal` — lets streaming tools know when they've been cancelled.
 - `cancelStream?(streamId: string): boolean` — narrow capability for `cancel_stream` tool.
 
@@ -246,7 +252,12 @@ class StreamRegistry {
 
 ```ts
 // server → client (new)
-{ type: 'stream:chunk'; streamId: string; seq: number; data: StreamChunk }
+{
+  type: 'stream:chunk';
+  streamId: string;
+  seq: number;
+  data: StreamChunk;
+}
 
 // client → server: cancellation goes through cancel_stream tool, not WS protocol
 ```
@@ -280,10 +291,10 @@ const cancelStreamTool: Tool = {
 
 ```ts
 interface Provider {
-  stream(messages, tools, model): AsyncGenerator<ProviderStreamChunk>
+  stream(messages, tools, model): AsyncGenerator<ProviderStreamChunk>;
   // complete() removed from interface — may remain as private impl detail
-  listModels?(): Promise<ProviderModel[]>
-  pricingSource?(): PricingSource
+  listModels?(): Promise<ProviderModel[]>;
+  pricingSource?(): PricingSource;
 }
 ```
 
@@ -316,7 +327,7 @@ for await (const chunk of provider.stream(messages, providerTools, model)) {
   if (chunk.type === 'done') {
     response = buildProviderResponse(contentParts, toolAccum, chunk);
   } else {
-    yield chunk;                              // upstream to caller
+    yield chunk; // upstream to caller
     accumulate(chunk, contentParts, toolAccum); // internal for tool execution
   }
 }
@@ -343,8 +354,8 @@ async handle(message, context): Promise<RuntimeResult> {
 
 ```ts
 interface Runtime {
-  handle(message, context): Promise<RuntimeResult>               // unchanged
-  handleStream?(message, context): AsyncGenerator<LLMChunk, RuntimeResult>  // new, optional
+  handle(message, context): Promise<RuntimeResult>; // unchanged
+  handleStream?(message, context): AsyncGenerator<LLMChunk, RuntimeResult>; // new, optional
 }
 ```
 
@@ -354,8 +365,8 @@ Only `AgentRuntime` implements `handleStream`. `UserDeliveryRuntime` and `MockRu
 
 ```ts
 interface MessageRouterPort {
-  send(options): Promise<MessageRouterResult>                          // unchanged
-  sendStream(options): AsyncGenerator<LLMChunk, MessageRouterResult>  // new, required
+  send(options): Promise<MessageRouterResult>; // unchanged
+  sendStream(options): AsyncGenerator<LLMChunk, MessageRouterResult>; // new, required
 }
 ```
 
@@ -433,8 +444,8 @@ Subscription tools bridge the push-based `EventBus` into a pull-based `AsyncGene
 ```ts
 // packages/core/src/streaming/AsyncQueue.ts
 class AsyncQueue<T> {
-  push(value: T): void
-  async next(signal?: AbortSignal): Promise<T | null>  // null on abort
+  push(value: T): void;
+  async next(signal?: AbortSignal): Promise<T | null>; // null on abort
 }
 ```
 
@@ -451,11 +462,11 @@ async function* stream(args, context) {
   try {
     while (true) {
       const chunk = await queue.next(context.signal);
-      if (chunk === null) break;  // aborted
+      if (chunk === null) break; // aborted
       yield chunk;
     }
   } finally {
-    unsubs.forEach(fn => fn());  // always clean up
+    unsubs.forEach((fn) => fn()); // always clean up
   }
 }
 ```
@@ -463,27 +474,32 @@ async function* stream(args, context) {
 ### Subscription tools
 
 **`watch_conversations`**
+
 - Events: `conversation:created`
 - Args: none
 - Replaces: `conversation:created` EventBus events bridged to frontend
 
 **`watch_participants`**
+
 - Events: `participant:active`, `participant:retired`
 - Args: none
 - Replaces: `participant:active`, `participant:retired` EventBus events
 
 **`watch_activity`**
+
 - Events: `tool:call`, `tool:result`, `iteration`, `approval:requested`, `approval:resolved`, `error`
 - Args: `{ conversationId?: string }` — optional filter
 - Replaces: activity feed events bridged to frontend
 
 **`watch_conversation`**
+
 - Events: `message:sent`, `message:delivered`
 - Args: `{ conversationId: string }`
 - Replaces: per-conversation message event delivery
 - **Limitation:** does not deliver in-progress LLM chunks to a second observer (e.g. after page refresh mid-stream). Attaching to an in-progress stream requires a per-conversation multicast channel — deferred as future work.
 
 **`watch_process`**
+
 - Source: `processManager` subscriptions (not EventBus)
 - Args: `{ processId: string }`
 - Yields: `{ type: 'process:output', stream: 'stdout'|'stderr', data: string }`, `{ type: 'process:exited', exitCode: number }`
@@ -508,12 +524,14 @@ The EventBus is noted as a future cleanup candidate: component-level subscriptio
 ### `useWebSocket` additions
 
 `connectionId` stored on auth:
+
 ```ts
 // connected frame gains connectionId field
 { type: 'connected', participantId: string, connectionId: string }
 ```
 
 Per-stream routing (O(1), not broadcast):
+
 ```ts
 const streamHandlers = new Map<string, (chunk: StreamChunk) => void>();
 
@@ -536,17 +554,18 @@ The `event` frame type and its handler are removed.
 function useToolStream<TChunk = StreamChunk>(
   toolName: string,
   args: unknown,
-  options?: { onChunk?: (chunk: TChunk) => void }
+  options?: { onChunk?: (chunk: TChunk) => void },
 ): {
-  start(): Promise<void>
-  cancel(): Promise<void>    // calls cancel_stream tool
-  chunks: Ref<TChunk[]>
-  done: Ref<boolean>
-  error: Ref<string | null>
-}
+  start(): Promise<void>;
+  cancel(): Promise<void>; // calls cancel_stream tool
+  chunks: Ref<TChunk[]>;
+  done: Ref<boolean>;
+  error: Ref<string | null>;
+};
 ```
 
 Internally:
+
 1. Gets `connectionId` from `useWebSocket()`.
 2. POSTs `/api/execute` with `X-Stream-Connection: <connectionId>` header.
 3. Receives `{ streamId }` in HTTP response.
@@ -565,52 +584,55 @@ New: frontend explicitly starts the streams it needs once `connectionId` is avai
 // App.vue or useAppStreams composable
 const ws = useWebSocket();
 
-watch(() => ws.getConnectionId(), async (id) => {
-  if (!id) return;
-  await conversationStream.start();   // watch_conversations
-  await participantStream.start();    // watch_participants
-  await activityStream.start();       // watch_activity
-});
+watch(
+  () => ws.getConnectionId(),
+  async (id) => {
+    if (!id) return;
+    await conversationStream.start(); // watch_conversations
+    await participantStream.start(); // watch_participants
+    await activityStream.start(); // watch_activity
+  },
+);
 ```
 
 Page refresh restarts exactly the streams the page needs. No server-side state about what each client is watching.
 
 ### Files deleted / changed
 
-| File | Change |
-|---|---|
-| `packages/web/src/composables/useEventStream.ts` | Deleted |
-| `packages/web/src/composables/useWebSocket.ts` | Remove `event` frame handler; add `connectionId`, `onStreamChunk` |
-| `packages/runtime/src/server/event-filter.ts` | Deleted |
-| `packages/runtime/src/server/WebConnector.ts:234` | Delete `onAny()` bridge |
-| `packages/runtime/src/server/WebConnector.ts:241-313` | Delete `subscribe_process` handler |
+| File                                                  | Change                                                            |
+| ----------------------------------------------------- | ----------------------------------------------------------------- |
+| `packages/web/src/composables/useEventStream.ts`      | Deleted                                                           |
+| `packages/web/src/composables/useWebSocket.ts`        | Remove `event` frame handler; add `connectionId`, `onStreamChunk` |
+| `packages/runtime/src/server/event-filter.ts`         | Deleted                                                           |
+| `packages/runtime/src/server/WebConnector.ts:234`     | Delete `onAny()` bridge                                           |
+| `packages/runtime/src/server/WebConnector.ts:241-313` | Delete `subscribe_process` handler                                |
 
 ---
 
 ## ToolContext Changes Summary
 
-| Field | Change |
-|---|---|
-| `eventBus` | Retained — subscription tools subscribe via `context.eventBus.on()` |
-| `signal?: AbortSignal` | New — streaming tools check for cancellation |
-| `cancelStream?(streamId: string): boolean` | New — used by `cancel_stream` tool |
+| Field                                      | Change                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| `eventBus`                                 | Retained — subscription tools subscribe via `context.eventBus.on()` |
+| `signal?: AbortSignal`                     | New — streaming tools check for cancellation                        |
+| `cancelStream?(streamId: string): boolean` | New — used by `cancel_stream` tool                                  |
 
 ---
 
 ## New Files
 
-| File | Purpose |
-|---|---|
-| `packages/types/src/streaming.ts` | `StreamChunk`, `LLMChunk`, `EventChunk`, `LifecycleChunk` |
-| `packages/core/src/streaming/AsyncQueue.ts` | Abort-aware async queue for subscription tools |
-| `packages/core/src/streaming/StreamRegistry.ts` | Transport-internal stream lifecycle tracking |
-| `packages/core/src/tools/watch-conversations-tool.ts` | Subscription tool |
-| `packages/core/src/tools/watch-participants-tool.ts` | Subscription tool |
-| `packages/core/src/tools/watch-activity-tool.ts` | Subscription tool |
-| `packages/core/src/tools/watch-conversation-tool.ts` | Subscription tool |
-| `packages/core/src/tools/watch-process-tool.ts` | Subscription tool |
-| `packages/core/src/tools/cancel-stream-tool.ts` | Cancellation tool |
-| `packages/web/src/composables/useToolStream.ts` | Replaces `useEventStream` |
+| File                                                  | Purpose                                                   |
+| ----------------------------------------------------- | --------------------------------------------------------- |
+| `packages/types/src/streaming.ts`                     | `StreamChunk`, `LLMChunk`, `EventChunk`, `LifecycleChunk` |
+| `packages/core/src/streaming/AsyncQueue.ts`           | Abort-aware async queue for subscription tools            |
+| `packages/core/src/streaming/StreamRegistry.ts`       | Transport-internal stream lifecycle tracking              |
+| `packages/core/src/tools/watch-conversations-tool.ts` | Subscription tool                                         |
+| `packages/core/src/tools/watch-participants-tool.ts`  | Subscription tool                                         |
+| `packages/core/src/tools/watch-activity-tool.ts`      | Subscription tool                                         |
+| `packages/core/src/tools/watch-conversation-tool.ts`  | Subscription tool                                         |
+| `packages/core/src/tools/watch-process-tool.ts`       | Subscription tool                                         |
+| `packages/core/src/tools/cancel-stream-tool.ts`       | Cancellation tool                                         |
+| `packages/web/src/composables/useToolStream.ts`       | Replaces `useEventStream`                                 |
 
 ---
 

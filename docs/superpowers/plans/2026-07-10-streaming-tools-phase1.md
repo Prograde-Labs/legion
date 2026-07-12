@@ -13,48 +13,52 @@
 ## File Map
 
 ### New files
-| File | Purpose |
-|---|---|
-| `packages/types/src/streaming.ts` | `LLMChunk`, `LifecycleChunk`, `EventChunk`, `ProcessChunk`, `StreamChunk` |
-| `packages/core/src/streaming/AsyncQueue.ts` | Abort-signal-aware async queue for subscription tools |
-| `packages/core/src/streaming/StreamRegistry.ts` | Transport-internal stream lifecycle tracking |
-| `packages/core/src/tools/cancel-stream-tool.ts` | `cancel_stream` regular Tool |
-| `packages/core/src/tools/watch-conversations-tool.ts` | `watch_conversations` StreamingTool |
-| `packages/core/src/tools/watch-participants-tool.ts` | `watch_participants` StreamingTool |
-| `packages/core/src/tools/watch-activity-tool.ts` | `watch_activity` StreamingTool |
-| `packages/core/src/tools/watch-conversation-tool.ts` | `watch_conversation` StreamingTool |
-| `packages/core/src/tools/watch-process-tool.ts` | `watch_process` StreamingTool |
-| `packages/web/src/composables/useToolStream.ts` | Core frontend streaming composable |
+
+| File                                                  | Purpose                                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| `packages/types/src/streaming.ts`                     | `LLMChunk`, `LifecycleChunk`, `EventChunk`, `ProcessChunk`, `StreamChunk` |
+| `packages/core/src/streaming/AsyncQueue.ts`           | Abort-signal-aware async queue for subscription tools                     |
+| `packages/core/src/streaming/StreamRegistry.ts`       | Transport-internal stream lifecycle tracking                              |
+| `packages/core/src/tools/cancel-stream-tool.ts`       | `cancel_stream` regular Tool                                              |
+| `packages/core/src/tools/watch-conversations-tool.ts` | `watch_conversations` StreamingTool                                       |
+| `packages/core/src/tools/watch-participants-tool.ts`  | `watch_participants` StreamingTool                                        |
+| `packages/core/src/tools/watch-activity-tool.ts`      | `watch_activity` StreamingTool                                            |
+| `packages/core/src/tools/watch-conversation-tool.ts`  | `watch_conversation` StreamingTool                                        |
+| `packages/core/src/tools/watch-process-tool.ts`       | `watch_process` StreamingTool                                             |
+| `packages/web/src/composables/useToolStream.ts`       | Core frontend streaming composable                                        |
 
 ### Modified files
-| File | Change |
-|---|---|
-| `packages/types/src/index.ts` | Export `streaming.ts` |
-| `packages/core/src/tools/Tool.ts` | Add `StreamingTool`, `AnyTool`, `isStreamingTool`; update `ToolContext` (signal, cancelStream); update `ToolRegistryLike` (stream, AnyTool return types) |
-| `packages/core/src/tools/ToolRegistry.ts` | Update `register()` + map to `AnyTool`, add `stream()`, update `execute()` to drain streaming tools |
-| `packages/core/src/connectors/Connector.ts` | Add `streamTool()` to `ConnectorContext` |
-| `packages/core/src/index.ts` | Export new tools and streaming utilities |
-| `packages/runtime/src/LegionProcess.ts` | Implement `streamTool()` in `buildConnectorContext`, register subscription tools, add to operator tool policies |
-| `packages/runtime/src/server/WebConnector.ts` | Add `StreamRegistry`, `connectionId` per socket, send `connectionId` in `connected` frame, remove `onAny` bridge, remove `subscribe_process` handler |
-| `packages/runtime/src/server/routes/execute.ts` | 3 transport modes: WS streaming (`X-Stream-Connection`), SSE, buffered (`?stream=false`) |
-| `packages/web/src/composables/useWebSocket.ts` | Add `connectionId`, `onStreamChunk()`, `getConnectionId()`; remove `event` frame dispatch |
-| `packages/web/src/views/ParticipantsView.vue` | Replace `useEventStream` with `useToolStream` + `watch_participants` |
-| `packages/web/src/views/ConversationsView.vue` | Replace `useEventStream` with `useToolStream` + `watch_conversations`/`watch_activity` |
-| `packages/web/src/composables/useConversation.ts` | Replace `useEventStream` with `useToolStream` + `watch_conversation`/`watch_activity` |
+
+| File                                              | Change                                                                                                                                                   |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/types/src/index.ts`                     | Export `streaming.ts`                                                                                                                                    |
+| `packages/core/src/tools/Tool.ts`                 | Add `StreamingTool`, `AnyTool`, `isStreamingTool`; update `ToolContext` (signal, cancelStream); update `ToolRegistryLike` (stream, AnyTool return types) |
+| `packages/core/src/tools/ToolRegistry.ts`         | Update `register()` + map to `AnyTool`, add `stream()`, update `execute()` to drain streaming tools                                                      |
+| `packages/core/src/connectors/Connector.ts`       | Add `streamTool()` to `ConnectorContext`                                                                                                                 |
+| `packages/core/src/index.ts`                      | Export new tools and streaming utilities                                                                                                                 |
+| `packages/runtime/src/LegionProcess.ts`           | Implement `streamTool()` in `buildConnectorContext`, register subscription tools, add to operator tool policies                                          |
+| `packages/runtime/src/server/WebConnector.ts`     | Add `StreamRegistry`, `connectionId` per socket, send `connectionId` in `connected` frame, remove `onAny` bridge, remove `subscribe_process` handler     |
+| `packages/runtime/src/server/routes/execute.ts`   | 3 transport modes: WS streaming (`X-Stream-Connection`), SSE, buffered (`?stream=false`)                                                                 |
+| `packages/web/src/composables/useWebSocket.ts`    | Add `connectionId`, `onStreamChunk()`, `getConnectionId()`; remove `event` frame dispatch                                                                |
+| `packages/web/src/views/ParticipantsView.vue`     | Replace `useEventStream` with `useToolStream` + `watch_participants`                                                                                     |
+| `packages/web/src/views/ConversationsView.vue`    | Replace `useEventStream` with `useToolStream` + `watch_conversations`/`watch_activity`                                                                   |
+| `packages/web/src/composables/useConversation.ts` | Replace `useEventStream` with `useToolStream` + `watch_conversation`/`watch_activity`                                                                    |
 
 ### Deleted files
-| File | Reason |
-|---|---|
-| `packages/runtime/src/server/event-filter.ts` | Replaced by subscription tool authorization |
-| `packages/runtime/src/server/event-filter.test.ts` | Test for deleted file |
-| `packages/web/src/composables/useEventStream.ts` | Replaced by `useToolStream` |
-| `packages/web/src/composables/useEventStream.test.ts` | Test for deleted composable |
+
+| File                                                  | Reason                                      |
+| ----------------------------------------------------- | ------------------------------------------- |
+| `packages/runtime/src/server/event-filter.ts`         | Replaced by subscription tool authorization |
+| `packages/runtime/src/server/event-filter.test.ts`    | Test for deleted file                       |
+| `packages/web/src/composables/useEventStream.ts`      | Replaced by `useToolStream`                 |
+| `packages/web/src/composables/useEventStream.test.ts` | Test for deleted composable                 |
 
 ---
 
 ## Task 1: `StreamChunk` types in `packages/types`
 
 **Files:**
+
 - Create: `packages/types/src/streaming.ts`
 - Modify: `packages/types/src/index.ts`
 
@@ -93,6 +97,7 @@ export type StreamChunk = LLMChunk | EventChunk | LifecycleChunk | ProcessChunk;
 - [ ] **Step 2: Export from `packages/types/src/index.ts`**
 
 Add after the existing exports:
+
 ```ts
 export * from './streaming.js';
 ```
@@ -114,6 +119,7 @@ git commit -m "feat(types): add StreamChunk union types for streaming"
 ## Task 2: `StreamingTool` + `ToolContext` additions in `packages/core/src/tools/Tool.ts`
 
 **Files:**
+
 - Modify: `packages/core/src/tools/Tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -131,7 +137,9 @@ describe('isStreamingTool', () => {
       name: 'echo',
       description: 'desc',
       parameters: { type: 'object' },
-      async execute() { return { status: 'success' }; },
+      async execute() {
+        return { status: 'success' };
+      },
     };
     expect(isStreamingTool(tool)).toBe(false);
   });
@@ -158,11 +166,19 @@ Expected: FAIL — `isStreamingTool` not exported from `./Tool.js`
 - [ ] **Step 3: Add `StreamingTool`, `AnyTool`, `isStreamingTool` to `Tool.ts`**
 
 Add import at the top of `packages/core/src/tools/Tool.ts`:
+
 ```ts
-import type { JSONSchema, ToolResult, ParticipantConfig, WorkspaceConfig, StreamChunk } from '@legion/types';
+import type {
+  JSONSchema,
+  ToolResult,
+  ParticipantConfig,
+  WorkspaceConfig,
+  StreamChunk,
+} from '@legion/types';
 ```
 
 Add to `ToolContext` interface (after `conversationStore?`):
+
 ```ts
   /** AbortSignal set by transport when a streaming call is cancelled. */
   signal?: AbortSignal;
@@ -171,6 +187,7 @@ Add to `ToolContext` interface (after `conversationStore?`):
 ```
 
 Replace the `ToolRegistryLike` interface:
+
 ```ts
 export interface ToolRegistryLike {
   get(name: string): AnyTool | undefined;
@@ -183,6 +200,7 @@ export interface ToolRegistryLike {
 ```
 
 Replace the `Tool` interface (keep existing) and add after it:
+
 ```ts
 /** A tool that yields chunks instead of returning a single result. */
 export interface StreamingTool {
@@ -223,6 +241,7 @@ git commit -m "feat(core): add StreamingTool interface + ToolContext signal/canc
 ## Task 3: `AsyncQueue` — abort-signal-aware async queue
 
 **Files:**
+
 - Create: `packages/core/src/streaming/AsyncQueue.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -344,6 +363,7 @@ git commit -m "feat(core): add AsyncQueue for subscription tool event bridging"
 ## Task 4: `StreamRegistry` — transport-internal lifecycle tracking
 
 **Files:**
+
 - Create: `packages/core/src/streaming/StreamRegistry.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -461,6 +481,7 @@ git commit -m "feat(core): add StreamRegistry for transport-internal stream life
 ## Task 5: `ToolRegistry` — streaming support
 
 **Files:**
+
 - Modify: `packages/core/src/tools/ToolRegistry.ts`
 
 - [ ] **Step 1: Write the failing tests**
@@ -768,6 +789,7 @@ git commit -m "feat(core): add ToolRegistry.stream() and StreamingTool support"
 ## Task 6: `cancel_stream` tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/cancel-stream-tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -866,6 +888,7 @@ git commit -m "feat(core): add cancel_stream tool"
 ## Task 7: `watch_conversations` tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/watch-conversations-tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -978,6 +1001,7 @@ git commit -m "feat(core): add watch_conversations streaming tool"
 ## Task 8: `watch_participants` tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/watch-participants-tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -1080,6 +1104,7 @@ git commit -m "feat(core): add watch_participants streaming tool"
 ## Task 9: `watch_activity` tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/watch-activity-tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -1108,7 +1133,13 @@ describe('watch_activity tool', () => {
     const gen = watchActivityTool.stream({}, fakeCtx(bus, controller.signal));
 
     bus.emit('tool:call', { conversationId: 'c1', participantId: 'a1', tool: 'echo', callId: '1' });
-    bus.emit('tool:result', { conversationId: 'c1', participantId: 'a1', tool: 'echo', callId: '1', status: 'success' });
+    bus.emit('tool:result', {
+      conversationId: 'c1',
+      participantId: 'a1',
+      tool: 'echo',
+      callId: '1',
+      status: 'success',
+    });
     controller.abort();
 
     const chunks: StreamChunk[] = [];
@@ -1152,7 +1183,13 @@ import type { LegionEventMap, LegionEventName, StreamChunk } from '@legion/types
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
-type ActivityEventName = 'tool:call' | 'tool:result' | 'iteration' | 'approval:requested' | 'approval:resolved' | 'error';
+type ActivityEventName =
+  | 'tool:call'
+  | 'tool:result'
+  | 'iteration'
+  | 'approval:requested'
+  | 'approval:resolved'
+  | 'error';
 
 const ACTIVITY_EVENTS: ActivityEventName[] = [
   'tool:call',
@@ -1221,6 +1258,7 @@ git commit -m "feat(core): add watch_activity streaming tool"
 ## Task 10: `watch_conversation` tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/watch-conversation-tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -1251,8 +1289,18 @@ describe('watch_conversation tool', () => {
       fakeCtx(bus, controller.signal),
     );
 
-    bus.emit('message:sent', { conversationId: 'conv-1', senderId: 'u1', recipientId: 'a1', messageId: 'm1' });
-    bus.emit('message:sent', { conversationId: 'conv-2', senderId: 'u2', recipientId: 'a2', messageId: 'm2' }); // filtered
+    bus.emit('message:sent', {
+      conversationId: 'conv-1',
+      senderId: 'u1',
+      recipientId: 'a1',
+      messageId: 'm1',
+    });
+    bus.emit('message:sent', {
+      conversationId: 'conv-2',
+      senderId: 'u2',
+      recipientId: 'a2',
+      messageId: 'm2',
+    }); // filtered
     bus.emit('message:delivered', { conversationId: 'conv-1', recipientId: 'u1', messageId: 'm1' });
     controller.abort();
 
@@ -1268,7 +1316,9 @@ describe('watch_conversation tool', () => {
     const bus = new EventBus();
     const gen = watchConversationTool.stream({}, fakeCtx(bus));
     await expect(async () => {
-      for await (const _chunk of gen) { /* empty */ }
+      for await (const _chunk of gen) {
+        /* empty */
+      }
     }).rejects.toThrow(/conversationId/i);
   });
 });
@@ -1290,8 +1340,7 @@ import type { StreamingTool, ToolContext } from './Tool.js';
 
 export const watchConversationTool: StreamingTool = {
   name: 'watch_conversation',
-  description:
-    'Stream message:sent and message:delivered events for a specific conversation.',
+  description: 'Stream message:sent and message:delivered events for a specific conversation.',
   parameters: {
     type: 'object',
     properties: {
@@ -1352,6 +1401,7 @@ git commit -m "feat(core): add watch_conversation streaming tool"
 ## Task 11: `watch_process` tool
 
 **Files:**
+
 - Create: `packages/core/src/tools/watch-process-tool.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -1418,15 +1468,16 @@ describe('watch_process tool', () => {
     const chunks: StreamChunk[] = [];
     for await (const chunk of gen) chunks.push(chunk);
 
-    expect(chunks[0]).toMatchObject({ type: 'process:output', processId: 'proc-1', stream: 'stdout' });
+    expect(chunks[0]).toMatchObject({
+      type: 'process:output',
+      processId: 'proc-1',
+      stream: 'stdout',
+    });
   });
 
   it('terminates after process:exited', async () => {
     const pm = makeMockProcessManager('proc-1', 'owner-1');
-    const gen = watchProcessTool.stream(
-      { processId: 'proc-1' },
-      fakeCtx(pm, 'owner-1'),
-    );
+    const gen = watchProcessTool.stream({ processId: 'proc-1' }, fakeCtx(pm, 'owner-1'));
 
     pm.emit('exited', { exitCode: 0, signal: null });
 
@@ -1440,7 +1491,9 @@ describe('watch_process tool', () => {
     const pm = makeMockProcessManager('proc-1', 'owner-1');
     const gen = watchProcessTool.stream({ processId: 'nope' }, fakeCtx(pm, 'owner-1'));
     await expect(async () => {
-      for await (const _c of gen) { /* noop */ }
+      for await (const _c of gen) {
+        /* noop */
+      }
     }).rejects.toThrow(/not found/i);
   });
 
@@ -1448,7 +1501,9 @@ describe('watch_process tool', () => {
     const pm = makeMockProcessManager('proc-1', 'owner-1');
     const gen = watchProcessTool.stream({ processId: 'proc-1' }, fakeCtx(pm, 'other-user'));
     await expect(async () => {
-      for await (const _c of gen) { /* noop */ }
+      for await (const _c of gen) {
+        /* noop */
+      }
     }).rejects.toThrow(/not authorized/i);
   });
 });
@@ -1549,6 +1604,7 @@ git commit -m "feat(core): add watch_process streaming tool"
 ## Task 12: Core exports + mock `ToolRegistryLike` update
 
 **Files:**
+
 - Modify: `packages/core/src/index.ts`
 - Modify: `packages/core/src/service/ServiceContextImpl.test.ts`
 
@@ -1614,6 +1670,7 @@ git commit -m "feat(core): export streaming tools and utilities"
 ## Task 13: `ConnectorContext.streamTool()` interface
 
 **Files:**
+
 - Modify: `packages/core/src/connectors/Connector.ts`
 
 - [ ] **Step 1: Update the interface**
@@ -1736,6 +1793,7 @@ git commit -m "feat(core): add streamTool() to ConnectorContext interface"
 ## Task 14: `WebConnector` — connectionId + StreamRegistry + remove EventBus bridge
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/WebConnector.ts`
 
 This is the largest single-file change. Read `WebConnector.ts` carefully before editing.
@@ -1743,12 +1801,14 @@ This is the largest single-file change. Read `WebConnector.ts` carefully before 
 - [ ] **Step 1: Add imports and new fields**
 
 At the top of `WebConnector.ts`, add imports:
+
 ```ts
 import { randomUUID } from 'node:crypto';
 import { StreamRegistry } from '@legion/core';
 ```
 
 In the `WebConnector` class body, add private fields after `private connections`:
+
 ```ts
 /** connectionId (UUID per socket) → WebSocket */
 private connectionSockets = new Map<string, WebSocket>();
@@ -1761,6 +1821,7 @@ private readonly streamRegistry = new StreamRegistry();
 - [ ] **Step 2: Update `stop()` to clean up new maps**
 
 In `stop()`, add before clearing connections:
+
 ```ts
 this.connectionSockets.clear();
 this.connectionParticipants.clear();
@@ -1769,6 +1830,7 @@ this.connectionParticipants.clear();
 - [ ] **Step 3: Add `sendToStream()` method**
 
 Add to the class:
+
 ```ts
 /**
  * Send a stream chunk frame to a specific connection.
@@ -1791,6 +1853,7 @@ sendToStream(connectionId: string, participantId: string, data: object): boolean
 - [ ] **Step 4: Pass `streamRegistry` and `sendToStream` to execute route**
 
 In `start()`, update the `registerExecuteRoute` call:
+
 ```ts
 await registerExecuteRoute(app, {
   collective: this.deps.collective,
@@ -1804,6 +1867,7 @@ await registerExecuteRoute(app, {
 - [ ] **Step 5: Update `handleWebSocket` — add connectionId, remove bridge, remove subscribe_process**
 
 Replace the `handleWebSocket` method body entirely. The new method:
+
 1. Issues `connectionId = randomUUID()` on auth success
 2. Sends `connectionId` in the `connected` frame
 3. Tracks `connectionSockets` and `connectionParticipants`
@@ -1888,6 +1952,7 @@ private handleWebSocket(socket: WebSocket, ctx: ConnectorContext): void {
 - [ ] **Step 6: Remove the `isRelevantToParticipant` import**
 
 Delete the import line at the top of `WebConnector.ts`:
+
 ```ts
 import { isRelevantToParticipant } from './event-filter.js';
 ```
@@ -1914,6 +1979,7 @@ git commit -m "feat(runtime): add connectionId per socket, StreamRegistry, remov
 ## Task 15: Execute route — 3 transport modes
 
 **Files:**
+
 - Modify: `packages/runtime/src/server/routes/execute.ts`
 
 - [ ] **Step 1: Write the updated execute route**
@@ -1966,12 +2032,9 @@ export async function registerExecuteRoute(
 
     // ── Buffered mode (?stream=false) ────────────────────────────────────────
     if (req.query.stream === 'false') {
-      const { result, conversationId: convId } = await ctx.callTool(
-        participantId,
-        toolName,
-        args,
-        { conversationId: conversationId ?? '' },
-      );
+      const { result, conversationId: convId } = await ctx.callTool(participantId, toolName, args, {
+        conversationId: conversationId ?? '',
+      });
       return reply.send({ result, conversationId: convId });
     }
 
@@ -1985,12 +2048,11 @@ export async function registerExecuteRoute(
       let gen: AsyncGenerator<StreamChunk>;
       let convId: string;
       try {
-        ({ gen, conversationId: convId } = await ctx.streamTool(
-          participantId,
-          toolName,
-          args,
-          { conversationId: conversationId ?? '', signal, cancelStream },
-        ));
+        ({ gen, conversationId: convId } = await ctx.streamTool(participantId, toolName, args, {
+          conversationId: conversationId ?? '',
+          signal,
+          cancelStream,
+        }));
       } catch (err) {
         streamRegistry.cancel(streamId);
         return reply.status(500).send({ error: String(err) });
@@ -2036,12 +2098,9 @@ export async function registerExecuteRoute(
     let gen: AsyncGenerator<StreamChunk>;
     let convId: string;
     try {
-      ({ gen, conversationId: convId } = await ctx.streamTool(
-        participantId,
-        toolName,
-        args,
-        { conversationId: conversationId ?? '' },
-      ));
+      ({ gen, conversationId: convId } = await ctx.streamTool(participantId, toolName, args, {
+        conversationId: conversationId ?? '',
+      }));
     } catch (err) {
       return reply.status(500).send({ error: String(err) });
     }
@@ -2096,6 +2155,7 @@ git commit -m "feat(runtime): add WS streaming and SSE modes to execute route"
 ## Task 16: LegionProcess — implement `streamTool()`, register tools, delete event-filter
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts`
 - Delete: `packages/runtime/src/server/event-filter.ts`
 - Delete: `packages/runtime/src/server/event-filter.test.ts`
@@ -2110,6 +2170,7 @@ rm packages/runtime/src/server/event-filter.test.ts
 - [ ] **Step 2: Add subscription tool imports to `LegionProcess.ts`**
 
 In the import block at the top, add alongside `communicateTool`:
+
 ```ts
 cancelStreamTool,
 watchConversationsTool,
@@ -2122,6 +2183,7 @@ watchProcessTool,
 - [ ] **Step 3: Register new tools in step 6 of `LegionProcess.ts`**
 
 After registering `processTools`, add:
+
 ```ts
 // Streaming / subscription tools
 toolRegistry.register(cancelStreamTool);
@@ -2137,6 +2199,7 @@ toolRegistry.register(watchProcessTool);
 The `RUNTIME_TOOL_NAMES` const governs which tools the bootstrap operator gets auto-added. Add subscription tools there (or create a new const):
 
 Add after `RUNTIME_TOOL_NAMES`:
+
 ```ts
 const SUBSCRIPTION_TOOL_NAMES = [
   'cancel_stream',
@@ -2149,6 +2212,7 @@ const SUBSCRIPTION_TOOL_NAMES = [
 ```
 
 In `ensureBootstrapRuntimeToolPolicies()`, add after the loop for `RUNTIME_TOOL_NAMES`:
+
 ```ts
 for (const name of SUBSCRIPTION_TOOL_NAMES) {
   if (!(name in tools)) {
@@ -2273,6 +2337,7 @@ git commit -m "feat(runtime): implement streamTool, register subscription tools,
 ## Task 17: Frontend `useWebSocket` — connectionId + stream:chunk routing
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useWebSocket.ts`
 
 - [ ] **Step 1: Write the updated composable**
@@ -2423,13 +2488,14 @@ git commit -m "feat(web): add connectionId + onStreamChunk to useWebSocket"
 ## Task 18: `useToolStream` composable
 
 **Files:**
+
 - Create: `packages/web/src/composables/useToolStream.ts`
 
 - [ ] **Step 1: Write the composable**
 
 Create `packages/web/src/composables/useToolStream.ts`:
 
-```ts
+````ts
 import { ref, onUnmounted, type Ref } from 'vue';
 import { useWebSocket } from './useWebSocket.js';
 import { useAuth } from './useAuth.js';
@@ -2572,7 +2638,7 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
 
   return { start, cancel, chunks, done, error, conversationId };
 }
-```
+````
 
 - [ ] **Step 2: Run web tests**
 
@@ -2591,9 +2657,11 @@ git commit -m "feat(web): add useToolStream composable for WS-backed streaming t
 ## Task 19: Replace `useEventStream` in `ParticipantsView.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/views/ParticipantsView.vue`
 
 The view currently calls:
+
 ```ts
 on('participant:active', () => load());
 on('participant:retired', () => load());
@@ -2604,6 +2672,7 @@ Replace with `useToolStream` + `watch_participants`.
 - [ ] **Step 1: Update the `<script setup>` block**
 
 Replace the import and usage:
+
 ```ts
 // Remove:
 import { useEventStream } from '../composables/useEventStream.js';
@@ -2614,6 +2683,7 @@ import { watch, computed } from 'vue';
 ```
 
 Replace the `useEventStream` block:
+
 ```ts
 // Remove:
 const { on } = useEventStream();
@@ -2650,9 +2720,11 @@ git commit -m "feat(web): replace useEventStream with useToolStream in Participa
 ## Task 20: Replace `useEventStream` in `ConversationsView.vue`
 
 **Files:**
+
 - Modify: `packages/web/src/views/ConversationsView.vue`
 
 The view currently calls:
+
 ```ts
 on('conversation:created', () => void loadConversations());
 on('approval:requested', (payload) => { pendingApprovalIds.value = new Set([...pendingApprovalIds.value, payload.conversationId]); });
@@ -2736,12 +2808,14 @@ git commit -m "feat(web): replace useEventStream with useToolStream in Conversat
 ## Task 21: Replace `useEventStream` in `useConversation.ts` + delete `useEventStream.ts`
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useConversation.ts`
 - Modify: `packages/web/src/composables/useConversation.test.ts`
 - Delete: `packages/web/src/composables/useEventStream.ts`
 - Delete: `packages/web/src/composables/useEventStream.test.ts`
 
 `useConversation` subscribes to six event types, all filtered by `conversationId`:
+
 - `message:sent` → reload
 - `message:delivered` → clear thinking, reload
 - `iteration` → set `iterationFired`
@@ -2750,6 +2824,7 @@ git commit -m "feat(web): replace useEventStream with useToolStream in Conversat
 - `tool:result` → reload
 
 Replace with:
+
 - `watch_conversation` (message:sent, message:delivered)
 - `watch_activity` with `conversationId` filter (iteration, approval:requested, approval:resolved, tool:result)
 
@@ -2767,6 +2842,7 @@ import { watch as vueWatch } from 'vue';
 - [ ] **Step 2: Replace the event subscriptions block in `useConversation`**
 
 Find the block that starts with:
+
 ```ts
 if (conversationId) {
   on(
@@ -2775,46 +2851,39 @@ if (conversationId) {
 ```
 
 Replace entirely with:
+
 ```ts
 if (conversationId) {
   const ws = useWebSocket();
 
-  const msgStream = useToolStream(
-    'watch_conversation',
-    () => ({ conversationId }),
-    {
-      onChunk: (chunk) => {
-        if (chunk.type === 'message:sent') {
-          void load();
-        } else if (chunk.type === 'message:delivered') {
-          isThinkingLocal.value = false;
-          iterationFired.value = false;
-          void load();
-        }
-      },
+  const msgStream = useToolStream('watch_conversation', () => ({ conversationId }), {
+    onChunk: (chunk) => {
+      if (chunk.type === 'message:sent') {
+        void load();
+      } else if (chunk.type === 'message:delivered') {
+        isThinkingLocal.value = false;
+        iterationFired.value = false;
+        void load();
+      }
     },
-  );
+  });
 
-  const activityStream = useToolStream(
-    'watch_activity',
-    () => ({ conversationId }),
-    {
-      onChunk: (chunk) => {
-        if (chunk.type === 'iteration') {
-          iterationFired.value = true;
-        } else if (chunk.type === 'approval:requested') {
-          isThinkingLocal.value = false;
-          iterationFired.value = false;
-          void load();
-        } else if (chunk.type === 'approval:resolved') {
-          iterationFired.value = true;
-          void load();
-        } else if (chunk.type === 'tool:result') {
-          void load();
-        }
-      },
+  const activityStream = useToolStream('watch_activity', () => ({ conversationId }), {
+    onChunk: (chunk) => {
+      if (chunk.type === 'iteration') {
+        iterationFired.value = true;
+      } else if (chunk.type === 'approval:requested') {
+        isThinkingLocal.value = false;
+        iterationFired.value = false;
+        void load();
+      } else if (chunk.type === 'approval:resolved') {
+        iterationFired.value = true;
+        void load();
+      } else if (chunk.type === 'tool:result') {
+        void load();
+      }
     },
-  );
+  });
 
   vueWatch(
     () => ws.getConnectionId(),
@@ -2865,6 +2934,7 @@ vi.mock('./useWebSocket.js', () => ({
 ```
 
 Also update any assertions in the test that referenced `useEventStream`:
+
 - Find `expect(useEventStream().on).not.toHaveBeenCalled()` and update to verify `useToolStream` was or wasn't called as appropriate.
 
 - [ ] **Step 4: Delete the old files**
