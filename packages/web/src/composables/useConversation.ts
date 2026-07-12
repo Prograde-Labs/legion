@@ -186,6 +186,17 @@ export function useConversation(conversationId: string | null) {
     },
   );
 
+  watch(
+    () => communicateStream.error.value,
+    (streamError) => {
+      if (!streamError) return;
+      isThinkingLocal.value = false;
+      iterationFired.value = false;
+      streamingText.value = '';
+      streamingReasoning.value = '';
+    },
+  );
+
   if (conversationId) {
     const ws = useWebSocket();
 

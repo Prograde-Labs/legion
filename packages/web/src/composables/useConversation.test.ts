@@ -5,6 +5,7 @@ import type { StreamChunk } from '@legion/types';
 let communicateOnChunk: ((chunk: StreamChunk) => void) | undefined;
 let conversationOnChunk: ((chunk: StreamChunk) => void) | undefined;
 const streamDone = ref(false);
+const streamError = ref<string | null>(null);
 const streamResult = ref<unknown>(null);
 
 vi.mock('./useToolStream.js', () => ({
@@ -17,7 +18,7 @@ vi.mock('./useToolStream.js', () => ({
         cancel: vi.fn().mockResolvedValue(undefined),
         chunks: ref([]),
         done: streamDone,
-        error: ref(null),
+        error: streamError,
         conversationId: ref(null),
         result: streamResult,
       };
@@ -79,6 +80,7 @@ beforeEach(() => {
   communicateOnChunk = undefined;
   conversationOnChunk = undefined;
   streamDone.value = false;
+  streamError.value = null;
   streamResult.value = null;
 });
 
@@ -186,6 +188,22 @@ describe('useConversation', () => {
 
     expect(streamingReasoning.value).toBe('');
     expect(streamingText.value).toBe('');
+  });
+
+  it('clears temporary reasoning and text and stops thinking when stream errors', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { send, streamingText, streamingReasoning, isThinking, error } = useConversation('c1');
+    await send('agent-1', 'question', 'operator');
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'partial thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'partial answer' });
+
+    streamError.value = 'stream failed';
+    await nextTick();
+
+    expect(streamingReasoning.value).toBe('');
+    expect(streamingText.value).toBe('');
+    expect(isThinking.value).toBe(false);
+    expect(error.value).toBeNull();
   });
 
   it('clears temporary reasoning and text when beginning a new send', async () => {
