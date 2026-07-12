@@ -27,7 +27,7 @@ function requireCollective(context: ToolContext): NonNullable<ToolContext['colle
 }
 
 function sanitizeModelConfig(model: ModelConfig): ModelConfig {
-  const sanitized: ModelConfig = { provider: model.provider, model: model.model };
+  const sanitized: ModelConfig = { model: model.model };
   if (model.temperature !== undefined) sanitized.temperature = model.temperature;
   if (model.maxTokens !== undefined) sanitized.maxTokens = model.maxTokens;
   return sanitized;
@@ -42,11 +42,7 @@ export const createAgentTool: Tool = {
       id: { type: 'string' },
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
-      model: {
-        type: 'object',
-        properties: { provider: { type: 'string' }, model: { type: 'string' } },
-        required: ['provider', 'model'],
-      },
+      model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       tools: {
         type: 'object',
         description:
@@ -612,11 +608,7 @@ export const modifyAgentTool: Tool = {
     properties: {
       id: { type: 'string', description: 'Participant ID' },
       name: { type: 'string' },
-      model: {
-        type: 'object',
-        properties: { provider: { type: 'string' }, model: { type: 'string' } },
-        required: ['provider', 'model'],
-      },
+      model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
       tools: {
@@ -647,7 +639,6 @@ export const modifyAgentTool: Tool = {
       const updatedModel: ModelConfig =
         typeof model === 'string'
           ? sanitizeModelConfig({
-              provider: agent.model.provider,
               model,
               temperature: agent.model.temperature,
               maxTokens: agent.model.maxTokens,

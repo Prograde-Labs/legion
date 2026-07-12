@@ -1,7 +1,6 @@
 import type { MiddlewareModuleConfig } from './middleware.js';
 
 export interface ModelConfig {
-  provider: string;
   model: string;
   temperature?: number;
   maxTokens?: number;

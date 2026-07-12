@@ -102,20 +102,6 @@ async function invokeManagementTool(name: string, args: unknown, deps: TestDeps)
 }
 
 describe('management tools', () => {
-  it('requires provider in agent model schemas', () => {
-    const expectedModelSchema = {
-      type: 'object',
-      properties: {
-        provider: { type: 'string' },
-        model: { type: 'string' },
-      },
-      required: ['provider', 'model'],
-    };
-
-    expect(createAgentTool.parameters.properties?.model).toEqual(expectedModelSchema);
-    expect(modifyAgentTool.parameters.properties?.model).toEqual(expectedModelSchema);
-  });
-
   it('registers conversation editing tools', () => {
     const names = managementTools.map((tool) => tool.name);
     const conversationEditingTools = [
@@ -139,7 +125,7 @@ describe('management tools', () => {
         id: 'agent-x',
         name: 'X',
         systemPrompt: 'be helpful',
-        model: { provider: 'openai-compatible', model: 'gpt-4o-mini' },
+        model: { model: 'gpt-4o-mini' },
         tools: { communicate: 'auto' },
       },
       context,
@@ -162,7 +148,7 @@ describe('management tools', () => {
         id: 'agent-x',
         name: 'X',
         systemPrompt: 's',
-        model: { provider: 'openai-compatible', model: 'm' },
+        model: { model: 'm' },
         tools: {},
       },
       context,
@@ -179,7 +165,7 @@ describe('management tools', () => {
         id: 'agent-x',
         name: 'X',
         systemPrompt: 's',
-        model: { provider: 'openai-compatible', model: 'm' },
+        model: { model: 'm' },
         tools: {},
       },
       context,
@@ -601,7 +587,7 @@ describe('management tools', () => {
         id: 'agent-x',
         name: 'X',
         systemPrompt: 's',
-        model: { provider: 'openai-compatible', model: 'm' },
+        model: { model: 'm' },
         tools: {},
       },
       context,
@@ -671,7 +657,7 @@ describe('management tools', () => {
       id: 'operator',
       name: 'dup',
       systemPrompt: 's',
-      model: { provider: 'openai-compatible', model: 'm' },
+      model: { model: 'm' },
       tools: {},
     };
     const result = await createAgentTool.execute(args, context);
@@ -707,7 +693,7 @@ describe('management tools', () => {
         id: 'test-agent',
         name: 'Test Agent',
         systemPrompt: 'You are a test agent.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         tools: { communicate: 'auto' },
       },
       context,
@@ -719,10 +705,7 @@ describe('management tools', () => {
     expect(data.id).toBe('test-agent');
     expect(data.name).toBe('Test Agent');
     expect(data.type).toBe('agent');
-    expect((data as any).model).toEqual({
-      provider: 'openai-compatible',
-      model: 'gpt-4o',
-    });
+    expect((data as any).model).toEqual({ model: 'gpt-4o' });
     expect((data as any).systemPrompt).toBe('You are a test agent.');
   });
 
@@ -738,7 +721,7 @@ describe('management tools', () => {
       {
         id: 'bot-1',
         name: 'bot-1',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         systemPrompt: '',
         tools: {},
       },
@@ -747,7 +730,7 @@ describe('management tools', () => {
     // Collective record should exist with full config
     const p = collective.get('bot-1') as any;
     expect(p).toBeDefined();
-    expect(p.model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
+    expect(p.model).toEqual({ model: 'gpt-4o' });
     // No agents/ file should be written
     const agentsFiles = await storage.list('agents/');
     expect(agentsFiles).toHaveLength(0);
@@ -760,7 +743,7 @@ describe('management tools', () => {
         id: 'src-agent',
         name: 'Source Agent',
         systemPrompt: 'You are helpful.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         tools: { communicate: 'auto' },
       },
       context,
@@ -771,14 +754,14 @@ describe('management tools', () => {
     const p = collective.get('src-agent');
     expect(p).toBeDefined();
     expect(p!.name).toBe('Source Agent');
-    expect((p as any).model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o' });
+    expect((p as any).model).toEqual({ model: 'gpt-4o' });
 
     // No agents/ file should be written
     const agentsFile = await storage.readJson('agents/src-agent.json').catch(() => null);
     expect(agentsFile).toBeNull();
   });
 
-  it('create_agent preserves provider and ignores unknown model fields', async () => {
+  it('create_agent ignores stale extra model fields', async () => {
     const { context, collective } = await makeContext();
     const result = await createAgentTool.execute(
       {
@@ -798,7 +781,6 @@ describe('management tools', () => {
 
     expect(result.status).toBe('success');
     expect((collective.get('clean-model-agent') as any).model).toEqual({
-      provider: 'openai',
       model: 'gpt-4o',
       temperature: 0.2,
       maxTokens: 100,
@@ -814,7 +796,7 @@ describe('modify_agent', () => {
       {
         id: 'bot-1',
         name: 'bot-1',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         systemPrompt: '',
         tools: {},
       },
@@ -825,13 +807,13 @@ describe('modify_agent', () => {
       'modify_agent',
       {
         id,
-        model: { provider: 'openai-compatible', model: 'gpt-4o-mini' },
+        model: { model: 'gpt-4o-mini' },
         systemPrompt: 'Be concise.',
       },
       deps,
     );
     const p = deps.collective.get(id) as any;
-    expect(p.model).toEqual({ provider: 'openai-compatible', model: 'gpt-4o-mini' });
+    expect(p.model).toEqual({ model: 'gpt-4o-mini' });
     expect(p.systemPrompt).toBe('Be concise.');
   });
 
@@ -842,7 +824,7 @@ describe('modify_agent', () => {
         id: 'mod-agent',
         name: 'Before',
         systemPrompt: 'Original prompt.',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         tools: { communicate: 'auto', list_participants: 'auto' },
       },
       context,
@@ -851,7 +833,7 @@ describe('modify_agent', () => {
       {
         id: 'mod-agent',
         name: 'After',
-        model: { provider: 'anthropic', model: 'claude-3' },
+        model: { model: 'claude-3' },
         systemPrompt: 'Updated prompt.',
         maxIterations: 10,
         tools: { communicate: 'requires_approval' },
@@ -862,7 +844,7 @@ describe('modify_agent', () => {
 
     const p = collective.get('mod-agent') as any;
     expect(p.name).toBe('After');
-    expect(p.model).toEqual({ provider: 'anthropic', model: 'claude-3' });
+    expect(p.model).toEqual({ model: 'claude-3' });
     expect(p.systemPrompt).toBe('Updated prompt.');
     expect(p.maxIterations).toBe(10);
     expect(p.tools['communicate']).toBe('requires_approval');
@@ -876,7 +858,7 @@ describe('modify_agent', () => {
       {
         id: 'bot-2',
         name: 'bot-1',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         systemPrompt: '',
         tools: {},
       },
@@ -897,7 +879,7 @@ describe('modify_agent', () => {
     expect((result as { status: string }).status).toBe('error');
   });
 
-  it('modify_agent string shorthand preserves provider and removes unknown model fields', async () => {
+  it('modify_agent string shorthand removes stale extra model fields', async () => {
     const deps = await buildTestDeps({});
     await deps.collective.add({
       id: 'stale-model-agent',
@@ -924,7 +906,6 @@ describe('modify_agent', () => {
 
     expect((result as { status: string }).status).toBe('success');
     expect((deps.collective.get('stale-model-agent') as any).model).toEqual({
-      provider: 'old-provider',
       model: 'new-model',
       temperature: 0.4,
       maxTokens: 200,
@@ -941,7 +922,7 @@ describe('remove_tool_policy', () => {
         id: 'policy-bot',
         name: 'Policy Bot',
         systemPrompt: 'test',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         tools: { communicate: 'auto', list_participants: 'requires_approval' },
       },
       deps,
@@ -965,7 +946,7 @@ describe('remove_tool_policy', () => {
         id: 'policy-bot-2',
         name: 'Policy Bot 2',
         systemPrompt: 'test',
-        model: { provider: 'openai-compatible', model: 'gpt-4o' },
+        model: { model: 'gpt-4o' },
         tools: {},
       },
       deps,

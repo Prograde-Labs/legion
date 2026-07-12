@@ -14,7 +14,6 @@ import type {
   MessageDraft,
   MessageDraftContext,
   MessageDraftResult,
-  ModelConfig,
   MiddlewareDefinition,
   MiddlewareHookContext,
   MiddlewareInstanceConfig,
@@ -40,7 +39,6 @@ type MetadataTagsAreRequired = Expect<Equal<IsOptional<ConversationEventMetadata
 type HookParticipantIsParticipantConfig = Expect<
   Equal<MiddlewareHookContext<unknown>['participant'], ParticipantConfig>
 >;
-type ModelProviderIsRequired = Expect<Equal<IsOptional<ModelConfig, 'provider'>, false>>;
 type AgentMaxIterationsIsRequired = Expect<Equal<IsOptional<AgentConfig, 'maxIterations'>, false>>;
 type MessageDraftResultIsExact = Expect<
   Equal<MessageDraftResult, ContinueMessage | Reject | RequestTool>
@@ -172,7 +170,6 @@ void [
 void (null as unknown as MetadataStatusIsRequired);
 void (null as unknown as MetadataTagsAreRequired);
 void (null as unknown as HookParticipantIsParticipantConfig);
-void (null as unknown as ModelProviderIsRequired);
 void (null as unknown as AgentMaxIterationsIsRequired);
 void (null as unknown as MessageDraftResultIsExact);
 void (null as unknown as AfterReceiveResultIsExact);
