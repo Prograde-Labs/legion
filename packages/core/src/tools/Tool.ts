@@ -4,6 +4,7 @@ import type {
   ParticipantConfig,
   WorkspaceConfig,
   StreamChunk,
+  LLMChunk,
 } from '@legion/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
@@ -51,6 +52,15 @@ export interface MessageRouterPort {
     participantId: string,
     context: ToolContext,
   ): Promise<MessageRouterResult>;
+
+  sendStream(opts: {
+    senderId: string;
+    recipientId: string;
+    message: string;
+    conversationId?: string;
+    replyTo?: string;
+    context: ToolContext;
+  }): AsyncGenerator<LLMChunk, MessageRouterResult>;
 }
 
 /**

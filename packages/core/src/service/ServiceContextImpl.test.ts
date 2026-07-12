@@ -53,6 +53,9 @@ async function setup() {
   const mockRouter: MessageRouterPort = {
     send: vi.fn().mockResolvedValue(routerResult),
     resume: vi.fn(),
+    sendStream: async function* () {
+      return { conversationId: 'mock', status: 'success' as const };
+    },
   };
 
   const deps: ServiceContextDeps = {

@@ -11,6 +11,7 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
+import type { LLMChunk } from '@legion/types';
 import type { ToolContext } from '../tools/Tool.js';
 
 async function setup(dir: string) {
@@ -757,5 +758,56 @@ describe('MessageRouter: per-conversation locking', () => {
       ),
     );
     expect(new Set(results.map((r) => r.conversationId)).size).toBe(4);
+  });
+});
+
+describe('MessageRouter.sendStream()', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-stream-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns a generator that yields nothing and returns MessageRouterResult for mock runtime', async () => {
+    const { router, baseContext } = await setup(dir);
+    const gen = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    const chunks: LLMChunk[] = [];
+    let next = await gen.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await gen.next();
+    }
+    const result = next.value;
+    expect(result.status).toBe('success');
+    expect(result.response).toBe('hello back');
+    expect(chunks).toHaveLength(0);
+  });
+
+  it('persists response message with correct sender/recipient direction', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const gen = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    let next = await gen.next();
+    while (!next.done) next = await gen.next();
+
+    const conv = await store.load(next.value.conversationId);
+    const messages = Object.values(conv!.messages);
+    const responseMsg = messages.find((m) => m.role === 'assistant');
+    expect(responseMsg).toBeDefined();
+    expect(responseMsg!.senderId).toBe('mock-1');
+    expect(responseMsg!.recipientId).toBe('op');
   });
 });

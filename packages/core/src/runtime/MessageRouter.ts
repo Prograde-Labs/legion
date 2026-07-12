@@ -6,7 +6,7 @@ import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../too
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage, LLMChunk } from '@legion/types';
 
 export interface SendOptions {
   senderId: string;
@@ -128,6 +128,118 @@ export class MessageRouter implements MessageRouterPort {
       return this.withLock(opts.conversationId, () => this.sendInner(opts));
     }
     return this.sendInner(opts);
+  }
+
+  async *sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+    return yield* this.sendStreamInner(opts);
+  }
+
+  private async *sendStreamInner(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+    const recipient = this.collective.get(opts.recipientId);
+    if (!recipient) {
+      return {
+        conversationId: opts.conversationId ?? '',
+        status: 'error',
+        error: new ParticipantNotFoundError(opts.recipientId).message,
+      };
+    }
+
+    const depth = opts.context.communicationDepth ?? 0;
+    if (depth > DEFAULT_DEPTH_LIMIT) {
+      return {
+        conversationId: opts.conversationId ?? '',
+        status: 'error',
+        error: `Communication depth limit exceeded (${DEFAULT_DEPTH_LIMIT})`,
+      };
+    }
+
+    const parentConvId = opts.context.conversationId;
+    const parentLink =
+      !opts.conversationId && parentConvId && parentConvId !== ''
+        ? {
+            parentConversationId: parentConvId,
+            parentToolCallId: opts.context.toolCallId as string | undefined,
+          }
+        : undefined;
+    const thread = await this.getThread(opts.conversationId, parentLink);
+
+    const inbound = await thread.append({
+      senderId: opts.senderId,
+      recipientId: opts.recipientId,
+      role: 'user',
+      content: opts.message,
+      replyTo: opts.replyTo,
+    });
+    this.eventBus.emit('message:sent', {
+      conversationId: thread.id,
+      senderId: opts.senderId,
+      recipientId: opts.recipientId,
+      messageId: inbound.id,
+    });
+
+    const runtime = this.registry.build(recipient.type, recipient.id);
+    const runtimeContext = this.buildRuntimeContext(
+      thread,
+      recipient.id,
+      { ...opts.context, communicationDepth: depth },
+      depth,
+    );
+
+    if (opts.replyTo) {
+      const task = this.dispatchAsync(runtime, inbound, runtimeContext, thread, opts);
+      this.background.add(task);
+      void task.finally(() => this.background.delete(task));
+      return { conversationId: thread.id, status: 'dispatched' };
+    }
+
+    try {
+      if (runtime.handleStream) {
+        const result = yield* runtime.handleStream(inbound, runtimeContext);
+        return yield* this.handleRuntimeResultGenerator(
+          result,
+          thread,
+          recipient.id,
+          opts.senderId,
+        );
+      } else {
+        const result = await runtime.handle(inbound, runtimeContext);
+        return yield* this.handleRuntimeResultGenerator(
+          result,
+          thread,
+          recipient.id,
+          opts.senderId,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { conversationId: thread.id, status: 'error', error: msg };
+    }
+  }
+
+  private async *handleRuntimeResultGenerator(
+    result: RuntimeResult,
+    thread: ConversationThread,
+    senderId: string,
+    defaultRecipientId: string,
+  ): AsyncGenerator<LLMChunk, MessageRouterResult> {
+    if (result.kind === 'response') {
+      await this.persistResponse(
+        thread,
+        senderId,
+        defaultRecipientId,
+        result.content,
+        result.usage,
+      );
+      return { conversationId: thread.id, response: result.content, status: 'success' };
+    }
+    if (result.kind === 'pending_approval') {
+      return {
+        conversationId: thread.id,
+        status: 'pending_approval',
+        approvalRequests: result.approvalRequests,
+      };
+    }
+    return { conversationId: thread.id, status: 'success' };
   }
 
   private async sendInner(opts: SendOptions): Promise<MessageRouterResult> {
