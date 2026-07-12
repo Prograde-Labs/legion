@@ -50,6 +50,12 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
     // Cancel any in-flight stream before starting a new one
     if (activeStreamId) await cancel();
 
+    done.value = false;
+    error.value = null;
+    chunks.value = [];
+    conversationId.value = null;
+    result.value = null;
+
     const cid = ws.getConnectionId();
     if (!cid) {
       error.value = 'Not connected — connectionId unavailable';
@@ -61,10 +67,6 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
       error.value = 'Not authenticated';
       return;
     }
-
-    done.value = false;
-    error.value = null;
-    chunks.value = [];
 
     let res: Response;
     try {
