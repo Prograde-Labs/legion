@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
 import { FileConversationStore } from './FileConversationStore.js';
-import { ConversationThread } from './ConversationThread.js';
+import { ConversationThread, type AppendGuard } from './ConversationThread.js';
 
 describe('ConversationThread', () => {
   let dir: string;
@@ -45,9 +45,33 @@ describe('ConversationThread', () => {
     expect(thread.latest?.id).toBe(msg.id);
   });
 
-  it('preserves concurrent appends', async () => {
+  it('preserves concurrent appends inside the append guard', async () => {
     const data = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
-    const thread = new ConversationThread(data, store);
+    const events: string[] = [];
+    const originalMutate = store.mutate.bind(store);
+    vi.spyOn(store, 'mutate').mockImplementation(async (conversationId, callback, guard) => {
+      events.push('mutate:start');
+      const result = await originalMutate(conversationId, callback, guard);
+      events.push('mutate:end');
+      return result;
+    });
+    let tail = Promise.resolve();
+    const appendGuard: AppendGuard = async (_thread, append) => {
+      const previous = tail;
+      let release!: () => void;
+      tail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      events.push('guard:start');
+      try {
+        return await append();
+      } finally {
+        events.push('guard:end');
+        release();
+      }
+    };
+    const thread = new ConversationThread(data, store, appendGuard);
 
     await Promise.all([
       thread.append({ senderId: 'u', recipientId: 'a', role: 'user', content: 'first' }),
@@ -55,6 +79,16 @@ describe('ConversationThread', () => {
     ]);
 
     expect(Object.values((await store.load(data.id))?.messages ?? {})).toHaveLength(2);
+    expect(events).toEqual([
+      'guard:start',
+      'mutate:start',
+      'mutate:end',
+      'guard:end',
+      'guard:start',
+      'mutate:start',
+      'mutate:end',
+      'guard:end',
+    ]);
   });
 
   it('updates only the addressed middleware state namespace and persists it', async () => {

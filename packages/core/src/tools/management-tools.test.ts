@@ -565,6 +565,72 @@ describe('management tools', () => {
     });
   });
 
+  it('compact_conversation identifies its summary after a concurrent same-head addition', async () => {
+    const { context, conversationStore } = await makeContext();
+    let conv = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    conv = appendMessage(conv, {
+      id: 'm1',
+      senderId: 'operator',
+      recipientId: 'agent-x',
+      role: 'user',
+      content: 'hello',
+    });
+    conv = appendMessage(conv, {
+      id: 'm2',
+      senderId: 'agent-x',
+      recipientId: 'operator',
+      role: 'assistant',
+      content: 'hi',
+    });
+    await conversationStore.replaceForTesting(conv);
+    const send = vi.fn().mockImplementation(async () => {
+      await conversationStore.mutate(conv.id, (current) => ({
+        ...current,
+        messages: {
+          ...current.messages,
+          'concurrent-summary': {
+            id: 'concurrent-summary',
+            parentId: null,
+            conversationId: conv.id,
+            senderId: 'other',
+            recipientId: 'operator',
+            role: 'assistant',
+            content: 'concurrent summary',
+            type: 'summary',
+            status: 'active',
+            timestamp: new Date().toISOString(),
+          },
+        },
+      }));
+      return {
+        conversationId: 'conv-summary',
+        status: 'success',
+        response: 'owned summary',
+      };
+    });
+    const ctx = {
+      ...context,
+      messageRouter: { send, resume: vi.fn(), generate: vi.fn() },
+    } as unknown as ToolContext;
+
+    const result = await compactConversationTool.execute(
+      { conversationId: conv.id, messageIds: ['m1', 'm2'], agentId: 'agent-x' },
+      ctx,
+    );
+    const saved = await conversationStore.load(conv.id);
+    const ownedSummary = Object.values(saved!.messages).find(
+      (message) => message.type === 'summary' && message.content === 'owned summary',
+    );
+
+    expect(result.status).toBe('success');
+    expect((result.data as { summaryMessageId: string }).summaryMessageId).toBe(ownedSummary?.id);
+    expect(ownedSummary?.id).not.toBe('concurrent-summary');
+  });
+
   it('compact_conversation rejects invalid args', async () => {
     const { context } = await makeContext();
 

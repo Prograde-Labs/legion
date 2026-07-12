@@ -476,18 +476,21 @@ export const compactConversationTool: Tool = {
         return { status: 'error', error: 'Summary agent returned no response' };
       }
       const summaryContent = summary.response;
-      const beforeIds = new Set(Object.keys(conversation.messages));
-      const { after: updated } = await context.conversationStore.mutate(
+      const mutation = await context.conversationStore.mutate(
         conversationId,
         (current) => compactRange(current, messageIds, summaryContent),
         { expectedActiveBranchHead: observedHead },
       );
-      const summaryNode = Object.values(updated.messages).find(
+      const beforeIds = new Set(Object.keys(mutation.before.messages));
+      const summaryNode = Object.values(mutation.after.messages).find(
         (message) => message.type === 'summary' && !beforeIds.has(message.id),
       );
       return {
         status: 'success',
-        data: { summaryMessageId: summaryNode?.id, activeBranchHead: updated.activeBranchHead },
+        data: {
+          summaryMessageId: summaryNode?.id,
+          activeBranchHead: mutation.after.activeBranchHead,
+        },
       };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
