@@ -563,7 +563,8 @@ export const getConversationTool: Tool = {
       if (st.parentToolCallId) {
         subThreads[st.parentToolCallId] = {
           id: st.id,
-          title: st.title,
+          title: resolveConversationTitle(st, context.participant.id),
+          sharedTitle: st.title,
           messages: getActiveChain(st),
           parentConversationId: st.parentConversationId,
           parentToolCallId: st.parentToolCallId,
@@ -651,7 +652,19 @@ export const modifyConversationTool: Tool = {
       const result = await context.conversationStore.mutate(input.conversationId, (conversation) =>
         applyConversationMutation(conversation, mutation),
       );
-      return { status: 'success', data: result.after };
+      const conversation = result.after;
+      return {
+        status: 'success',
+        data: {
+          id: conversation.id,
+          title: resolveConversationTitle(conversation, context.participant.id),
+          sharedTitle: conversation.title,
+          titles: conversation.titles,
+          status: getConversationStatus(conversation),
+          tags: conversation.tags ?? [],
+          origin: conversation.origin,
+        },
+      };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }

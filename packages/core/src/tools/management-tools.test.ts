@@ -229,15 +229,69 @@ describe('management tools', () => {
     expect(result.status).toBe('success');
     const updated = result.data as {
       title?: string;
+      sharedTitle?: string;
       titles?: Record<string, string>;
       status?: string;
       tags?: string[];
     };
-    expect(updated.title).toBeUndefined();
+    expect(updated.title).toBe('Operator title');
+    expect(updated.sharedTitle).toBeUndefined();
     expect(updated.titles).toEqual({ operator: 'Operator title' });
     expect(updated.status).toBe('archived');
     expect(updated.tags).toEqual(['keep', 'added']);
-    expect(await conversationStore.load(conversation.id)).toEqual(updated);
+    expect(await conversationStore.load(conversation.id)).toEqual(
+      expect.objectContaining({
+        titles: { operator: 'Operator title' },
+        status: 'archived',
+        tags: ['keep', 'added'],
+      }),
+    );
+  });
+
+  it('modify_conversation returns metadata without messages or middleware state', async () => {
+    const { context, conversationStore } = await makeContext();
+    const conversation = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: 'secret-message',
+      title: 'Shared title',
+      titles: { operator: 'Operator title' },
+      tags: ['private'],
+      origin: { kind: 'participant', participantId: 'operator' },
+      middlewareState: { operator: { secrets: { token: 'hidden' } } },
+      messages: {
+        'secret-message': {
+          id: 'secret-message',
+          parentId: null,
+          conversationId: '',
+          senderId: 'operator',
+          recipientId: 'agent-x',
+          role: 'user',
+          content: 'secret content',
+          status: 'active',
+          timestamp: new Date().toISOString(),
+        },
+      },
+    });
+
+    const result = await modifyConversationTool.execute(
+      { conversationId: conversation.id, status: 'archived' },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'success',
+      data: {
+        id: conversation.id,
+        title: 'Operator title',
+        sharedTitle: 'Shared title',
+        titles: { operator: 'Operator title' },
+        status: 'archived',
+        tags: ['private'],
+        origin: { kind: 'participant', participantId: 'operator' },
+      },
+    });
+    expect(result.data).not.toHaveProperty('messages');
+    expect(result.data).not.toHaveProperty('middlewareState');
   });
 
   it('modify_conversation first-write-wins is atomic for concurrent shared titles', async () => {
@@ -1329,6 +1383,31 @@ describe('list_conversations', () => {
     expect(data.subThreads['tc-delegate']).toBeDefined();
     expect(data.subThreads['tc-delegate'].id).toBe(child.id);
     expect(data.subThreads['tc-delegate'].messages).toHaveLength(1);
+  });
+
+  it('get_conversation resolves sub-thread titles for the caller', async () => {
+    const { context, conversationStore } = await makeContext();
+    const parent = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'Shared child title',
+      titles: { operator: 'Operator child title' },
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-titled',
+    });
+
+    const result = await getConversationTool.execute({ conversationId: parent.id }, context);
+
+    expect(result.status).toBe('success');
+    const subThreads = (result.data as { subThreads: Record<string, { title?: string }> })
+      .subThreads;
+    expect(subThreads['tc-titled'].title).toBe('Operator child title');
   });
 
   it('list_conversations excludes sub-threads', async () => {
