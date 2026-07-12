@@ -26,4 +26,14 @@ export type ProcessChunk =
   | { type: 'process:exited'; processId: string; exitCode: number | null }
   | { type: 'process:error'; processId: string; error: string };
 
-export type StreamChunk = LLMChunk | EventChunk | LifecycleChunk | ProcessChunk;
+export type ConversationWatchChunk = {
+  type: 'conversation:removed';
+  data: { conversationId: string; reason: 'filter_exit' };
+};
+
+export type StreamChunk =
+  | LLMChunk
+  | EventChunk
+  | LifecycleChunk
+  | ProcessChunk
+  | ConversationWatchChunk;
