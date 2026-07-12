@@ -1,4 +1,7 @@
+import type { MiddlewareModuleConfig } from './middleware.js';
+
 export interface ModelConfig {
+  provider?: string;
   model: string;
   temperature?: number;
   maxTokens?: number;
@@ -78,6 +81,7 @@ export interface WorkspaceConfig {
   connectors?: ConnectorConfig[];
   mcpServers?: MCPServerConfig[];
   logging?: LoggingConfig;
+  middlewareModules?: MiddlewareModuleConfig[];
 }
 
 /** Shape of .legion/config.local.json — gitignored, overrides WorkspaceConfig + adds routing. */

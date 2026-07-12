@@ -6,3 +6,4 @@ export * from './events.js';
 export * from './process.js';
 export * from './usage.js';
 export * from './streaming.js';
+export * from './middleware.js';

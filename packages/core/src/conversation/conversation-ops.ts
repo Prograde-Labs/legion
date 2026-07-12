@@ -1,4 +1,4 @@
-import type { ConversationData, MessageData } from '@legion/types';
+import type { ConversationData, MessageData, MessageDraft } from '@legion/types';
 import { createConversationId, createId, nowIso } from '../util/ids.js';
 import { ConversationNotFoundError } from '../errors/LegionError.js';
 
@@ -15,13 +15,8 @@ export function createConversation(title?: string): ConversationData {
   };
 }
 
-export type NewMessageInput = Pick<MessageData, 'senderId' | 'recipientId' | 'role' | 'content'> &
-  Partial<
-    Pick<
-      MessageData,
-      'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage' | 'reasoning'
-    >
-  >;
+export type NewMessageInput = MessageDraft &
+  Partial<Pick<MessageData, 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'>>;
 
 export function createMessage(
   conversationId: string,
