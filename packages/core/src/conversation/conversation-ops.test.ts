@@ -198,15 +198,14 @@ describe('conversation-ops: compaction', () => {
       role: 'user',
       content: 'next',
     });
-    const nextId = conv.activeBranchHead;
 
     const compacted = compactRange(conv, [sourceId], 'summary');
     const summary = Object.values(compacted.messages).find((message) => message.type === 'summary');
     expect(compacted.messages[sourceId].reasoning).toBe('source reasoning');
     expect(summary?.reasoning).toBeUndefined();
 
-    const pruned = pruneMessage(conv, nextId, 'operator');
-    expect(pruned.messages[nextId].reasoning).toBeUndefined();
+    const pruned = pruneMessage(conv, sourceId, 'operator');
+    expect(pruned.messages[sourceId].status).toBe('pruned');
     expect(pruned.messages[sourceId].reasoning).toBe('source reasoning');
   });
 });
