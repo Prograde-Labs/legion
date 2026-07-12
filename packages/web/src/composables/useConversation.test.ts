@@ -192,7 +192,7 @@ describe('useConversation', () => {
 
   it('clears temporary reasoning and text and stops thinking when stream errors', async () => {
     const { useConversation } = await import('./useConversation.js');
-    const { send, streamingText, streamingReasoning, isThinking, error } = useConversation('c1');
+    const { send, streamingText, streamingReasoning, isThinking, error } = useConversation(null);
     await send('agent-1', 'question', 'operator');
     communicateOnChunk?.({ type: 'reasoning_delta', delta: 'partial thought' });
     communicateOnChunk?.({ type: 'text_delta', delta: 'partial answer' });
@@ -202,8 +202,13 @@ describe('useConversation', () => {
 
     expect(streamingReasoning.value).toBe('');
     expect(streamingText.value).toBe('');
-    expect(isThinking.value).toBe(false);
+    expect.soft(isThinking.value).toBe(false);
+    expect.soft(error.value).toBe('stream failed');
+
+    await send('agent-1', 'retry', 'operator');
+
     expect(error.value).toBeNull();
+    expect(isThinking.value).toBe(true);
   });
 
   it('clears temporary reasoning and text when beginning a new send', async () => {

@@ -40,6 +40,7 @@ export function useConversation(conversationId: string | null) {
 
   const isThinking = computed(() => {
     if (isThinkingLocal.value || iterationFired.value) return true;
+    if (error.value) return false;
     // Indeterminate: last message is user with no assistant reply
     const last = messages.value.at(-1);
     return !!last && last.role === 'user' ? 'indeterminate' : false;
@@ -68,6 +69,7 @@ export function useConversation(conversationId: string | null) {
   }
 
   function markSent() {
+    error.value = null;
     isThinkingLocal.value = true;
   }
 
@@ -190,6 +192,7 @@ export function useConversation(conversationId: string | null) {
     () => communicateStream.error.value,
     (streamError) => {
       if (!streamError) return;
+      error.value = streamError;
       isThinkingLocal.value = false;
       iterationFired.value = false;
       streamingText.value = '';
