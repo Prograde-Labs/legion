@@ -31,6 +31,40 @@ test('rejects malformed mock chat requests without stopping the provider', async
   expect(modelsResponse.status()).toBe(200);
 });
 
+test('rejects invalid mock chat request shapes without stopping the provider', async ({
+  connInfo,
+  request,
+}) => {
+  const invalidRequests = [null, [], { messages: {} }, { messages: [{ content: 42 }] }];
+
+  for (const invalidRequest of invalidRequests) {
+    const response = await request.post(`${connInfo.mockProviderUrl}/v1/chat/completions`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: Buffer.from(JSON.stringify(invalidRequest)),
+    });
+    expect(response.status()).toBe(400);
+
+    const modelsResponse = await request.get(`${connInfo.mockProviderUrl}/v1/models`);
+    expect(modelsResponse.status()).toBe(200);
+  }
+
+  const responseWithExtraFields = await request.post(
+    `${connInfo.mockProviderUrl}/v1/chat/completions`,
+    {
+      headers: { 'Content-Type': 'application/json' },
+      data: Buffer.from(
+        JSON.stringify({
+          model: 'mock-model',
+          messages: [{ role: 'user', content: 'hello', name: 'operator' }],
+          stream: true,
+        }),
+      ),
+    },
+  );
+  expect(responseWithExtraFields.status()).toBe(200);
+  await expect(responseWithExtraFields.text()).resolves.toContain('mock response');
+});
+
 test.describe('Reasoning streams', () => {
   let agentName: string;
   let operatorToken: string;
@@ -72,9 +106,25 @@ test.describe('Reasoning streams', () => {
   });
 
   test.afterAll(async ({ connInfo, request }) => {
-    await executeBuffered(request, connInfo.serverUrl, operatorToken, 'delete_provider', {
-      name: 'reasoning-mock-provider',
-    });
+    const retireResult = await executeBuffered(
+      request,
+      connInfo.serverUrl,
+      operatorToken,
+      'retire_agent',
+      { id: agentName },
+    );
+    expect(retireResult.result.status).toBe('success');
+
+    const deleteResult = await executeBuffered(
+      request,
+      connInfo.serverUrl,
+      operatorToken,
+      'delete_provider',
+      {
+        name: 'reasoning-mock-provider',
+      },
+    );
+    expect(deleteResult.result.status).toBe('success');
   });
 
   test('streams and persists reasoning across two iterations', async ({ authPage }) => {
@@ -113,7 +163,11 @@ test.describe('Reasoning streams', () => {
     await expect(disclosures.nth(0)).toContainText('tool reasoning');
 
     await page.reload();
-    await expect(page.locator('details[data-reasoning]')).toHaveCount(2);
-    await expect(page.locator('details[data-reasoning]').nth(0)).not.toHaveAttribute('open');
+    const persistedDisclosures = page.locator('details[data-reasoning]');
+    await expect(persistedDisclosures).toHaveCount(2);
+    await expect(persistedDisclosures.nth(0)).not.toHaveAttribute('open');
+    await expect(persistedDisclosures.nth(1)).not.toHaveAttribute('open');
+    await expect(persistedDisclosures.nth(0)).toContainText('tool reasoning');
+    await expect(persistedDisclosures.nth(1)).toContainText('final reasoning');
   });
 });
