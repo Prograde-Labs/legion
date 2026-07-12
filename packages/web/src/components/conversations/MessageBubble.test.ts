@@ -113,6 +113,23 @@ describe('MessageBubble', () => {
     expect(wrapper.get('[data-answer]').text()).toContain('Hello agent');
   });
 
+  it('does not render an empty body for blank user content with reasoning', () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: { ...userMessage, content: '  ', reasoning: 'not assistant reasoning' },
+        isOwn: true,
+        senderName: 'You',
+      },
+    });
+    const body = wrapper
+      .findAll('[data-bubble] > div')
+      .find((element) => element.classes().includes('leading-relaxed'));
+
+    expect(wrapper.find('[data-reasoning]').exists()).toBe(false);
+    expect(wrapper.find('[data-answer]').exists()).toBe(false);
+    expect(body).toBeUndefined();
+  });
+
   it('emits edit with save mode from inline editor', async () => {
     const wrapper = mount(MessageBubble, {
       props: { message: userMessage, isOwn: true, senderName: 'You' },

@@ -216,7 +216,9 @@ function switchRelative(delta: number) {
       </div>
     </div>
     <div
-      v-else-if="message.content?.trim() || message.reasoning?.trim()"
+      v-else-if="
+        message.content?.trim() || (message.role === 'assistant' && message.reasoning?.trim())
+      "
       class="max-w-[72%] px-3 py-2 text-sm leading-relaxed break-words"
       :class="
         message.type === 'summary'
