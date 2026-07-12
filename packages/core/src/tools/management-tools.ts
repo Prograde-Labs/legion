@@ -4,6 +4,7 @@ import type {
   ToolResult,
   AgentConfig,
   ConversationData,
+  ConversationMutation,
   ModelConfig,
   MessageData,
 } from '@legion/types';
@@ -18,6 +19,11 @@ import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
+import {
+  applyConversationMutation,
+  getConversationStatus,
+  resolveConversationTitle,
+} from '../conversation/conversation-metadata.js';
 import { UsageQuery } from '../usage/UsageQuery.js';
 import type { GroupBy, UsageFilter } from '../usage/usage-types.js';
 
@@ -569,13 +575,86 @@ export const getConversationTool: Tool = {
       status: 'success',
       data: {
         id: conversation.id,
-        title: conversation.title,
+        title: resolveConversationTitle(conversation, context.participant.id),
+        sharedTitle: conversation.title,
+        titles: conversation.titles,
+        status: getConversationStatus(conversation),
+        tags: conversation.tags ?? [],
+        origin: conversation.origin,
+        middlewareState: conversation.middlewareState,
         messages: withAlternates(conversation.messages, chain),
         parentConversationId: conversation.parentConversationId,
         parentToolCallId: conversation.parentToolCallId,
         subThreads,
       },
     };
+  },
+};
+
+export const modifyConversationTool: Tool = {
+  name: 'modify_conversation',
+  description: 'Update conversation title, lifecycle status, or tags.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      title: { type: 'string' },
+      titleScope: { type: 'string', enum: ['shared', 'participant'] },
+      titleMode: { type: 'string', enum: ['replace', 'first_write_wins'] },
+      status: { type: 'string', enum: ['active', 'archived'] },
+      addTags: { type: 'array', items: { type: 'string' } },
+      removeTags: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['conversationId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input =
+      typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+    const titleScope = input.titleScope ?? 'shared';
+    const titleMode = input.titleMode ?? 'replace';
+    const stringArray = (value: unknown): value is string[] =>
+      Array.isArray(value) && value.every((item) => typeof item === 'string');
+    if (
+      typeof input.conversationId !== 'string' ||
+      (input.title !== undefined && typeof input.title !== 'string') ||
+      (titleScope !== 'shared' && titleScope !== 'participant') ||
+      (titleMode !== 'replace' && titleMode !== 'first_write_wins') ||
+      (input.status !== undefined && input.status !== 'active' && input.status !== 'archived') ||
+      (input.addTags !== undefined && !stringArray(input.addTags)) ||
+      (input.removeTags !== undefined && !stringArray(input.removeTags))
+    ) {
+      return {
+        status: 'error',
+        error:
+          'Invalid modify_conversation arguments: conversationId and title must be strings; titleScope, titleMode, status, addTags, and removeTags must use supported values',
+      };
+    }
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+
+    const mutation: ConversationMutation = {
+      titleMode,
+      status: input.status as ConversationMutation['status'],
+      addTags: input.addTags as string[] | undefined,
+      removeTags: input.removeTags as string[] | undefined,
+    };
+    if (typeof input.title === 'string') {
+      mutation.title = {
+        scope: titleScope,
+        participantId: titleScope === 'participant' ? context.participant.id : undefined,
+        value: input.title,
+      };
+    }
+
+    try {
+      const result = await context.conversationStore.mutate(input.conversationId, (conversation) =>
+        applyConversationMutation(conversation, mutation),
+      );
+      return { status: 'success', data: result.after };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
   },
 };
 
@@ -691,16 +770,39 @@ export const listConversationsTool: Tool = {
         type: 'string',
         description: 'ISO 8601 timestamp — only return conversations updated after this time.',
       },
+      status: { type: 'string', enum: ['active', 'archived', 'all'] },
+      tags: { type: 'array', items: { type: 'string' } },
     },
-  },
-  async execute(
-    args: { participantId?: string; since?: string },
-    context: ToolContext,
-  ): Promise<ToolResult> {
+  } as JSONSchema,
+  async execute(args, context: ToolContext): Promise<ToolResult> {
+    const input =
+      typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+    if (
+      (input.participantId !== undefined && typeof input.participantId !== 'string') ||
+      (input.since !== undefined && typeof input.since !== 'string') ||
+      (input.status !== undefined &&
+        input.status !== 'active' &&
+        input.status !== 'archived' &&
+        input.status !== 'all') ||
+      (input.tags !== undefined &&
+        (!Array.isArray(input.tags) || !input.tags.every((tag) => typeof tag === 'string')))
+    ) {
+      return {
+        status: 'error',
+        error:
+          'Invalid list_conversations arguments: participantId and since must be strings; status and tags must use supported values',
+      };
+    }
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
     try {
-      const conversations = await context.conversationStore!.list({
-        participantId: args.participantId,
-        since: args.since,
+      const conversations = await context.conversationStore.list({
+        participantId: input.participantId as string | undefined,
+        since: input.since as string | undefined,
+        status: input.status as 'active' | 'archived' | 'all' | undefined,
+        tags: input.tags as string[] | undefined,
+        viewerParticipantId: context.participant.id,
       });
       return { status: 'success', data: { conversations } };
     } catch (err) {
@@ -816,6 +918,7 @@ export const managementTools: Tool[] = [
   generateTool,
   switchBranchTool,
   getConversationTool,
+  modifyConversationTool,
   setCredentialTool,
   modifyAgentTool,
   listToolsTool,

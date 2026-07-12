@@ -12,6 +12,7 @@ const MANAGEMENT_TOOLS = [
   'list_tools',
   'list_conversations',
   'get_conversation',
+  'modify_conversation',
   'edit_message',
   'prune_message',
   'compact_conversation',
@@ -21,6 +22,7 @@ const MANAGEMENT_TOOLS = [
   'set_tool_policy',
   'remove_tool_policy',
   'set_credential',
+  'set_participant_middleware',
   'approval_response',
   // runtime / config tools (registered by WebConnector layer)
   'list_providers',

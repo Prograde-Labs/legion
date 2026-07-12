@@ -18,6 +18,7 @@ import {
   removeToolPolicyTool,
   setCredentialTool,
   modifyAgentTool,
+  modifyConversationTool,
   listConversationsTool,
   deleteConversationTool,
   queryUsageTool,
@@ -105,6 +106,7 @@ describe('management tools', () => {
   it('registers conversation editing tools', () => {
     const names = managementTools.map((tool) => tool.name);
     const conversationEditingTools = [
+      'modify_conversation',
       'edit_message',
       'prune_message',
       'compact_conversation',
@@ -200,6 +202,136 @@ describe('management tools', () => {
     const result = await getConversationTool.execute({ conversationId: conv.id }, context);
     expect(result.status).toBe('success');
     expect((result.data as { messages: unknown[] }).messages.length).toBe(1);
+  });
+
+  it('modify_conversation atomically updates caller title, status, and tags', async () => {
+    const { context, conversationStore } = await makeContext();
+    const conversation = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      tags: ['keep', 'remove'],
+    });
+
+    const result = await modifyConversationTool.execute(
+      {
+        conversationId: conversation.id,
+        title: 'Operator title',
+        titleScope: 'participant',
+        participantId: 'other',
+        status: 'archived',
+        addTags: ['added'],
+        removeTags: ['remove'],
+      },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    const updated = result.data as {
+      title?: string;
+      titles?: Record<string, string>;
+      status?: string;
+      tags?: string[];
+    };
+    expect(updated.title).toBeUndefined();
+    expect(updated.titles).toEqual({ operator: 'Operator title' });
+    expect(updated.status).toBe('archived');
+    expect(updated.tags).toEqual(['keep', 'added']);
+    expect(await conversationStore.load(conversation.id)).toEqual(updated);
+  });
+
+  it('modify_conversation first-write-wins is atomic for concurrent shared titles', async () => {
+    const { context, conversationStore } = await makeContext();
+    const conversation = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    await Promise.all(
+      ['Candidate A', 'Candidate B'].map((title) =>
+        modifyConversationTool.execute(
+          {
+            conversationId: conversation.id,
+            title,
+            titleScope: 'shared',
+            titleMode: 'first_write_wins',
+          },
+          context,
+        ),
+      ),
+    );
+
+    const stored = await conversationStore.load(conversation.id);
+    expect(['Candidate A', 'Candidate B']).toContain(stored?.title);
+    const winner = stored?.title;
+    await modifyConversationTool.execute(
+      {
+        conversationId: conversation.id,
+        title: 'Late candidate',
+        titleMode: 'first_write_wins',
+      },
+      context,
+    );
+    expect((await conversationStore.load(conversation.id))?.title).toBe(winner);
+  });
+
+  it('modify_conversation rejects invalid args and missing store', async () => {
+    const { context } = await makeContext();
+
+    const invalid = await modifyConversationTool.execute(
+      {
+        conversationId: 42,
+        title: null,
+        titleScope: 'caller',
+        titleMode: 'eventually',
+        status: 'deleted',
+        addTags: ['valid', 1],
+        removeTags: 'tag',
+      },
+      context,
+    );
+    expect(invalid.status).toBe('error');
+    expect(invalid.error).toContain('Invalid modify_conversation arguments');
+
+    const missingStore = await modifyConversationTool.execute({ conversationId: 'conv-1' }, {
+      ...context,
+      conversationStore: undefined,
+    } as unknown as ToolContext);
+    expect(missingStore).toEqual({
+      status: 'error',
+      error: 'conversationStore unavailable in context',
+    });
+  });
+
+  it('get_conversation returns caller-resolved and raw lifecycle metadata', async () => {
+    const { context, conversationStore } = await makeContext();
+    const conversation = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'Shared title',
+      titles: { operator: 'Operator title', other: 'Other title' },
+      status: 'archived',
+      tags: ['important'],
+      origin: { kind: 'participant', participantId: 'operator' },
+      middlewareState: { operator: { audit: { enabled: true } } },
+    });
+
+    const result = await getConversationTool.execute({ conversationId: conversation.id }, context);
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        title: 'Operator title',
+        sharedTitle: 'Shared title',
+        titles: { operator: 'Operator title', other: 'Other title' },
+        status: 'archived',
+        tags: ['important'],
+        origin: { kind: 'participant', participantId: 'operator' },
+        middlewareState: { operator: { audit: { enabled: true } } },
+      }),
+    );
   });
 
   it('get_conversation returns superseded siblings as alternates', async () => {
@@ -1046,6 +1178,25 @@ describe('list_conversations', () => {
     ).toEqual([]);
   });
 
+  it('rejects invalid filters and missing store', async () => {
+    const { context } = await makeContext();
+    const invalid = await listConversationsTool.execute(
+      { participantId: 1, since: false, status: 'deleted', tags: ['valid', 2] },
+      context,
+    );
+    expect(invalid.status).toBe('error');
+    expect(invalid.error).toContain('Invalid list_conversations arguments');
+
+    const missingStore = await listConversationsTool.execute({}, {
+      ...context,
+      conversationStore: undefined,
+    } as unknown as ToolContext);
+    expect(missingStore).toEqual({
+      status: 'error',
+      error: 'conversationStore unavailable in context',
+    });
+  });
+
   it('returns summaries for stored conversations', async () => {
     const storage = new MemoryStorage();
     const conversationStore = new FileConversationStore(storage);
@@ -1072,6 +1223,57 @@ describe('list_conversations', () => {
       (result as { status: string; data: { conversations: { id: string }[] } }).data
         .conversations[0]?.id,
     ).toBe(conv.id);
+  });
+
+  it('defaults active, supports every-tag and all-status filters, and resolves caller title', async () => {
+    const { context, conversationStore } = await makeContext();
+    const active = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'Shared active',
+      titles: { operator: 'My active' },
+      tags: ['one', 'two'],
+    });
+    const archived = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'Shared archived',
+      titles: { operator: 'My archived' },
+      status: 'archived',
+      tags: ['one', 'two'],
+    });
+    await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      tags: ['one'],
+    });
+
+    const defaultResult = await listConversationsTool.execute({}, context);
+    const defaultIds = (
+      defaultResult.data as { conversations: Array<{ id: string }> }
+    ).conversations.map(({ id }) => id);
+    expect(defaultIds).toContain(active.id);
+    expect(defaultIds).not.toContain(archived.id);
+
+    const filtered = await listConversationsTool.execute(
+      { status: 'all', tags: ['one', 'two'] },
+      context,
+    );
+    expect(filtered.status).toBe('success');
+    expect(
+      (filtered.data as { conversations: Array<{ id: string; title?: string }> }).conversations,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: active.id, title: 'My active' }),
+        expect.objectContaining({ id: archived.id, title: 'My archived' }),
+      ]),
+    );
+    expect((filtered.data as { conversations: Array<{ id: string }> }).conversations).toHaveLength(
+      2,
+    );
   });
 
   it('get_conversation includes subThreads keyed by parentToolCallId', async () => {
