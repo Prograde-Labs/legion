@@ -56,6 +56,63 @@ describe('MessageBubble', () => {
     expect(wrapper.text()).toContain('Atlas');
   });
 
+  it('renders assistant reasoning collapsed before answer content', () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: { ...agentMessage, reasoning: 'private analysis' },
+        isOwn: true,
+        senderName: 'You',
+      },
+    });
+
+    const reasoning = wrapper.get('[data-reasoning]');
+    const answer = wrapper.get('[data-answer]');
+    expect(reasoning.element.tagName).toBe('DETAILS');
+    expect(reasoning.attributes('open')).toBeUndefined();
+    expect(
+      reasoning.element.compareDocumentPosition(answer.element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('hides whitespace-only reasoning', () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: { ...agentMessage, reasoning: '  \n ' },
+        isOwn: false,
+        senderName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.find('[data-reasoning]').exists()).toBe(false);
+    expect(wrapper.get('[data-answer]').text()).toContain('Hello human');
+  });
+
+  it('renders assistant reasoning when answer content is empty', () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: { ...agentMessage, content: '', reasoning: 'reasoning only' },
+        isOwn: false,
+        senderName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.get('[data-reasoning]').text()).toContain('reasoning only');
+    expect(wrapper.find('[data-answer]').exists()).toBe(false);
+  });
+
+  it('does not render reasoning for user messages', () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: { ...userMessage, reasoning: 'not assistant reasoning' },
+        isOwn: true,
+        senderName: 'You',
+      },
+    });
+
+    expect(wrapper.find('[data-reasoning]').exists()).toBe(false);
+    expect(wrapper.get('[data-answer]').text()).toContain('Hello agent');
+  });
+
   it('emits edit with save mode from inline editor', async () => {
     const wrapper = mount(MessageBubble, {
       props: { message: userMessage, isOwn: true, senderName: 'You' },
