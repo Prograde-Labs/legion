@@ -42,7 +42,11 @@ export const createAgentTool: Tool = {
       id: { type: 'string' },
       name: { type: 'string' },
       systemPrompt: { type: 'string' },
-      model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
+      model: {
+        type: 'object',
+        properties: { provider: { type: 'string' }, model: { type: 'string' } },
+        required: ['provider', 'model'],
+      },
       tools: {
         type: 'object',
         description:
@@ -608,7 +612,11 @@ export const modifyAgentTool: Tool = {
     properties: {
       id: { type: 'string', description: 'Participant ID' },
       name: { type: 'string' },
-      model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
+      model: {
+        type: 'object',
+        properties: { provider: { type: 'string' }, model: { type: 'string' } },
+        required: ['provider', 'model'],
+      },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
       tools: {
