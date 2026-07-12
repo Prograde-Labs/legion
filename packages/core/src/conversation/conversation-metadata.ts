@@ -48,15 +48,33 @@ export function conversationMatchesFilter(
   if ((filter.status ?? 'active') !== 'all' && status !== (filter.status ?? 'active')) return false;
   if (!filter.includeSubThreads && conversation.parentConversationId) return false;
   if (filter.since) {
-    const since = Date.parse(filter.since);
-    const updatedAt = Date.parse(conversation.updatedAt);
-    if (Number.isNaN(since) || Number.isNaN(updatedAt) || updatedAt < since) return false;
+    const since = parseIsoTimestamp(filter.since);
+    const updatedAt = parseIsoTimestamp(conversation.updatedAt);
+    if (since === undefined || updatedAt === undefined || updatedAt < since) return false;
   }
   if (filter.tags?.some((tag) => !(conversation.tags ?? []).includes(tag))) return false;
   if (filter.participantId && !getParticipants(conversation).includes(filter.participantId)) {
     return false;
   }
   return true;
+}
+
+function parseIsoTimestamp(value: string): number | undefined {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(
+      value,
+    );
+  if (!match) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return undefined;
+
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
 function getParticipants(conversation: ConversationFilterInput): string[] {

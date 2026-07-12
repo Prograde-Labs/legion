@@ -136,12 +136,15 @@ describe('conversation metadata', () => {
 
   it('compares since timestamps by epoch and rejects invalid filters', () => {
     const input = conversation({ updatedAt: '2026-01-02T00:00:00.000Z' });
+    const laterInput = conversation({ updatedAt: '2026-12-31T00:00:00.000Z' });
 
     expect(conversationMatchesFilter(input, { since: '2026-01-02T00:00:00Z' })).toBe(true);
     expect(conversationMatchesFilter(input, { since: '2026-01-01T19:00:00.001-05:00' })).toBe(
       false,
     );
     expect(conversationMatchesFilter(input, { since: 'not-a-timestamp' })).toBe(false);
+    expect(conversationMatchesFilter(laterInput, { since: '2026-02-30T00:00:00Z' })).toBe(false);
+    expect(conversationMatchesFilter(laterInput, { since: '01/02/2026' })).toBe(false);
   });
 
   it('replaces only the addressed middleware state namespace', () => {
