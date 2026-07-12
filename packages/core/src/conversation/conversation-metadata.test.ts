@@ -68,6 +68,20 @@ describe('conversation metadata', () => {
     });
   });
 
+  it('isolates mutable metadata records from the source conversation', () => {
+    const input = conversation({
+      titles: { 'participant-1': 'Personal' },
+      origin: { kind: 'middleware', participantId: 'participant-1' },
+    });
+
+    const metadata = getConversationEventMetadata(input);
+    metadata.titles!['participant-1'] = 'Changed';
+    Object.assign(metadata.origin!, { participantId: 'participant-2' });
+
+    expect(input.titles).toEqual({ 'participant-1': 'Personal' });
+    expect(input.origin).toEqual({ kind: 'middleware', participantId: 'participant-1' });
+  });
+
   it('adds unique case-sensitive tags and applies removals atomically', () => {
     const input = conversation({ tags: ['A', 'a', 'remove'] });
 
@@ -120,6 +134,16 @@ describe('conversation metadata', () => {
     expect(conversationMatchesFilter(subthread, { includeSubThreads: true })).toBe(true);
   });
 
+  it('compares since timestamps by epoch and rejects invalid filters', () => {
+    const input = conversation({ updatedAt: '2026-01-02T00:00:00.000Z' });
+
+    expect(conversationMatchesFilter(input, { since: '2026-01-02T00:00:00Z' })).toBe(true);
+    expect(conversationMatchesFilter(input, { since: '2026-01-01T19:00:00.001-05:00' })).toBe(
+      false,
+    );
+    expect(conversationMatchesFilter(input, { since: 'not-a-timestamp' })).toBe(false);
+  });
+
   it('replaces only the addressed middleware state namespace', () => {
     const input = conversation({
       middlewareState: {
@@ -146,5 +170,22 @@ describe('conversation metadata', () => {
     expect(result.middlewareState?.['participant-2']).toBe(
       input.middlewareState?.['participant-2'],
     );
+  });
+
+  it('isolates stored middleware state from later source mutations', () => {
+    const value = { nested: { enabled: true } };
+    const result = applyConversationMutation(conversation(), {
+      middlewareState: {
+        participantId: 'participant-1',
+        instanceId: 'first',
+        value,
+      },
+    });
+
+    value.nested.enabled = false;
+
+    expect(result.middlewareState?.['participant-1']?.first).toEqual({
+      nested: { enabled: true },
+    });
   });
 });

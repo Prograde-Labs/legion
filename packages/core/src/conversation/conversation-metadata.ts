@@ -31,7 +31,7 @@ export function getConversationEventMetadata(
     titles: conversation.titles ? { ...conversation.titles } : undefined,
     status: getConversationStatus(conversation),
     tags: [...(conversation.tags ?? [])],
-    origin: conversation.origin,
+    origin: conversation.origin ? { ...conversation.origin } : undefined,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     participants: getParticipants(conversation),
@@ -47,7 +47,11 @@ export function conversationMatchesFilter(
   const status = conversation.status ?? 'active';
   if ((filter.status ?? 'active') !== 'all' && status !== (filter.status ?? 'active')) return false;
   if (!filter.includeSubThreads && conversation.parentConversationId) return false;
-  if (filter.since && conversation.updatedAt < filter.since) return false;
+  if (filter.since) {
+    const since = Date.parse(filter.since);
+    const updatedAt = Date.parse(conversation.updatedAt);
+    if (Number.isNaN(since) || Number.isNaN(updatedAt) || updatedAt < since) return false;
+  }
   if (filter.tags?.some((tag) => !(conversation.tags ?? []).includes(tag))) return false;
   if (filter.participantId && !getParticipants(conversation).includes(filter.participantId)) {
     return false;
@@ -102,7 +106,7 @@ export function applyConversationMutation(
       ...conversation.middlewareState,
       [participantId]: {
         ...conversation.middlewareState?.[participantId],
-        [instanceId]: value,
+        [instanceId]: structuredClone(value),
       },
     };
   }
