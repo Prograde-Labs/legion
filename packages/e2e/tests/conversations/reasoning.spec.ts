@@ -140,12 +140,12 @@ test.describe('Reasoning streams', () => {
 
     const streamingMessage = page.locator('[data-streaming-message]');
     const streamingReasoning = streamingMessage.locator('[data-streaming-reasoning]');
+    const streamingAnswer = streamingMessage.locator('[data-streaming-answer]');
     await expect(streamingReasoning).toContainText('tool reasoning');
+    await expect(streamingAnswer).toContainText('temporary preface');
     await expect(streamingReasoning).toContainText('final reasoning');
     await expect(streamingMessage).not.toContainText('temporary preface');
-    await expect(streamingMessage.locator('[data-streaming-answer]')).toContainText(
-      'final reasoning answer',
-    );
+    await expect(streamingAnswer).toContainText('final reasoning answer');
 
     await expect(streamingMessage).toHaveCount(0);
     await expect(
