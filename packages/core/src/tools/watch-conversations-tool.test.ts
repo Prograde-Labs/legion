@@ -27,14 +27,22 @@ describe('watch_conversations tool', () => {
 
     // Let generator body run and subscribe before emitting
     await Promise.resolve();
-    bus.emit('conversation:created', { conversationId: 'conv-1' });
+    const conversation = {
+      id: 'conv-1',
+      status: 'active' as const,
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      participants: [],
+    };
+    bus.emit('conversation:created', { conversation });
     controller.abort();
 
     await consumer;
 
     expect(chunks).toContainEqual({
       type: 'conversation:created',
-      data: { conversationId: 'conv-1' },
+      data: { conversation },
     });
   });
 

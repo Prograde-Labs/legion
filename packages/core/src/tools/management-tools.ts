@@ -250,11 +250,10 @@ export const editMessageTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation)
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      const updated = editMessage(conversation, messageId, newContent);
-      await context.conversationStore.save(updated);
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (conversation) => editMessage(conversation, messageId, newContent),
+      );
       return {
         status: 'success',
         data: {
@@ -348,11 +347,10 @@ export const switchBranchTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation)
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      const updated = switchConversationBranch(conversation, messageId);
-      await context.conversationStore.save(updated);
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (conversation) => switchConversationBranch(conversation, messageId),
+      );
       return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
@@ -381,11 +379,10 @@ export const pruneMessageTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation)
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      const updated = pruneMessage(conversation, messageId, context.participant.id);
-      await context.conversationStore.save(updated);
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (conversation) => pruneMessage(conversation, messageId, context.participant.id),
+      );
       return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
@@ -448,6 +445,7 @@ export const compactConversationTool: Tool = {
       if (!conversation) {
         return { status: 'error', error: `Conversation not found: ${conversationId}` };
       }
+      const observedHead = conversation.activeBranchHead;
       const targetMessages = messageIds.map((id) => {
         const message = conversation.messages[id];
         if (!message) throw new Error(`Message not found: ${id}`);
@@ -477,9 +475,13 @@ export const compactConversationTool: Tool = {
       if (!summary.response) {
         return { status: 'error', error: 'Summary agent returned no response' };
       }
+      const summaryContent = summary.response;
       const beforeIds = new Set(Object.keys(conversation.messages));
-      const updated = compactRange(conversation, messageIds, summary.response);
-      await context.conversationStore.save(updated);
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (current) => compactRange(current, messageIds, summaryContent),
+        { expectedActiveBranchHead: observedHead },
+      );
       const summaryNode = Object.values(updated.messages).find(
         (message) => message.type === 'summary' && !beforeIds.has(message.id),
       );

@@ -217,7 +217,7 @@ describe('management tools', () => {
       content: 'original',
     });
     conv = editMessage(conv, 'm1', 'edited');
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await getConversationTool.execute({ conversationId: conv.id }, context);
 
@@ -251,7 +251,7 @@ describe('management tools', () => {
       role: 'user',
       content: 'before',
     });
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await editMessageTool.execute(
       { conversationId: conv.id, messageId: 'm1', newContent: 'after' },
@@ -311,7 +311,7 @@ describe('management tools', () => {
       role: 'assistant',
       content: 'edited response',
     });
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await switchBranchTool.execute(
       { conversationId: conv.id, messageId: 'm1' },
@@ -356,7 +356,7 @@ describe('management tools', () => {
     });
     conv = compactRange(conv, ['m1', 'm2'], 'summary');
     const summary = Object.values(conv.messages).find((m) => m.type === 'summary');
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await switchBranchTool.execute(
       { conversationId: conv.id, messageId: 'm1' },
@@ -407,7 +407,7 @@ describe('management tools', () => {
       role: 'assistant',
       content: 'answer',
     });
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await pruneMessageTool.execute(
       { conversationId: conv.id, messageId: 'm2' },
@@ -450,7 +450,7 @@ describe('management tools', () => {
       role: 'user',
       content: 'follow-up',
     });
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     // Prune m2 (middle of chain) — m3 should also be pruned
     const result = await pruneMessageTool.execute(
@@ -526,7 +526,7 @@ describe('management tools', () => {
         'old-summary': { ...conv.messages['old-summary'], compacts: ['m1', 'm2'] },
       },
     };
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await compactConversationTool.execute(
       { conversationId: conv.id, messageIds: ['m1', 'm2'], agentId: 'agent-x' },
@@ -638,7 +638,7 @@ describe('management tools', () => {
       content: 'reply',
     });
     conv = compactRange(conv, ['m1', 'm2'], 'summary');
-    await conversationStore.save(conv);
+    await conversationStore.replaceForTesting(conv);
 
     const result = await getConversationTool.execute({ conversationId: conv.id }, context);
 

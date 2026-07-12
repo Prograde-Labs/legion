@@ -1,4 +1,4 @@
-import type { ConversationData, MessageData, ToolCallResult } from '@legion/types';
+import type { ConversationData, JSONValue, MessageData, ToolCallResult } from '@legion/types';
 import type { ConversationStore } from './ConversationStore.js';
 import { appendMessage, getActiveChain, type NewMessageInput } from './conversation-ops.js';
 
@@ -25,8 +25,10 @@ export class ConversationThread {
 
   async append(input: NewMessageInput): Promise<MessageData> {
     const doAppend = async () => {
-      this.data = appendMessage(this.data, input);
-      await this.store.save(this.data);
+      const result = await this.store.mutate(this.data.id, (conversation) =>
+        appendMessage(conversation, input),
+      );
+      this.data = result.after;
       return this.data.messages[this.data.activeBranchHead];
     };
     return this.appendGuard ? this.appendGuard(this, doAppend) : doAppend();
@@ -43,6 +45,24 @@ export class ConversationThread {
     if (msg) {
       this.data.messages[messageId] = { ...msg, toolResults };
     }
+  }
+
+  async updateMiddlewareState(
+    participantId: string,
+    instanceId: string,
+    value: JSONValue,
+  ): Promise<void> {
+    const result = await this.store.mutate(this.data.id, (conversation) => ({
+      ...conversation,
+      middlewareState: {
+        ...conversation.middlewareState,
+        [participantId]: {
+          ...conversation.middlewareState?.[participantId],
+          [instanceId]: structuredClone(value),
+        },
+      },
+    }));
+    this.data = result.after;
   }
 
   async reload(): Promise<void> {

@@ -46,8 +46,8 @@ describe('integration: end-to-end mock loop', () => {
     });
 
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
 
     const registry = new RuntimeRegistry();
     registry.registerFactory('mock', (id) => new MockRuntime(id));

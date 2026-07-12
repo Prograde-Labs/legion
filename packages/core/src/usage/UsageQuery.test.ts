@@ -58,18 +58,12 @@ async function makeConversation(
   return conv.id;
 }
 
-// Direct store API — loads fresh, applies pure appendMessage, saves. Avoids
-// ConversationThread's stale local cache which overwrites updateMessage patches
-// on the next append.
 async function appendMsg(
   store: FileConversationStore,
   convId: string,
   input: NewMessageInput,
 ): Promise<MessageData> {
-  const conv = await store.load(convId);
-  if (!conv) throw new Error(`conversation ${convId} not found`);
-  const updated = appendMessage(conv, input);
-  await store.save(updated);
+  const { after: updated } = await store.mutate(convId, (conv) => appendMessage(conv, input));
   return updated.messages[updated.activeBranchHead];
 }
 

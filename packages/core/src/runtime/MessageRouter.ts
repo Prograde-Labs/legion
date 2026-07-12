@@ -71,7 +71,6 @@ export class MessageRouter implements MessageRouterPort {
       parentConversationId: parent?.parentConversationId,
       parentToolCallId: parent?.parentToolCallId,
     });
-    this.eventBus.emit('conversation:created', { conversationId: created.id });
     return new ConversationThread(created, this.store);
   }
 

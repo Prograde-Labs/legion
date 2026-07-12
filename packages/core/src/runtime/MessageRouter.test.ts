@@ -32,8 +32,8 @@ async function setup(dir: string) {
     status: 'active',
   });
   const collective = await Collective.load(storage);
-  const store = new FileConversationStore(storage);
   const eventBus = new EventBus();
+  const store = new FileConversationStore(storage, eventBus);
   const registry = new RuntimeRegistry();
   registry.registerFactory('mock', (id) => new MockRuntime(id));
   const router = new MessageRouter(store, registry, collective, eventBus);
@@ -83,7 +83,9 @@ describe('MessageRouter: synchronous send', () => {
   });
 
   it('routes a message to a mock and returns its response', async () => {
-    const { router, baseContext, store } = await setup(dir);
+    const { router, baseContext, store, eventBus } = await setup(dir);
+    const created: string[] = [];
+    eventBus.on('conversation:created', ({ conversation }) => created.push(conversation.id));
     const result = await router.send({
       senderId: 'op',
       recipientId: 'mock-1',
@@ -93,6 +95,7 @@ describe('MessageRouter: synchronous send', () => {
     expect(result.status).toBe('success');
     expect(result.response).toBe('hello back');
     expect(result.conversationId).toMatch(/^conv-/);
+    expect(created).toEqual([result.conversationId]);
 
     const conv = await store.load(result.conversationId);
     const contents = Object.values(conv!.messages)
@@ -241,8 +244,8 @@ describe('MessageRouter: fire-and-forget', () => {
       status: 'active',
     });
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
     const registry = new RuntimeRegistry();
     registry.registerFactory('mock', () => ({
       async handle() {
@@ -302,8 +305,8 @@ describe('MessageRouter: fire-and-forget', () => {
       status: 'active',
     });
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
     const registry = new RuntimeRegistry();
 
     let calls = 0;
@@ -383,8 +386,8 @@ describe('MessageRouter: fire-and-forget', () => {
       status: 'active',
     });
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
     const registry = new RuntimeRegistry();
 
     let calls = 0;
@@ -476,8 +479,8 @@ describe('MessageRouter: fire-and-forget', () => {
       status: 'active',
     });
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
     const registry = new RuntimeRegistry();
 
     let calls = 0;
@@ -550,8 +553,8 @@ describe('MessageRouter: pending_approval result', () => {
       status: 'active',
     });
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
     const registry = new RuntimeRegistry();
 
     // A runtime that returns pending_approval
@@ -624,8 +627,8 @@ describe('MessageRouter: resume()', () => {
       status: 'active',
     });
     const collective = await Collective.load(storage);
-    const store = new FileConversationStore(storage);
     const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
     const registry = new RuntimeRegistry();
     registry.registerFactory('mock', (id) => new MockRuntime(id));
 

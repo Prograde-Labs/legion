@@ -113,8 +113,9 @@ export class LegionProcess {
     }
     await ensureBootstrapRuntimeToolPolicies(collective);
 
-    // ── Step 3: Initialise ConversationStore and CredentialStore ─────────────
-    const store = new FileConversationStore(storage);
+    // ── Step 3: Initialise event bus, ConversationStore, and CredentialStore ─
+    const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
 
     // ── Step 4: Register runtime factories ───────────────────────────────────
     const connectorRegistry = new ConnectorRegistry();
@@ -124,7 +125,6 @@ export class LegionProcess {
     // agent and service factories registered after their dependencies are created (steps 5–8)
 
     // ── Step 5: Create core engine components ────────────────────────────────
-    const eventBus = new EventBus();
     collective.eventBus = eventBus;
     const toolRegistry = new ToolRegistry();
     const authEngine = new AuthEngine();

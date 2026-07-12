@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { FileStorage } from '../storage/FileStorage.js';
+import { EventBus } from '../events/EventBus.js';
 import { FileConversationStore } from './FileConversationStore.js';
 
 describe('FileConversationStore', () => {
@@ -128,6 +129,106 @@ describe('FileConversationStore', () => {
     expect(loaded?.messages['m1'].prunedBy).toBe('op');
   });
 
+  it('serializes mutations across stores sharing storage', async () => {
+    const storage = new MemoryStorage();
+    const first = new FileConversationStore(storage);
+    const second = new FileConversationStore(storage);
+    const conversation = await first.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    await Promise.all([
+      first.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'first'],
+      })),
+      second.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'second'],
+      })),
+    ]);
+
+    expect((await first.load(conversation.id))?.tags).toEqual(['first', 'second']);
+  });
+
+  it('rejects a stale active branch guard before writing', async () => {
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: 'new-head',
+      messages: {},
+      title: 'unchanged',
+    });
+
+    await expect(
+      store.mutate(conversation.id, (current) => ({ ...current, title: 'changed' }), {
+        expectedActiveBranchHead: 'old-head',
+      }),
+    ).rejects.toThrow();
+    expect((await store.load(conversation.id))?.title).toBe('unchanged');
+  });
+
+  it('rejects origin mutations', async () => {
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      origin: { kind: 'participant', participantId: 'operator' },
+    });
+
+    await expect(
+      store.mutate(conversation.id, (current) => ({
+        ...current,
+        origin: { kind: 'participant', participantId: 'other' },
+      })),
+    ).rejects.toThrow('Conversation origin is immutable');
+  });
+
+  it('emits normalized metadata for creation and metadata updates', async () => {
+    const eventBus = new EventBus();
+    const eventStore = new FileConversationStore(new MemoryStorage(), eventBus);
+    const createdEvents: unknown[] = [];
+    const updatedEvents: unknown[] = [];
+    eventBus.on('conversation:created', (event) => createdEvents.push(event));
+    eventBus.on('conversation:updated', (event) => updatedEvents.push(event));
+
+    const conversation = await eventStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'Original',
+    });
+    await eventStore.mutate(conversation.id, (current) => ({
+      ...current,
+      title: 'Updated',
+      tags: ['important'],
+    }));
+    const beforeNoop = await eventStore.load(conversation.id);
+    const noop = await eventStore.mutate(conversation.id, (current) => current);
+
+    expect(createdEvents).toEqual([
+      {
+        conversation: expect.objectContaining({
+          id: conversation.id,
+          title: 'Original',
+          status: 'active',
+          tags: [],
+          participants: [],
+        }),
+      },
+    ]);
+    expect(updatedEvents).toEqual([
+      {
+        conversationId: conversation.id,
+        before: expect.objectContaining({ title: 'Original', status: 'active', tags: [] }),
+        after: expect.objectContaining({ title: 'Updated', status: 'active', tags: ['important'] }),
+      },
+    ]);
+    expect(noop.changed).toBe(false);
+    expect((await eventStore.load(conversation.id))?.updatedAt).toBe(beforeNoop?.updatedAt);
+  });
+
   it('lists conversation metadata', async () => {
     const a = await store.create({
       schemaVersion: '2.0',
@@ -139,6 +240,29 @@ describe('FileConversationStore', () => {
     const metas = await store.list();
     expect(metas.length).toBe(2);
     expect(metas.find((m) => m.id === a.id)?.title).toBe('A');
+  });
+
+  it('lists active conversations by default and supports status and every-tag filters', async () => {
+    const active = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      tags: ['one', 'two'],
+    });
+    const archived = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+      tags: ['one'],
+    });
+
+    expect((await store.list()).map(({ id }) => id)).toEqual([active.id]);
+    expect((await store.list({ status: 'archived' })).map(({ id }) => id)).toEqual([archived.id]);
+    expect((await store.list({ status: 'all' })).map(({ id }) => id).sort()).toEqual(
+      [active.id, archived.id].sort(),
+    );
+    expect((await store.list({ tags: ['one', 'two'] })).map(({ id }) => id)).toEqual([active.id]);
   });
 
   it('list() includes participants from both senderId and recipientId', async () => {

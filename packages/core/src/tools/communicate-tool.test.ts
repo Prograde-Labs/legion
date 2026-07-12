@@ -134,7 +134,7 @@ describe('communicate tool', () => {
     // Pre-create the caller's 'seed' conversation so the implicit-join bug
     // would actually return 'seed' (and thus be detectable).
     const store = new FileConversationStore(new FileStorage(dir));
-    await store.save({
+    await store.replaceForTesting({
       id: 'seed',
       schemaVersion: '2.0',
       activeBranchHead: '',
@@ -160,7 +160,7 @@ describe('communicate tool', () => {
     const { context } = await setup(dir);
     // Pre-create 'explicit-conv' so the router joins it instead of creating a new one.
     const store = new FileConversationStore(new FileStorage(dir));
-    await store.save({
+    await store.replaceForTesting({
       id: 'explicit-conv',
       schemaVersion: '2.0',
       activeBranchHead: '',
