@@ -47,11 +47,7 @@ export function conversationMatchesFilter(
   const status = conversation.status ?? 'active';
   if ((filter.status ?? 'active') !== 'all' && status !== (filter.status ?? 'active')) return false;
   if (!filter.includeSubThreads && conversation.parentConversationId) return false;
-  if (filter.since) {
-    const since = parseIsoTimestamp(filter.since);
-    const updatedAt = parseIsoTimestamp(conversation.updatedAt);
-    if (since === undefined || updatedAt === undefined || updatedAt < since) return false;
-  }
+  if (filter.since && !timestampIsAtOrAfter(conversation.updatedAt, filter.since)) return false;
   if (filter.tags?.some((tag) => !(conversation.tags ?? []).includes(tag))) return false;
   if (filter.participantId && !getParticipants(conversation).includes(filter.participantId)) {
     return false;
@@ -59,9 +55,26 @@ export function conversationMatchesFilter(
   return true;
 }
 
-function parseIsoTimestamp(value: string): number | undefined {
+interface ParsedTimestamp {
+  wholeSeconds: number;
+  fraction: string;
+}
+
+function timestampIsAtOrAfter(value: string, minimum: string): boolean {
+  const timestamp = parseIsoTimestamp(value);
+  const minimumTimestamp = parseIsoTimestamp(minimum);
+  if (!timestamp || !minimumTimestamp) return false;
+  if (timestamp.wholeSeconds !== minimumTimestamp.wholeSeconds) {
+    return timestamp.wholeSeconds > minimumTimestamp.wholeSeconds;
+  }
+
+  const length = Math.max(timestamp.fraction.length, minimumTimestamp.fraction.length);
+  return timestamp.fraction.padEnd(length, '0') >= minimumTimestamp.fraction.padEnd(length, '0');
+}
+
+function parseIsoTimestamp(value: string): ParsedTimestamp | undefined {
   const match =
-    /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(
+    /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.(\d+))?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.exec(
       value,
     );
   if (!match) return undefined;
@@ -73,8 +86,19 @@ function parseIsoTimestamp(value: string): number | undefined {
   const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return undefined;
 
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? undefined : timestamp;
+  const local = new Date(0);
+  local.setUTCFullYear(year, month - 1, day);
+  local.setUTCHours(Number(match[4]), Number(match[5]), Number(match[6]), 0);
+
+  const zone = match[8];
+  const offsetMinutes =
+    zone === 'Z'
+      ? 0
+      : (zone[0] === '+' ? 1 : -1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(4, 6)));
+  return {
+    wholeSeconds: local.getTime() / 1000 - offsetMinutes * 60,
+    fraction: match[7] ?? '',
+  };
 }
 
 function getParticipants(conversation: ConversationFilterInput): string[] {

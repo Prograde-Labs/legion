@@ -147,6 +147,21 @@ describe('conversation metadata', () => {
     expect(conversationMatchesFilter(laterInput, { since: '01/02/2026' })).toBe(false);
   });
 
+  it('preserves timezone offsets and fractional precision when comparing timestamps', () => {
+    const offsetInput = conversation({ updatedAt: '2026-01-02T02:00:00.1234+02:00' });
+    const preciseInput = conversation({ updatedAt: '2026-01-02T00:00:00.0001Z' });
+
+    expect(conversationMatchesFilter(offsetInput, { since: '2026-01-02T00:00:00.12340Z' })).toBe(
+      true,
+    );
+    expect(conversationMatchesFilter(offsetInput, { since: '2026-01-02T00:00:00.12339Z' })).toBe(
+      true,
+    );
+    expect(conversationMatchesFilter(preciseInput, { since: '2026-01-02T00:00:00.0002Z' })).toBe(
+      false,
+    );
+  });
+
   it('replaces only the addressed middleware state namespace', () => {
     const input = conversation({
       middlewareState: {
