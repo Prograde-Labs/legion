@@ -32,6 +32,13 @@ import {
   managementTools,
   fileTools,
   processTools,
+  // Streaming / subscription tools
+  cancelStreamTool,
+  watchConversationsTool,
+  watchParticipantsTool,
+  watchActivityTool,
+  watchConversationTool,
+  watchProcessTool,
   // MCP
   loadMCPSources,
   type ToolSource,
@@ -156,6 +163,13 @@ export class LegionProcess {
     for (const tool of processTools) {
       toolRegistry.register(tool);
     }
+    // Streaming / subscription tools
+    toolRegistry.register(cancelStreamTool);
+    toolRegistry.register(watchConversationsTool);
+    toolRegistry.register(watchParticipantsTool);
+    toolRegistry.register(watchActivityTool);
+    toolRegistry.register(watchConversationTool);
+    toolRegistry.register(watchProcessTool);
     const runtimeTools = createRuntimeTools({
       systemStore,
       systemRouting,
@@ -313,6 +327,15 @@ const RUNTIME_TOOL_NAMES = [
   'save_routing',
 ] as const;
 
+const SUBSCRIPTION_TOOL_NAMES = [
+  'cancel_stream',
+  'watch_conversations',
+  'watch_participants',
+  'watch_activity',
+  'watch_conversation',
+  'watch_process',
+] as const;
+
 const OLD_RUNTIME_TOOL_NAMES = [
   'configure_provider',
   'list_credentials',
@@ -326,6 +349,12 @@ async function ensureBootstrapRuntimeToolPolicies(collective: Collective): Promi
   const tools = { ...operator.tools };
   let changed = false;
   for (const name of RUNTIME_TOOL_NAMES) {
+    if (!(name in tools)) {
+      tools[name] = 'auto';
+      changed = true;
+    }
+  }
+  for (const name of SUBSCRIPTION_TOOL_NAMES) {
     if (!(name in tools)) {
       tools[name] = 'auto';
       changed = true;
@@ -559,6 +588,90 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
 
       const result = (await toolRegistry.execute(toolName, args, toolCtx)) as ToolResult;
       return { result, conversationId };
+    },
+
+    async streamTool(participantId, toolName, args, opts) {
+      const participant = collective.get(participantId);
+      if (!participant) {
+        const gen = (async function* () {
+          yield { type: 'stream:error', error: `Participant not found: ${participantId}` } as const;
+        })();
+        return { gen, conversationId: '' };
+      }
+
+      const authResult = authEngine.authorize(participantId, toolName, args, participant.tools);
+      if (!authResult.authorized) {
+        const gen = (async function* () {
+          yield {
+            type: 'stream:error',
+            error: authResult.reason ?? 'Not authorized',
+          } as const;
+        })();
+        return { gen, conversationId: '' };
+      }
+
+      // Conversation thread setup (mirrors callTool logic)
+      let thread: ConversationThread;
+      let conversationId: string;
+      const reqConvId = opts?.conversationId;
+      if (reqConvId && reqConvId !== '') {
+        const existing = await store.load(reqConvId);
+        if (!existing) {
+          const gen = (async function* () {
+            yield {
+              type: 'stream:error',
+              error: `Conversation not found: ${reqConvId}`,
+            } as const;
+          })();
+          return { gen, conversationId: reqConvId };
+        }
+        conversationId = reqConvId;
+        thread = new ConversationThread(existing, store);
+      } else if (reqConvId === '') {
+        const now = new Date().toISOString();
+        const data: ConversationData = {
+          id: '',
+          schemaVersion: '2.0',
+          createdAt: now,
+          updatedAt: now,
+          activeBranchHead: '',
+          messages: {},
+        };
+        conversationId = '';
+        thread = new ConversationThread(data, store);
+      } else {
+        const data = await store.create({
+          schemaVersion: '2.0',
+          activeBranchHead: '',
+          messages: {},
+        });
+        conversationId = data.id;
+        thread = new ConversationThread(data, store);
+      }
+
+      const toolCtx: ToolContext = {
+        participant,
+        conversationId,
+        conversation: thread,
+        collective,
+        communicationDepth: 0,
+        toolRegistry,
+        config,
+        eventBus,
+        storage,
+        workspaceRoot,
+        authEngine,
+        pendingApprovalRegistry,
+        messageRouter: router,
+        serviceManager,
+        conversationStore: store,
+        processManager,
+        signal: opts?.signal,
+        cancelStream: opts?.cancelStream,
+      };
+
+      const gen = toolRegistry.stream(toolName, args, toolCtx);
+      return { gen, conversationId };
     },
 
     registry: connectorRegistry,

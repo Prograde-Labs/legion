@@ -32,6 +32,12 @@ function makeConnectorContext(
   return {
     submit: vi.fn().mockResolvedValue({ status: 'success', conversationId: 'conv-1' }),
     callTool: vi.fn().mockResolvedValue({ result: toolResult, conversationId: 'conv-test' }),
+    streamTool: vi.fn().mockResolvedValue({
+      gen: (async function* () {
+        yield { type: 'stream:done', result: toolResult };
+      })(),
+      conversationId: 'conv-test',
+    }),
     registry: {
       setActive: vi.fn(),
       clearActive: vi.fn(),
@@ -219,7 +225,7 @@ describe('WebConnector: POST /api/execute', () => {
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'list_participants', args: {} },
     });
@@ -240,7 +246,7 @@ describe('WebConnector: POST /api/execute', () => {
     const { token } = JSON.parse(loginRes.body) as { token: string };
     const res = await inject(connector, {
       method: 'POST',
-      url: '/api/execute',
+      url: '/api/execute?stream=false',
       headers: { authorization: `Bearer ${token}` },
       payload: { tool: 'list_participants' },
     });

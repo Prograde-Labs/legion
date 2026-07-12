@@ -1,7 +1,8 @@
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useExecute } from './useExecute.js';
-import { useEventStream } from './useEventStream.js';
-import type { MessageData } from '@legion/types';
+import { useToolStream } from './useToolStream.js';
+import { useWebSocket } from './useWebSocket.js';
+import type { MessageData, StreamChunk } from '@legion/types';
 
 export type MessageWithAlternates = MessageData & {
   alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
@@ -25,7 +26,6 @@ interface ConversationResponse {
 
 export function useConversation(conversationId: string | null) {
   const { execute } = useExecute();
-  const { on } = useEventStream();
 
   const messages = ref<MessageWithAlternates[]>([]);
   const subThreads = ref<Record<string, SubThreadData>>({});
@@ -33,6 +33,8 @@ export function useConversation(conversationId: string | null) {
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
   const iterationFired = ref(false); // set when iteration event arrives
+  const streamingText = ref('');
+  const sentConversationId = ref<string | null>(null);
   let loadSeq = 0; // prevents stale concurrent load() responses from overwriting newer data
 
   const isThinking = computed(() => {
@@ -107,64 +109,115 @@ export function useConversation(conversationId: string | null) {
     await load();
   }
 
+  let pendingCommunicateArgs: {
+    to: string;
+    message: string;
+    conversationId?: string;
+    replyTo?: string;
+  } = {
+    to: '',
+    message: '',
+  };
+
+  const communicateStream = useToolStream('communicate', () => pendingCommunicateArgs, {
+    cancelOnUnmount: false,
+    onChunk: (chunk: StreamChunk) => {
+      if (chunk.type === 'text_delta') {
+        streamingText.value += (chunk as { delta: string }).delta;
+      }
+    },
+  });
+
+  async function send(
+    targetId: string,
+    message: string,
+    myParticipantId: string,
+  ): Promise<string | null> {
+    pendingCommunicateArgs = {
+      to: targetId,
+      message,
+      conversationId: conversationId ?? undefined,
+    };
+    streamingText.value = '';
+    markSent();
+
+    // Optimistic user message for new conversation (no server to load from yet)
+    if (!conversationId) {
+      messages.value = [
+        {
+          id: 'optimistic-user',
+          parentId: null,
+          conversationId: 'pending',
+          senderId: myParticipantId,
+          recipientId: targetId,
+          role: 'user',
+          content: message,
+          type: 'message',
+          status: 'active',
+          timestamp: new Date().toISOString(),
+        },
+      ];
+    }
+
+    await communicateStream.start();
+    return conversationId;
+  }
+
+  watch(
+    () => communicateStream.done.value,
+    (done) => {
+      if (!done) return;
+      streamingText.value = '';
+      const result = communicateStream.result.value as {
+        data?: { conversationId?: string };
+      } | null;
+      const newConvId = result?.data?.conversationId;
+      if (newConvId && !conversationId) {
+        sentConversationId.value = newConvId;
+      }
+    },
+  );
+
   if (conversationId) {
-    on(
-      'message:sent',
-      () => {
-        // Outgoing user message confirmed — keep thinking indicator active.
-        void load();
-      },
-      { conversationId },
-    );
+    const ws = useWebSocket();
 
-    // message:delivered fires when the agent's async reply is persisted and
-    // delivered back to the operator. This is the primary "reply arrived" signal.
-    on(
-      'message:delivered',
-      () => {
-        isThinkingLocal.value = false;
-        iterationFired.value = false;
-        void load();
+    const msgStream = useToolStream('watch_conversation', () => ({ conversationId }), {
+      onChunk: (chunk) => {
+        if (chunk.type === 'message:sent') {
+          void load();
+        } else if (chunk.type === 'message:delivered') {
+          isThinkingLocal.value = false;
+          iterationFired.value = false;
+          streamingText.value = '';
+          void load();
+        }
       },
-      { conversationId },
-    );
+    });
 
-    on(
-      'iteration',
-      () => {
-        // iteration events are scoped to the agent's participantId on the server,
-        // so the operator only receives them if they ARE the agent (not typical).
-        // We still set iterationFired in case the scope rules change.
-        iterationFired.value = true;
+    const activityStream = useToolStream('watch_activity', () => ({ conversationId }), {
+      onChunk: (chunk) => {
+        if (chunk.type === 'iteration') {
+          iterationFired.value = true;
+        } else if (chunk.type === 'approval:requested') {
+          isThinkingLocal.value = false;
+          iterationFired.value = false;
+          void load();
+        } else if (chunk.type === 'approval:resolved') {
+          iterationFired.value = true;
+          void load();
+        } else if (chunk.type === 'tool:result') {
+          void load();
+        }
       },
-      { conversationId },
-    );
+    });
 
-    on(
-      'approval:requested',
-      () => {
-        isThinkingLocal.value = false;
-        iterationFired.value = false;
-        void load(); // reload to get the pending_approval tool result
+    watch(
+      () => ws.getConnectionId(),
+      async (id) => {
+        if (!id) return;
+        await Promise.all([msgStream.start(), activityStream.start()]);
       },
-      { conversationId },
-    );
-
-    on(
-      'approval:resolved',
-      () => {
-        iterationFired.value = true; // agent will resume
-        void load();
-      },
-      { conversationId },
-    );
-
-    on(
-      'tool:result',
-      () => {
-        void load(); // keep tool call blocks in sync
-      },
-      { conversationId },
+      { immediate: true },
     );
 
     onMounted(() => {
@@ -178,8 +231,11 @@ export function useConversation(conversationId: string | null) {
     loading,
     error,
     isThinking,
+    streamingText,
+    sentConversationId,
     load,
     markSent,
+    send,
     editMessage,
     generate,
     pruneMessage,

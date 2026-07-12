@@ -1,63 +1,46 @@
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import type { Ref } from 'vue';
 import { useExecute } from './useExecute.js';
+import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
 import type { ProcessHandle } from '@legion/types';
 
 export function useProcess(processId: string) {
   const { execute } = useExecute();
-  const { send: wsSend, onMessage } = useWebSocket();
+  const ws = useWebSocket();
 
   const handle: Ref<ProcessHandle | null> = ref(null);
   const chunks: Ref<string[]> = ref([]);
   const error: Ref<string | null> = ref(null);
 
-  let subscribed = false;
-  let offMessage: (() => void) | null = null;
-
-  function handleWsMessage(raw: unknown): void {
-    const msg = raw as {
-      type: string;
-      processId: string;
-      data?: string;
-      exitCode?: number | null;
-      signal?: string | null;
-      error?: string;
-    };
-    if (msg.processId !== processId) return;
-
-    if (msg.type === 'process:output' && msg.data) {
-      chunks.value.push(atob(msg.data));
-    } else if (msg.type === 'process:exited') {
-      if (handle.value) {
-        handle.value = {
-          ...handle.value,
-          status: msg.signal != null ? 'killed' : 'exited',
-          exitCode: msg.exitCode ?? null,
-          exitedAt: new Date().toISOString(),
-        };
+  const procStream = useToolStream('watch_process', () => ({ processId }), {
+    onChunk: (chunk) => {
+      if (chunk.type === 'process:output') {
+        const c = chunk as { data?: string };
+        if (c.data) chunks.value.push(atob(c.data));
+      } else if (chunk.type === 'process:exited') {
+        const c = chunk as { exitCode?: number | null; signal?: string | null };
+        if (handle.value) {
+          handle.value = {
+            ...handle.value,
+            status: c.signal != null ? 'killed' : 'exited',
+            exitCode: c.exitCode ?? null,
+            exitedAt: new Date().toISOString(),
+          };
+        }
+      } else if (chunk.type === 'process:error') {
+        const c = chunk as { error?: string };
+        error.value = c.error ?? 'Unknown process error';
       }
-      // Server auto-detaches subscription; just clean up our listener
-      if (offMessage) {
-        offMessage();
-        offMessage = null;
-      }
-      subscribed = false;
-    } else if (msg.type === 'process:error') {
-      error.value = msg.error ?? 'Unknown process error';
-    }
-  }
+    },
+  });
 
-  function cleanup(): void {
-    if (offMessage) {
-      offMessage();
-      offMessage = null;
-    }
-    if (subscribed) {
-      wsSend({ type: 'unsubscribe_process', processId });
-      subscribed = false;
-    }
-  }
+  watch(
+    () => ws.getConnectionId(),
+    (id) => {
+      if (id && handle.value?.status === 'running') void procStream.start();
+    },
+  );
 
   onMounted(async () => {
     try {
@@ -78,9 +61,8 @@ export function useProcess(processId: string) {
         // non-fatal — live stream will provide output
       }
 
-      offMessage = onMessage(handleWsMessage);
-      wsSend({ type: 'subscribe_process', processId });
-      subscribed = true;
+      const cid = ws.getConnectionId();
+      if (cid) void procStream.start();
     } else {
       // Historical: fetch tail from log file (may be large)
       try {
@@ -96,7 +78,7 @@ export function useProcess(processId: string) {
   });
 
   onUnmounted(() => {
-    cleanup();
+    void procStream.cancel();
   });
 
   async function stop(): Promise<void> {

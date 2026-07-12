@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import type { BaseParticipant } from '@legion/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
-import { useEventStream } from '../composables/useEventStream.js';
+import { useToolStream } from '../composables/useToolStream.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 import { useExecute } from '../composables/useExecute.js';
 import StatusDot from '../components/common/StatusDot.vue';
 
 const { execute } = useExecute();
-const { on } = useEventStream();
+const ws = useWebSocket();
+const participantStream = useToolStream('watch_participants', () => ({}), {
+  onChunk: () => void load(),
+});
 
 const participants = ref<BaseParticipant[]>([]);
 const allTools = ref<string[]>([]);
@@ -51,8 +55,13 @@ async function load() {
   }
 }
 
-on('participant:active', () => load());
-on('participant:retired', () => load());
+watch(
+  () => ws.getConnectionId(),
+  async (id) => {
+    if (id) await participantStream.start();
+  },
+  { immediate: true },
+);
 
 onMounted(async () => {
   await load();

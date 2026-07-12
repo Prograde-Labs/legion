@@ -1,4 +1,11 @@
-import type { JSONSchema, ToolResult, ParticipantConfig, WorkspaceConfig } from '@legion/types';
+import type {
+  JSONSchema,
+  ToolResult,
+  ParticipantConfig,
+  WorkspaceConfig,
+  StreamChunk,
+  LLMChunk,
+} from '@legion/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { EventBus } from '../events/EventBus.js';
@@ -45,6 +52,15 @@ export interface MessageRouterPort {
     participantId: string,
     context: ToolContext,
   ): Promise<MessageRouterResult>;
+
+  sendStream(opts: {
+    senderId: string;
+    recipientId: string;
+    message: string;
+    conversationId?: string;
+    replyTo?: string;
+    context: ToolContext;
+  }): AsyncGenerator<LLMChunk, MessageRouterResult>;
 }
 
 /**
@@ -69,16 +85,12 @@ export interface ToolContext {
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;
   conversationStore?: ConversationStore;
+  /** AbortSignal set by transport when a streaming call is cancelled. */
+  signal?: AbortSignal;
+  /** Narrow cancellation capability — only for the cancel_stream tool. */
+  cancelStream?: (streamId: string) => boolean;
   // Plans 5 & 7 attach: authEngine, pendingApprovalRegistry, serviceManager.
   [key: string]: unknown;
-}
-
-export interface ToolRegistryLike {
-  get(name: string): Tool | undefined;
-  has(name: string): boolean;
-  list(): Tool[];
-  listAll(): string[];
-  execute(name: string, args: unknown, context: ToolContext): Promise<ToolResult>;
 }
 
 export interface Tool {
@@ -86,4 +98,29 @@ export interface Tool {
   description: string;
   parameters: JSONSchema;
   execute(args: unknown, context: ToolContext): Promise<unknown>;
+}
+
+/** A tool that yields chunks instead of returning a single result. */
+export interface StreamingTool {
+  name: string;
+  description: string;
+  parameters: JSONSchema;
+  stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, ToolResult | void>;
+}
+
+/** Either a regular tool or a streaming tool. */
+export type AnyTool = Tool | StreamingTool;
+
+/** Type guard — use before accessing `.stream()` or `.execute()`. */
+export function isStreamingTool(t: AnyTool): t is StreamingTool {
+  return 'stream' in t && typeof (t as StreamingTool).stream === 'function';
+}
+
+export interface ToolRegistryLike {
+  get(name: string): AnyTool | undefined;
+  has(name: string): boolean;
+  list(): AnyTool[];
+  listAll(): string[];
+  execute(name: string, args: unknown, context: ToolContext): Promise<ToolResult>;
+  stream(name: string, args: unknown, context: ToolContext): AsyncGenerator<StreamChunk>;
 }

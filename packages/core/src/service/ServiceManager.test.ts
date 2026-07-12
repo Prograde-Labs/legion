@@ -47,6 +47,9 @@ async function setup() {
   const mockRouter: MessageRouterPort = {
     send: vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'success' }),
     resume: vi.fn(),
+    sendStream: async function* () {
+      return { conversationId: 'mock', status: 'success' as const };
+    },
   };
   const eventBus = { emit: vi.fn(), on: vi.fn(), once: vi.fn(), off: vi.fn() } as any;
   const collective = {

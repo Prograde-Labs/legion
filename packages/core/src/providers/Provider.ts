@@ -56,27 +56,37 @@ export interface ProviderResponse {
 }
 
 /**
+ * Wire format for individual chunks from the LLM SSE stream.
+ * The `done` chunk is consumed internally by AgentRuntime and never
+ * becomes a StreamChunk visible to tool callers.
+ */
+export type ProviderStreamChunk =
+  | { type: 'text_delta'; delta: string }
+  | { type: 'tool_call_start'; index: number; id: string; name: string }
+  | { type: 'tool_call_args_delta'; index: number; delta: string }
+  | { type: 'done'; stopReason: ProviderStopReason; usage?: ProviderUsage; cost?: number };
+
+/**
  * LLM provider interface. Implementations are constructed by SystemProviderStore
  * and resolved by ModelRouter.
  */
 export interface Provider {
-  complete(
+  /**
+   * Stream a chat completion. Yields one or more content/tool-call delta chunks
+   * followed by exactly one `done` chunk. The caller accumulates deltas and acts
+   * on the `done` chunk to determine stop reason and usage.
+   *
+   * Non-streaming providers implement this by calling their blocking endpoint
+   * and yielding the response as a synthetic sequence of chunks.
+   */
+  stream(
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,
-  ): Promise<ProviderResponse>;
+  ): AsyncGenerator<ProviderStreamChunk>;
 
-  /**
-   * Optional: return all models this provider can serve.
-   * Providers that do not implement this cannot be auto-resolved by ModelRouter —
-   * they must be referenced explicitly via RoutingConfig.
-   */
+  /** Optional: enumerate models available from this provider. */
   listModels?(): Promise<ProviderModel[]>;
-
-  /**
-   * Optional: return a PricingSource for models this provider serves.
-   * If absent, the system-wide ModelsDevPricingSource is used.
-   * Providers with bespoke billing (e.g. Copilot AIU, self-hosted) implement this.
-   */
+  /** Optional: override system-wide pricing for this provider. */
   pricingSource?(): PricingSource;
 }

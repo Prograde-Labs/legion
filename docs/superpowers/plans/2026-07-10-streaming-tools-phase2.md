@@ -15,20 +15,23 @@
 ## File Map
 
 ### New files
+
 _(none)_
 
 ### Modified files
-| File | Change |
-|---|---|
-| `packages/core/src/providers/Provider.ts` | Add `ProviderStreamChunk`; change `Provider.complete()` → `Provider.stream()`; keep `ProviderResponse` for internal accumulation |
-| `packages/core/src/providers/OpenAICompatibleProvider.ts` | Add `stream()` using SSE response reader; keep `complete()` as private helper |
-| `packages/core/src/runtime/Runtime.ts` | Add `handleStream?` optional method to `Runtime` interface |
-| `packages/core/src/runtime/AgentRuntime.ts` | Extract `runLoop()` generator; `handle()` drains it; add `handleStream()` |
-| `packages/core/src/tools/Tool.ts` | Add `sendStream()` to `MessageRouterPort` (required, not optional) |
-| `packages/core/src/runtime/MessageRouter.ts` | Implement `sendStream()` on `MessageRouter` |
-| `packages/core/src/tools/communicate-tool.ts` | Convert from `Tool` to `StreamingTool` |
+
+| File                                                      | Change                                                                                                                           |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/providers/Provider.ts`                 | Add `ProviderStreamChunk`; change `Provider.complete()` → `Provider.stream()`; keep `ProviderResponse` for internal accumulation |
+| `packages/core/src/providers/OpenAICompatibleProvider.ts` | Add `stream()` using SSE response reader; keep `complete()` as private helper                                                    |
+| `packages/core/src/runtime/Runtime.ts`                    | Add `handleStream?` optional method to `Runtime` interface                                                                       |
+| `packages/core/src/runtime/AgentRuntime.ts`               | Extract `runLoop()` generator; `handle()` drains it; add `handleStream()`                                                        |
+| `packages/core/src/tools/Tool.ts`                         | Add `sendStream()` to `MessageRouterPort` (required, not optional)                                                               |
+| `packages/core/src/runtime/MessageRouter.ts`              | Implement `sendStream()` on `MessageRouter`                                                                                      |
+| `packages/core/src/tools/communicate-tool.ts`             | Convert from `Tool` to `StreamingTool`                                                                                           |
 
 ### Deleted files
+
 _(none)_
 
 ---
@@ -36,6 +39,7 @@ _(none)_
 ## Task 1: `ProviderStreamChunk` type + `Provider.stream()` interface
 
 **Files:**
+
 - Modify: `packages/core/src/providers/Provider.ts`
 
 The `Provider` interface currently has only `complete()`. We add `stream()` as the primary method. `complete()` is removed from the interface (providers may keep it as a private impl detail). We also add `ProviderStreamChunk` — the wire format used inside the provider layer (the `done` chunk is NOT a `StreamChunk` — it stays inside the runtime and never leaks upstream).
@@ -121,6 +125,7 @@ git commit -m "feat(core): add ProviderStreamChunk + replace Provider.complete()
 ## Task 2: `OpenAICompatibleProvider.stream()` — real SSE implementation
 
 **Files:**
+
 - Modify: `packages/core/src/providers/OpenAICompatibleProvider.ts`
 
 The existing integration test (`agent-runtime.integration.test.ts`) tests via a mock provider. The unit test (`OpenAICompatibleProvider.test.ts`) tests HTTP interactions. We add unit tests for `stream()` using a mocked `fetch` that returns SSE lines.
@@ -161,11 +166,9 @@ describe('OpenAICompatibleProvider.stream()', () => {
 
     const provider = new OpenAICompatibleProvider('https://api.openai.com/v1', 'test-key');
     const chunks: ProviderStreamChunk[] = [];
-    for await (const chunk of provider.stream(
-      [{ role: 'user', content: 'hi' }],
-      [],
-      { model: 'gpt-4o' },
-    )) {
+    for await (const chunk of provider.stream([{ role: 'user', content: 'hi' }], [], {
+      model: 'gpt-4o',
+    })) {
       chunks.push(chunk);
     }
 
@@ -179,10 +182,24 @@ describe('OpenAICompatibleProvider.stream()', () => {
 
   it('yields tool_call chunks for tool calls', async () => {
     const data1 = JSON.stringify({
-      choices: [{ delta: { tool_calls: [{ index: 0, id: 'tc1', type: 'function', function: { name: 'echo', arguments: '' } }] }, finish_reason: null }],
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              { index: 0, id: 'tc1', type: 'function', function: { name: 'echo', arguments: '' } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
     });
     const data2 = JSON.stringify({
-      choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"text":"hi"}' } }] }, finish_reason: 'tool_calls' }],
+      choices: [
+        {
+          delta: { tool_calls: [{ index: 0, function: { arguments: '{"text":"hi"}' } }] },
+          finish_reason: 'tool_calls',
+        },
+      ],
       usage: { prompt_tokens: 5, completion_tokens: 3 },
     });
 
@@ -209,6 +226,7 @@ describe('OpenAICompatibleProvider.stream()', () => {
 ```
 
 Add to the top of the test file:
+
 ```ts
 import type { ProviderStreamChunk } from './Provider.js';
 ```
@@ -390,6 +408,7 @@ Run: `npx vitest run packages/core/src/providers/OpenAICompatibleProvider.test.t
 Expected: PASS (existing tests still pass if they used `complete()` — we need to check)
 
 If existing tests called `provider.complete()`, update them to call `provider.stream()` and drain the generator. Look for calls to `complete()` in the test file and replace with:
+
 ```ts
 // Old:
 const result = await provider.complete(messages, tools, model);
@@ -400,7 +419,8 @@ async function drain(provider: Provider, ...args: Parameters<Provider['stream']>
   const toolCalls: Array<{ id: string; name: string; argsBuffer: string }> = [];
   for await (const chunk of provider.stream(...args)) {
     if (chunk.type === 'text_delta') deltas.push(chunk.delta);
-    if (chunk.type === 'tool_call_start') toolCalls.push({ id: chunk.id, name: chunk.name, argsBuffer: '' });
+    if (chunk.type === 'tool_call_start')
+      toolCalls.push({ id: chunk.id, name: chunk.name, argsBuffer: '' });
     if (chunk.type === 'tool_call_args_delta') {
       const tc = toolCalls.find((_, i) => i === chunk.index) ?? toolCalls[chunk.index];
       if (tc) tc.argsBuffer += chunk.delta;
@@ -437,6 +457,7 @@ git commit -m "feat(core): implement OpenAICompatibleProvider.stream() with SSE 
 ## Task 3: `AgentRuntime` — unified generator loop
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/AgentRuntime.ts`
 - Modify: `packages/core/src/runtime/Runtime.ts`
 
@@ -453,7 +474,10 @@ import type { LLMChunk } from '@legion/types';
 
 export interface Runtime {
   handle(incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult>;
-  handleStream?(incoming: MessageData, context: RuntimeContext): AsyncGenerator<LLMChunk, RuntimeResult>;
+  handleStream?(
+    incoming: MessageData,
+    context: RuntimeContext,
+  ): AsyncGenerator<LLMChunk, RuntimeResult>;
 }
 ```
 
@@ -537,6 +561,7 @@ Expected: FAIL — type errors + `handleStream` not a function
 In `packages/core/src/runtime/AgentRuntime.ts`:
 
 1. Update the import from Provider to include `ProviderStreamChunk`:
+
 ```ts
 import type {
   Provider,
@@ -586,8 +611,11 @@ function accumulatorToResponse(acc: TurnAccumulator): {
     id: tc.id,
     name: tc.name,
     arguments: (() => {
-      try { return JSON.parse(tc.argsBuffer || '{}') as Record<string, unknown>; }
-      catch { return {} as Record<string, unknown>; }
+      try {
+        return JSON.parse(tc.argsBuffer || '{}') as Record<string, unknown>;
+      } catch {
+        return {} as Record<string, unknown>;
+      }
     })(),
   }));
   return {
@@ -846,6 +874,7 @@ private async computeUsage(
 ```
 
 6. Add necessary imports at the top of `AgentRuntime.ts`:
+
 ```ts
 import type { LLMChunk } from '@legion/types';
 import type { ProviderStreamChunk, ProviderUsage } from '../providers/Provider.js';
@@ -875,6 +904,7 @@ git commit -m "feat(core): rewrite AgentRuntime with unified provider.stream() g
 ## Task 4: `MessageRouterPort.sendStream()` + `MessageRouter.sendStream()`
 
 **Files:**
+
 - Modify: `packages/core/src/tools/Tool.ts`
 - Modify: `packages/core/src/runtime/MessageRouter.ts`
 
@@ -926,11 +956,13 @@ Expected: FAIL — `router.sendStream` is not a function
 In `packages/core/src/tools/Tool.ts`, update `MessageRouterPort`:
 
 Add import at top:
+
 ```ts
 import type { LLMChunk } from '@legion/types';
 ```
 
 Add to `MessageRouterPort`:
+
 ```ts
 /**
  * Streaming variant of send(). Yields LLMChunk values from the recipient's
@@ -953,6 +985,7 @@ sendStream(opts: {
 In `packages/core/src/runtime/MessageRouter.ts`:
 
 Add import:
+
 ```ts
 import type { LLMChunk } from '@legion/types';
 ```
@@ -1080,6 +1113,7 @@ private async *handleRuntimeResultGenerator(
 Note: `withLockGenerator` is complex because we can't use the existing `withLock` (which returns `Promise<T>`) for async generators. The simpler approach: since `sendStream` is primarily called by `communicate` which is called in a single-threaded async context, we can skip the lock for now and add a comment:
 
 Actually, looking at this more carefully: async generator + locks is tricky. The `withLock` promise chain is designed for `Promise<T>`, not generators. For `sendStreamInner`, we can safely skip the conversation lock since:
+
 1. The lock prevents concurrent appends to the same conversation
 2. `sendStream` won't be called concurrently in the normal flow
 3. The lock is best-effort anyway (only for `conversationId` specified)
@@ -1105,6 +1139,7 @@ grep -r "MessageRouterPort\|messageRouter:" packages/core/src --include="*.test.
 ```
 
 For each mock found, add `sendStream`:
+
 ```ts
 sendStream: async function* () {
   return { conversationId: 'mock', status: 'success' };
@@ -1112,6 +1147,7 @@ sendStream: async function* () {
 ```
 
 Or if using `vi.fn()` approach, add:
+
 ```ts
 sendStream: vi.fn().mockImplementation(async function* () {
   return { conversationId: 'mock', status: 'success' };
@@ -1140,6 +1176,7 @@ git commit -m "feat(core): add sendStream() to MessageRouterPort + MessageRouter
 ## Task 5: `communicate` — convert to `StreamingTool`
 
 **Files:**
+
 - Modify: `packages/core/src/tools/communicate-tool.ts`
 - Modify: `packages/core/src/tools/communicate-tool.test.ts`
 
@@ -1183,10 +1220,7 @@ describe('communicate as StreamingTool', () => {
 
     const tool = communicateTool as StreamingTool;
     const chunks: StreamChunk[] = [];
-    for await (const chunk of tool.stream(
-      { to: 'agent-1', message: 'hi' },
-      ctx,
-    )) {
+    for await (const chunk of tool.stream({ to: 'agent-1', message: 'hi' }, ctx)) {
       chunks.push(chunk);
     }
 
@@ -1199,6 +1233,7 @@ describe('communicate as StreamingTool', () => {
 ```
 
 Add imports at the top:
+
 ```ts
 import type { StreamingTool } from './Tool.js';
 import type { LLMChunk, StreamChunk } from '@legion/types';
@@ -1220,7 +1255,7 @@ import type { MessageRouterResult, StreamingTool, ToolContext } from './Tool.js'
 export const communicateTool: StreamingTool = {
   name: 'communicate',
   description:
-    'Send a message to another participant. Streams the recipient\'s response as it is generated. Pass replyTo for fire-and-forget (no chunks yielded).',
+    "Send a message to another participant. Streams the recipient's response as it is generated. Pass replyTo for fire-and-forget (no chunks yielded).",
   parameters: {
     type: 'object',
     properties: {
@@ -1284,12 +1319,13 @@ export const communicateTool: StreamingTool = {
 ```
 
 Wait — there's a design tension here. When `communicate` is a `StreamingTool`:
+
 - `ToolRegistry.execute(communicate, ...)` drains the generator → gets `stream:done { result: { status: 'success' } }` → returns `{ status: 'success' }`
 - But the old `communicateTool.execute()` returned `{ status: 'success', data: { conversationId, response } }` so callers could extract the conversationId
 
 To preserve this: we need to surface the `MessageRouterResult` as the `stream:done` result. `managedStream()` in ToolRegistry yields `stream:done { result: { status: 'success' } }` after the generator returns normally — but we lose the data.
 
-Solution: override the terminal chunk by yielding a special marker that the tool author shouldn't yield... but the spec says tool authors should NOT yield `stream:done`. 
+Solution: override the terminal chunk by yielding a special marker that the tool author shouldn't yield... but the spec says tool authors should NOT yield `stream:done`.
 
 The cleanest fix: change `managedStream` to accept an optional "result factory" or have `StreamingTool` return a `ToolResult` from its generator (using the generator `return` value). The registry's `managedStream` can then capture the return value:
 
@@ -1314,10 +1350,12 @@ try {
 This is cleaner. We update `StreamingTool.stream()` signature to return `AsyncGenerator<StreamChunk, ToolResult | void>` — the return value is optional. For `communicate`, we return the result as a `ToolResult`:
 
 Actually, let's look at this differently. The `communicate` tool in its `stream()` method:
+
 1. `yield* context.messageRouter.sendStream(...)` — passes through LLM chunks and gets `MessageRouterResult` as the return value of the `yield*` expression
 2. The tool then needs to return a `ToolResult` from its generator
 
 We update `StreamingTool`:
+
 ```ts
 export interface StreamingTool {
   name: string;
@@ -1328,11 +1366,16 @@ export interface StreamingTool {
 ```
 
 And update `managedStream()` to capture the return value:
+
 ```ts
-async function* managedStream(tool: AnyTool, args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+async function* managedStream(
+  tool: AnyTool,
+  args: unknown,
+  context: ToolContext,
+): AsyncGenerator<StreamChunk> {
   try {
     if (isStreamingTool(tool)) {
-      const result = yield* tool.stream(args, context);  // capture return value
+      const result = yield* tool.stream(args, context); // capture return value
       yield { type: 'stream:done', result: result ?? { status: 'success' } };
       return;
     }
@@ -1345,11 +1388,12 @@ async function* managedStream(tool: AnyTool, args: unknown, context: ToolContext
 ```
 
 Now `communicate.stream()` can return a `ToolResult`:
+
 ```ts
 async *stream(args, context): AsyncGenerator<LLMChunk, ToolResult | void> {
   // ...
   const result: MessageRouterResult = yield* context.messageRouter.sendStream({...});
-  
+
   if (result.status === 'error') {
     return { status: 'error', error: result.error };
   }
@@ -1513,6 +1557,7 @@ const result = await registry.execute('communicate', args, context);
 ```
 
 Update mock `MessageRouterPort` to include `sendStream`:
+
 ```ts
 const mockRouter: MessageRouterPort = {
   send: vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'success', response: 'ok' }),
@@ -1535,6 +1580,7 @@ In each subscription tool file, update the `stream()` return type annotation to 
 - `watch-process-tool.ts`
 
 Example change (same for all):
+
 ```ts
 // Before:
 async *stream(_args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
@@ -1569,6 +1615,7 @@ git commit -m "feat(core): convert communicate to StreamingTool with full LLM st
 ## Task 6: Update mock `MessageRouterPort` implementations in test files
 
 **Files:**
+
 - Various `*.test.ts` files that create mock `MessageRouterPort` objects
 
 After Task 5 adds `sendStream` to `MessageRouterPort` as a required field, any test that constructs a mock `MessageRouterPort` without it will have a TypeScript mismatch in test files (not caught by `tsc --build` since tests are excluded, but may cause vitest failures if the object is passed to something that calls `sendStream`).
@@ -1580,6 +1627,7 @@ grep -r "MessageRouterPort\|messageRouter\s*=" packages/core/src --include="*.te
 ```
 
 Check each file. Common patterns:
+
 ```ts
 // Pattern 1 — explicit mock object
 const mockRouter: MessageRouterPort = {
@@ -1594,6 +1642,7 @@ const mockRouter = { send: vi.fn() } as unknown as MessageRouterPort;
 ```
 
 For Pattern 1, add:
+
 ```ts
 sendStream: async function* () {
   return { conversationId: '', status: 'success' as const };

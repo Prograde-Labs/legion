@@ -12,7 +12,9 @@ import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';
 import { MockRuntime } from '../runtime/MockRuntime.js';
 import { MessageRouter } from '../runtime/MessageRouter.js';
 import { communicateTool } from './communicate-tool.js';
+import { isStreamingTool } from './Tool.js';
 import type { ToolContext } from './Tool.js';
+import type { LLMChunk } from '@legion/types';
 
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
@@ -68,26 +70,39 @@ describe('communicate tool', () => {
 
   it('sends a synchronous message and returns the recipient response', async () => {
     const { context } = await setup(dir);
-    const result = await communicateTool.execute({ to: 'agent-b', message: 'hi B' }, context);
+    const registry = new ToolRegistry();
+    registry.register(communicateTool);
+    const result = await registry.execute(
+      'communicate',
+      { to: 'agent-b', message: 'hi B' },
+      context,
+    );
     expect(result.status).toBe('success');
     expect((result.data as { response: string }).response).toBe('B replies');
   });
 
   it('returns dispatched for fire-and-forget', async () => {
     const { context, router } = await setup(dir);
-    const result = await communicateTool.execute(
+    const registry = new ToolRegistry();
+    registry.register(communicateTool);
+    const result = await registry.execute(
+      'communicate',
       { to: 'agent-b', message: 'async', replyTo: 'agent-a' },
       context,
     );
     expect(result.status).toBe('success');
+    expect((result.data as { conversationId: string }).conversationId).toBeDefined();
     expect((result.data as { status: string }).status).toBe('dispatched');
+    expect((result.data as { response?: string }).response).toBeUndefined();
     await router.drain();
   });
 
   it('returns a tool error when messageRouter is missing', async () => {
     const { context } = await setup(dir);
     const broken = { ...context, messageRouter: undefined } as unknown as ToolContext;
-    const result = await communicateTool.execute({ to: 'agent-b', message: 'x' }, broken);
+    const registry = new ToolRegistry();
+    registry.register(communicateTool);
+    const result = await registry.execute('communicate', { to: 'agent-b', message: 'x' }, broken);
     expect(result.status).toBe('error');
   });
 
@@ -104,7 +119,13 @@ describe('communicate tool', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
-    const result = await communicateTool.execute({ to: 'agent-b', message: 'hi B' }, context);
+    const registry = new ToolRegistry();
+    registry.register(communicateTool);
+    const result = await registry.execute(
+      'communicate',
+      { to: 'agent-b', message: 'hi B' },
+      context,
+    );
     expect(result.status).toBe('success');
     const convId = (result.data as { conversationId: string }).conversationId;
     expect(convId).not.toBe('seed');
@@ -124,7 +145,10 @@ describe('communicate tool', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
-    const result = await communicateTool.execute(
+    const registry = new ToolRegistry();
+    registry.register(communicateTool);
+    const result = await registry.execute(
+      'communicate',
       { to: 'agent-b', message: 'hi', conversationId: 'explicit-conv' },
       context,
     );
@@ -192,12 +216,43 @@ describe('communicate tool', () => {
       messageRouter: router,
     } as unknown as import('./Tool.js').ToolContext;
 
-    const result = await communicateTool.execute(
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register(communicateTool);
+    const result = await toolRegistry.execute(
+      'communicate',
       { to: 'agent-b', message: 'do the thing' },
       context,
     );
     expect(result.status).toBe('pending_approval');
     const data = result.data as { approvalRequests: { tool: string }[] };
     expect(data.approvalRequests[0].tool).toBe('write_file');
+  });
+});
+
+describe('communicate as StreamingTool', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-comm-stream-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('isStreamingTool returns true for communicateTool', () => {
+    expect(isStreamingTool(communicateTool)).toBe(true);
+  });
+
+  it('stream() yields LLM chunks and returns a ToolResult', async () => {
+    const { context } = await setup(dir);
+    const chunks: LLMChunk[] = [];
+    const gen = communicateTool.stream({ to: 'agent-b', message: 'hi B' }, context);
+    let next = await gen.next();
+    while (!next.done) {
+      chunks.push(next.value as LLMChunk);
+      next = await gen.next();
+    }
+    const result = next.value;
+    expect(result.status).toBe('success');
+    expect((result.data as { response: string }).response).toBe('B replies');
   });
 });

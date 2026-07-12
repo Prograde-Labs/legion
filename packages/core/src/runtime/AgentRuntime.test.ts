@@ -13,7 +13,8 @@ import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { UsageCalculator } from '../providers/UsageCalculator.js';
-import type { Provider, ProviderResponse } from '../providers/Provider.js';
+import type { Provider, ProviderStopReason, ProviderUsage } from '../providers/Provider.js';
+import type { LLMChunk } from '@legion/types';
 import type { ModelPricing, PricingSource } from '../providers/PricingSource.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
@@ -43,7 +44,15 @@ class MockModelRouter {
   }
 }
 
-async function makeSetup(providerResponses: ProviderResponse[]) {
+async function makeSetup(
+  providerResponses: Array<{
+    content: string | null;
+    toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    stopReason: ProviderStopReason;
+    usage?: ProviderUsage;
+    cost?: number;
+  }>,
+) {
   const storage = new MemoryStorage();
   const conversationStore = new FileConversationStore(storage);
 
@@ -88,9 +97,21 @@ async function makeSetup(providerResponses: ProviderResponse[]) {
 
   let responseIndex = 0;
   const mockProvider: Provider = {
-    async complete() {
-      const resp = providerResponses[responseIndex++];
-      return resp ?? { content: '[no more responses]', toolCalls: [], stopReason: 'stop' };
+    async *stream() {
+      const resp = providerResponses[responseIndex++] ?? {
+        content: '[no more responses]',
+        toolCalls: [],
+        stopReason: 'stop',
+      };
+      if (resp.content) {
+        yield { type: 'text_delta', delta: resp.content };
+      }
+      for (let i = 0; i < (resp.toolCalls ?? []).length; i++) {
+        const tc = resp.toolCalls[i];
+        yield { type: 'tool_call_start', index: i, id: tc.id, name: tc.name };
+        yield { type: 'tool_call_args_delta', index: i, delta: JSON.stringify(tc.arguments) };
+      }
+      yield { type: 'done', stopReason: resp.stopReason, usage: resp.usage };
     },
   };
   const router = new MockModelRouter(new Map([['test-model', mockProvider]])) as ModelRouter;
@@ -215,12 +236,10 @@ describe('AgentRuntime', () => {
     });
     let tcId = 0;
     const loopingProvider: Provider = {
-      async complete() {
-        return {
-          content: null,
-          toolCalls: [{ id: `tc-${tcId++}`, name: 'echo', arguments: { text: 'hi' } }],
-          stopReason: 'tool_calls',
-        };
+      async *stream() {
+        yield { type: 'tool_call_start', index: 0, id: `tc-${tcId++}`, name: 'echo' };
+        yield { type: 'tool_call_args_delta', index: 0, delta: JSON.stringify({ text: 'hi' }) };
+        yield { type: 'done', stopReason: 'tool_calls', usage: undefined };
       },
     };
     const router = new MockModelRouter(new Map([['m', loopingProvider]])) as ModelRouter;
@@ -272,7 +291,7 @@ describe('AgentRuntime', () => {
 
   it('returns a graceful error response when the provider throws', async () => {
     const throwingProvider: Provider = {
-      async complete() {
+      async *stream() {
         throw new TypeError('fetch failed');
       },
     };
@@ -400,9 +419,10 @@ describe('AgentRuntime: auth – hidden tool (absent from map)', () => {
     // Provider: should never receive echo as an available tool — returns text directly
     let toolsSeenByProvider: string[] = [];
     const provider: Provider = {
-      async complete(_msgs, tools) {
+      async *stream(_msgs, tools) {
         toolsSeenByProvider = (tools ?? []).map((t) => t.name);
-        return { content: 'No tools available', toolCalls: [], stopReason: 'stop' };
+        yield { type: 'text_delta', delta: 'No tools available' };
+        yield { type: 'done', stopReason: 'stop' };
       },
     };
     const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
@@ -484,17 +504,18 @@ describe('AgentRuntime: auth – hidden tool (absent from map)', () => {
     let toolsSeenByProvider: string[] = [];
     let call = 0;
     const provider: Provider = {
-      async complete(_msgs, tools) {
+      async *stream(_msgs, tools) {
         call++;
         toolsSeenByProvider = (tools ?? []).map((t) => t.name);
         if (call === 1) {
-          return {
-            content: 'calling echo',
-            toolCalls: [{ id: 'tc-hidden', name: 'echo', arguments: { text: 'hi' } }],
-            stopReason: 'tool_calls',
-          };
+          yield { type: 'text_delta', delta: 'calling echo' };
+          yield { type: 'tool_call_start', index: 0, id: 'tc-hidden', name: 'echo' };
+          yield { type: 'tool_call_args_delta', index: 0, delta: JSON.stringify({ text: 'hi' }) };
+          yield { type: 'done', stopReason: 'tool_calls' };
+        } else {
+          yield { type: 'text_delta', delta: 'Recovered' };
+          yield { type: 'done', stopReason: 'stop' };
         }
-        return { content: 'Recovered', toolCalls: [], stopReason: 'stop' };
       },
     };
     const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
@@ -594,19 +615,19 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     );
 
     const provider: Provider = {
-      async complete(_msgs, _tools) {
-        const last = _msgs[_msgs.length - 1];
+      async *stream(msgs, _tools) {
+        const last = msgs[msgs.length - 1];
         if (last.role === 'tool') {
           const parsed = JSON.parse(last.content ?? '{}');
           if (parsed.status !== 'pending_approval') {
-            return { content: 'Done', toolCalls: [], stopReason: 'stop' };
+            yield { type: 'text_delta', delta: 'Done' };
+            yield { type: 'done', stopReason: 'stop' };
+            return;
           }
         }
-        return {
-          content: null,
-          toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
-          stopReason: 'tool_calls',
-        };
+        yield { type: 'tool_call_start', index: 0, id: 'tc-1', name: 'echo' };
+        yield { type: 'tool_call_args_delta', index: 0, delta: JSON.stringify({ text: 'hello' }) };
+        yield { type: 'done', stopReason: 'tool_calls' };
       },
     };
     const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
@@ -728,5 +749,25 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
       m.toolResults?.some((tr) => tr.result.status === 'rejected'),
     );
     expect(rejectedTurn?.toolResults?.[0].result.message).toBe('Not permitted on prod');
+  });
+});
+
+describe('AgentRuntime.handleStream()', () => {
+  it('yields LLM chunks during response', async () => {
+    const { context, inbound, router } = await makeSetup([
+      { content: 'Hello!', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const agent = new AgentRuntime('agent-1', router);
+    expect(agent.handleStream).toBeDefined();
+
+    const chunks: LLMChunk[] = [];
+    const gen = agent.handleStream!(inbound, context);
+    let next = await gen.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await gen.next();
+    }
+    expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'Hello!')).toBe(true);
+    expect(next.value.kind).toBe('response');
   });
 });

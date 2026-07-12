@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import AppLayout from '../components/layout/AppLayout.vue';
 import EventDetailPanel from '../components/events/EventDetailPanel.vue';
 import TypeBadge from '../components/common/TypeBadge.vue';
 import StatusDot from '../components/common/StatusDot.vue';
+import { useToolStream } from '../composables/useToolStream.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 
 interface LiveEvent {
@@ -14,9 +15,6 @@ interface LiveEvent {
   time: string;
 }
 
-const { connect, onMessage } = useWebSocket();
-connect();
-
 const events = ref<LiveEvent[]>([]);
 const selected = ref<LiveEvent | null>(null);
 const paused = ref(false);
@@ -24,21 +22,29 @@ const filters = ref(new Set(['message:sent', 'tool:call', 'tool:result', 'error'
 const search = ref('');
 
 let idSeq = 0;
-const off = onMessage((raw) => {
-  const msg = raw as { type: string; event: string; data: unknown };
-  if (msg.type !== 'event') return;
-  if (paused.value) return;
-  const le: LiveEvent = {
-    id: String(idSeq++),
-    type: 'event',
-    event: msg.event,
-    data: msg.data,
-    time: new Date().toLocaleTimeString(),
-  };
-  events.value.unshift(le);
-  if (events.value.length > 500) events.value.splice(500);
+const activityStream = useToolStream('watch_activity', () => ({}), {
+  onChunk: (chunk) => {
+    if (paused.value) return;
+    const le: LiveEvent = {
+      id: String(idSeq++),
+      type: 'event',
+      event: chunk.type,
+      data: (chunk as { data?: unknown }).data ?? chunk,
+      time: new Date().toLocaleTimeString(),
+    };
+    events.value.unshift(le);
+    if (events.value.length > 500) events.value.splice(500);
+  },
 });
-onUnmounted(() => off());
+
+const ws = useWebSocket();
+watch(
+  () => ws.getConnectionId(),
+  (id) => {
+    if (id) void activityStream.start();
+  },
+  { immediate: true },
+);
 
 const chips = [
   { label: 'message', events: ['message:sent', 'message:delivered'] },

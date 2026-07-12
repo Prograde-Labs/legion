@@ -48,6 +48,9 @@ export const service = {
     const mockRouter: MessageRouterPort = {
       send: vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'success' }),
       resume: vi.fn(),
+      sendStream: async function* () {
+        return { conversationId: 'mock', status: 'success' as const };
+      },
     };
 
     const collective = {

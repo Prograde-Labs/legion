@@ -15,7 +15,7 @@ import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ApprovalLog } from '../auth/ApprovalLog.js';
 import { communicateTool } from '../tools/communicate-tool.js';
 import { approvalResponseTool } from '../tools/approval-response-tool.js';
-import type { Provider, ProviderResponse } from '../providers/Provider.js';
+import type { Provider, ProviderResponse, ProviderStreamChunk } from '../providers/Provider.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext } from './Runtime.js';
 import type { JSONSchema } from '@legion/types';
@@ -41,10 +41,27 @@ class MockModelRouter {
 function scriptedProvider(turns: ProviderResponse[]): Provider {
   let i = 0;
   return {
-    async complete() {
-      const response = turns[i % turns.length];
+    async *stream() {
+      const resp = turns[i % turns.length];
       i += 1;
-      return response;
+      if (resp.content) {
+        yield { type: 'text_delta', delta: resp.content } as ProviderStreamChunk;
+      }
+      for (let j = 0; j < (resp.toolCalls ?? []).length; j++) {
+        const tc = resp.toolCalls[j];
+        yield {
+          type: 'tool_call_start',
+          index: j,
+          id: tc.id,
+          name: tc.name,
+        } as ProviderStreamChunk;
+        yield {
+          type: 'tool_call_args_delta',
+          index: j,
+          delta: JSON.stringify(tc.arguments),
+        } as ProviderStreamChunk;
+      }
+      yield { type: 'done', stopReason: resp.stopReason, usage: resp.usage } as ProviderStreamChunk;
     },
   };
 }
@@ -155,7 +172,8 @@ describe('Approval flow integration', () => {
   });
 
   it('approve path: operator approves → B resumes and completes', async () => {
-    const { modelRouter, router, makeContext, store, pendingApprovalRegistry } = await setup(dir);
+    const { modelRouter, router, makeContext, store, pendingApprovalRegistry, toolRegistry } =
+      await setup(dir);
 
     modelRouter.register(
       'test',
@@ -175,7 +193,8 @@ describe('Approval flow integration', () => {
 
     const operatorContext = makeContext('operator');
 
-    const communicateResult = await communicateTool.execute(
+    const communicateResult = await toolRegistry.execute(
+      'communicate',
       { to: 'agent-b', message: 'Please echo "hello world"' },
       operatorContext,
     );
@@ -219,32 +238,38 @@ describe('Approval flow integration', () => {
   });
 
   it('reject path: operator rejects → B resumes with rejection message in context', async () => {
-    const { modelRouter, router, makeContext, store } = await setup(dir);
+    const { modelRouter, router, makeContext, store, toolRegistry } = await setup(dir);
 
     let secondCallSeen = false;
 
     modelRouter.register('test', {
-      async complete(msgs) {
+      async *stream(msgs) {
         const hasToolResult = msgs.some((m) => m.role === 'tool');
         if (!hasToolResult) {
-          return {
-            content: null,
-            toolCalls: [{ id: 'tc-echo', name: 'echo', arguments: { text: 'hi' } }],
-            stopReason: 'tool_calls' as const,
-          };
+          yield {
+            type: 'tool_call_start',
+            index: 0,
+            id: 'tc-echo',
+            name: 'echo',
+          } as ProviderStreamChunk;
+          yield {
+            type: 'tool_call_args_delta',
+            index: 0,
+            delta: JSON.stringify({ text: 'hi' }),
+          } as ProviderStreamChunk;
+          yield { type: 'done', stopReason: 'tool_calls' } as ProviderStreamChunk;
+          return;
         }
         secondCallSeen = true;
-        return {
-          content: 'Understood, I will not echo.',
-          toolCalls: [],
-          stopReason: 'stop' as const,
-        };
+        yield { type: 'text_delta', delta: 'Understood, I will not echo.' } as ProviderStreamChunk;
+        yield { type: 'done', stopReason: 'stop' } as ProviderStreamChunk;
       },
     });
 
     const operatorContext = makeContext('operator');
 
-    const communicateResult = await communicateTool.execute(
+    const communicateResult = await toolRegistry.execute(
+      'communicate',
       { to: 'agent-b', message: 'Echo "hi"' },
       operatorContext,
     );

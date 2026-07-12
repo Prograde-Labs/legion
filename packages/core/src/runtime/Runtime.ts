@@ -1,4 +1,4 @@
-import type { MessageData, MessageUsage, ParticipantConfig } from '@legion/types';
+import type { LLMChunk, MessageData, MessageUsage, ParticipantConfig } from '@legion/types';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';
@@ -28,6 +28,10 @@ export interface RuntimeContext extends ToolContext {
 /** A runtime handles an inbound message addressed to its participant. */
 export interface Runtime {
   handle(incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult>;
+  handleStream?(
+    incoming: MessageData,
+    context: RuntimeContext,
+  ): AsyncGenerator<LLMChunk, RuntimeResult>;
 }
 
 /** Builds a Runtime instance bound to a specific participant. */

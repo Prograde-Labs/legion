@@ -1,4 +1,4 @@
-import type { ToolResult } from '@legion/types';
+import type { ToolResult, StreamChunk } from '@legion/types';
 import type { MessageRouterResult } from '../tools/Tool.js';
 import type { ConnectorRegistry } from './ConnectorRegistry.js';
 
@@ -30,6 +30,22 @@ export interface ConnectorContext {
     args: unknown,
     opts?: { conversationId?: string },
   ): Promise<{ result: ToolResult; conversationId: string }>;
+
+  /**
+   * Execute a named streaming tool as the given participant.
+   * Authorization is checked before the generator is returned.
+   * The generator must be iterated to drive execution.
+   */
+  streamTool(
+    participantId: string,
+    toolName: string,
+    args: unknown,
+    opts?: {
+      conversationId?: string;
+      signal?: AbortSignal;
+      cancelStream?: (streamId: string) => boolean;
+    },
+  ): Promise<{ gen: AsyncGenerator<StreamChunk>; conversationId: string }>;
 
   /** The active-participant registry: register/deregister who this connector fronts. */
   registry: ConnectorRegistry;
