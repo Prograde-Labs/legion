@@ -28,7 +28,7 @@ export interface AgentConfig extends BaseParticipant {
   type: 'agent';
   model: ModelConfig;
   systemPrompt: string;
-  maxIterations?: number;
+  maxIterations: number;
   runtimeConfig?: Record<string, unknown>;
 }
 

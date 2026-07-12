@@ -1,6 +1,6 @@
 import type { MessageData, MessageDraft } from './conversation.js';
 import type { LegionEventMap, LegionEventName } from './events.js';
-import type { BaseParticipant } from './participant.js';
+import type { ParticipantConfig } from './participant.js';
 import type { LLMChunk } from './streaming.js';
 import type { JSONSchema, ToolResult } from './tool.js';
 
@@ -55,7 +55,7 @@ export interface MiddlewareLogger {
 
 export interface MiddlewareHookContext<TConfig> {
   operationId: string;
-  participant: BaseParticipant;
+  participant: ParticipantConfig;
   instance: MiddlewareInstanceConfig;
   config: TConfig;
   conversationId: string;
@@ -69,14 +69,14 @@ export interface MiddlewareHookContext<TConfig> {
 }
 
 export interface MessageDraftContext<TConfig = unknown> extends MiddlewareHookContext<TConfig> {
-  readonly message: MessageDraft;
+  readonly message: Readonly<MessageDraft>;
   chunk?: LLMChunk;
   final: boolean;
   iteration?: number;
 }
 
 export interface AfterReceiveContext<TConfig = unknown> extends MiddlewareHookContext<TConfig> {
-  readonly message: MessageData;
+  readonly message: Readonly<MessageData>;
   mode: 'pre_runtime' | 'post_response';
 }
 
@@ -85,62 +85,57 @@ export interface SystemPromptContext<TConfig = unknown> extends MiddlewareHookCo
 }
 
 export interface PostMessageContext<TConfig = unknown> extends MiddlewareHookContext<TConfig> {
-  readonly message: MessageData;
+  readonly message: Readonly<MessageData>;
 }
 
 export interface ContinueMessage {
-  action: 'continue';
-  message: MessageDraft;
+  kind: 'continue';
+  message?: MessageDraft;
 }
 
 export interface ContinuePrompt {
-  action: 'continue';
-  prompt: string;
-  mode: 'append' | 'prepend' | 'replace';
+  kind: 'continue';
+  change?: {
+    operation: 'append' | 'prepend' | 'replace';
+    content: string;
+  };
 }
 
 export interface Continue {
-  action: 'continue';
+  kind: 'continue';
 }
 
 export interface Reject {
-  action: 'reject';
-  reason: string;
+  kind: 'reject';
+  error: string;
 }
 
 export interface Complete {
-  action: 'complete';
-  content?: string;
-  reasoning?: string;
+  kind: 'complete';
 }
 
 export interface Respond {
-  action: 'respond';
-  content: string;
-  reasoning?: string;
+  kind: 'respond';
+  message: MessageDraft;
 }
 
 export interface Abort {
-  action: 'abort';
-  reason: string;
+  kind: 'abort';
+  error: string;
 }
 
 export interface RequestTool {
-  action: 'request_tool';
+  kind: 'tool';
+  requestId: string;
   tool: string;
   arguments: Record<string, JSONValue>;
+  stateOnSuccess?: JSONValue;
 }
 
-export type MessageDraftResult =
-  | ContinueMessage
-  | Reject
-  | Complete
-  | Respond
-  | Abort
-  | RequestTool;
-export type AfterReceiveResult = Continue | Respond | Abort | RequestTool;
-export type SystemPromptResult = ContinuePrompt | Abort;
-export type PostMessageResult = Continue | Abort;
+export type MessageDraftResult = ContinueMessage | Reject | RequestTool;
+export type AfterReceiveResult = Continue | Complete | Respond | Abort | RequestTool;
+export type SystemPromptResult = ContinuePrompt | Abort | RequestTool;
+export type PostMessageResult = Continue | Abort | RequestTool;
 
 type Hook<TContext, TResult> = (context: TContext) => TResult | Promise<TResult>;
 

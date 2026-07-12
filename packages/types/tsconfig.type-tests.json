@@ -5,9 +5,8 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
-    "noEmit": true,
-    "types": ["vitest/globals"]
+    "noEmit": true
   },
   "include": ["src/**/*.ts", "type-tests/**/*.ts"],
-  "exclude": []
+  "exclude": ["src/**/*.test.ts"]
 }

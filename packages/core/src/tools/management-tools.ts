@@ -27,7 +27,7 @@ function requireCollective(context: ToolContext): NonNullable<ToolContext['colle
 }
 
 function sanitizeModelConfig(model: ModelConfig): ModelConfig {
-  const sanitized: ModelConfig = { model: model.model };
+  const sanitized: ModelConfig = { provider: model.provider, model: model.model };
   if (model.temperature !== undefined) sanitized.temperature = model.temperature;
   if (model.maxTokens !== undefined) sanitized.maxTokens = model.maxTokens;
   return sanitized;
@@ -639,6 +639,7 @@ export const modifyAgentTool: Tool = {
       const updatedModel: ModelConfig =
         typeof model === 'string'
           ? sanitizeModelConfig({
+              provider: agent.model.provider,
               model,
               temperature: agent.model.temperature,
               maxTokens: agent.model.maxTokens,

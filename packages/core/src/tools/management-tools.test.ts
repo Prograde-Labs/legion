@@ -761,7 +761,7 @@ describe('management tools', () => {
     expect(agentsFile).toBeNull();
   });
 
-  it('create_agent ignores stale extra model fields', async () => {
+  it('create_agent preserves provider and ignores unknown model fields', async () => {
     const { context, collective } = await makeContext();
     const result = await createAgentTool.execute(
       {
@@ -781,6 +781,7 @@ describe('management tools', () => {
 
     expect(result.status).toBe('success');
     expect((collective.get('clean-model-agent') as any).model).toEqual({
+      provider: 'openai',
       model: 'gpt-4o',
       temperature: 0.2,
       maxTokens: 100,
@@ -879,7 +880,7 @@ describe('modify_agent', () => {
     expect((result as { status: string }).status).toBe('error');
   });
 
-  it('modify_agent string shorthand removes stale extra model fields', async () => {
+  it('modify_agent string shorthand preserves provider and removes unknown model fields', async () => {
     const deps = await buildTestDeps({});
     await deps.collective.add({
       id: 'stale-model-agent',
@@ -906,6 +907,7 @@ describe('modify_agent', () => {
 
     expect((result as { status: string }).status).toBe('success');
     expect((deps.collective.get('stale-model-agent') as any).model).toEqual({
+      provider: 'old-provider',
       model: 'new-model',
       temperature: 0.4,
       maxTokens: 200,

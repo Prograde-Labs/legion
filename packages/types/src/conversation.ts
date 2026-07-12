@@ -18,20 +18,20 @@ export interface MessageDraft {
 }
 
 export interface ConversationOrigin {
-  kind: 'middleware' | 'tool' | 'participant';
-  participantId?: string;
-  middlewareInstanceId?: string;
-  parentConversationId?: string;
-  parentMessageId?: string;
-  parentToolCallId?: string;
+  readonly kind: 'middleware' | 'tool' | 'participant';
+  readonly participantId?: string;
+  readonly middlewareInstanceId?: string;
+  readonly parentConversationId?: string;
+  readonly parentMessageId?: string;
+  readonly parentToolCallId?: string;
 }
 
 export interface ConversationEventMetadata {
   id: string;
   title?: string;
   titles?: Record<string, string>;
-  status?: ConversationStatus;
-  tags?: string[];
+  status: ConversationStatus;
+  tags: string[];
   origin?: ConversationOrigin;
   createdAt: string;
   updatedAt: string;

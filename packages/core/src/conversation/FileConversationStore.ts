@@ -91,6 +91,8 @@ export class FileConversationStore implements ConversationStore {
       const meta: ConversationMeta = {
         id,
         title: conversation.title,
+        status: conversation.status ?? 'active',
+        tags: conversation.tags ?? [],
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
         messageCount: messages.length,
