@@ -105,15 +105,15 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     senderId: string,
     recipientId: string,
-    content: string,
-    usage?: MessageUsage,
+    response: { content: string; reasoning?: string; usage?: MessageUsage },
   ): Promise<void> {
     const responseMsg = await thread.append({
       senderId,
       recipientId,
       role: 'assistant',
-      content,
-      usage,
+      content: response.content,
+      reasoning: response.reasoning,
+      usage: response.usage,
     });
     this.eventBus.emit('message:delivered', {
       conversationId: thread.id,
@@ -222,13 +222,7 @@ export class MessageRouter implements MessageRouterPort {
     defaultRecipientId: string,
   ): AsyncGenerator<LLMChunk, MessageRouterResult> {
     if (result.kind === 'response') {
-      await this.persistResponse(
-        thread,
-        senderId,
-        defaultRecipientId,
-        result.content,
-        result.usage,
-      );
+      await this.persistResponse(thread, senderId, defaultRecipientId, result);
       return { conversationId: thread.id, response: result.content, status: 'success' };
     }
     if (result.kind === 'pending_approval') {
@@ -409,13 +403,7 @@ export class MessageRouter implements MessageRouterPort {
     defaultRecipientId: string,
   ): Promise<MessageRouterResult> {
     if (result.kind === 'response') {
-      await this.persistResponse(
-        thread,
-        senderId,
-        defaultRecipientId,
-        result.content,
-        result.usage,
-      );
+      await this.persistResponse(thread, senderId, defaultRecipientId, result);
       return { conversationId: thread.id, response: result.content, status: 'success' };
     }
     if (result.kind === 'pending_approval') {
@@ -452,6 +440,7 @@ export class MessageRouter implements MessageRouterPort {
         recipientId: replyTarget,
         role: 'assistant',
         content: result.content,
+        reasoning: result.reasoning,
         usage: result.usage,
       });
       this.eventBus.emit('message:delivered', {

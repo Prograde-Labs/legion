@@ -129,15 +129,17 @@ describe('ToolRegistry streaming', () => {
       description: 'yields text deltas',
       parameters: { type: 'object' },
       async *stream() {
-        yield { type: 'text_delta', delta: 'a' } satisfies StreamChunk;
-        yield { type: 'text_delta', delta: 'b' } satisfies StreamChunk;
+        yield { type: 'iteration_start', iteration: 0 } satisfies StreamChunk;
+        yield { type: 'reasoning_delta', delta: 'why' } satisfies StreamChunk;
+        yield { type: 'text_delta', delta: 'answer' } satisfies StreamChunk;
       },
     };
     reg.register(tool);
     const chunks = await collect(reg.stream('delta', {}, fakeContext()));
     expect(chunks).toEqual([
-      { type: 'text_delta', delta: 'a' },
-      { type: 'text_delta', delta: 'b' },
+      { type: 'iteration_start', iteration: 0 },
+      { type: 'reasoning_delta', delta: 'why' },
+      { type: 'text_delta', delta: 'answer' },
       { type: 'stream:done', result: { status: 'success' } },
     ]);
   });
@@ -172,7 +174,9 @@ describe('ToolRegistry streaming', () => {
       description: 'streaming but finite',
       parameters: { type: 'object' },
       async *stream() {
-        yield { type: 'text_delta', delta: 'x' } satisfies StreamChunk;
+        yield { type: 'iteration_start', iteration: 0 } satisfies StreamChunk;
+        yield { type: 'reasoning_delta', delta: 'why' } satisfies StreamChunk;
+        yield { type: 'text_delta', delta: 'answer' } satisfies StreamChunk;
       },
     };
     reg.register(tool);
