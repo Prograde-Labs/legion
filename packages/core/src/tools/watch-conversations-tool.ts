@@ -10,7 +10,7 @@ export const watchConversationsTool: StreamingTool = {
     properties: {},
     required: [],
   },
-  async *stream(_args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+  async *stream(_args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const queue = new AsyncQueue<StreamChunk>();
     const unsub = context.eventBus.on('conversation:created', (data) => {
       queue.push({ type: 'conversation:created', data });

@@ -15,7 +15,7 @@ export const watchConversationTool: StreamingTool = {
     },
     required: ['conversationId'],
   },
-  async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+  async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const { conversationId } = args as { conversationId?: string };
     if (!conversationId) {
       throw new Error('conversationId is required');

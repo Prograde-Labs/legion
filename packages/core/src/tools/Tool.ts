@@ -105,7 +105,7 @@ export interface StreamingTool {
   name: string;
   description: string;
   parameters: JSONSchema;
-  stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk>;
+  stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, ToolResult | void>;
 }
 
 /** Either a regular tool or a streaming tool. */

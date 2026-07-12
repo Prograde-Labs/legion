@@ -14,7 +14,7 @@ export const watchProcessTool: StreamingTool = {
     },
     required: ['processId'],
   },
-  async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+  async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const { processId } = args as { processId: string };
     const pm = context.processManager as ProcessManager;
 

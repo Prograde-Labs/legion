@@ -10,7 +10,7 @@ export const watchParticipantsTool: StreamingTool = {
     properties: {},
     required: [],
   },
-  async *stream(_args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+  async *stream(_args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const queue = new AsyncQueue<StreamChunk>();
     const unsubs = [
       context.eventBus.on('participant:active', (data) => {

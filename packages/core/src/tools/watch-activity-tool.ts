@@ -33,7 +33,7 @@ export const watchActivityTool: StreamingTool = {
     },
     required: [],
   },
-  async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk> {
+  async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const { conversationId: filterConvId } = (args ?? {}) as { conversationId?: string };
     const queue = new AsyncQueue<StreamChunk>();
 

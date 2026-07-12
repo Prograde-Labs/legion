@@ -172,7 +172,8 @@ describe('Approval flow integration', () => {
   });
 
   it('approve path: operator approves → B resumes and completes', async () => {
-    const { modelRouter, router, makeContext, store, pendingApprovalRegistry } = await setup(dir);
+    const { modelRouter, router, makeContext, store, pendingApprovalRegistry, toolRegistry } =
+      await setup(dir);
 
     modelRouter.register(
       'test',
@@ -192,7 +193,8 @@ describe('Approval flow integration', () => {
 
     const operatorContext = makeContext('operator');
 
-    const communicateResult = await communicateTool.execute(
+    const communicateResult = await toolRegistry.execute(
+      'communicate',
       { to: 'agent-b', message: 'Please echo "hello world"' },
       operatorContext,
     );
@@ -236,7 +238,7 @@ describe('Approval flow integration', () => {
   });
 
   it('reject path: operator rejects → B resumes with rejection message in context', async () => {
-    const { modelRouter, router, makeContext, store } = await setup(dir);
+    const { modelRouter, router, makeContext, store, toolRegistry } = await setup(dir);
 
     let secondCallSeen = false;
 
@@ -266,7 +268,8 @@ describe('Approval flow integration', () => {
 
     const operatorContext = makeContext('operator');
 
-    const communicateResult = await communicateTool.execute(
+    const communicateResult = await toolRegistry.execute(
+      'communicate',
       { to: 'agent-b', message: 'Echo "hi"' },
       operatorContext,
     );

@@ -12,13 +12,12 @@ async function* managedStream(
 ): AsyncGenerator<StreamChunk> {
   try {
     if (isStreamingTool(tool)) {
-      yield* tool.stream(args, context);
+      const toolResult = yield* tool.stream(args, context);
+      yield { type: 'stream:done', result: toolResult ?? { status: 'success' } };
     } else {
       const result = (await (tool as Tool).execute(args, context)) as ToolResult;
       yield { type: 'stream:done', result };
-      return;
     }
-    yield { type: 'stream:done', result: { status: 'success' } };
   } catch (err) {
     yield { type: 'stream:error', error: err instanceof Error ? err.message : String(err) };
   }
