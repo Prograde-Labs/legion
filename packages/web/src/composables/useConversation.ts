@@ -131,7 +131,7 @@ export function useConversation(conversationId: string | null) {
   async function send(
     targetId: string,
     message: string,
-    _myParticipantId: string,
+    myParticipantId: string,
   ): Promise<string | null> {
     pendingCommunicateArgs = {
       to: targetId,
@@ -140,6 +140,25 @@ export function useConversation(conversationId: string | null) {
     };
     streamingText.value = '';
     markSent();
+
+    // Optimistic user message for new conversation (no server to load from yet)
+    if (!conversationId) {
+      messages.value = [
+        {
+          id: 'optimistic-user',
+          parentId: null,
+          conversationId: 'pending',
+          senderId: myParticipantId,
+          recipientId: targetId,
+          role: 'user',
+          content: message,
+          type: 'message',
+          status: 'active',
+          timestamp: new Date().toISOString(),
+        },
+      ];
+    }
+
     await communicateStream.start();
     return conversationId;
   }

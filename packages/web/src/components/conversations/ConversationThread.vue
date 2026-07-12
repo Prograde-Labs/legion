@@ -52,6 +52,8 @@ const composerText = ref('');
 const sending = ref(false);
 const threadEl = ref<HTMLElement | null>(null);
 
+const trimmedStreamingText = computed(() => streamingText.value.trim());
+
 const compactOpen = ref(false);
 const compactRange = ref<MessageWithAlternates[]>([]);
 const compacting = ref(false);
@@ -290,19 +292,19 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
         </MessageBubble>
 
         <!-- Streaming text bubble -->
-        <div v-if="streamingText" class="flex flex-col gap-1">
+        <div v-if="trimmedStreamingText" class="flex flex-col gap-1">
           <span class="text-xs text-slate-500 ml-1">{{ recipientName ?? 'Assistant' }}</span>
           <div
             class="px-3 py-2 text-sm rounded-[12px_12px_3px_12px] bg-navy-800 text-slate-200 max-w-[80%]"
           >
             <p class="whitespace-pre-wrap">
-              {{ streamingText }}<span class="animate-pulse">▋</span>
+              {{ trimmedStreamingText }}<span class="animate-pulse">▋</span>
             </p>
           </div>
         </div>
 
         <!-- Thinking indicator -->
-        <div v-if="isThinking && !streamingText" class="flex items-start gap-2">
+        <div v-if="isThinking && !trimmedStreamingText" class="flex items-start gap-2">
           <div
             class="px-3 py-2 text-sm rounded-[12px_12px_12px_3px] bg-navy-800 text-slate-500"
             :class="isThinking === 'indeterminate' ? '' : 'animate-pulse'"
