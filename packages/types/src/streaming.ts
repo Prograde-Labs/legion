@@ -4,6 +4,8 @@ import type { LegionEventMap, LegionEventName } from './events.js';
 
 // LLM output — from communicate and any LLM-backed streaming tools
 export type LLMChunk =
+  | { type: 'iteration_start'; iteration: number }
+  | { type: 'reasoning_delta'; delta: string }
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_args_delta'; index: number; delta: string };

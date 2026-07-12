@@ -59,6 +59,29 @@ async function setup(dir: string) {
   return { context, router };
 }
 
+async function setupStreaming(dir: string) {
+  const { context } = await setup(dir);
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', () => ({
+    async handle() {
+      return { kind: 'response', content: 'B replies' } as const;
+    },
+    async *handleStream() {
+      yield { type: 'iteration_start', iteration: 0 } as const;
+      yield { type: 'reasoning_delta', delta: 'why' } as const;
+      yield { type: 'text_delta', delta: 'answer' } as const;
+      return { kind: 'response', content: 'B replies' } as const;
+    },
+  }));
+  const router = new MessageRouter(
+    new FileConversationStore(context.storage),
+    registry,
+    context.collective,
+    context.eventBus,
+  );
+  return { context: { ...context, messageRouter: router } as ToolContext, router };
+}
+
 describe('communicate tool', () => {
   let dir: string;
   beforeEach(async () => {
@@ -243,7 +266,7 @@ describe('communicate as StreamingTool', () => {
   });
 
   it('stream() yields LLM chunks and returns a ToolResult', async () => {
-    const { context } = await setup(dir);
+    const { context } = await setupStreaming(dir);
     const chunks: LLMChunk[] = [];
     const gen = communicateTool.stream({ to: 'agent-b', message: 'hi B' }, context);
     let next = await gen.next();
@@ -252,6 +275,11 @@ describe('communicate as StreamingTool', () => {
       next = await gen.next();
     }
     const result = next.value;
+    expect(chunks).toEqual([
+      { type: 'iteration_start', iteration: 0 },
+      { type: 'reasoning_delta', delta: 'why' },
+      { type: 'text_delta', delta: 'answer' },
+    ]);
     expect(result.status).toBe('success');
     expect((result.data as { response: string }).response).toBe('B replies');
   });

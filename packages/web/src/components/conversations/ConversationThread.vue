@@ -4,6 +4,7 @@ import { useExecute } from '../../composables/useExecute.js';
 import { useConversation } from '../../composables/useConversation.js';
 import type { MessageWithAlternates } from '../../composables/useConversation.js';
 import MessageBubble from './MessageBubble.vue';
+import ReasoningDisclosure from './ReasoningDisclosure.vue';
 import CompactDialog from './CompactDialog.vue';
 import ToolCallBlock, { type ToolCallEntry, type MessageEntry } from './ToolCallBlock.vue';
 import ApprovalCard from './ApprovalCard.vue';
@@ -38,8 +39,8 @@ const {
   loading,
   isThinking,
   streamingText,
+  streamingReasoning,
   sentConversationId,
-  markSent,
   send: sendStream,
   editMessage,
   generate,
@@ -53,6 +54,10 @@ const sending = ref(false);
 const threadEl = ref<HTMLElement | null>(null);
 
 const trimmedStreamingText = computed(() => streamingText.value.trim());
+const trimmedStreamingReasoning = computed(() => streamingReasoning.value.trim());
+const hasStreamingResponse = computed(
+  () => !!trimmedStreamingText.value || !!trimmedStreamingReasoning.value,
+);
 
 const compactOpen = ref(false);
 const compactRange = ref<MessageWithAlternates[]>([]);
@@ -291,20 +296,25 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           </template>
         </MessageBubble>
 
-        <!-- Streaming text bubble -->
-        <div v-if="trimmedStreamingText" class="flex flex-col gap-1">
+        <!-- Streaming response bubble -->
+        <div v-if="hasStreamingResponse" data-streaming-message class="flex flex-col gap-1">
           <span class="text-xs text-slate-500 ml-1">{{ recipientName ?? 'Assistant' }}</span>
           <div
             class="px-3 py-2 text-sm rounded-[12px_12px_3px_12px] bg-navy-800 text-slate-200 max-w-[80%]"
           >
-            <p class="whitespace-pre-wrap">
+            <ReasoningDisclosure
+              v-if="trimmedStreamingReasoning"
+              :content="trimmedStreamingReasoning"
+              :streaming="true"
+            />
+            <p v-if="trimmedStreamingText" data-streaming-answer class="whitespace-pre-wrap">
               {{ trimmedStreamingText }}<span class="animate-pulse">▋</span>
             </p>
           </div>
         </div>
 
         <!-- Thinking indicator -->
-        <div v-if="isThinking && !trimmedStreamingText" class="flex items-start gap-2">
+        <div v-if="isThinking && !hasStreamingResponse" class="flex items-start gap-2">
           <div
             class="px-3 py-2 text-sm rounded-[12px_12px_12px_3px] bg-navy-800 text-slate-500"
             :class="isThinking === 'indeterminate' ? '' : 'animate-pulse'"
@@ -314,11 +324,22 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
         </div>
       </template>
 
-      <!-- Read-only mode — existing flat rendering (unchanged) -->
+      <!-- Read-only mode -->
       <template v-else>
         <div v-for="msg in messages" :key="msg.id" class="text-sm text-slate-300">
           <span class="text-slate-500 text-xs">{{ msg.senderId }}</span>
-          <p class="mt-0.5">{{ msg.content }}</p>
+          <div
+            v-if="msg.content?.trim() || (msg.role === 'assistant' && msg.reasoning?.trim())"
+            data-read-only-body
+            class="mt-0.5 max-w-[80%] rounded bg-navy-800 px-3 py-2"
+          >
+            <ReasoningDisclosure
+              v-if="msg.role === 'assistant' && msg.reasoning?.trim()"
+              :content="msg.reasoning.trim()"
+              :streaming="false"
+            />
+            <p v-if="msg.content?.trim()">{{ msg.content }}</p>
+          </div>
         </div>
       </template>
     </div>

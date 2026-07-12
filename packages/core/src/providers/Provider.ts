@@ -61,6 +61,7 @@ export interface ProviderResponse {
  * becomes a StreamChunk visible to tool callers.
  */
 export type ProviderStreamChunk =
+  | { type: 'reasoning_delta'; delta: string }
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_args_delta'; index: number; delta: string }

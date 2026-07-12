@@ -53,6 +53,26 @@ async function setup(dir: string) {
   return { collective, store, eventBus, router, baseContext };
 }
 
+async function setupReasoningRouter(dir: string) {
+  const base = await setup(dir);
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', () => ({
+    async handle() {
+      return { kind: 'response', content: 'answer', reasoning: 'analysis' } as const;
+    },
+    async *handleStream() {
+      yield { type: 'iteration_start', iteration: 0 } as const;
+      yield { type: 'reasoning_delta', delta: 'analysis' } as const;
+      yield { type: 'text_delta', delta: 'answer' } as const;
+      return { kind: 'response', content: 'answer', reasoning: 'analysis' } as const;
+    },
+  }));
+  return {
+    ...base,
+    router: new MessageRouter(base.store, registry, base.collective, base.eventBus),
+  };
+}
+
 describe('MessageRouter: synchronous send', () => {
   let dir: string;
   beforeEach(async () => {
@@ -812,5 +832,70 @@ describe('MessageRouter.sendStream()', () => {
     expect(responseMsg).toBeDefined();
     expect(responseMsg!.senderId).toBe('mock-1');
     expect(responseMsg!.recipientId).toBe('op');
+  });
+});
+
+describe('MessageRouter: reasoning persistence', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-reasoning-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('persists reasoning from send()', async () => {
+    const { router, baseContext, store } = await setupReasoningRouter(dir);
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    const conv = await store.load(result.conversationId);
+    const response = Object.values(conv!.messages).find((message) => message.role === 'assistant');
+    expect(response).toMatchObject({ content: 'answer', reasoning: 'analysis' });
+  });
+
+  it('forwards stream chunks and persists reasoning from sendStream()', async () => {
+    const { router, baseContext, store } = await setupReasoningRouter(dir);
+    const gen = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await gen.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await gen.next();
+    }
+
+    expect(chunks).toEqual([
+      { type: 'iteration_start', iteration: 0 },
+      { type: 'reasoning_delta', delta: 'analysis' },
+      { type: 'text_delta', delta: 'answer' },
+    ]);
+    const conv = await store.load(next.value.conversationId);
+    const response = Object.values(conv!.messages).find((message) => message.role === 'assistant');
+    expect(response).toMatchObject({ content: 'answer', reasoning: 'analysis' });
+  });
+
+  it('persists reasoning from fire-and-forget send()', async () => {
+    const { router, baseContext, store } = await setupReasoningRouter(dir);
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    await router.drain();
+
+    const conv = await store.load(result.conversationId);
+    const response = Object.values(conv!.messages).find((message) => message.role === 'assistant');
+    expect(response).toMatchObject({ content: 'answer', reasoning: 'analysis' });
   });
 });

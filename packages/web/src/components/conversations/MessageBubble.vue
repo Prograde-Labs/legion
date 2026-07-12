@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import type { MessageWithAlternates } from '../../composables/useConversation.js';
 import MarkdownContent from '../MarkdownContent.vue';
+import ReasoningDisclosure from './ReasoningDisclosure.vue';
 
 const props = defineProps<{
   message: MessageWithAlternates;
@@ -214,9 +215,10 @@ function switchRelative(delta: number) {
         <button class="px-2 py-1 text-slate-500" @click="editing = false">Cancel</button>
       </div>
     </div>
-    <MarkdownContent
-      v-else-if="message.content?.trim()"
-      :content="message.content.trim()"
+    <div
+      v-else-if="
+        message.content?.trim() || (message.role === 'assistant' && message.reasoning?.trim())
+      "
       class="max-w-[72%] px-3 py-2 text-sm leading-relaxed break-words"
       :class="
         message.type === 'summary'
@@ -225,7 +227,18 @@ function switchRelative(delta: number) {
             ? 'bg-cyan-700 text-white rounded-[12px_12px_3px_12px]'
             : 'bg-navy-800 text-slate-200 rounded-[12px_12px_12px_3px]'
       "
-    />
+    >
+      <ReasoningDisclosure
+        v-if="message.role === 'assistant' && message.reasoning?.trim()"
+        :content="message.reasoning.trim()"
+        :streaming="false"
+      />
+      <MarkdownContent
+        v-if="message.content?.trim()"
+        data-answer
+        :content="message.content.trim()"
+      />
+    </div>
 
     <!-- Tool calls / approval cards slot -->
     <div v-if="$slots.tools" class="flex max-w-[72%] flex-col gap-1.5">

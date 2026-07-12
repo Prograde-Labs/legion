@@ -14,6 +14,7 @@ export interface MessageData {
   replyTo?: string;
   role: MessageRole;
   content: string;
+  reasoning?: string;
   type?: MessageType;
   status: MessageStatus;
   toolCalls?: ToolCallData[];

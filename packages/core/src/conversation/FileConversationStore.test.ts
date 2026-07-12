@@ -58,6 +58,53 @@ describe('FileConversationStore', () => {
     expect(loaded?.activeBranchHead).toBe('m1');
   });
 
+  it('round-trips optional message reasoning', async () => {
+    const created = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await store.appendMessage(created.id, {
+      id: 'm1',
+      parentId: null,
+      conversationId: created.id,
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'answer',
+      reasoning: 'analysis',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    expect((await store.load(created.id))?.messages['m1'].reasoning).toBe('analysis');
+  });
+
+  it('loads legacy conversations without reasoning', async () => {
+    const storage = new MemoryStorage();
+    const legacyStore = new FileConversationStore(storage);
+    await storage.writeJson('conversations/conv-old.json', {
+      id: 'conv-old',
+      schemaVersion: '2.0',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      activeBranchHead: 'm1',
+      messages: {
+        m1: {
+          id: 'm1',
+          parentId: null,
+          conversationId: 'conv-old',
+          senderId: 'u',
+          recipientId: 'a',
+          role: 'user',
+          content: 'legacy',
+          status: 'active',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+      },
+    });
+    expect((await legacyStore.load('conv-old'))?.messages['m1'].reasoning).toBeUndefined();
+  });
+
   it('patches a message in place', async () => {
     const created = await store.create({
       schemaVersion: '2.0',

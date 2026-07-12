@@ -46,6 +46,8 @@ interface OAIModelsResponse {
 interface OAIStreamChunk {
   choices?: Array<{
     delta?: {
+      reasoning_content?: unknown;
+      reasoning?: unknown;
       content?: string | null;
       tool_calls?: Array<{
         index: number;
@@ -214,6 +216,16 @@ export class OpenAICompatibleProvider implements Provider {
           for (const choice of parsed.choices ?? []) {
             const delta = choice.delta;
             if (!delta) continue;
+
+            const reasoning =
+              typeof delta.reasoning_content === 'string'
+                ? delta.reasoning_content
+                : typeof delta.reasoning === 'string'
+                  ? delta.reasoning
+                  : undefined;
+            if (reasoning) {
+              yield { type: 'reasoning_delta', delta: reasoning };
+            }
 
             if (delta.content) {
               yield { type: 'text_delta', delta: delta.content };
