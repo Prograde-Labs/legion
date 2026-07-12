@@ -19,7 +19,7 @@ export type NewMessageInput = Pick<MessageData, 'senderId' | 'recipientId' | 'ro
   Partial<
     Pick<
       MessageData,
-      'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'
+      'replyTo' | 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage' | 'reasoning'
     >
   >;
 
@@ -37,6 +37,7 @@ export function createMessage(
     replyTo: input.replyTo,
     role: input.role,
     content: input.content,
+    reasoning: input.reasoning,
     type: input.type ?? 'message',
     status: 'active',
     toolCalls: input.toolCalls,

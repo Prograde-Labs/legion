@@ -38,6 +38,18 @@ describe('conversation-ops: creation and active chain', () => {
     expect(conv.messages[headId].parentId).toBe(rootId);
   });
 
+  it('persists reasoning on appended assistant messages', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'answer',
+      reasoning: 'analysis',
+    });
+    expect(conv.messages[conv.activeBranchHead].reasoning).toBe('analysis');
+  });
+
   it('getActiveChain returns messages root-first', () => {
     let conv = createConversation();
     conv = appendMessage(conv, { senderId: 'u', recipientId: 'a', role: 'user', content: 'one' });
@@ -75,6 +87,21 @@ describe('conversation-ops: edit + re-run', () => {
     conv = editMessage(conv, originalId, 'edited');
     const chain = getActiveChain(conv);
     expect(chain.map((m) => m.content)).toEqual(['edited']);
+  });
+
+  it('drops stale reasoning from an edited message', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'original',
+      reasoning: 'original reasoning',
+    });
+    const originalId = conv.activeBranchHead;
+    conv = editMessage(conv, originalId, 'edited');
+    expect(conv.messages[originalId].reasoning).toBe('original reasoning');
+    expect(conv.messages[conv.activeBranchHead].reasoning).toBeUndefined();
   });
 
   it('throws ConversationNotFoundError for a missing message', () => {
@@ -153,6 +180,34 @@ describe('conversation-ops: compaction', () => {
 
     // active chain is [summary, m3]
     expect(getActiveChain(conv).map((m) => m.content)).toEqual(['summary of m1+m2', 'm3']);
+  });
+
+  it('keeps reasoning on pruned and compacted source nodes but not summaries', () => {
+    let conv = createConversation();
+    conv = appendMessage(conv, {
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'source',
+      reasoning: 'source reasoning',
+    });
+    const sourceId = conv.activeBranchHead;
+    conv = appendMessage(conv, {
+      senderId: 'u',
+      recipientId: 'a',
+      role: 'user',
+      content: 'next',
+    });
+    const nextId = conv.activeBranchHead;
+
+    const compacted = compactRange(conv, [sourceId], 'summary');
+    const summary = Object.values(compacted.messages).find((message) => message.type === 'summary');
+    expect(compacted.messages[sourceId].reasoning).toBe('source reasoning');
+    expect(summary?.reasoning).toBeUndefined();
+
+    const pruned = pruneMessage(conv, nextId, 'operator');
+    expect(pruned.messages[nextId].reasoning).toBeUndefined();
+    expect(pruned.messages[sourceId].reasoning).toBe('source reasoning');
   });
 });
 
