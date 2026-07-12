@@ -1,3 +1,4 @@
+import { ref } from 'vue';
 import { useAuth } from './useAuth.js';
 import { router } from '../router/index.js';
 import type { StreamChunk } from '@legion/types';
@@ -12,7 +13,7 @@ let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let backoff = 1000;
 let stoppedByAuth = false;
-let connectionId: string | null = null;
+const connectionId = ref<string | null>(null);
 
 function connect(): void {
   const { getToken } = useAuth();
@@ -47,7 +48,7 @@ function connect(): void {
 
     // Handle connected frame — store connectionId
     if (msg['type'] === 'connected') {
-      connectionId = (msg['connectionId'] as string) ?? null;
+      connectionId.value = (msg['connectionId'] as string) ?? null;
     }
 
     // Dispatch to all general message handlers
@@ -61,7 +62,7 @@ function connect(): void {
   });
 
   ws.addEventListener('close', (evt) => {
-    connectionId = null;
+    connectionId.value = null;
     streamHandlers.clear();
     if (evt.code === 4401) {
       stoppedByAuth = true;
@@ -118,7 +119,7 @@ export function useWebSocket() {
     },
     /** Returns the connectionId issued by the server on auth, or null if not connected. */
     getConnectionId(): string | null {
-      return connectionId;
+      return connectionId.value;
     },
   };
 }

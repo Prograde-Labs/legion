@@ -37,6 +37,9 @@ describe('useExecute', () => {
     const { execute } = useExecute();
     const result = await execute<string[]>('list_participants', {});
     expect(result).toEqual(['p1', 'p2']);
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+      '/api/execute?stream=false',
+    );
     expect(
       (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers['Authorization'],
     ).toBe('Bearer tok-1');

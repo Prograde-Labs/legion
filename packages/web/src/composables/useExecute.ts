@@ -6,7 +6,7 @@ export function useExecute() {
   const { getToken, logout } = useAuth();
 
   async function execute<T>(tool: string, args: unknown = {}): Promise<T> {
-    const res = await fetch('/api/execute', {
+    const res = await fetch('/api/execute?stream=false', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -3,19 +3,37 @@ import { defineComponent } from 'vue';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 
-// Module-level WS handler tracking for the mock
-const wsHandlers = new Set<(data: unknown) => void>();
-const wsSendMock = vi.fn();
+// Capture the onChunk handler from useToolStream so tests can emit chunks
+let capturedOnChunk: ((chunk: unknown) => void) | null = null;
+const startMock = vi.fn().mockResolvedValue(undefined);
+const cancelMock = vi.fn().mockResolvedValue(undefined);
+
+vi.mock('./useToolStream.js', () => ({
+  useToolStream: (
+    _tool: string,
+    _args: () => unknown,
+    opts?: { onChunk?: (c: unknown) => void },
+  ) => {
+    capturedOnChunk = opts?.onChunk ?? null;
+    return {
+      start: startMock,
+      cancel: cancelMock,
+      chunks: { value: [] },
+      done: { value: false },
+      error: { value: null },
+      conversationId: { value: null },
+    };
+  },
+}));
 
 vi.mock('./useWebSocket.js', () => ({
   useWebSocket: () => ({
-    send: wsSendMock,
-    onMessage: (h: (data: unknown) => void) => {
-      wsHandlers.add(h);
-      return () => wsHandlers.delete(h);
-    },
+    getConnectionId: () => 'conn-test',
     connect: vi.fn(),
     disconnect: vi.fn(),
+    onMessage: vi.fn(() => () => {}),
+    send: vi.fn(),
+    onStreamChunk: vi.fn(() => () => {}),
   }),
 }));
 
@@ -46,21 +64,21 @@ const EXITED_HANDLE = {
   exitedAt: '2026-01-01T00:00:30.000Z',
 };
 
-function emit(data: unknown): void {
-  for (const h of wsHandlers) h(data);
+function emitChunk(chunk: unknown): void {
+  if (capturedOnChunk) capturedOnChunk(chunk);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  wsHandlers.clear();
+  capturedOnChunk = null;
   vi.resetModules();
 });
 
 describe('useProcess', () => {
   it('fetches handle on load', async () => {
     const { useProcess } = await import('./useProcess.js');
-    executeMock.mockResolvedValueOnce(RUNNING_HANDLE); // get_process
-    executeMock.mockResolvedValueOnce({ data: btoa('hello'), totalBytes: 5, from: 0 }); // read_process_output
+    executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
+    executeMock.mockResolvedValueOnce({ data: btoa('hello'), totalBytes: 5, from: 0 });
 
     const TestComponent = defineComponent({
       setup() {
@@ -92,7 +110,7 @@ describe('useProcess', () => {
     w.unmount();
   });
 
-  it('sends subscribe_process for running process', async () => {
+  it('starts watch_process stream for running process', async () => {
     const { useProcess } = await import('./useProcess.js');
     executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
@@ -105,11 +123,11 @@ describe('useProcess', () => {
     });
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
-    expect(wsSendMock).toHaveBeenCalledWith({ type: 'subscribe_process', processId: 'proc-1' });
+    expect(startMock).toHaveBeenCalled();
     w.unmount();
   });
 
-  it('does not subscribe for exited process', async () => {
+  it('does not start stream for exited process', async () => {
     const { useProcess } = await import('./useProcess.js');
     executeMock.mockResolvedValueOnce(EXITED_HANDLE);
     executeMock.mockResolvedValueOnce({ data: btoa('old output'), totalBytes: 10, from: 0 });
@@ -122,13 +140,11 @@ describe('useProcess', () => {
     });
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
-    expect(wsSendMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'subscribe_process' }),
-    );
+    expect(startMock).not.toHaveBeenCalled();
     w.unmount();
   });
 
-  it('appends chunk on process:output message', async () => {
+  it('appends chunk on process:output stream chunk', async () => {
     const { useProcess } = await import('./useProcess.js');
     executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
@@ -142,7 +158,7 @@ describe('useProcess', () => {
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
 
-    emit({
+    emitChunk({
       type: 'process:output',
       processId: 'proc-1',
       stream: 'stdout',
@@ -154,29 +170,7 @@ describe('useProcess', () => {
     w.unmount();
   });
 
-  it('ignores process:output for a different processId', async () => {
-    const { useProcess } = await import('./useProcess.js');
-    executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
-    executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
-
-    const TestComponent = defineComponent({
-      setup() {
-        return useProcess('proc-1');
-      },
-      template: '<div/>',
-    });
-    const w = mount(TestComponent);
-    await new Promise((r) => setTimeout(r, 0));
-    const before = (w.vm as any).chunks.length;
-
-    emit({ type: 'process:output', processId: 'proc-OTHER', stream: 'stdout', data: btoa('nope') });
-    await nextTick();
-
-    expect((w.vm as any).chunks.length).toBe(before);
-    w.unmount();
-  });
-
-  it('updates handle status on process:exited', async () => {
+  it('updates handle status on process:exited stream chunk', async () => {
     const { useProcess } = await import('./useProcess.js');
     executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
@@ -190,7 +184,7 @@ describe('useProcess', () => {
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
 
-    emit({ type: 'process:exited', processId: 'proc-1', exitCode: 0, signal: null });
+    emitChunk({ type: 'process:exited', processId: 'proc-1', exitCode: 0, signal: null });
     await nextTick();
 
     expect((w.vm as any).handle?.status).toBe('exited');
@@ -198,7 +192,7 @@ describe('useProcess', () => {
     w.unmount();
   });
 
-  it('sends unsubscribe_process on unmount', async () => {
+  it('cancels stream on unmount', async () => {
     const { useProcess } = await import('./useProcess.js');
     executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
     executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
@@ -211,10 +205,9 @@ describe('useProcess', () => {
     });
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
-    wsSendMock.mockClear();
 
     w.unmount();
-    expect(wsSendMock).toHaveBeenCalledWith({ type: 'unsubscribe_process', processId: 'proc-1' });
+    expect(cancelMock).toHaveBeenCalled();
   });
 
   it('stop() calls stop_process and updates handle', async () => {
@@ -225,9 +218,9 @@ describe('useProcess', () => {
       exitCode: null,
       exitedAt: '2026-01-01T00:01:00.000Z',
     };
-    executeMock.mockResolvedValueOnce(RUNNING_HANDLE); // get_process
-    executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 }); // read_output
-    executeMock.mockResolvedValueOnce(stoppedHandle); // stop_process
+    executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
+    executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
+    executeMock.mockResolvedValueOnce(stoppedHandle);
 
     const TestComponent = defineComponent({
       setup() {

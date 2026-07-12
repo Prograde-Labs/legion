@@ -143,6 +143,7 @@ watch(
     if (!id) return;
     await Promise.all([convStream.start(), activityStream.start()]);
   },
+  { immediate: true },
 );
 
 onMounted(async () => {

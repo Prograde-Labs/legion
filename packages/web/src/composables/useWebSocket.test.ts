@@ -25,6 +25,68 @@ describe('useWebSocket', () => {
     unsub(); // should not throw
   });
 
+  it('sets connectionId when connected frame arrives', async () => {
+    vi.resetModules();
+
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok-1', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({
+      router: { push: vi.fn() },
+    }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      readyState = 1;
+      listeners: Record<string, EventListener[]> = {};
+      sent: string[] = [];
+      constructor(public url: string) {
+        FakeWS.instances.push(this);
+      }
+      addEventListener(type: string, listener: EventListener) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      dispatchEvent(ev: Event) {
+        for (const l of this.listeners[ev.type] ?? []) l(ev);
+        return true;
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {
+        this.readyState = 3;
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+    api.connect();
+
+    const sock = FakeWS.instances[FakeWS.instances.length - 1];
+    expect(sock).toBeDefined();
+
+    // Dispatch open event
+    sock.dispatchEvent({ type: 'open' } as unknown as Event);
+
+    // Server sends connected frame with connectionId
+    sock.dispatchEvent({
+      type: 'message',
+      data: JSON.stringify({
+        type: 'connected',
+        participantId: 'op-1',
+        connectionId: 'conn-abc-123',
+      }),
+    } as unknown as Event);
+
+    expect(api.getConnectionId()).toBe('conn-abc-123');
+
+    vi.unstubAllGlobals();
+  });
+
   it('stops reconnecting and calls logout on close code 4401', async () => {
     vi.resetModules();
 

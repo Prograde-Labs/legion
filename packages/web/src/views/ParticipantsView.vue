@@ -60,6 +60,7 @@ watch(
   async (id) => {
     if (id) await participantStream.start();
   },
+  { immediate: true },
 );
 
 onMounted(async () => {
