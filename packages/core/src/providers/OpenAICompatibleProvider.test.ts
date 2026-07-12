@@ -344,6 +344,77 @@ describe('OpenAICompatibleProvider', () => {
 });
 
 describe('OpenAICompatibleProvider.stream()', () => {
+  it.each([
+    ['reasoning_content', 'first thought'],
+    ['reasoning', 'fallback thought'],
+  ] as const)('maps %s to reasoning_delta', async (field, value) => {
+    const reasoningChunk = JSON.stringify({
+      choices: [{ delta: { [field]: value }, finish_reason: null }],
+    });
+    const textChunk = JSON.stringify({
+      choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }],
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSseBody([`data: ${reasoningChunk}`, `data: ${textChunk}`, 'data: [DONE]']),
+      }),
+    );
+
+    const chunks: ProviderStreamChunk[] = [];
+    const provider = new OpenAICompatibleProvider();
+    for await (const chunk of provider.stream([], [], MODEL)) chunks.push(chunk);
+    vi.unstubAllGlobals();
+
+    expect(chunks.slice(0, 2)).toEqual([
+      { type: 'reasoning_delta', delta: value },
+      { type: 'text_delta', delta: 'answer' },
+    ]);
+  });
+
+  it('prefers reasoning_content and ignores malformed reasoning without suppressing output', async () => {
+    const lines = [
+      JSON.stringify({
+        choices: [
+          {
+            delta: {
+              reasoning_content: 'canonical',
+              reasoning: 'duplicate',
+              content: 'A',
+            },
+            finish_reason: null,
+          },
+        ],
+      }),
+      JSON.stringify({
+        choices: [
+          { delta: { reasoning_content: { bad: true }, content: 'B' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 2, completion_tokens: 3 },
+      }),
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSseBody(lines.map((line) => `data: ${line}`).concat('data: [DONE]')),
+      }),
+    );
+
+    const chunks: ProviderStreamChunk[] = [];
+    const provider = new OpenAICompatibleProvider();
+    for await (const chunk of provider.stream([], [], MODEL)) chunks.push(chunk);
+    vi.unstubAllGlobals();
+
+    expect(chunks.filter((chunk) => chunk.type !== 'done')).toEqual([
+      { type: 'reasoning_delta', delta: 'canonical' },
+      { type: 'text_delta', delta: 'A' },
+      { type: 'text_delta', delta: 'B' },
+    ]);
+    expect(chunks.at(-1)).toMatchObject({ type: 'done', stopReason: 'stop' });
+  });
+
   it('yields text_delta chunks from SSE stream', async () => {
     const data1 = JSON.stringify({
       choices: [{ delta: { content: 'Hello' }, finish_reason: null }],
