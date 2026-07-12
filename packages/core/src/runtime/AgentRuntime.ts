@@ -77,6 +77,7 @@ function buildProviderMessages(chain: MessageData[], systemPrompt: string): Prov
 
 interface TurnAccumulator {
   content: string;
+  reasoning: string;
   toolCalls: Map<number, { id: string; name: string; argsBuffer: string }>;
   stopReason?: ProviderStopReason;
   usage?: ProviderUsage;
@@ -84,12 +85,14 @@ interface TurnAccumulator {
 }
 
 function freshAccumulator(): TurnAccumulator {
-  return { content: '', toolCalls: new Map() };
+  return { content: '', reasoning: '', toolCalls: new Map() };
 }
 
 function accumulateChunk(acc: TurnAccumulator, chunk: ProviderStreamChunk): void {
   if (chunk.type === 'text_delta') {
     acc.content += chunk.delta;
+  } else if (chunk.type === 'reasoning_delta') {
+    acc.reasoning += chunk.delta;
   } else if (chunk.type === 'tool_call_start') {
     acc.toolCalls.set(chunk.index, { id: chunk.id, name: chunk.name, argsBuffer: '' });
   } else if (chunk.type === 'tool_call_args_delta') {
@@ -104,6 +107,7 @@ function accumulateChunk(acc: TurnAccumulator, chunk: ProviderStreamChunk): void
 
 function accumulatorToResponse(acc: TurnAccumulator): {
   content: string | null;
+  reasoning: string;
   toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
   stopReason: ProviderStopReason;
   usage?: ProviderUsage;
@@ -122,6 +126,7 @@ function accumulatorToResponse(acc: TurnAccumulator): {
   }));
   return {
     content: acc.content || null,
+    reasoning: acc.reasoning,
     toolCalls,
     stopReason: acc.stopReason ?? 'stop',
     usage: acc.usage,
@@ -228,6 +233,7 @@ export class AgentRuntime implements Runtime {
           iteration: i,
         });
 
+        yield { type: 'iteration_start', iteration: i };
         const acc = freshAccumulator();
         for await (const chunk of provider.stream(messages, providerTools, agent.model)) {
           accumulateChunk(acc, chunk);
@@ -239,7 +245,12 @@ export class AgentRuntime implements Runtime {
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
           const usage = await this.computeUsage(providerId, agent, response);
-          return { kind: 'response', content: response.content ?? '', usage };
+          return {
+            kind: 'response',
+            content: response.content ?? '',
+            ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+            ...(usage ? { usage } : {}),
+          };
         }
 
         const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
@@ -322,6 +333,7 @@ export class AgentRuntime implements Runtime {
           recipientId: this.participantId,
           role: 'assistant',
           content: response.content ?? '',
+          reasoning: response.reasoning || undefined,
           toolCalls: toolCallData,
           toolResults,
           usage,

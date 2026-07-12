@@ -7,7 +7,7 @@ import type { ApprovalLog } from '../auth/ApprovalLog.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 
 export type RuntimeResult =
-  | { kind: 'response'; content: string; usage?: MessageUsage }
+  | { kind: 'response'; content: string; reasoning?: string; usage?: MessageUsage }
   | { kind: 'pending_approval'; approvalRequests: PendingApproval[] }
   | { kind: 'void' };
 

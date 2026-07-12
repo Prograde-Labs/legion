@@ -13,7 +13,12 @@ import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { UsageCalculator } from '../providers/UsageCalculator.js';
-import type { Provider, ProviderStopReason, ProviderUsage } from '../providers/Provider.js';
+import type {
+  Provider,
+  ProviderMessage,
+  ProviderStopReason,
+  ProviderUsage,
+} from '../providers/Provider.js';
 import type { LLMChunk } from '@legion/types';
 import type { ModelPricing, PricingSource } from '../providers/PricingSource.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
@@ -44,15 +49,17 @@ class MockModelRouter {
   }
 }
 
-async function makeSetup(
-  providerResponses: Array<{
-    content: string | null;
-    toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
-    stopReason: ProviderStopReason;
-    usage?: ProviderUsage;
-    cost?: number;
-  }>,
-) {
+interface ScriptedProviderResponse {
+  content: string | null;
+  reasoning?: string;
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  stopReason: ProviderStopReason;
+  usage?: ProviderUsage;
+  cost?: number;
+  errorAfterChunks?: string;
+}
+
+async function makeSetup(providerResponses: ScriptedProviderResponse[]) {
   const storage = new MemoryStorage();
   const conversationStore = new FileConversationStore(storage);
 
@@ -96,13 +103,25 @@ async function makeSetup(
   });
 
   let responseIndex = 0;
+  const providerRequests: ProviderMessage[][] = [];
   const mockProvider: Provider = {
-    async *stream() {
-      const resp = providerResponses[responseIndex++] ?? {
+    async *stream(messages) {
+      providerRequests.push(
+        messages.map((message) => ({
+          ...message,
+          ...(message.toolCalls
+            ? { toolCalls: message.toolCalls.map((toolCall) => ({ ...toolCall })) }
+            : {}),
+        })),
+      );
+      const resp: ScriptedProviderResponse = providerResponses[responseIndex++] ?? {
         content: '[no more responses]',
         toolCalls: [],
         stopReason: 'stop',
       };
+      if (resp.reasoning) {
+        yield { type: 'reasoning_delta', delta: resp.reasoning };
+      }
       if (resp.content) {
         yield { type: 'text_delta', delta: resp.content };
       }
@@ -110,6 +129,9 @@ async function makeSetup(
         const tc = resp.toolCalls[i];
         yield { type: 'tool_call_start', index: i, id: tc.id, name: tc.name };
         yield { type: 'tool_call_args_delta', index: i, delta: JSON.stringify(tc.arguments) };
+      }
+      if (resp.errorAfterChunks) {
+        throw new Error(resp.errorAfterChunks);
       }
       yield { type: 'done', stopReason: resp.stopReason, usage: resp.usage };
     },
@@ -131,7 +153,7 @@ async function makeSetup(
     pendingApprovalRegistry: new PendingApprovalRegistry(),
   } as unknown as RuntimeContext;
 
-  return { context, thread, eventBus, inbound, router };
+  return { context, thread, eventBus, inbound, router, providerRequests };
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -139,13 +161,74 @@ async function makeSetup(
 describe('AgentRuntime', () => {
   it('returns the provider text response when no tools are called', async () => {
     const { context, inbound, router } = await makeSetup([
-      { content: 'I am happy to help!', toolCalls: [], stopReason: 'stop' },
+      {
+        content: 'I am happy to help!',
+        reasoning: 'brief analysis',
+        toolCalls: [],
+        stopReason: 'stop',
+      },
     ]);
     const calc = new UsageCalculator(new MockPricingSource({}), new Map());
     const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
-    expect(result).toEqual({ kind: 'response', content: 'I am happy to help!' });
+    expect(result).toEqual({
+      kind: 'response',
+      content: 'I am happy to help!',
+      reasoning: 'brief analysis',
+    });
     // No extra messages persisted — only the inbound message
+    expect(context.conversation.activeChain).toHaveLength(1);
+  });
+
+  it('omits reasoning when the provider returns none', async () => {
+    const { context, inbound, router } = await makeSetup([
+      { content: 'plain answer', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    expect(await runtime.handle(inbound, context)).toEqual({
+      kind: 'response',
+      content: 'plain answer',
+    });
+  });
+
+  it('does not send reasoning back to the provider on later iterations', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        reasoning: 'private reasoning',
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await runtime.handle(inbound, context);
+
+    expect(providerRequests).toHaveLength(2);
+    for (const message of providerRequests[1]) {
+      expect(message).not.toHaveProperty('reasoning');
+      expect(message.content ?? '').not.toContain('private reasoning');
+    }
+  });
+
+  it('does not return or persist partial reasoning from a failed iteration', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        reasoning: 'incomplete reasoning',
+        toolCalls: [],
+        stopReason: 'stop',
+        errorAfterChunks: 'stream interrupted',
+      },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    expect(await runtime.handle(inbound, context)).toEqual({
+      kind: 'response',
+      content: '[AgentRuntime error: stream interrupted]',
+    });
     expect(context.conversation.activeChain).toHaveLength(1);
   });
 
@@ -753,6 +836,51 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
 });
 
 describe('AgentRuntime.handleStream()', () => {
+  it('emits boundaries and keeps reasoning separate per iteration', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: 'calling tool',
+        reasoning: 'tool reasoning',
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      {
+        content: 'final answer',
+        reasoning: 'final reasoning',
+        toolCalls: [],
+        stopReason: 'stop',
+      },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+    const chunks: LLMChunk[] = [];
+    const gen = runtime.handleStream!(inbound, context);
+    let next = await gen.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await gen.next();
+    }
+
+    expect(chunks).toEqual([
+      { type: 'iteration_start', iteration: 0 },
+      { type: 'reasoning_delta', delta: 'tool reasoning' },
+      { type: 'text_delta', delta: 'calling tool' },
+      { type: 'tool_call_start', index: 0, id: 'tc-1', name: 'echo' },
+      { type: 'tool_call_args_delta', index: 0, delta: '{"text":"hello"}' },
+      { type: 'iteration_start', iteration: 1 },
+      { type: 'reasoning_delta', delta: 'final reasoning' },
+      { type: 'text_delta', delta: 'final answer' },
+    ]);
+    expect(next.value).toEqual({
+      kind: 'response',
+      content: 'final answer',
+      reasoning: 'final reasoning',
+    });
+    expect(context.conversation.activeChain[1]).toMatchObject({
+      content: 'calling tool',
+      reasoning: 'tool reasoning',
+    });
+  });
+
   it('yields LLM chunks during response', async () => {
     const { context, inbound, router } = await makeSetup([
       { content: 'Hello!', toolCalls: [], stopReason: 'stop' },
