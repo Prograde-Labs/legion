@@ -48,4 +48,43 @@ describe('MemoryStorage', () => {
     expect(await s.read('services/svc-1/state.json')).toBe('x');
     expect(await scoped.read('state.json')).toBe('x');
   });
+
+  it('coordinates locks for the same full key across scopes', async () => {
+    const storage = new MemoryStorage();
+    const first = storage.scope('shared');
+    const second = storage.scope('shared');
+    const events: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const firstOperation = first.withLock('state.json', async () => {
+      events.push('first:start');
+      await gate;
+      events.push('first:end');
+    });
+    const secondOperation = second.withLock('state.json', async () => {
+      events.push('second');
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(['first:start']);
+    release();
+    await Promise.all([firstOperation, secondOperation]);
+    expect(events).toEqual(['first:start', 'first:end', 'second']);
+  });
+
+  it('releases a lock when an operation throws', async () => {
+    const storage = new MemoryStorage();
+
+    await expect(
+      storage.withLock('state.json', async () => {
+        throw new Error('failed');
+      }),
+    ).rejects.toThrow('failed');
+    await expect(storage.withLock('state.json', async () => 'continued')).resolves.toBe(
+      'continued',
+    );
+  });
 });

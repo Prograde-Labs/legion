@@ -1,6 +1,9 @@
 import { access, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Storage } from './Storage.js';
+import { withKeyedLock } from './keyed-lock.js';
+
+const fileLocks = new Map<string, Promise<void>>();
 
 export class FileStorage implements Storage {
   constructor(
@@ -97,6 +100,10 @@ export class FileStorage implements Storage {
 
   async writeJson(key: string, value: unknown): Promise<void> {
     await this.write(key, JSON.stringify(value, null, 2));
+  }
+
+  async withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    return withKeyedLock(fileLocks, await this.checkedPath(key), operation);
   }
 
   scope(prefix: string): Storage {

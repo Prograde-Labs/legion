@@ -20,8 +20,6 @@ import type {
   ConversationStore,
 } from './ConversationStore.js';
 
-const storageLocks = new WeakMap<Storage, Map<string, Promise<void>>>();
-
 export class FileConversationStore implements ConversationStore {
   constructor(
     private storage: Storage,
@@ -35,6 +33,7 @@ export class FileConversationStore implements ConversationStore {
   async create(
     data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<ConversationData> {
+    const parentConversationId = data?.parentConversationId;
     const now = nowIso();
     const conversation: ConversationData = {
       ...data,
@@ -43,7 +42,14 @@ export class FileConversationStore implements ConversationStore {
       createdAt: now,
       updatedAt: now,
     };
-    const persisted = await this.persist(conversation);
+    const persisted = parentConversationId
+      ? await this.storage.withLock(this.key(parentConversationId), async () => {
+          if (!(await this.load(parentConversationId))) {
+            throw new ConversationNotFoundError(parentConversationId);
+          }
+          return this.persist(conversation);
+        })
+      : await this.persist(conversation);
     this.eventBus?.emit('conversation:created', {
       conversation: getConversationEventMetadata(persisted),
     });
@@ -63,7 +69,7 @@ export class FileConversationStore implements ConversationStore {
 
   /** Fixture-only whole-record replacement. Production code must use mutate(). */
   async replaceForTesting(data: ConversationData): Promise<void> {
-    await this.withLock(data.id, async () => {
+    await this.storage.withLock(this.key(data.id), async () => {
       await this.persist(structuredClone(data));
     });
   }
@@ -74,37 +80,12 @@ export class FileConversationStore implements ConversationStore {
     return conversation;
   }
 
-  private async withLock<T>(conversationId: string, operation: () => Promise<T>): Promise<T> {
-    let locks = storageLocks.get(this.storage);
-    if (!locks) {
-      locks = new Map();
-      storageLocks.set(this.storage, locks);
-    }
-    const previous = locks.get(conversationId) ?? Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const queued = previous.catch(() => undefined).then(() => current);
-    locks.set(conversationId, queued);
-    await previous.catch(() => undefined);
-    try {
-      return await operation();
-    } finally {
-      release();
-      if (locks.get(conversationId) === queued) {
-        locks.delete(conversationId);
-        if (locks.size === 0) storageLocks.delete(this.storage);
-      }
-    }
-  }
-
   async mutate(
     conversationId: string,
     callback: (conversation: ConversationData) => ConversationData | Promise<ConversationData>,
     guard?: ConversationMutationGuard,
   ): Promise<ConversationMutationResult> {
-    return this.withLock(conversationId, async () => {
+    return this.storage.withLock(this.key(conversationId), async () => {
       const current = await this.loadOrThrow(conversationId);
       if (
         guard?.expectedActiveBranchHead !== undefined &&
@@ -117,6 +98,9 @@ export class FileConversationStore implements ConversationStore {
 
       const before = structuredClone(current);
       const candidate = await callback(structuredClone(current));
+      if (candidate.id !== current.id) {
+        throw new Error('Conversation id is immutable');
+      }
       if (!isDeepStrictEqual(candidate.origin, current.origin)) {
         throw new Error('Conversation origin is immutable');
       }
@@ -212,7 +196,7 @@ export class FileConversationStore implements ConversationStore {
   }
 
   async delete(conversationId: string): Promise<void> {
-    await this.withLock(conversationId, async () => {
+    await this.storage.withLock(this.key(conversationId), async () => {
       const conversation = await this.load(conversationId);
       if (!conversation) return;
       const children = await this.listByParent(conversationId);

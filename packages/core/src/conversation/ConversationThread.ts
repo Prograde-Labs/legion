@@ -1,4 +1,5 @@
 import type { ConversationData, JSONValue, MessageData, ToolCallResult } from '@legion/types';
+import { ConversationNotFoundError } from '../errors/LegionError.js';
 import type { ConversationStore } from './ConversationStore.js';
 import { appendMessage, getActiveChain, type NewMessageInput } from './conversation-ops.js';
 
@@ -39,12 +40,18 @@ export class ConversationThread {
    * swap pending_approval results with resolved outcomes after an approval decision.
    */
   async updateToolResults(messageId: string, toolResults: ToolCallResult[]): Promise<void> {
-    await this.store.updateMessage(this.data.id, messageId, { toolResults });
-    // Keep local data in sync so activeChain reflects the update immediately.
-    const msg = this.data.messages[messageId];
-    if (msg) {
-      this.data.messages[messageId] = { ...msg, toolResults };
-    }
+    const result = await this.store.mutate(this.data.id, (conversation) => {
+      const message = conversation.messages[messageId];
+      if (!message) throw new ConversationNotFoundError(conversation.id, messageId);
+      return {
+        ...conversation,
+        messages: {
+          ...conversation.messages,
+          [messageId]: { ...message, toolResults },
+        },
+      };
+    });
+    this.data = result.after;
   }
 
   async updateMiddlewareState(

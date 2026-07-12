@@ -80,6 +80,49 @@ describe('FileStorage', () => {
     expect(await new FileStorage(dir).read('services/svc-1/state.json')).toBe('x');
   });
 
+  it('coordinates locks by absolute path across instances and scopes', async () => {
+    const first = new FileStorage(dir).scope('shared');
+    const second = new FileStorage(join(dir, 'shared'));
+    const events: string[] = [];
+    let operationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      operationStarted = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const firstOperation = first.withLock('state.json', async () => {
+      events.push('first:start');
+      operationStarted();
+      await gate;
+      events.push('first:end');
+    });
+    await started;
+    const secondOperation = second.withLock('state.json', async () => {
+      events.push('second');
+    });
+
+    expect(events).toEqual(['first:start']);
+    release();
+    await Promise.all([firstOperation, secondOperation]);
+    expect(events).toEqual(['first:start', 'first:end', 'second']);
+  });
+
+  it('releases a lock when an operation throws', async () => {
+    const storage = new FileStorage(dir);
+
+    await expect(
+      storage.withLock('state.json', async () => {
+        throw new Error('failed');
+      }),
+    ).rejects.toThrow('failed');
+    await expect(storage.withLock('state.json', async () => 'continued')).resolves.toBe(
+      'continued',
+    );
+  });
+
   it('rejects keys and scopes outside the root', async () => {
     const s = new FileStorage(dir);
     const outsideKey = `../${basename(dir)}-outside`;

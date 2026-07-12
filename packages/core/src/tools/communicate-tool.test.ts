@@ -36,6 +36,14 @@ async function setup(dir: string) {
   });
   const collective = await Collective.load(storage);
   const store = new FileConversationStore(storage);
+  await store.replaceForTesting({
+    id: 'seed',
+    schemaVersion: '2.0',
+    activeBranchHead: '',
+    messages: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
   const eventBus = new EventBus();
   const registry = new RuntimeRegistry();
   registry.registerFactory('mock', (id) => new MockRuntime(id));
@@ -200,6 +208,14 @@ describe('communicate tool', () => {
     });
     const collective = await Collective.load(storage);
     const storeB = new FileConversationStore(storage);
+    await storeB.replaceForTesting({
+      id: 'seed',
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     const eventBus = new EventBus();
     const registry = new RuntimeRegistry();
 

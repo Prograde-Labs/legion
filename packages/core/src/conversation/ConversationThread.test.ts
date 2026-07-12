@@ -111,4 +111,34 @@ describe('ConversationThread', () => {
     });
     expect((await store.load(data.id))?.middlewareState).toEqual(thread.data.middlewareState);
   });
+
+  it('preserves fresh conversation data when updating tool results', async () => {
+    const data = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const thread = new ConversationThread(data, store);
+    const original = await thread.append({
+      senderId: 'u',
+      recipientId: 'a',
+      role: 'user',
+      content: 'first',
+    });
+    const otherStore = new FileConversationStore(new FileStorage(dir));
+    const fresh = await otherStore.load(data.id);
+    const otherThread = new ConversationThread(fresh!, otherStore);
+    const concurrent = await otherThread.append({
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'second',
+    });
+
+    await thread.updateToolResults(original.id, [
+      { id: 'call-1', name: 'tool', result: { status: 'success', data: 'updated' } },
+    ]);
+
+    expect(thread.data.activeBranchHead).toBe(concurrent.id);
+    expect(thread.data.messages[concurrent.id]?.content).toBe('second');
+    expect(thread.data.messages[original.id]?.toolResults).toEqual([
+      { id: 'call-1', name: 'tool', result: { status: 'success', data: 'updated' } },
+    ]);
+  });
 });
