@@ -328,12 +328,14 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
       <template v-else>
         <div v-for="msg in messages" :key="msg.id" class="text-sm text-slate-300">
           <span class="text-slate-500 text-xs">{{ msg.senderId }}</span>
-          <ReasoningDisclosure
-            v-if="msg.role === 'assistant' && msg.reasoning?.trim()"
-            :content="msg.reasoning.trim()"
-            :streaming="false"
-          />
-          <p class="mt-0.5">{{ msg.content }}</p>
+          <div class="mt-0.5 max-w-[80%] rounded bg-navy-800 px-3 py-2">
+            <ReasoningDisclosure
+              v-if="msg.role === 'assistant' && msg.reasoning?.trim()"
+              :content="msg.reasoning.trim()"
+              :streaming="false"
+            />
+            <p v-if="msg.content?.trim()">{{ msg.content }}</p>
+          </div>
         </div>
       </template>
     </div>

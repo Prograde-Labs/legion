@@ -22,6 +22,18 @@ vi.mock('../../composables/useConversation.js', () => ({
         status: 'active',
         timestamp: '2026-01-01T00:00:00Z',
       },
+      {
+        id: 'm2',
+        parentId: 'm1',
+        conversationId: 'c1',
+        senderId: 'agent-1',
+        recipientId: 'viewer',
+        role: 'assistant',
+        content: '  ',
+        reasoning: 'reasoning only',
+        status: 'active',
+        timestamp: '2026-01-01T00:00:01Z',
+      },
     ]),
     subThreads: ref({}),
     loading: ref(false),
@@ -50,8 +62,25 @@ describe('ConversationThread', () => {
     });
 
     const details = wrapper.get('details[data-reasoning]');
+    const bubble = details.element.parentElement;
     expect(details.attributes('open')).toBeUndefined();
     expect(details.text()).toContain('visible reasoning');
     expect(wrapper.text()).toContain('visible answer');
+    expect([...(bubble?.classList ?? [])]).toEqual(
+      expect.arrayContaining(['mt-0.5', 'max-w-[80%]', 'rounded', 'bg-navy-800', 'px-3', 'py-2']),
+    );
+  });
+
+  it('shows read-only reasoning without an empty answer paragraph', () => {
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'read',
+        myParticipantId: 'viewer',
+      },
+    });
+
+    expect(wrapper.findAll('details[data-reasoning]')).toHaveLength(2);
+    expect(wrapper.findAll('p').some((paragraph) => paragraph.text().trim() === '')).toBe(false);
   });
 });
