@@ -34,6 +34,7 @@ export function useConversation(conversationId: string | null) {
   const isThinkingLocal = ref(false); // set when user sends in this tab
   const iterationFired = ref(false); // set when iteration event arrives
   const streamingText = ref('');
+  const streamingReasoning = ref('');
   const sentConversationId = ref<string | null>(null);
   let loadSeq = 0; // prevents stale concurrent load() responses from overwriting newer data
 
@@ -122,8 +123,13 @@ export function useConversation(conversationId: string | null) {
   const communicateStream = useToolStream('communicate', () => pendingCommunicateArgs, {
     cancelOnUnmount: false,
     onChunk: (chunk: StreamChunk) => {
-      if (chunk.type === 'text_delta') {
-        streamingText.value += (chunk as { delta: string }).delta;
+      if (chunk.type === 'iteration_start') {
+        streamingText.value = '';
+        streamingReasoning.value = '';
+      } else if (chunk.type === 'reasoning_delta') {
+        streamingReasoning.value += chunk.delta;
+      } else if (chunk.type === 'text_delta') {
+        streamingText.value += chunk.delta;
       }
     },
   });
@@ -139,6 +145,7 @@ export function useConversation(conversationId: string | null) {
       conversationId: conversationId ?? undefined,
     };
     streamingText.value = '';
+    streamingReasoning.value = '';
     markSent();
 
     // Optimistic user message for new conversation (no server to load from yet)
@@ -168,6 +175,7 @@ export function useConversation(conversationId: string | null) {
     (done) => {
       if (!done) return;
       streamingText.value = '';
+      streamingReasoning.value = '';
       const result = communicateStream.result.value as {
         data?: { conversationId?: string };
       } | null;
@@ -189,6 +197,7 @@ export function useConversation(conversationId: string | null) {
           isThinkingLocal.value = false;
           iterationFired.value = false;
           streamingText.value = '';
+          streamingReasoning.value = '';
           void load();
         }
       },
@@ -232,6 +241,7 @@ export function useConversation(conversationId: string | null) {
     error,
     isThinking,
     streamingText,
+    streamingReasoning,
     sentConversationId,
     load,
     markSent,

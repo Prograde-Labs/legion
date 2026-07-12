@@ -1,16 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
+import type { StreamChunk } from '@legion/types';
+
+let communicateOnChunk: ((chunk: StreamChunk) => void) | undefined;
+let conversationOnChunk: ((chunk: StreamChunk) => void) | undefined;
+const streamDone = ref(false);
+const streamResult = ref<unknown>(null);
 
 vi.mock('./useToolStream.js', () => ({
-  useToolStream: vi.fn(() => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    cancel: vi.fn().mockResolvedValue(undefined),
-    chunks: { value: [] },
-    done: { value: false },
-    error: { value: null },
-    conversationId: { value: null },
-    result: { value: null },
-  })),
+  useToolStream: vi.fn(
+    (name: string, _args: unknown, options?: { onChunk?: (chunk: StreamChunk) => void }) => {
+      if (name === 'communicate') communicateOnChunk = options?.onChunk;
+      if (name === 'watch_conversation') conversationOnChunk = options?.onChunk;
+      return {
+        start: vi.fn().mockResolvedValue(undefined),
+        cancel: vi.fn().mockResolvedValue(undefined),
+        chunks: ref([]),
+        done: streamDone,
+        error: ref(null),
+        conversationId: ref(null),
+        result: streamResult,
+      };
+    },
+  ),
 }));
 vi.mock('./useWebSocket.js', () => ({
   useWebSocket: vi.fn(() => ({
@@ -64,6 +76,10 @@ vi.mock('./useExecute.js', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  communicateOnChunk = undefined;
+  conversationOnChunk = undefined;
+  streamDone.value = false;
+  streamResult.value = null;
 });
 
 describe('useConversation', () => {
@@ -138,5 +154,64 @@ describe('useConversation', () => {
       conversationId: 'c1',
       agentId: 'agent-x',
     });
+  });
+
+  it('tracks reasoning separately and resets both buffers at iteration boundaries', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { streamingText, streamingReasoning } = useConversation(null);
+
+    communicateOnChunk?.({ type: 'iteration_start', iteration: 0 });
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'tool thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'tool preface' });
+
+    expect(streamingReasoning.value).toBe('tool thought');
+    expect(streamingText.value).toBe('tool preface');
+
+    communicateOnChunk?.({ type: 'iteration_start', iteration: 1 });
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'final thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'final answer' });
+
+    expect(streamingReasoning.value).toBe('final thought');
+    expect(streamingText.value).toBe('final answer');
+  });
+
+  it('clears temporary reasoning and text when stream completes', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { streamingText, streamingReasoning } = useConversation(null);
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'answer' });
+
+    streamDone.value = true;
+    await nextTick();
+
+    expect(streamingReasoning.value).toBe('');
+    expect(streamingText.value).toBe('');
+  });
+
+  it('clears temporary reasoning and text when beginning a new send', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { send, streamingText, streamingReasoning } = useConversation(null);
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'old thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'old answer' });
+
+    await send('agent-1', 'next question', 'operator');
+
+    expect(streamingReasoning.value).toBe('');
+    expect(streamingText.value).toBe('');
+  });
+
+  it('clears temporary reasoning and text when a message is delivered', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { streamingText, streamingReasoning } = useConversation('c1');
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'answer' });
+
+    conversationOnChunk?.({
+      type: 'message:delivered',
+      data: { conversationId: 'c1', recipientId: 'operator', messageId: 'm2' },
+    });
+
+    expect(streamingReasoning.value).toBe('');
+    expect(streamingText.value).toBe('');
   });
 });
