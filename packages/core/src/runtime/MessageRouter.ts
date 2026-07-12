@@ -115,9 +115,8 @@ export class MessageRouter implements MessageRouterPort {
       content,
       usage,
     });
-    this.eventBus.emit('message:sent', {
+    this.eventBus.emit('message:delivered', {
       conversationId: thread.id,
-      senderId,
       recipientId,
       messageId: responseMsg.id,
     });

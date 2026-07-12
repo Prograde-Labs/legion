@@ -9,6 +9,7 @@ vi.mock('./useToolStream.js', () => ({
     done: { value: false },
     error: { value: null },
     conversationId: { value: null },
+    result: { value: null },
   })),
 }));
 vi.mock('./useWebSocket.js', () => ({
@@ -85,12 +86,17 @@ describe('useConversation', () => {
     expect(messages.value[1].role).toBe('assistant');
   });
 
-  it('returns empty messages and no streams for null id', async () => {
+  it('returns empty messages and only communicate stream for null id', async () => {
     const { useConversation } = await import('./useConversation.js');
     const { useToolStream } = await import('./useToolStream.js');
     const { messages } = useConversation(null);
     expect(messages.value).toHaveLength(0);
-    expect(useToolStream).not.toHaveBeenCalled();
+    expect(useToolStream).toHaveBeenCalledTimes(1);
+    expect(useToolStream).toHaveBeenCalledWith(
+      'communicate',
+      expect.any(Function),
+      expect.objectContaining({ cancelOnUnmount: false }),
+    );
   });
 
   it('thinking is false when last chain message is assistant', async () => {

@@ -2,7 +2,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
-import type { MessageData } from '@legion/types';
+import type { MessageData, StreamChunk } from '@legion/types';
 
 export type MessageWithAlternates = MessageData & {
   alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
@@ -33,6 +33,8 @@ export function useConversation(conversationId: string | null) {
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
   const iterationFired = ref(false); // set when iteration event arrives
+  const streamingText = ref('');
+  const sentConversationId = ref<string | null>(null);
   let loadSeq = 0; // prevents stale concurrent load() responses from overwriting newer data
 
   const isThinking = computed(() => {
@@ -107,6 +109,56 @@ export function useConversation(conversationId: string | null) {
     await load();
   }
 
+  let pendingCommunicateArgs: {
+    to: string;
+    message: string;
+    conversationId?: string;
+    replyTo?: string;
+  } = {
+    to: '',
+    message: '',
+  };
+
+  const communicateStream = useToolStream('communicate', () => pendingCommunicateArgs, {
+    cancelOnUnmount: false,
+    onChunk: (chunk: StreamChunk) => {
+      if (chunk.type === 'text_delta') {
+        streamingText.value += (chunk as { delta: string }).delta;
+      }
+    },
+  });
+
+  async function send(
+    targetId: string,
+    message: string,
+    _myParticipantId: string,
+  ): Promise<string | null> {
+    pendingCommunicateArgs = {
+      to: targetId,
+      message,
+      conversationId: conversationId ?? undefined,
+    };
+    streamingText.value = '';
+    markSent();
+    await communicateStream.start();
+    return conversationId;
+  }
+
+  watch(
+    () => communicateStream.done.value,
+    (done) => {
+      if (!done) return;
+      streamingText.value = '';
+      const result = communicateStream.result.value as {
+        data?: { conversationId?: string };
+      } | null;
+      const newConvId = result?.data?.conversationId;
+      if (newConvId && !conversationId) {
+        sentConversationId.value = newConvId;
+      }
+    },
+  );
+
   if (conversationId) {
     const ws = useWebSocket();
 
@@ -117,6 +169,7 @@ export function useConversation(conversationId: string | null) {
         } else if (chunk.type === 'message:delivered') {
           isThinkingLocal.value = false;
           iterationFired.value = false;
+          streamingText.value = '';
           void load();
         }
       },
@@ -159,8 +212,11 @@ export function useConversation(conversationId: string | null) {
     loading,
     error,
     isThinking,
+    streamingText,
+    sentConversationId,
     load,
     markSent,
+    send,
     editMessage,
     generate,
     pruneMessage,

@@ -5,6 +5,7 @@ import type { StreamChunk } from '@legion/types';
 
 export interface UseToolStreamOptions<TChunk extends StreamChunk> {
   onChunk?: (chunk: TChunk) => void;
+  cancelOnUnmount?: boolean;
 }
 
 export interface UseToolStreamReturn<TChunk extends StreamChunk> {
@@ -14,6 +15,7 @@ export interface UseToolStreamReturn<TChunk extends StreamChunk> {
   done: Ref<boolean>;
   error: Ref<string | null>;
   conversationId: Ref<string | null>;
+  result: Ref<unknown>;
 }
 
 /**
@@ -39,6 +41,7 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
   const done = ref(false);
   const error = ref<string | null>(null);
   const conversationId = ref<string | null>(null);
+  const result = ref<unknown>(null);
 
   let activeStreamId: string | null = null;
   let unregister: (() => void) | null = null;
@@ -91,6 +94,7 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
     unregister = ws.onStreamChunk(activeStreamId, (chunk: StreamChunk) => {
       if (chunk.type === 'stream:done') {
         done.value = true;
+        result.value = (chunk as { result?: unknown }).result;
         cleanup();
         return;
       }
@@ -135,8 +139,8 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
   }
 
   onUnmounted(() => {
-    void cancel();
+    if (options.cancelOnUnmount !== false) void cancel();
   });
 
-  return { start, cancel, chunks, done, error, conversationId };
+  return { start, cancel, chunks, done, error, conversationId, result };
 }

@@ -111,17 +111,20 @@ describe('MessageRouter: synchronous send', () => {
     expect(result.error).toMatch(/ghost/);
   });
 
-  it('emits message:sent for inbound and response', async () => {
+  it('emits message:sent for inbound and message:delivered for response', async () => {
     const { router, baseContext, eventBus } = await setup(dir);
     let sent = 0;
+    let delivered = 0;
     eventBus.on('message:sent', () => (sent += 1));
+    eventBus.on('message:delivered', () => (delivered += 1));
     await router.send({
       senderId: 'op',
       recipientId: 'mock-1',
       message: 'hello',
       context: baseContext,
     });
-    expect(sent).toBe(2);
+    expect(sent).toBe(1);
+    expect(delivered).toBe(1);
   });
 
   it('stamps parentConversationId and parentToolCallId on child when caller has a conversation', async () => {

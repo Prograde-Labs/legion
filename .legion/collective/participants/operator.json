@@ -34,7 +34,13 @@
     "compact_conversation": "auto",
     "switch_branch": "auto",
     "edit_message": "auto",
-    "generate": "auto"
+    "generate": "auto",
+    "cancel_stream": "auto",
+    "watch_conversations": "auto",
+    "watch_participants": "auto",
+    "watch_activity": "auto",
+    "watch_conversation": "auto",
+    "watch_process": "auto"
   },
   "operator": true,
   "protected": true,

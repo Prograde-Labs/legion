@@ -61,6 +61,7 @@ describe('integration: end-to-end mock loop', () => {
     const events: string[] = [];
     eventBus.on('conversation:created', () => events.push('conversation:created'));
     eventBus.on('message:sent', () => events.push('message:sent'));
+    eventBus.on('message:delivered', () => events.push('message:delivered'));
 
     const operatorContext = {
       participant: collective.getOrThrow('operator'),
@@ -97,8 +98,9 @@ describe('integration: end-to-end mock loop', () => {
       { sender: 'assistant', content: 'Hello, operator!' },
     ]);
 
-    // Events fired: one creation + two sends.
+    // Events fired: one creation + one sent (inbound) + one delivered (response).
     expect(events.filter((e) => e === 'conversation:created').length).toBe(1);
-    expect(events.filter((e) => e === 'message:sent').length).toBe(2);
+    expect(events.filter((e) => e === 'message:sent').length).toBe(1);
+    expect(events.filter((e) => e === 'message:delivered').length).toBe(1);
   });
 });
