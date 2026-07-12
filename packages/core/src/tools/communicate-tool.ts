@@ -62,7 +62,11 @@ export const communicateTool: StreamingTool = {
     }
     return {
       status: 'success',
-      data: { conversationId: result.conversationId, response: result.response },
+      data: {
+        conversationId: result.conversationId,
+        response: result.response,
+        status: result.status,
+      },
     };
   },
 };

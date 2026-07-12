@@ -177,6 +177,8 @@ export class OpenAICompatibleProvider implements Provider {
     let buffer = '';
 
     let usage: OAIUsage | undefined;
+    let finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter' | null = null;
+    let streamDone = false;
 
     try {
       while (true) {
@@ -194,6 +196,7 @@ export class OpenAICompatibleProvider implements Provider {
 
           const raw = trimmed.slice(5).trim();
           if (raw === '[DONE]') {
+            streamDone = true;
             break;
           }
 
@@ -227,34 +230,38 @@ export class OpenAICompatibleProvider implements Provider {
             }
 
             if (choice.finish_reason) {
-              const stopReason: ProviderStopReason =
-                choice.finish_reason === 'tool_calls'
-                  ? 'tool_calls'
-                  : choice.finish_reason === 'length'
-                    ? 'max_tokens'
-                    : 'stop';
-
-              yield {
-                type: 'done',
-                stopReason,
-                usage: usage
-                  ? {
-                      inputTokens: usage.prompt_tokens,
-                      outputTokens: usage.completion_tokens,
-                      reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
-                      cacheReadInputTokens:
-                        usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens,
-                      cacheWriteInputTokens: usage.cache_creation_input_tokens,
-                    }
-                  : undefined,
-              };
+              finishReason = choice.finish_reason;
             }
           }
         }
+        if (streamDone) break;
       }
     } finally {
       reader.releaseLock();
     }
+
+    const stopReason: ProviderStopReason =
+      finishReason === 'tool_calls'
+        ? 'tool_calls'
+        : finishReason === 'length'
+          ? 'max_tokens'
+          : 'stop';
+
+    yield {
+      type: 'done',
+      stopReason,
+      usage: usage
+        ? {
+            inputTokens: usage.prompt_tokens,
+            outputTokens: usage.completion_tokens,
+            reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+            cacheReadInputTokens:
+              usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens,
+            cacheWriteInputTokens: usage.cache_creation_input_tokens,
+          }
+        : undefined,
+      cost: undefined,
+    };
   }
 
   async listModels(): Promise<ProviderModel[]> {

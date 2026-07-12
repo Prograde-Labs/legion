@@ -92,6 +92,7 @@ describe('communicate tool', () => {
     );
     expect(result.status).toBe('success');
     expect((result.data as { conversationId: string }).conversationId).toBeDefined();
+    expect((result.data as { status: string }).status).toBe('dispatched');
     expect((result.data as { response?: string }).response).toBeUndefined();
     await router.drain();
   });

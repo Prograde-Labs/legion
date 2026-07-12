@@ -419,6 +419,53 @@ describe('OpenAICompatibleProvider.stream()', () => {
     expect(chunks.some((c) => c.type === 'tool_call_start')).toBe(true);
     expect(chunks.some((c) => c.type === 'tool_call_args_delta')).toBe(true);
   });
+
+  it('captures usage from a separate final chunk with empty choices (real OpenAI format)', async () => {
+    const textChunk = JSON.stringify({
+      choices: [{ delta: { content: 'Hello' }, finish_reason: null }],
+    });
+    const finishChunk = JSON.stringify({
+      choices: [{ delta: {}, finish_reason: 'stop' }],
+    });
+    const usageChunk = JSON.stringify({
+      choices: [],
+      usage: { prompt_tokens: 10, completion_tokens: 5 },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: makeSseBody([
+          `data: ${textChunk}`,
+          `data: ${finishChunk}`,
+          `data: ${usageChunk}`,
+          'data: [DONE]',
+        ]),
+      }),
+    );
+
+    const provider = new OpenAICompatibleProvider('https://api.openai.com/v1', 'test-key');
+    const chunks: ProviderStreamChunk[] = [];
+    for await (const chunk of provider.stream([{ role: 'user', content: 'hi' }], [], {
+      model: 'gpt-4o',
+    })) {
+      chunks.push(chunk);
+    }
+    vi.unstubAllGlobals();
+
+    const done = chunks.find((c) => c.type === 'done');
+    expect(done).toBeDefined();
+    const doneChunk = done as {
+      type: 'done';
+      stopReason: string;
+      usage?: { inputTokens: number; outputTokens: number };
+    };
+    expect(doneChunk.stopReason).toBe('stop');
+    expect(doneChunk.usage).toBeDefined();
+    expect(doneChunk.usage!.inputTokens).toBe(10);
+    expect(doneChunk.usage!.outputTokens).toBe(5);
+  });
 });
 
 describe('Provider interface: stream() contract', () => {
