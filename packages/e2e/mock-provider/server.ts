@@ -98,7 +98,20 @@ export function startMockProvider(port: number): Promise<MockProvider> {
         }
 
         if (req.method === 'POST' && req.url === '/v1/chat/completions') {
-          const { messages = [] } = JSON.parse(_body) as ChatRequest;
+          let chatRequest: ChatRequest;
+          try {
+            chatRequest = JSON.parse(_body) as ChatRequest;
+          } catch {
+            res.setHeader('Content-Type', 'application/json');
+            res.writeHead(400);
+            res.end(
+              JSON.stringify({
+                error: { message: 'invalid JSON', type: 'invalid_request_error' },
+              }),
+            );
+            return;
+          }
+          const { messages = [] } = chatRequest;
           const isReasoningScenario = messages.some(
             (message) =>
               message.role === 'user' && message.content?.includes('E2E_REASONING_SCENARIO'),

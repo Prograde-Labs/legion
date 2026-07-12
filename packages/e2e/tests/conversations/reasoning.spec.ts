@@ -17,6 +17,20 @@ async function executeBuffered<T = unknown>(
   return response.json() as Promise<ExecuteResult<T>>;
 }
 
+test('rejects malformed mock chat requests without stopping the provider', async ({
+  connInfo,
+  request,
+}) => {
+  const malformedResponse = await request.post(`${connInfo.mockProviderUrl}/v1/chat/completions`, {
+    headers: { 'Content-Type': 'application/json' },
+    data: Buffer.from('{'),
+  });
+  expect(malformedResponse.status()).toBe(400);
+
+  const modelsResponse = await request.get(`${connInfo.mockProviderUrl}/v1/models`);
+  expect(modelsResponse.status()).toBe(200);
+});
+
 test.describe('Reasoning streams', () => {
   let agentName: string;
   let operatorToken: string;
