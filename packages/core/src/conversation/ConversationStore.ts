@@ -6,7 +6,10 @@ import type {
 } from '@legion/types';
 
 export interface ConversationStore {
-  create(data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>): Promise<ConversationData>;
+  create(
+    data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>,
+    guard?: ConversationMutationGuard,
+  ): Promise<ConversationData>;
   load(conversationId: string): Promise<ConversationData | null>;
   mutate(
     conversationId: string,

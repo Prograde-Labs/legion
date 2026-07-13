@@ -123,23 +123,27 @@ export class MessageRouter implements MessageRouterPort {
       parentToolCallId?: string;
       origin?: ConversationOrigin;
     },
+    signal?: AbortSignal,
   ): Promise<ConversationThread> {
     if (conversationId) {
       const existing = await this.store.load(conversationId);
       if (existing) return new ConversationThread(existing, this.store);
     }
-    const created = await this.store.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-      parentConversationId: creation?.origin
-        ? creation.origin.parentConversationId
-        : creation?.parentConversationId,
-      parentToolCallId: creation?.origin
-        ? creation.origin.parentToolCallId
-        : creation?.parentToolCallId,
-      origin: creation?.origin,
-    });
+    const created = await this.store.create(
+      {
+        schemaVersion: '2.0',
+        activeBranchHead: '',
+        messages: {},
+        parentConversationId: creation?.origin
+          ? creation.origin.parentConversationId
+          : creation?.parentConversationId,
+        parentToolCallId: creation?.origin
+          ? creation.origin.parentToolCallId
+          : creation?.parentToolCallId,
+        origin: creation?.origin,
+      },
+      { signal },
+    );
     return new ConversationThread(created, this.store);
   }
 
@@ -383,7 +387,31 @@ export class MessageRouter implements MessageRouterPort {
     return this.sendInner(opts);
   }
 
-  async *sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+  sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+    const controller = new AbortController();
+    const signal = opts.context.signal
+      ? AbortSignal.any([opts.context.signal, controller.signal])
+      : controller.signal;
+    const inner = this.sendStreamWithController({ ...opts, context: { ...opts.context, signal } });
+    return {
+      next: (...args) => inner.next(...args),
+      return: (value) => {
+        controller.abort();
+        return inner.return(value as never);
+      },
+      throw: (error) => {
+        controller.abort();
+        return inner.throw(error);
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
+  }
+
+  private async *sendStreamWithController(
+    opts: SendOptions,
+  ): AsyncGenerator<LLMChunk, MessageRouterResult> {
     let release: (() => void) | undefined;
     let lockedConversationId: string | undefined;
     const ensureLock = async (conversationId: string) => {
@@ -447,11 +475,15 @@ export class MessageRouter implements MessageRouterPort {
       parentConversationId,
       parentToolCallId,
     };
-    const thread = await this.getThread(opts.conversationId, {
-      parentConversationId,
-      parentToolCallId,
-      origin,
-    });
+    const thread = await this.getThread(
+      opts.conversationId,
+      {
+        parentConversationId,
+        parentToolCallId,
+        origin,
+      },
+      opts.context.signal,
+    );
     await ensureLock(thread.id);
 
     const inbound = await thread.append(

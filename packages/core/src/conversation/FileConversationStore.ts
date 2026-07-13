@@ -32,7 +32,9 @@ export class FileConversationStore implements ConversationStore {
 
   async create(
     data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>,
+    guard?: ConversationMutationGuard,
   ): Promise<ConversationData> {
+    if (guard?.signal?.aborted) throw new Error('Conversation creation aborted before persistence');
     const parentConversationId = data?.parentConversationId;
     const now = nowIso();
     const conversation: ConversationData = {
@@ -42,14 +44,19 @@ export class FileConversationStore implements ConversationStore {
       createdAt: now,
       updatedAt: now,
     };
+    const persist = async () => {
+      if (guard?.signal?.aborted)
+        throw new Error('Conversation creation aborted before persistence');
+      return this.persist(conversation);
+    };
     const persisted = parentConversationId
       ? await this.storage.withLock(this.key(parentConversationId), async () => {
           if (!(await this.load(parentConversationId))) {
             throw new ConversationNotFoundError(parentConversationId);
           }
-          return this.persist(conversation);
+          return persist();
         })
-      : await this.persist(conversation);
+      : await persist();
     this.eventBus?.emit('conversation:created', {
       conversation: getConversationEventMetadata(persisted),
     });

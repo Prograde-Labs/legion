@@ -30,7 +30,10 @@ export class ConversationThread {
     input: NewMessageInput,
     options?: { reactivate?: boolean; signal?: AbortSignal },
   ): Promise<MessageData> {
-    const signal = options?.signal ?? this.appendSignal;
+    const signals = [this.appendSignal, options?.signal].filter(
+      (candidate): candidate is AbortSignal => candidate !== undefined,
+    );
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
     const doAppend = async () => {
       if (signal?.aborted) throw new Error('Conversation append aborted before persistence');
       const result = await this.store.mutate(
