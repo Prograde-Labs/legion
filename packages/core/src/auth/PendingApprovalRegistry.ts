@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { MiddlewareCheckpoint, ToolResult } from '@legion/types';
+import type { MiddlewareActionResult, MiddlewareCheckpoint, ToolResult } from '@legion/types';
 import { LegionError } from '../errors/LegionError.js';
 import { cloneJsonSafe } from '../middleware/json.js';
 import type { Storage } from '../storage/Storage.js';
@@ -46,8 +46,29 @@ export type ResumeClaim =
   | { status: 'in_progress'; record: ApprovalRecord }
   | { status: 'acknowledged'; record: ApprovalRecord };
 
+export interface MiddlewareActionInput {
+  operationId: string;
+  conversationId: string;
+  participantId: string;
+  instanceId: string;
+  requestId: string;
+  tool: string;
+  args: unknown;
+}
+
+export interface MiddlewareActionRecord extends MiddlewareActionInput {
+  lifecycle: 'executing' | 'completed';
+  result?: MiddlewareActionResult;
+  createdAt: string;
+}
+
+export type MiddlewareActionClaim =
+  | { kind: 'execute' }
+  | { kind: 'completed'; result: MiddlewareActionResult };
+
 interface RegistryData {
   records: Record<string, ApprovalRecord>;
+  middlewareActions: Record<string, MiddlewareActionRecord>;
 }
 
 interface LegacyRegistryData {
@@ -58,6 +79,7 @@ interface LegacyRegistryData {
 const STORAGE_KEY = 'pending-approvals/registry.json';
 const INTERRUPTION_ERROR =
   'Interrupted middleware tool execution; outcome unknown and tool was not retried';
+const ACTION_INTERRUPTION_ERROR = 'Middleware tool outcome unknown and tool was not retried';
 
 function requiredString(value: unknown, name: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -102,6 +124,7 @@ function snapshotDecision(value: ApprovalDecision): ApprovalDecision {
 }
 
 function snapshotResult(value: ToolResult): ToolResult {
+  validateToolResult(value, '$.resumeResult');
   const cloned = snapshotOptionalFields(
     value,
     '$.resumeResult',
@@ -113,6 +136,7 @@ function snapshotResult(value: ToolResult): ToolResult {
   if (!['success', 'error', 'pending_approval', 'rejected'].includes(cloned.status)) {
     throw new TypeError('Approval resume result has an invalid status');
   }
+  validateToolResult(cloned, '$.resumeResult');
   return cloned;
 }
 
@@ -386,6 +410,99 @@ function validateActions(value: unknown, path: string): void {
   assertNoAliases(value, path);
 }
 
+function snapshotMiddlewareActionInput(value: MiddlewareActionInput): MiddlewareActionInput {
+  const input = exactObject(value, '$.middlewareAction', [
+    'operationId',
+    'conversationId',
+    'participantId',
+    'instanceId',
+    'requestId',
+    'tool',
+    'args',
+  ]);
+  for (const field of [
+    'operationId',
+    'conversationId',
+    'participantId',
+    'instanceId',
+    'requestId',
+    'tool',
+  ]) {
+    requiredString(input[field], `$.middlewareAction.${field}`);
+  }
+  assertNoAliases(input.args, '$.middlewareAction.args');
+  return cloneJsonSafe(input, '$.middlewareAction') as unknown as MiddlewareActionInput;
+}
+
+function middlewareActionKey(input: MiddlewareActionInput): string {
+  return JSON.stringify([
+    input.operationId,
+    input.conversationId,
+    input.participantId,
+    input.instanceId,
+    input.requestId,
+  ]);
+}
+
+function unknownMiddlewareActionResult(input: MiddlewareActionInput): MiddlewareActionResult {
+  return {
+    requestId: input.requestId,
+    participantId: input.participantId,
+    instanceId: input.instanceId,
+    tool: input.tool,
+    status: 'error',
+    result: { status: 'error', error: ACTION_INTERRUPTION_ERROR },
+  };
+}
+
+function snapshotMiddlewareActionResult(value: MiddlewareActionResult): MiddlewareActionResult {
+  validateActions([value], '$.middlewareAction.result');
+  return cloneJsonSafe(value, '$.middlewareAction.result') as MiddlewareActionResult;
+}
+
+function snapshotMiddlewareActionRecord(value: MiddlewareActionRecord): MiddlewareActionRecord {
+  const record = exactObject(
+    value,
+    '$.middlewareActionRecord',
+    [
+      'operationId',
+      'conversationId',
+      'participantId',
+      'instanceId',
+      'requestId',
+      'tool',
+      'args',
+      'lifecycle',
+      'createdAt',
+    ],
+    ['result'],
+  );
+  const input = snapshotMiddlewareActionInput({
+    operationId: record.operationId as string,
+    conversationId: record.conversationId as string,
+    participantId: record.participantId as string,
+    instanceId: record.instanceId as string,
+    requestId: record.requestId as string,
+    tool: record.tool as string,
+    args: record.args,
+  });
+  if (record.lifecycle !== 'executing' && record.lifecycle !== 'completed') {
+    throw new TypeError('Middleware action lifecycle is invalid');
+  }
+  requiredIsoString(record.createdAt, '$.middlewareActionRecord.createdAt');
+  if (record.lifecycle === 'completed' && record.result === undefined) {
+    throw new TypeError('Completed middleware action requires result');
+  }
+  return {
+    ...input,
+    lifecycle: record.lifecycle,
+    createdAt: record.createdAt as string,
+    ...(record.result === undefined
+      ? {}
+      : { result: snapshotMiddlewareActionResult(record.result as MiddlewareActionResult) }),
+  };
+}
+
 function validateRuntimeResume(
   value: unknown,
   checkpoint: Record<string, unknown>,
@@ -499,6 +616,24 @@ function validateCheckpoint(value: unknown): void {
     assertNoAliases(request.stateOnSuccess, '$.continuation.checkpoint.request.stateOnSuccess');
   }
   validateActions(checkpoint.actions, '$.continuation.checkpoint.actions');
+  const actions = checkpoint.actions as MiddlewareActionResult[];
+  if (checkpoint.actionCursor !== actions.length) {
+    throw new TypeError(
+      'Value at $.continuation.checkpoint.actionCursor must equal actions.length',
+    );
+  }
+  const actionRequestIds = new Set<string>();
+  for (const action of actions) {
+    if (actionRequestIds.has(action.requestId)) {
+      throw new TypeError('Value at $.continuation.checkpoint.actions has duplicate requestId');
+    }
+    actionRequestIds.add(action.requestId);
+  }
+  if (actions.some((action) => action.requestId === request.requestId)) {
+    throw new TypeError(
+      'Value at $.continuation.checkpoint.request.requestId must not collide with actions',
+    );
+  }
 
   if (checkpoint.phase === 'beforeSend' || checkpoint.phase === 'beforeReceive') {
     for (const field of ['prompt', 'message', 'mode', 'persistedMessageId', 'runtimeResume']) {
@@ -591,13 +726,32 @@ function snapshotContinuation(
   return cloned;
 }
 
+function validateContinuationBinding(
+  input: PendingApprovalInput,
+  continuation: ApprovalContinuation,
+): void {
+  const checkpoint = continuation.checkpoint;
+  if (checkpoint.conversationId !== input.conversationId) {
+    throw new TypeError('Middleware checkpoint conversationId must match approval conversationId');
+  }
+  if (checkpoint.participantId !== input.requesterId) {
+    throw new TypeError('Middleware checkpoint participantId must match approval requesterId');
+  }
+  if (checkpoint.request.tool !== input.tool) {
+    throw new TypeError('Middleware checkpoint request tool must match approval tool');
+  }
+  if (!isDeepStrictEqual(checkpoint.request.arguments, input.args)) {
+    throw new TypeError('Middleware checkpoint request arguments must match approval args');
+  }
+}
+
 function snapshotInput(input: PendingApprovalInput): PendingApprovalInput {
   const cloned = snapshotOptionalFields(
     input,
     '$.input',
     new Set(['continuation']),
   ) as PendingApprovalInput;
-  return {
+  const snapshot = {
     conversationId: requiredString(cloned.conversationId, 'conversationId'),
     requesterId: requiredString(cloned.requesterId, 'requesterId'),
     tool: requiredString(cloned.tool, 'tool'),
@@ -606,6 +760,8 @@ function snapshotInput(input: PendingApprovalInput): PendingApprovalInput {
       ? {}
       : { continuation: snapshotContinuation(cloned.continuation) }),
   };
+  if (snapshot.continuation) validateContinuationBinding(snapshot, snapshot.continuation);
+  return snapshot;
 }
 
 function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
@@ -627,12 +783,44 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
 
 function normalizeData(value: unknown): RegistryData {
   const data = cloneJsonSafe(value, '$.registry') as RegistryData & LegacyRegistryData;
-  if (data.records && typeof data.records === 'object' && !Array.isArray(data.records)) {
+  if (Object.hasOwn(data, 'records')) {
+    if (
+      data.records === null ||
+      typeof data.records !== 'object' ||
+      Array.isArray(data.records) ||
+      (Object.getPrototypeOf(data.records) !== Object.prototype &&
+        Object.getPrototypeOf(data.records) !== null)
+    ) {
+      throw new TypeError('Pending approval registry records must be a plain object');
+    }
+    const middlewareActions =
+      data.middlewareActions === undefined
+        ? {}
+        : (() => {
+            if (
+              data.middlewareActions === null ||
+              typeof data.middlewareActions !== 'object' ||
+              Array.isArray(data.middlewareActions) ||
+              (Object.getPrototypeOf(data.middlewareActions) !== Object.prototype &&
+                Object.getPrototypeOf(data.middlewareActions) !== null)
+            ) {
+              throw new TypeError(
+                'Pending approval registry middlewareActions must be a plain object',
+              );
+            }
+            return data.middlewareActions;
+          })();
     return {
       records: Object.fromEntries(
         Object.entries(data.records).map(([approvalId, record]) => [
           approvalId,
           snapshotRecord(record),
+        ]),
+      ),
+      middlewareActions: Object.fromEntries(
+        Object.entries(middlewareActions).map(([key, action]) => [
+          key,
+          snapshotMiddlewareActionRecord(action),
         ]),
       ),
     };
@@ -647,7 +835,7 @@ function normalizeData(value: unknown): RegistryData {
       ...(decision ? { decision } : {}),
     });
   }
-  return { records };
+  return { records, middlewareActions: {} };
 }
 
 function recovery(data: RegistryData): boolean {
@@ -663,11 +851,18 @@ function recovery(data: RegistryData): boolean {
       changed = true;
     }
   }
+  for (const action of Object.values(data.middlewareActions)) {
+    if (action.lifecycle === 'executing') {
+      action.lifecycle = 'completed';
+      action.result = unknownMiddlewareActionResult(action);
+      changed = true;
+    }
+  }
   return changed;
 }
 
 export class PendingApprovalRegistry {
-  private data: RegistryData = { records: {} };
+  private data: RegistryData = { records: {}, middlewareActions: {} };
   private mutations: Promise<void> = Promise.resolve();
 
   constructor(private readonly storage?: Storage) {}
@@ -715,6 +910,82 @@ export class PendingApprovalRegistry {
         lifecycle: 'pending',
       };
       return { approvalId };
+    });
+  }
+
+  async claimMiddlewareAction(input: MiddlewareActionInput): Promise<MiddlewareActionClaim> {
+    const snapshot = snapshotMiddlewareActionInput(input);
+    const key = middlewareActionKey(snapshot);
+    return this.mutate((data) => {
+      const existing = data.middlewareActions[key];
+      if (!existing) {
+        data.middlewareActions[key] = {
+          ...snapshot,
+          lifecycle: 'executing',
+          createdAt: new Date().toISOString(),
+        };
+        return { kind: 'execute' };
+      }
+      if (
+        !isDeepStrictEqual(
+          snapshotMiddlewareActionInput({
+            operationId: existing.operationId,
+            conversationId: existing.conversationId,
+            participantId: existing.participantId,
+            instanceId: existing.instanceId,
+            requestId: existing.requestId,
+            tool: existing.tool,
+            args: existing.args,
+          }),
+          snapshot,
+        )
+      ) {
+        throw new LegionError('Conflicting middleware action claim', 'APPROVAL_CONFLICT');
+      }
+      if (existing.lifecycle === 'executing') {
+        existing.lifecycle = 'completed';
+        existing.result = unknownMiddlewareActionResult(existing);
+      }
+      return { kind: 'completed', result: existing.result! };
+    });
+  }
+
+  async recordMiddlewareActionResult(
+    input: MiddlewareActionInput,
+    result: MiddlewareActionResult,
+  ): Promise<void> {
+    const snapshot = snapshotMiddlewareActionInput(input);
+    const actionResult = snapshotMiddlewareActionResult(result);
+    const key = middlewareActionKey(snapshot);
+    await this.mutate((data) => {
+      const existing = data.middlewareActions[key];
+      if (!existing) throw new LegionError('Unknown middleware action claim', 'APPROVAL_NOT_FOUND');
+      if (
+        !isDeepStrictEqual(
+          snapshotMiddlewareActionInput({
+            operationId: existing.operationId,
+            conversationId: existing.conversationId,
+            participantId: existing.participantId,
+            instanceId: existing.instanceId,
+            requestId: existing.requestId,
+            tool: existing.tool,
+            args: existing.args,
+          }),
+          snapshot,
+        )
+      ) {
+        throw new LegionError('Conflicting middleware action result', 'APPROVAL_CONFLICT');
+      }
+      if (existing.lifecycle === 'completed') {
+        if (isDeepStrictEqual(existing.result, actionResult)) return undefined;
+        throw new LegionError(
+          'Conflicting completed middleware action result',
+          'APPROVAL_CONFLICT',
+        );
+      }
+      existing.lifecycle = 'completed';
+      existing.result = actionResult;
+      return undefined;
     });
   }
 

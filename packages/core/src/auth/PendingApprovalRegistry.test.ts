@@ -6,7 +6,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { PendingApprovalRegistry } from './PendingApprovalRegistry.js';
 import type { MessageData, MiddlewareCheckpoint } from '@legion/types';
 
-function checkpoint(): MiddlewareCheckpoint {
+function checkpoint(argumentsValue: Record<string, unknown> = { path: 'x' }): MiddlewareCheckpoint {
   return {
     checkpointId: 'mwcp-1',
     operationId: 'operation-1',
@@ -20,7 +20,7 @@ function checkpoint(): MiddlewareCheckpoint {
     actionCursor: 0,
     draft: { senderId: 'agent-b', recipientId: 'operator', role: 'assistant', content: 'hello' },
     final: true,
-    request: { requestId: 'request-1', tool: 'file_write', arguments: { path: 'x' } },
+    request: { requestId: 'request-1', tool: 'file_write', arguments: argumentsValue },
     actions: [],
     observedHead: 'message-1',
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -92,7 +92,7 @@ describe('PendingApprovalRegistry (in-memory)', () => {
       conversationId: 'c1',
       requesterId: 'agent-b',
       tool: 'file_write',
-      args: {},
+      args: { path: 'x' },
     });
     await reg.resolve(approvalId, {
       approved: true,
@@ -172,6 +172,75 @@ describe('PendingApprovalRegistry (durable)', () => {
 });
 
 describe('PendingApprovalRegistry continuations', () => {
+  it.each([
+    ['conversation', (value: MiddlewareCheckpoint) => (value.conversationId = 'wrong')],
+    ['participant', (value: MiddlewareCheckpoint) => (value.participantId = 'wrong')],
+    ['tool', (value: MiddlewareCheckpoint) => (value.request.tool = 'wrong')],
+    ['arguments', (value: MiddlewareCheckpoint) => (value.request.arguments = { path: 'wrong' })],
+    ['action cursor', (value: MiddlewareCheckpoint) => (value.actionCursor = 1)],
+    [
+      'request collision',
+      (value: MiddlewareCheckpoint) =>
+        value.actions.push({
+          requestId: value.request.requestId,
+          participantId: 'agent-b',
+          instanceId: 'audit',
+          tool: 'file_write',
+          status: 'success',
+        }),
+    ],
+  ])(
+    'rejects continuation checkpoint %s binding mismatch before creating approval',
+    async (_name, mutate) => {
+      const reg = new PendingApprovalRegistry();
+      const value = checkpoint();
+      mutate(value);
+      await expect(
+        reg.create({
+          conversationId: 'c1',
+          requesterId: 'agent-b',
+          tool: 'file_write',
+          args: { path: 'x' },
+          continuation: { kind: 'middleware', checkpoint: value },
+        }),
+      ).rejects.toThrow(/match|cursor|requestId/i);
+      expect(reg.listPending()).toEqual([]);
+    },
+  );
+
+  it('claims middleware actions once and recovers an uncompleted claim without retry', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const action = {
+      operationId: 'operation-1',
+      conversationId: 'c1',
+      participantId: 'agent-b',
+      instanceId: 'audit',
+      requestId: 'request-1',
+      tool: 'file_write',
+      args: { path: 'x' },
+    };
+    await expect(reg.claimMiddlewareAction(action)).resolves.toMatchObject({ kind: 'execute' });
+    const loaded = await PendingApprovalRegistry.load(storage);
+    await expect(loaded.claimMiddlewareAction(action)).resolves.toMatchObject({
+      kind: 'completed',
+      result: {
+        status: 'error',
+        result: { status: 'error', error: expect.stringMatching(/outcome unknown.*not retried/i) },
+      },
+    });
+    await expect(
+      loaded.recordMiddlewareActionResult(action, {
+        requestId: 'request-1',
+        participantId: 'agent-b',
+        instanceId: 'audit',
+        tool: 'file_write',
+        status: 'success',
+        result: { status: 'success', data: { unsafe: true } },
+      }),
+    ).rejects.toThrow(/conflict|completed/i);
+  });
+
   it('atomically stores detached middleware continuation and idempotent decision', async () => {
     const reg = new PendingApprovalRegistry();
     const continuation = checkpoint();
@@ -212,7 +281,7 @@ describe('PendingApprovalRegistry continuations', () => {
       conversationId: 'c1',
       requesterId: 'agent-b',
       tool: 'file_write',
-      args: {},
+      args: { path: 'x' },
       continuation: { kind: 'middleware', checkpoint: checkpoint() },
     });
     await reg.resolve(approvalId, {
@@ -242,7 +311,7 @@ describe('PendingApprovalRegistry continuations', () => {
       requesterId: 'agent-b',
       tool: 'file_write',
       args: { nested: { value: 'safe' } },
-      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+      continuation: { kind: 'middleware', checkpoint: checkpoint({ nested: { value: 'safe' } }) },
     });
     const record = reg.getRecord(approvalId)!;
     (record.args as { nested: { value: string } }).nested.value = 'mutated';
@@ -282,7 +351,7 @@ describe('PendingApprovalRegistry continuations', () => {
       conversationId: 'c1',
       requesterId: 'agent-b',
       tool: 'file_write',
-      args: {},
+      args: { path: 'x' },
       continuation: { kind: 'middleware', checkpoint: checkpoint() },
     });
     await expect(reg.acknowledge(approvalId)).rejects.toThrow(/terminal|result/i);
@@ -316,7 +385,7 @@ describe('PendingApprovalRegistry continuations', () => {
       conversationId: 'c1',
       requesterId: 'agent-b',
       tool: 'file_write',
-      args: {},
+      args: { path: 'x' },
       continuation: { kind: 'middleware', checkpoint: checkpoint() },
     });
     await reg.resolve(approvalId, {
@@ -338,7 +407,7 @@ describe('PendingApprovalRegistry continuations', () => {
         conversationId: 'c1',
         requesterId: 'agent-b',
         tool: 'file_write',
-        args: {},
+        args: { path: 'x' },
         continuation: { kind: 'middleware', checkpoint: incomplete },
       }),
     ).rejects.toThrow(/observedHead/i);
@@ -389,7 +458,7 @@ describe('PendingApprovalRegistry continuations', () => {
         conversationId: 'c1',
         requesterId: 'agent-b',
         tool: 'file_write',
-        args: {},
+        args: { path: 'x' },
         continuation: { kind: 'middleware', checkpoint: prompt },
       }),
     ).rejects.toThrow(/runtimeResume.*participantId/i);
@@ -400,7 +469,7 @@ describe('PendingApprovalRegistry continuations', () => {
         conversationId: 'c1',
         requesterId: 'agent-b',
         tool: 'file_write',
-        args: {},
+        args: { path: 'x' },
         continuation: { kind: 'middleware', checkpoint: prompt },
       }),
     ).rejects.toThrow(/incomingMessageId.*persistedMessageId/i);
@@ -426,7 +495,7 @@ describe('PendingApprovalRegistry continuations', () => {
         conversationId: 'c1',
         requesterId: 'agent-b',
         tool: 'file_write',
-        args: {},
+        args: { path: 'x' },
         continuation: {
           kind: 'middleware',
           checkpoint: afterSendCheckpoint(mutate(fullMessage())),
@@ -442,7 +511,7 @@ describe('PendingApprovalRegistry continuations', () => {
         conversationId: 'c1',
         requesterId: 'agent-b',
         tool: 'file_write',
-        args: {},
+        args: { path: 'x' },
         continuation: { kind: 'middleware', checkpoint: afterSendCheckpoint() },
       }),
     ).resolves.toEqual({ approvalId: expect.stringMatching(/^appr-/) });

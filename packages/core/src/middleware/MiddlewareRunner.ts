@@ -1087,10 +1087,23 @@ export class MiddlewareRunner {
       ) {
         throw new TypeError('Middleware tool returned an invalid result');
       }
-      return result;
+      if (result.status === 'success') {
+        return {
+          status: 'success',
+          ...(result.data === undefined
+            ? {}
+            : { data: cloneJsonSafe(result.data, '$.toolResult.data') }),
+        };
+      }
+      return this.safeToolFailure(result.status === 'rejected' ? 'rejected' : 'error');
     } catch {
-      return { status: 'error', error: 'Middleware tool returned an unsafe result' };
+      return this.safeToolFailure('error');
     }
+  }
+
+  private safeToolFailure(status: 'error' | 'rejected'): ToolResult {
+    const diagnosticId = createId('diag');
+    return { status, error: `Middleware tool failed (diagnostic ${diagnosticId})` };
   }
 
   private async applyToolState(
@@ -1283,25 +1296,48 @@ export class MiddlewareRunner {
         };
       }
 
-      const rawResult = await this.dependencies.toolRegistry.execute(
-        request.tool,
-        cloneJsonSafe(request.arguments, '$.request.arguments'),
-        this.dependencies.buildToolContext(input.participant, input.thread, signal),
-      );
-      const result = this.safeToolResult(rawResult);
+      const actionInput = {
+        operationId: input.operationId,
+        conversationId: input.thread.id,
+        participantId: input.participant.id,
+        instanceId: instance.id,
+        requestId: request.requestId,
+        tool: request.tool,
+        args: cloneJsonSafe(request.arguments, '$.request.arguments'),
+      };
+      const claim = await this.dependencies.pendingApprovals.claimMiddlewareAction(actionInput);
+      let action: MiddlewareActionResult;
+      if (claim.kind === 'completed') {
+        action = claim.result;
+      } else {
+        let result: ToolResult;
+        if (signal.aborted) {
+          result = this.safeToolFailure('error');
+        } else {
+          try {
+            const rawResult = await this.dependencies.toolRegistry.execute(
+              request.tool,
+              actionInput.args,
+              this.dependencies.buildToolContext(input.participant, input.thread, signal),
+            );
+            result = this.safeToolResult(rawResult);
+          } catch {
+            result = this.safeToolFailure('error');
+          }
+        }
+        const status: MiddlewareActionResult['status'] =
+          result.status === 'success'
+            ? 'success'
+            : result.status === 'rejected'
+              ? 'rejected'
+              : 'error';
+        action = this.toolAction(instance, input, request, status, result);
+        await this.dependencies.pendingApprovals.recordMiddlewareActionResult(actionInput, action);
+      }
       await this.refreshThread(input.thread);
       if (signal.aborted) return { kind: 'cancelled', snapshots };
-      const status: MiddlewareActionResult['status'] =
-        result.status === 'success'
-          ? 'success'
-          : result.status === 'rejected'
-            ? 'rejected'
-            : 'error';
-      const nextSnapshots = this.rebuildSnapshots(input, [
-        ...snapshots.actions,
-        this.toolAction(instance, input, request, status, result),
-      ]);
-      if (result.status !== 'success') {
+      const nextSnapshots = this.rebuildSnapshots(input, [...snapshots.actions, action]);
+      if (action.status !== 'success') {
         return {
           kind: 'failure',
           snapshots: nextSnapshots,
@@ -1328,7 +1364,7 @@ export class MiddlewareRunner {
       }
       this.recordSuccess(instance, phase, input, {
         status: 'success',
-        result,
+        result: action.result,
         duration: 0,
         failureMode: this.failureMode(instance),
       });

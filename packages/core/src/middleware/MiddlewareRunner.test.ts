@@ -262,6 +262,37 @@ describe('MiddlewareRunner', () => {
     expect(f.thread.data.middlewareState).toEqual({ participant: { request: { ok: true } } });
   });
 
+  it('uses persisted auto tool result on repeated middleware operation and redacts tool failure detail', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = { write: 'auto' };
+    const secret = 'https://private.example/token=super-secret';
+    const execute = vi.fn(async () => ({
+      status: 'error' as const,
+      error: secret,
+      data: { secret },
+    }));
+    f.toolRegistry.register({ name: 'write', description: 'write', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({ kind: 'tool', requestId: 'write-1', tool: 'write', arguments: {} }),
+      }),
+      'test:runner',
+    );
+    const input = {
+      operationId: 'operation-ledger',
+      phase: 'beforeSend' as const,
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    };
+    const first = await f.runner.runMessagePhase(input);
+    const second = await f.runner.runMessagePhase(input);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(JSON.stringify({ first, second, logs: f.logs })).not.toContain(secret);
+  });
+
   it('rebuilds frozen active-chain snapshots after an auto tool reload before continuing hooks', async () => {
     const f = await fixture([instance('request'), instance('following')]);
     f.participant.tools = { append: 'auto' };
