@@ -208,7 +208,7 @@ describe('PendingApprovalRegistry continuations', () => {
     },
   );
 
-  it('claims middleware actions once and recovers an uncompleted claim without retry', async () => {
+  it('keeps live middleware action claim in progress until first executor records terminal result', async () => {
     const storage = new MemoryStorage();
     const reg = new PendingApprovalRegistry(storage);
     const action = {
@@ -220,9 +220,26 @@ describe('PendingApprovalRegistry continuations', () => {
       tool: 'file_write',
       args: { path: 'x' },
     };
-    await expect(reg.claimMiddlewareAction(action)).resolves.toMatchObject({ kind: 'execute' });
+    await expect(reg.claimMiddlewareAction(action)).resolves.toMatchObject({ kind: 'claimed' });
+    await expect(reg.claimMiddlewareAction(action)).resolves.toMatchObject({ kind: 'in_progress' });
+    await reg.recordMiddlewareActionResult(action, {
+      requestId: 'request-1',
+      participantId: 'agent-b',
+      instanceId: 'audit',
+      tool: 'file_write',
+      status: 'success',
+      result: { status: 'success', data: { written: true } },
+    });
+    await expect(reg.claimMiddlewareAction(action)).resolves.toMatchObject({
+      kind: 'completed',
+      result: { status: 'success', result: { status: 'success', data: { written: true } } },
+    });
+
+    const recovering = new PendingApprovalRegistry(storage);
+    const recoveryAction = { ...action, requestId: 'request-recovery' };
+    await recovering.claimMiddlewareAction(recoveryAction);
     const loaded = await PendingApprovalRegistry.load(storage);
-    await expect(loaded.claimMiddlewareAction(action)).resolves.toMatchObject({
+    await expect(loaded.claimMiddlewareAction(recoveryAction)).resolves.toMatchObject({
       kind: 'completed',
       result: {
         status: 'error',
@@ -230,8 +247,8 @@ describe('PendingApprovalRegistry continuations', () => {
       },
     });
     await expect(
-      loaded.recordMiddlewareActionResult(action, {
-        requestId: 'request-1',
+      loaded.recordMiddlewareActionResult(recoveryAction, {
+        requestId: 'request-recovery',
         participantId: 'agent-b',
         instanceId: 'audit',
         tool: 'file_write',
@@ -239,6 +256,57 @@ describe('PendingApprovalRegistry continuations', () => {
         result: { status: 'success', data: { unsafe: true } },
       }),
     ).rejects.toThrow(/conflict|completed/i);
+  });
+
+  it('rejects non-canonical registry roots and contradictory canonical lifecycles', async () => {
+    for (const value of [[], {}, 1, 'bad']) {
+      const storage = new MemoryStorage();
+      await storage.write('pending-approvals/registry.json', JSON.stringify(value));
+      await expect(PendingApprovalRegistry.load(storage)).rejects.toThrow();
+    }
+
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    const data = (await storage.readJson<Record<string, unknown>>(
+      'pending-approvals/registry.json',
+    ))!;
+    const records = data.records as Record<string, Record<string, unknown>>;
+    records[approvalId].decision = {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    };
+    await storage.writeJson('pending-approvals/registry.json', data);
+    await expect(PendingApprovalRegistry.load(storage)).rejects.toThrow(
+      /pending.*decision|lifecycle/i,
+    );
+
+    const actionStorage = new MemoryStorage();
+    const actionRegistry = new PendingApprovalRegistry(actionStorage);
+    const action = {
+      operationId: 'operation-1',
+      conversationId: 'c1',
+      participantId: 'agent-b',
+      instanceId: 'audit',
+      requestId: 'request-1',
+      tool: 'file_write',
+      args: { path: 'x' },
+    };
+    await actionRegistry.claimMiddlewareAction(action);
+    const actionData = (await actionStorage.readJson<Record<string, unknown>>(
+      'pending-approvals/registry.json',
+    ))!;
+    const actions = actionData.middlewareActions as Record<string, Record<string, unknown>>;
+    Object.values(actions)[0].lifecycle = 'completed';
+    await actionStorage.writeJson('pending-approvals/registry.json', actionData);
+    await expect(PendingApprovalRegistry.load(actionStorage)).rejects.toThrow(/completed.*result/i);
   });
 
   it('atomically stores detached middleware continuation and idempotent decision', async () => {

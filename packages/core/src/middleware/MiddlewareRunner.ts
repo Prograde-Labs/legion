@@ -1309,6 +1309,16 @@ export class MiddlewareRunner {
       let action: MiddlewareActionResult;
       if (claim.kind === 'completed') {
         action = claim.result;
+      } else if (claim.kind === 'in_progress') {
+        return this.toolFailure(
+          instance,
+          phase,
+          input,
+          snapshots,
+          request,
+          'error',
+          new Error('Middleware tool execution is already in progress'),
+        );
       } else {
         let result: ToolResult;
         if (signal.aborted) {

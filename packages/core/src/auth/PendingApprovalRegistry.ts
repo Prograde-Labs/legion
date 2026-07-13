@@ -63,8 +63,9 @@ export interface MiddlewareActionRecord extends MiddlewareActionInput {
 }
 
 export type MiddlewareActionClaim =
-  | { kind: 'execute' }
-  | { kind: 'completed'; result: MiddlewareActionResult };
+  | { kind: 'claimed' }
+  | { kind: 'completed'; result: MiddlewareActionResult }
+  | { kind: 'in_progress' };
 
 interface RegistryData {
   records: Record<string, ApprovalRecord>;
@@ -493,6 +494,9 @@ function snapshotMiddlewareActionRecord(value: MiddlewareActionRecord): Middlewa
   if (record.lifecycle === 'completed' && record.result === undefined) {
     throw new TypeError('Completed middleware action requires result');
   }
+  if (record.lifecycle === 'executing' && record.result !== undefined) {
+    throw new TypeError('Executing middleware action may not have result');
+  }
   return {
     ...input,
     lifecycle: record.lifecycle,
@@ -769,7 +773,7 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
   if (!['pending', 'decided', 'resuming', 'acknowledged'].includes(cloned.lifecycle)) {
     throw new TypeError('Pending approval lifecycle is invalid');
   }
-  return {
+  const record = {
     ...snapshotInput(cloned),
     approvalId: requiredString(cloned.approvalId, 'approvalId'),
     createdAt: requiredString(cloned.createdAt, 'createdAt'),
@@ -779,11 +783,50 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
       ? {}
       : { resumeResult: snapshotResult(cloned.resumeResult) }),
   };
+  if (
+    record.lifecycle === 'pending' &&
+    (record.decision !== undefined || record.resumeResult !== undefined)
+  ) {
+    throw new TypeError('Pending approval record may not have decision or resumeResult');
+  }
+  if (record.lifecycle === 'decided' && record.decision === undefined) {
+    throw new TypeError('Decided approval record requires decision');
+  }
+  if (record.lifecycle === 'resuming') {
+    if (
+      record.decision === undefined ||
+      record.resumeResult !== undefined ||
+      !record.continuation
+    ) {
+      throw new TypeError(
+        'Resuming approval record requires decision and continuation without resumeResult',
+      );
+    }
+  }
+  if (record.lifecycle === 'acknowledged') {
+    if (record.decision === undefined || record.resumeResult === undefined || record.continuation) {
+      throw new TypeError(
+        'Acknowledged approval record requires terminal result without continuation',
+      );
+    }
+  }
+  if (
+    record.resumeResult !== undefined &&
+    !record.continuation &&
+    record.lifecycle !== 'acknowledged'
+  ) {
+    throw new TypeError('Approval resumeResult requires middleware continuation');
+  }
+  return record;
 }
 
 function normalizeData(value: unknown): RegistryData {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Pending approval registry must be an object');
+  }
   const data = cloneJsonSafe(value, '$.registry') as RegistryData & LegacyRegistryData;
   if (Object.hasOwn(data, 'records')) {
+    const canonical = exactObject(data, '$.registry', ['records', 'middlewareActions']);
     if (
       data.records === null ||
       typeof data.records !== 'object' ||
@@ -793,23 +836,16 @@ function normalizeData(value: unknown): RegistryData {
     ) {
       throw new TypeError('Pending approval registry records must be a plain object');
     }
-    const middlewareActions =
-      data.middlewareActions === undefined
-        ? {}
-        : (() => {
-            if (
-              data.middlewareActions === null ||
-              typeof data.middlewareActions !== 'object' ||
-              Array.isArray(data.middlewareActions) ||
-              (Object.getPrototypeOf(data.middlewareActions) !== Object.prototype &&
-                Object.getPrototypeOf(data.middlewareActions) !== null)
-            ) {
-              throw new TypeError(
-                'Pending approval registry middlewareActions must be a plain object',
-              );
-            }
-            return data.middlewareActions;
-          })();
+    const middlewareActions = canonical.middlewareActions;
+    if (
+      middlewareActions === null ||
+      typeof middlewareActions !== 'object' ||
+      Array.isArray(middlewareActions) ||
+      (Object.getPrototypeOf(middlewareActions) !== Object.prototype &&
+        Object.getPrototypeOf(middlewareActions) !== null)
+    ) {
+      throw new TypeError('Pending approval registry middlewareActions must be a plain object');
+    }
     return {
       records: Object.fromEntries(
         Object.entries(data.records).map(([approvalId, record]) => [
@@ -825,9 +861,20 @@ function normalizeData(value: unknown): RegistryData {
       ),
     };
   }
+  const legacy = exactObject(data, '$.registry', ['pending', 'decisions']);
+  if (
+    legacy.pending === null ||
+    typeof legacy.pending !== 'object' ||
+    Array.isArray(legacy.pending) ||
+    legacy.decisions === null ||
+    typeof legacy.decisions !== 'object' ||
+    Array.isArray(legacy.decisions)
+  ) {
+    throw new TypeError('Legacy pending approval registry maps must be plain objects');
+  }
   const records: Record<string, ApprovalRecord> = {};
-  for (const [approvalId, pending] of Object.entries(data.pending ?? {})) {
-    const decision = data.decisions?.[approvalId];
+  for (const [approvalId, pending] of Object.entries(legacy.pending)) {
+    const decision = (legacy.decisions as Record<string, ApprovalDecision>)[approvalId];
     records[approvalId] = snapshotRecord({
       ...pending,
       approvalId,
@@ -924,7 +971,7 @@ export class PendingApprovalRegistry {
           lifecycle: 'executing',
           createdAt: new Date().toISOString(),
         };
-        return { kind: 'execute' };
+        return { kind: 'claimed' };
       }
       if (
         !isDeepStrictEqual(
@@ -943,8 +990,7 @@ export class PendingApprovalRegistry {
         throw new LegionError('Conflicting middleware action claim', 'APPROVAL_CONFLICT');
       }
       if (existing.lifecycle === 'executing') {
-        existing.lifecycle = 'completed';
-        existing.result = unknownMiddlewareActionResult(existing);
+        return { kind: 'in_progress' };
       }
       return { kind: 'completed', result: existing.result! };
     });
