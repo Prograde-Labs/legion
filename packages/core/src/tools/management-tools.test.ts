@@ -455,8 +455,21 @@ describe('management tools', () => {
     });
   });
 
-  it('get_conversation returns caller-resolved and raw lifecycle metadata', async () => {
+  it('get_conversation returns detached middleware provenance, parent link, and state', async () => {
     const { context, conversationStore } = await makeContext();
+    const parent = await conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const origin = {
+      kind: 'middleware' as const,
+      participantId: 'operator',
+      middlewareInstanceId: 'audit',
+      parentConversationId: 'origin-parent',
+      parentMessageId: 'origin-message',
+    };
+    const middlewareState = { operator: { audit: { enabled: true } } };
     const conversation = await conversationStore.create({
       schemaVersion: '2.0',
       activeBranchHead: '',
@@ -465,8 +478,9 @@ describe('management tools', () => {
       titles: { operator: 'Operator title', other: 'Other title' },
       status: 'archived',
       tags: ['important'],
-      origin: { kind: 'participant', participantId: 'operator' },
-      middlewareState: { operator: { audit: { enabled: true } } },
+      origin,
+      parentConversationId: parent.id,
+      middlewareState,
     });
 
     const result = await getConversationTool.execute({ conversationId: conversation.id }, context);
@@ -479,9 +493,20 @@ describe('management tools', () => {
         titles: { operator: 'Operator title', other: 'Other title' },
         status: 'archived',
         tags: ['important'],
-        origin: { kind: 'participant', participantId: 'operator' },
-        middlewareState: { operator: { audit: { enabled: true } } },
+        origin,
+        parentConversationId: parent.id,
+        middlewareState,
       }),
+    );
+
+    const data = result.data as {
+      origin: { participantId?: string };
+      middlewareState: { operator: { audit: { enabled: boolean } } };
+    };
+    data.origin.participantId = 'mutated';
+    data.middlewareState.operator.audit.enabled = false;
+    expect(await conversationStore.load(conversation.id)).toEqual(
+      expect.objectContaining({ origin, middlewareState }),
     );
   });
 

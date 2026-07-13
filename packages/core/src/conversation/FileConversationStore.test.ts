@@ -308,6 +308,29 @@ describe('FileConversationStore', () => {
     expect(metas.find((m) => m.id === a.id)?.title).toBe('A');
   });
 
+  it('normalizes legacy conversation metadata when listing', async () => {
+    const storage = new MemoryStorage();
+    const legacyStore = new FileConversationStore(storage);
+    await storage.writeJson('conversations/conv-legacy.json', {
+      id: 'conv-legacy',
+      schemaVersion: '2.0',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      title: 'Legacy',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    expect(await legacyStore.list()).toEqual([
+      expect.objectContaining({
+        title: 'Legacy',
+        sharedTitle: 'Legacy',
+        status: 'active',
+        tags: [],
+      }),
+    ]);
+  });
+
   it('lists active conversations by default and supports status and every-tag filters', async () => {
     const active = await store.create({
       schemaVersion: '2.0',
