@@ -240,6 +240,20 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   async send(opts: SendOptions): Promise<MessageRouterResult> {
+    if (!this.collective.get(opts.senderId)) {
+      return {
+        conversationId: opts.conversationId ?? '',
+        status: 'error',
+        error: new ParticipantNotFoundError(opts.senderId).message,
+      };
+    }
+    if (!this.collective.get(opts.recipientId)) {
+      return {
+        conversationId: opts.conversationId ?? '',
+        status: 'error',
+        error: new ParticipantNotFoundError(opts.recipientId).message,
+      };
+    }
     if (opts.conversationId) {
       return this.withLock(opts.conversationId, () => this.sendInner(opts));
     }

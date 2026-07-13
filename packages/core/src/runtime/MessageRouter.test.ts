@@ -39,6 +39,14 @@ async function setup(dir: string) {
     responses: ['hello back'],
     status: 'active',
   });
+  await storage.writeJson('collective/participants/svc.json', {
+    id: 'svc',
+    name: 'Service',
+    type: 'mock',
+    tools: {},
+    responses: [],
+    status: 'active',
+  });
   const collective = await Collective.load(storage);
   const eventBus = new EventBus();
   const store = new FileConversationStore(storage, eventBus);
@@ -187,6 +195,53 @@ describe('MessageRouter: synchronous send', () => {
     });
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/ghost/);
+  });
+
+  it('rejects unknown senders before creating or reactivating conversations', async () => {
+    const { router, baseContext, store, eventBus } = await setup(dir);
+    const archived = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+    });
+    let created = 0;
+    let updated = 0;
+    let sent = 0;
+    eventBus.on('conversation:created', () => (created += 1));
+    eventBus.on('conversation:updated', () => (updated += 1));
+    eventBus.on('message:sent', () => (sent += 1));
+
+    await expect(
+      router.send({
+        senderId: 'ghost',
+        recipientId: 'mock-1',
+        message: 'nope',
+        context: baseContext,
+      }),
+    ).resolves.toMatchObject({
+      conversationId: '',
+      status: 'error',
+      error: expect.stringMatching(/ghost/),
+    });
+    const result = await router.send({
+      senderId: 'ghost',
+      recipientId: 'mock-1',
+      message: 'nope',
+      conversationId: archived.id,
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({
+      conversationId: archived.id,
+      status: 'error',
+      error: expect.stringMatching(/ghost/),
+    });
+    expect(created).toBe(0);
+    expect(updated).toBe(0);
+    expect(sent).toBe(0);
+    expect((await store.load(archived.id))?.status).toBe('archived');
+    expect((await store.load(archived.id))?.messages).toEqual({});
   });
 
   it('emits message:sent for inbound and message:delivered for response', async () => {
@@ -608,6 +663,54 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(handle).not.toHaveBeenCalled();
     expect(Object.values((await store.load(result.conversationId))!.messages)).toHaveLength(2);
   });
+
+  it('routes replyTo runtime responses through injected lifecycle', async () => {
+    const phases: string[] = [];
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Reply lifecycle',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          phases.push(`${context.participant.id}:beforeSend`);
+          return {
+            kind: 'continue',
+            message: {
+              ...context.message,
+              content: `${context.message.content}:${context.participant.id}`,
+            },
+          };
+        },
+        afterReceive: (context) => {
+          phases.push(`${context.participant.id}:afterReceive:${context.mode}`);
+          return { kind: 'continue' };
+        },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', (id) => new MockRuntime(id));
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      replyTo: 'op',
+      message: 'analyze',
+      context: baseContext,
+    });
+    await router.drain();
+
+    expect(result.status).toBe('dispatched');
+    expect(phases).toEqual([
+      'mock-1:afterReceive:pre_runtime',
+      'mock-1:beforeSend',
+      'op:afterReceive:post_response',
+    ]);
+    expect(
+      Object.values((await store.load(result.conversationId))!.messages).find(
+        (message) => message.role === 'assistant',
+      )?.content,
+    ).toBe('hello back:mock-1');
+  });
 });
 
 describe('MessageRouter: fire-and-forget', () => {
@@ -961,6 +1064,13 @@ describe('MessageRouter: pending_approval result', () => {
 
   it('returns pending_approval status and approvalRequests when runtime returns pending_approval', async () => {
     const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
     await storage.writeJson('collective/participants/mock-1.json', {
       id: 'mock-1',
       name: 'M',
@@ -1035,6 +1145,13 @@ describe('MessageRouter: resume()', () => {
 
   it('re-triggers the paused runtime and persists the final response', async () => {
     const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
     await storage.writeJson('collective/participants/mock-1.json', {
       id: 'mock-1',
       name: 'M',

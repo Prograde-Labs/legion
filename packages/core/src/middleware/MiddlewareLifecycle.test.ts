@@ -72,6 +72,7 @@ async function fixture(participants: ParticipantConfig[]) {
     pendingApprovals,
     store,
     thread,
+    tools,
   };
 }
 
@@ -211,6 +212,69 @@ describe('MiddlewareLifecycle', () => {
     expect((await f.store.load(f.thread.id))!.messages).toEqual({});
   });
 
+  it.each([
+    ['senderId', 'forged-sender'],
+    ['recipientId', 'forged-recipient'],
+  ] as const)(
+    'rejects forged draft %s before hooks, persistence, or events',
+    async (field, value) => {
+      const sender = participant('sender', [instance('sender')]);
+      const recipient = participant('recipient', [instance('recipient')]);
+      const f = await fixture([sender, recipient]);
+      const beforeSend = vi.fn(() => ({ kind: 'continue' as const }));
+      const beforeReceive = vi.fn(() => ({ kind: 'continue' as const }));
+      let sent = 0;
+      f.eventBus.on('message:sent', () => (sent += 1));
+      f.middlewareRegistry.register(
+        {
+          type: 'test:lifecycle',
+          displayName: 'Identity binding',
+          defaultFailureMode: 'closed',
+          configSchema: schema,
+          hooks: { beforeSend, beforeReceive },
+        },
+        'test',
+      );
+
+      await expect(
+        f.lifecycle.receive({
+          operationId: 'route-forged',
+          sender,
+          recipient,
+          thread: f.thread,
+          draft: draft({ [field]: value }),
+          actions: [],
+          mode: 'pre_runtime',
+        }),
+      ).resolves.toMatchObject({ kind: 'error', error: expect.stringMatching(/draft.*identity/i) });
+      expect(beforeSend).not.toHaveBeenCalled();
+      expect(beforeReceive).not.toHaveBeenCalled();
+      expect(sent).toBe(0);
+      expect((await f.store.load(f.thread.id))!.messages).toEqual({});
+    },
+  );
+
+  it('rejects forged response drafts before persistence or delivery', async () => {
+    const sender = participant('sender');
+    const recipient = participant('recipient');
+    const f = await fixture([sender, recipient]);
+    let delivered = 0;
+    f.eventBus.on('message:delivered', () => (delivered += 1));
+
+    await expect(
+      f.lifecycle.respond({
+        operationId: 'route-forged-response',
+        sender: recipient,
+        recipient: sender,
+        thread: f.thread,
+        draft: draft({ senderId: 'forged-sender', role: 'assistant' }),
+        actions: [],
+      }),
+    ).resolves.toMatchObject({ status: 'error', error: expect.stringMatching(/draft.*identity/i) });
+    expect(delivered).toBe(0);
+    expect((await f.store.load(f.thread.id))!.messages).toEqual({});
+  });
+
   it('reports closed post-append failures without deleting persisted message', async () => {
     const sender = participant('sender', [instance('sender')]);
     const recipient = participant('recipient');
@@ -308,6 +372,101 @@ describe('MiddlewareLifecycle', () => {
       requesterId: 'sender',
     });
     expect((await f.store.load(f.thread.id))!.messages).toEqual({});
+  });
+
+  it('propagates auto-tool actions through supplied response lifecycle without duplicate execution', async () => {
+    const sender = participant('sender', [instance('sender-request'), instance('sender-observe')]);
+    sender.tools = { record: 'auto' };
+    const recipient = participant('recipient', [instance('recipient')]);
+    const f = await fixture([sender, recipient]);
+    const observed: string[] = [];
+    const execute = vi.fn(async () => ({ status: 'success' as const, data: { recorded: true } }));
+    f.tools.register({ name: 'record', description: 'record', parameters: schema, execute });
+    f.middlewareRegistry.register(
+      {
+        type: 'test:lifecycle',
+        displayName: 'Action propagation',
+        defaultFailureMode: 'closed',
+        configSchema: schema,
+        hooks: {
+          beforeSend: (context) => {
+            if (
+              context.participant.id === 'sender' &&
+              context.message.role === 'user' &&
+              context.instance.id === 'sender-request'
+            ) {
+              return { kind: 'tool', requestId: 'record-1', tool: 'record', arguments: {} };
+            }
+            observed.push(`${context.participant.id}:beforeSend:${context.actions.length}`);
+            return { kind: 'continue' };
+          },
+          beforeReceive: (context) => {
+            if (context.participant.id === 'sender' && context.instance.id === 'sender-request') {
+              return { kind: 'continue' };
+            }
+            observed.push(`${context.participant.id}:beforeReceive:${context.actions.length}`);
+            return { kind: 'continue' };
+          },
+          afterSend: (context) => {
+            if (context.participant.id === 'sender' && context.instance.id === 'sender-request') {
+              return { kind: 'continue' };
+            }
+            observed.push(`${context.participant.id}:afterSend:${context.actions.length}`);
+            return { kind: 'continue' };
+          },
+          afterReceive: (context) => {
+            if (context.participant.id === 'sender' && context.instance.id === 'sender-request') {
+              return { kind: 'continue' };
+            }
+            observed.push(`${context.participant.id}:afterReceive:${context.actions.length}`);
+            return context.mode === 'pre_runtime'
+              ? {
+                  kind: 'respond',
+                  message: {
+                    senderId: 'recipient',
+                    recipientId: 'sender',
+                    role: 'assistant',
+                    content: 'middleware response',
+                  },
+                }
+              : { kind: 'continue' };
+          },
+        },
+      },
+      'test',
+    );
+
+    const inbound = await f.lifecycle.receive({
+      operationId: 'route-actions',
+      sender,
+      recipient,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      mode: 'pre_runtime',
+    });
+    expect(inbound.kind).toBe('respond');
+    if (inbound.kind !== 'respond') throw new Error('Expected middleware response');
+    await f.lifecycle.respond({
+      operationId: 'route-actions',
+      sender: recipient,
+      recipient: sender,
+      thread: f.thread,
+      draft: inbound.response,
+      actions: inbound.actions,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(observed).toEqual([
+      'sender:beforeSend:1',
+      'recipient:beforeReceive:1',
+      'sender:afterSend:1',
+      'recipient:afterReceive:1',
+      'recipient:beforeSend:1',
+      'sender:beforeReceive:1',
+      'recipient:afterSend:1',
+      'sender:afterReceive:1',
+    ]);
   });
 
   it('returns pre-runtime respond drafts without duplicate appends and routes them through response lifecycle', async () => {

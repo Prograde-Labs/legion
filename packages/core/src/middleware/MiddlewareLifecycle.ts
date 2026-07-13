@@ -63,6 +63,15 @@ export class MiddlewareLifecycle {
   ) {}
 
   async receive(input: ReceiveLifecycleInput): Promise<InboundLifecycleResult> {
+    if (
+      input.draft.senderId !== input.sender.id ||
+      input.draft.recipientId !== input.recipient.id
+    ) {
+      return {
+        kind: 'error',
+        error: 'Middleware lifecycle draft identity does not match sender and recipient',
+      };
+    }
     let stored: MessageData | undefined;
     try {
       const senderBefore = await this.runner.runMessagePhase({
