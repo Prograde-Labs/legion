@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MiddlewareModuleConfig } from '@legion/types';
 import { LegionError } from '../errors/LegionError.js';
-import { loadWorkspaceMiddleware } from './loadWorkspaceMiddleware.js';
+import { loadWorkspaceMiddleware, MiddlewareLoadError } from './loadWorkspaceMiddleware.js';
 import { MiddlewareRegistry } from './MiddlewareRegistry.js';
 
 const definitionSource = (type: string): string => `
@@ -128,8 +128,126 @@ describe('loadWorkspaceMiddleware', () => {
       ),
       /already registered/i,
     );
-    expect(registry.list()).toHaveLength(1);
-    expect(registry.list()[0]?.source).toBe('workspace:first.mjs');
+    expect(registry.list()).toEqual([]);
+  });
+
+  it('leaves an existing destination unchanged when a later module fails', async () => {
+    await writeFile(join(workspaceRoot, 'first.mjs'), definitionSource('first'), 'utf8');
+    const registry = new MiddlewareRegistry();
+    registry.register(
+      {
+        type: 'existing',
+        displayName: 'Existing',
+        defaultFailureMode: 'open',
+        configSchema: { type: 'object' },
+        hooks: {},
+      },
+      'builtin:test',
+    );
+    const beforeList = registry.list();
+    const beforeDefinition = registry.get('existing');
+
+    await expectLoadFailure(
+      loadWorkspaceMiddleware(
+        workspaceRoot,
+        [
+          { id: 'first', module: 'first.mjs' },
+          { id: 'missing', module: 'missing.mjs' },
+        ],
+        registry,
+      ),
+      /Failed to load middleware.*missing/i,
+    );
+
+    expect(registry.list()).toEqual(beforeList);
+    expect(registry.get('existing')).toEqual(beforeDefinition);
+    expect(registry.get('first')).toBeUndefined();
+  });
+
+  it('can retry after an atomic load failure', async () => {
+    await writeFile(join(workspaceRoot, 'first.mjs'), definitionSource('first'), 'utf8');
+    const registry = new MiddlewareRegistry();
+
+    await expectLoadFailure(
+      loadWorkspaceMiddleware(
+        workspaceRoot,
+        [
+          { id: 'first', module: 'first.mjs' },
+          { id: 'missing', module: 'missing.mjs' },
+        ],
+        registry,
+      ),
+      /Failed to load middleware/i,
+    );
+    expect(registry.list()).toEqual([]);
+
+    await expect(
+      loadWorkspaceMiddleware(workspaceRoot, [{ id: 'first', module: 'first.mjs' }], registry),
+    ).resolves.toEqual([expect.objectContaining({ type: 'first', status: 'loaded' })]);
+    expect(registry.get('first')).toBeDefined();
+  });
+
+  it('preserves prior success and current error diagnostics on failure', async () => {
+    await writeFile(join(workspaceRoot, 'first.mjs'), definitionSource('first'), 'utf8');
+
+    const error = await captureLoadError(
+      loadWorkspaceMiddleware(
+        workspaceRoot,
+        [
+          { id: 'first', module: 'first.mjs' },
+          { id: 'missing', module: 'missing.mjs' },
+        ],
+        new MiddlewareRegistry(),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(MiddlewareLoadError);
+    expect(error.code).toBe('MIDDLEWARE_LOAD_FAILED');
+    expect(error.diagnostics).toEqual([
+      {
+        type: 'first',
+        source: 'workspace:first.mjs',
+        status: 'loaded',
+        configurationErrors: [],
+      },
+      {
+        type: 'missing',
+        source: 'workspace:missing.mjs',
+        status: 'error',
+        error: expect.any(String),
+        configurationErrors: [],
+      },
+    ]);
+    expect(error.cause).toBeInstanceOf(Error);
+  });
+
+  it('does not expose module-thrown text or absolute paths in public errors', async () => {
+    const secret = 'private-module-secret';
+    await writeFile(join(workspaceRoot, 'throws.mjs'), `throw '${secret}';`, 'utf8');
+
+    for (const config of [
+      { id: 'throws', module: 'throws.mjs' },
+      { id: 'missing', module: 'missing.mjs' },
+      { id: 'absolute', module: join(workspaceRoot, 'missing.mjs') },
+    ]) {
+      const error = await captureLoadError(
+        loadWorkspaceMiddleware(workspaceRoot, [config], new MiddlewareRegistry()),
+      );
+      const publicText = `${error.message} ${JSON.stringify(error.diagnostics)}`;
+
+      expect(publicText).not.toContain(secret);
+      expect(publicText).not.toContain(workspaceRoot);
+      expect(JSON.stringify(error)).not.toContain(secret);
+    }
+
+    const thrown = await captureLoadError(
+      loadWorkspaceMiddleware(
+        workspaceRoot,
+        [{ id: 'throws', module: 'throws.mjs' }],
+        new MiddlewareRegistry(),
+      ),
+    );
+    expect(thrown.cause).toBe(secret);
   });
 
   it.each([
@@ -223,26 +341,29 @@ describe('loadWorkspaceMiddleware', () => {
       },
     }) as MiddlewareModuleConfig;
 
-    await expectLoadFailure(
-      loadWorkspaceMiddleware(workspaceRoot, [accessorConfig], new MiddlewareRegistry()),
-      /Failed to load middleware/i,
-    );
-    expect(configGetterInvoked).toBe(false);
+    try {
+      await expectLoadFailure(
+        loadWorkspaceMiddleware(workspaceRoot, [accessorConfig], new MiddlewareRegistry()),
+        /Failed to load middleware/i,
+      );
+      expect(configGetterInvoked).toBe(false);
 
-    await expectLoadFailure(
-      loadWorkspaceMiddleware(
-        workspaceRoot,
-        [{ id: 'audit', module: 'audit.mjs' }],
-        new MiddlewareRegistry(),
-      ),
-      /Failed to load middleware/i,
-    );
-    expect(
-      (globalThis as typeof globalThis & { __legionMiddlewareGetterInvoked?: boolean })
-        .__legionMiddlewareGetterInvoked,
-    ).toBe(false);
-    delete (globalThis as typeof globalThis & { __legionMiddlewareGetterInvoked?: boolean })
-      .__legionMiddlewareGetterInvoked;
+      await expectLoadFailure(
+        loadWorkspaceMiddleware(
+          workspaceRoot,
+          [{ id: 'audit', module: 'audit.mjs' }],
+          new MiddlewareRegistry(),
+        ),
+        /Failed to load middleware/i,
+      );
+      expect(
+        (globalThis as typeof globalThis & { __legionMiddlewareGetterInvoked?: boolean })
+          .__legionMiddlewareGetterInvoked,
+      ).toBe(false);
+    } finally {
+      delete (globalThis as typeof globalThis & { __legionMiddlewareGetterInvoked?: boolean })
+        .__legionMiddlewareGetterInvoked;
+    }
   });
 });
 
@@ -251,4 +372,14 @@ async function expectLoadFailure(promise: Promise<unknown>, message: RegExp): Pr
     code: 'MIDDLEWARE_LOAD_FAILED',
     message: expect.stringMatching(message),
   });
+}
+
+async function captureLoadError(promise: Promise<unknown>): Promise<MiddlewareLoadError> {
+  try {
+    await promise;
+  } catch (error) {
+    expect(error).toBeInstanceOf(MiddlewareLoadError);
+    return error as MiddlewareLoadError;
+  }
+  throw new Error('Expected middleware load to fail');
 }
