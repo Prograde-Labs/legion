@@ -411,6 +411,15 @@ function validateActions(value: unknown, path: string): void {
   assertNoAliases(value, path);
 }
 
+/** Validate and detach middleware action ledgers crossing runtime boundaries. */
+export function snapshotMiddlewareActions(
+  value: unknown,
+  path = '$.middlewareActions',
+): MiddlewareActionResult[] {
+  validateActions(value, path);
+  return cloneJsonSafe(value, path) as MiddlewareActionResult[];
+}
+
 function snapshotMiddlewareActionInput(value: MiddlewareActionInput): MiddlewareActionInput {
   const input = exactObject(value, '$.middlewareAction', [
     'operationId',

@@ -10,17 +10,21 @@ import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
+import { AgentRuntime } from './AgentRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
 import type {
   ConversationOrigin,
   LLMChunk,
   MiddlewareDefinition,
   MiddlewareLogger,
+  MiddlewareActionResult,
 } from '@legion/types';
 import type { ToolContext } from '../tools/Tool.js';
 import { MiddlewareLifecycle } from '../middleware/MiddlewareLifecycle.js';
 import { MiddlewareRegistry } from '../middleware/MiddlewareRegistry.js';
 import { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
+import type { Provider, ProviderMessage } from '../providers/Provider.js';
+import type { ModelRouter } from '../providers/ModelRouter.js';
 
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
@@ -832,6 +836,200 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(handle).toHaveBeenCalledOnce();
   });
 
+  it('passes inbound and prompt actions to every response lifecycle hook', async () => {
+    const observed: string[][] = [];
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Ledger middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          if (context.participant.id === 'op' && context.message.role === 'user') {
+            return { kind: 'tool', requestId: 'inbound', tool: 'record', arguments: {} };
+          }
+          if (context.participant.id === 'agent') {
+            observed.push(context.actions.map((action) => action.requestId));
+          }
+          return { kind: 'continue', message: context.message };
+        },
+        beforeReceive: (context) => {
+          if (context.participant.id === 'op') {
+            observed.push(context.actions.map((action) => action.requestId));
+          }
+          return { kind: 'continue', message: context.message };
+        },
+        buildSystemPrompt: (context) => ({
+          kind: 'tool',
+          requestId: `prompt-${context.actions.length}`,
+          tool: 'record',
+          arguments: {},
+        }),
+        afterSend: (context) => {
+          if (context.participant.id === 'agent') {
+            observed.push(context.actions.map((action) => action.requestId));
+          }
+          return { kind: 'continue' };
+        },
+        afterReceive: (context) => {
+          if (context.mode === 'post_response' && context.participant.id === 'op') {
+            observed.push(context.actions.map((action) => action.requestId));
+          }
+          return { kind: 'continue' };
+        },
+      },
+    });
+    await collective.update('op', { tools: { record: 'auto' } });
+    await collective.update('agent', {
+      tools: { record: 'auto' },
+      middleware: [{ id: 'agent-middleware', type: 'test:router-middleware', config: {} }],
+    });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'record',
+      description: 'records middleware action',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success', data: 'recorded' };
+      },
+    });
+    runtimeRegistry.registerFactory('agent', () => ({
+      async handle(incoming, context) {
+        const first = await context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 0,
+          incomingMessageId: incoming.id,
+          actions: context.middlewareActions ?? [],
+        });
+        if (first.kind !== 'continue') throw new Error('first prompt did not continue');
+        const second = await context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 1,
+          incomingMessageId: incoming.id,
+          actions: first.actions,
+        });
+        if (second.kind !== 'continue') throw new Error('second prompt did not continue');
+        return { kind: 'response' as const, content: 'done', actions: second.actions };
+      },
+    }));
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'ledger',
+      context: baseContext,
+    });
+
+    expect(observed).toEqual([
+      ['inbound', 'prompt-1', 'prompt-2'],
+      ['inbound', 'prompt-1', 'prompt-2'],
+      ['inbound', 'prompt-1', 'prompt-2'],
+      ['inbound', 'prompt-1', 'prompt-2'],
+    ]);
+  });
+
+  it('runs agent prompt middleware before streaming provider calls', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Streaming prompt middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        buildSystemPrompt: () => ({
+          kind: 'continue',
+          change: { operation: 'append', content: ':stream' },
+        }),
+      },
+    });
+    await collective.update('agent', {
+      middleware: [{ id: 'agent-middleware', type: 'test:router-middleware', config: {} }],
+    });
+    const requests: ProviderMessage[][] = [];
+    const provider: Provider = {
+      async *stream(messages) {
+        requests.push(messages);
+        yield { type: 'text_delta', delta: 'streamed' };
+        yield { type: 'done', stopReason: 'stop' };
+      },
+    };
+    const modelRouter = {
+      async resolveWithId() {
+        return { provider, providerId: 'test' };
+      },
+    } as ModelRouter;
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'stream prompt',
+      context: baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+
+    expect(next.value).toMatchObject({ status: 'success', response: 'streamed' });
+    expect(requests).toHaveLength(1);
+    expect(requests[0][0]).toMatchObject({ role: 'system', content: 'Base prompt:stream' });
+  });
+
+  it.each([
+    ['abort', () => ({ kind: 'abort', error: 'stop' }), 'error'],
+    [
+      'pending approval',
+      () => ({ kind: 'tool', requestId: 'gate', tool: 'gate', arguments: {} }),
+      'pending_approval',
+    ],
+  ])(
+    'prevents streaming provider calls after prompt %s',
+    async (_name, buildSystemPrompt, status) => {
+      const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(
+        dir,
+        {
+          type: 'test:router-middleware',
+          displayName: 'Streaming prompt terminal',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object', additionalProperties: true },
+          hooks: { buildSystemPrompt },
+        },
+      );
+      await collective.update('agent', {
+        tools: { gate: 'requires_approval' },
+        middleware: [{ id: 'agent-middleware', type: 'test:router-middleware', config: {} }],
+      });
+      let providerCalls = 0;
+      const provider: Provider = {
+        async *stream() {
+          providerCalls += 1;
+          yield { type: 'text_delta', delta: 'must not stream' };
+          yield { type: 'done', stopReason: 'stop' };
+        },
+      };
+      const modelRouter = {
+        async resolveWithId() {
+          return { provider, providerId: 'test' };
+        },
+      } as ModelRouter;
+      runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
+
+      const stream = router.sendStream({
+        senderId: 'op',
+        recipientId: 'agent',
+        message: 'stream terminal',
+        context: baseContext,
+      });
+      const chunks: LLMChunk[] = [];
+      let next = await stream.next();
+      while (!next.done) {
+        chunks.push(next.value);
+        next = await stream.next();
+      }
+
+      expect(next.value.status).toBe(status);
+      expect(chunks).toEqual([]);
+      expect(providerCalls).toBe(0);
+    },
+  );
+
   it('routes replyTo runtime responses through injected lifecycle', async () => {
     const phases: string[] = [];
     const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
@@ -1517,6 +1715,26 @@ describe('MessageRouter.sendStream()', () => {
     expect(result.status).toBe('success');
     expect(result.response).toBe('hello back');
     expect(chunks).toHaveLength(0);
+  });
+
+  it('rejects unknown senders before creating a streaming conversation', async () => {
+    const { router, baseContext, eventBus } = await setup(dir);
+    let created = 0;
+    eventBus.on('conversation:created', () => (created += 1));
+
+    const stream = router.sendStream({
+      senderId: 'ghost',
+      recipientId: 'mock-1',
+      message: 'nope',
+      context: baseContext,
+    });
+    const result = await stream.next();
+
+    expect(result).toMatchObject({
+      done: true,
+      value: { conversationId: '', status: 'error', error: expect.stringMatching(/ghost/) },
+    });
+    expect(created).toBe(0);
   });
 
   it('persists response message with correct sender/recipient direction', async () => {

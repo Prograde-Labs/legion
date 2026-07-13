@@ -20,7 +20,7 @@ import type {
 import type { UsageCalculator } from '../providers/UsageCalculator.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
-import { cloneJsonSafe } from '../middleware/json.js';
+import { snapshotMiddlewareActions } from '../auth/PendingApprovalRegistry.js';
 
 const DEFAULT_MAX_ITERATIONS = 20;
 
@@ -165,6 +165,7 @@ export class AgentRuntime implements Runtime {
         typeof resume.preparedPrompt !== 'string' ||
         !Number.isInteger(resume.actionCursor) ||
         resume.actionCursor < 0 ||
+        !Array.isArray(resume.actions) ||
         resume.actionCursor > resume.actions.length
       ) {
         return { kind: 'middleware_abort', error: 'Invalid middleware provider resume' };
@@ -173,7 +174,7 @@ export class AgentRuntime implements Runtime {
       if (!incoming || incoming.recipientId !== this.participantId) {
         return { kind: 'middleware_abort', error: 'Invalid middleware provider resume' };
       }
-      const actions = cloneJsonSafe(resume.actions, '$.runtimeResume.actions').slice(
+      const actions = snapshotMiddlewareActions(resume.actions, '$.runtimeResume.actions').slice(
         0,
         resume.actionCursor,
       );
@@ -206,6 +207,14 @@ export class AgentRuntime implements Runtime {
       actions?: MiddlewareActionResult[];
     } = {},
   ): AsyncGenerator<LLMChunk, RuntimeResult> {
+    let actions: MiddlewareActionResult[];
+    try {
+      actions = snapshotMiddlewareActions(
+        start.actions === undefined ? (context.middlewareActions ?? []) : start.actions,
+      );
+    } catch {
+      return { kind: 'middleware_abort', error: 'Invalid middleware action ledger' };
+    }
     const participant = context.collective.getOrThrow(this.participantId);
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
@@ -218,16 +227,22 @@ export class AgentRuntime implements Runtime {
       providerId = resolved?.providerId;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return {
-        kind: 'response',
-        content: `[AgentRuntime error: ${msg}]`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[AgentRuntime error: ${msg}]`,
+        },
+        actions,
+      );
     }
     if (!provider) {
-      return {
-        kind: 'response',
-        content: `[AgentRuntime error: no provider available for model '${agent.model.model}']`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[AgentRuntime error: no provider available for model '${agent.model.model}']`,
+        },
+        actions,
+      );
     }
 
     // -------------------------------------------------------------------------
@@ -248,7 +263,10 @@ export class AgentRuntime implements Runtime {
     if (lastAssistantMsg) {
       const stillPending = await this.processResumedApprovals(lastAssistantMsg, context);
       if (stillPending !== null) {
-        return { kind: 'pending_approval', approvalRequests: stillPending };
+        return this.withActions(
+          { kind: 'pending_approval', approvalRequests: stillPending },
+          actions,
+        );
       }
       // All resolved — fall through; buildProviderMessages will read the updated chain.
     }
@@ -269,7 +287,6 @@ export class AgentRuntime implements Runtime {
       }));
 
     try {
-      let actions = start.actions ?? [];
       const firstIteration = start.iteration ?? 0;
       for (let i = firstIteration; i < maxIterations; i++) {
         await context.conversation.reload();
@@ -284,17 +301,23 @@ export class AgentRuntime implements Runtime {
             actions,
           });
           if (promptResult.kind === 'pending') {
-            return {
-              kind: 'middleware_pending',
-              approvalId: promptResult.approvalId,
-              checkpointId: promptResult.checkpointId,
-            };
+            return this.withActions(
+              {
+                kind: 'middleware_pending',
+                approvalId: promptResult.approvalId,
+                checkpointId: promptResult.checkpointId,
+              },
+              actions,
+            );
           }
           if (promptResult.kind === 'abort') {
-            return { kind: 'middleware_abort', error: 'Middleware prompt aborted' };
+            return this.withActions(
+              { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
+              actions,
+            );
           }
           prompt = promptResult.prompt;
-          actions = cloneJsonSafe(promptResult.actions, '$.buildSystemPrompt.actions');
+          actions = snapshotMiddlewareActions(promptResult.actions, '$.buildSystemPrompt.actions');
         }
 
         const messages = buildProviderMessages(context.conversation.activeChain, prompt);
@@ -316,12 +339,15 @@ export class AgentRuntime implements Runtime {
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
           const usage = await this.computeUsage(providerId, agent, response);
-          return {
-            kind: 'response',
-            content: response.content ?? '',
-            ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-            ...(usage ? { usage } : {}),
-          };
+          return this.withActions(
+            {
+              kind: 'response',
+              content: response.content ?? '',
+              ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+              ...(usage ? { usage } : {}),
+            },
+            actions,
+          );
         }
 
         const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
@@ -412,21 +438,36 @@ export class AgentRuntime implements Runtime {
 
         // If any approvals are pending, return early.
         if (pendingApprovals.length > 0) {
-          return { kind: 'pending_approval', approvalRequests: pendingApprovals };
+          return this.withActions(
+            { kind: 'pending_approval', approvalRequests: pendingApprovals },
+            actions,
+          );
         }
       }
 
-      return {
-        kind: 'response',
-        content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
+        },
+        actions,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return {
-        kind: 'response',
-        content: `[AgentRuntime error: ${msg}]`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[AgentRuntime error: ${msg}]`,
+        },
+        actions,
+      );
     }
+  }
+
+  private withActions(result: RuntimeResult, actions: MiddlewareActionResult[]): RuntimeResult {
+    return actions.length === 0
+      ? result
+      : { ...result, actions: snapshotMiddlewareActions(actions, '$.runtimeActions') };
   }
 
   /**

@@ -13,11 +13,26 @@ import type { ApprovalLog } from '../auth/ApprovalLog.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 
 export type RuntimeResult =
-  | { kind: 'response'; content: string; reasoning?: string; usage?: MessageUsage }
-  | { kind: 'pending_approval'; approvalRequests: PendingApproval[] }
-  | { kind: 'middleware_pending'; approvalId: string; checkpointId: string }
-  | { kind: 'middleware_abort'; error: string }
-  | { kind: 'void' };
+  | {
+      kind: 'response';
+      content: string;
+      reasoning?: string;
+      usage?: MessageUsage;
+      actions?: MiddlewareActionResult[];
+    }
+  | {
+      kind: 'pending_approval';
+      approvalRequests: PendingApproval[];
+      actions?: MiddlewareActionResult[];
+    }
+  | {
+      kind: 'middleware_pending';
+      approvalId: string;
+      checkpointId: string;
+      actions?: MiddlewareActionResult[];
+    }
+  | { kind: 'middleware_abort'; error: string; actions?: MiddlewareActionResult[] }
+  | { kind: 'void'; actions?: MiddlewareActionResult[] };
 
 export interface AgentProviderResume {
   kind: 'agent_provider';
@@ -50,6 +65,8 @@ export interface RuntimeContext extends ToolContext {
   pendingApprovalRegistry: PendingApprovalRegistry;
   approvalLog?: ApprovalLog;
   messageRouter: MessageRouterPort;
+  /** Detached lifecycle actions accumulated before runtime dispatch. */
+  middlewareActions?: MiddlewareActionResult[];
   buildSystemPrompt?: (input: {
     basePrompt: string;
     iteration: number;

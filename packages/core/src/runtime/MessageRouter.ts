@@ -3,6 +3,7 @@ import { ConversationThread } from '../conversation/ConversationThread.js';
 import type { Collective } from '../collective/Collective.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../tools/Tool.js';
+import { snapshotMiddlewareActions } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
@@ -116,6 +117,7 @@ export class MessageRouter implements MessageRouterPort {
     middlewareState?: {
       operationId: string;
       incomingMessageId: string;
+      actions: MiddlewareActionResult[];
     },
   ): RuntimeContext {
     const participant = this.collective.getOrThrow(participantId);
@@ -126,6 +128,9 @@ export class MessageRouter implements MessageRouterPort {
       conversation: thread,
       communicationDepth: depth,
       messageRouter: this,
+      ...(middlewareState === undefined
+        ? {}
+        : { middlewareActions: snapshotMiddlewareActions(middlewareState.actions) }),
     };
     if (
       this.lifecycle &&
@@ -211,6 +216,24 @@ export class MessageRouter implements MessageRouterPort {
       messageId: responseMsg.id,
     });
     return { conversationId: thread.id, response: response.content, status: 'success' };
+  }
+
+  private withRuntimeActions(
+    lifecycleState:
+      | {
+          operationId: string;
+          actions: MiddlewareActionResult[];
+          context: ToolContext;
+          storedMessageId?: string;
+        }
+      | undefined,
+    result: RuntimeResult,
+  ) {
+    if (!lifecycleState || result.actions === undefined) return lifecycleState;
+    return {
+      ...lifecycleState,
+      actions: snapshotMiddlewareActions(result.actions, '$.runtimeActions'),
+    };
   }
 
   private approvalRequests(context: ToolContext, approvalId: string) {
@@ -315,6 +338,13 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   private async *sendStreamInner(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+    if (!this.collective.get(opts.senderId)) {
+      return {
+        conversationId: opts.conversationId ?? '',
+        status: 'error',
+        error: new ParticipantNotFoundError(opts.senderId).message,
+      };
+    }
     const recipient = this.collective.get(opts.recipientId);
     if (!recipient) {
       return {
@@ -373,6 +403,7 @@ export class MessageRouter implements MessageRouterPort {
       recipient.id,
       { ...opts.context, communicationDepth: depth },
       depth,
+      { operationId: createId('route'), incomingMessageId: inbound.id, actions: [] },
     );
 
     if (opts.replyTo) {
@@ -555,7 +586,11 @@ export class MessageRouter implements MessageRouterPort {
       depth,
       lifecycleState === undefined
         ? undefined
-        : { operationId: lifecycleState.operationId, incomingMessageId: inbound.id },
+        : {
+            operationId: lifecycleState.operationId,
+            incomingMessageId: inbound.id,
+            actions: lifecycleState.actions,
+          },
     );
 
     if (opts.replyTo) {
@@ -699,6 +734,7 @@ export class MessageRouter implements MessageRouterPort {
       storedMessageId?: string;
     },
   ): Promise<MessageRouterResult> {
+    lifecycleState = this.withRuntimeActions(lifecycleState, result);
     if (result.kind === 'response') {
       return this.persistResponse(thread, senderId, defaultRecipientId, result, lifecycleState);
     }
@@ -761,6 +797,7 @@ export class MessageRouter implements MessageRouterPort {
     try {
       const result = await runtime.handle(inbound, backgroundContext);
       if (result.kind !== 'response') return;
+      lifecycleState = this.withRuntimeActions(lifecycleState, result);
       const replyTarget = opts.replyTo!;
       await this.persistResponse(
         backgroundThread,
