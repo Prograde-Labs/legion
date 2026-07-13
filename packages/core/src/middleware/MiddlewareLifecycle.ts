@@ -120,6 +120,7 @@ export class MiddlewareLifecycle {
           draft,
           actions,
           final: true,
+          mode: input.mode,
           signal: input.signal,
         });
         if (senderBefore.kind !== 'continue') return this.messageTerminal(senderBefore);
@@ -134,6 +135,7 @@ export class MiddlewareLifecycle {
           draft,
           actions: actionsCopy(actions),
           final: true,
+          mode: input.mode,
           signal: input.signal,
         });
         if (recipientBefore.kind !== 'continue') return this.messageTerminal(recipientBefore);
@@ -259,6 +261,7 @@ export class MiddlewareLifecycle {
       draft,
       actions: actionsCopy(actions),
       final,
+      mode: 'post_response',
       ...(iteration === undefined ? {} : { iteration }),
       ...(chunk === undefined ? {} : { chunk }),
       signal: controller.signal,
@@ -272,6 +275,7 @@ export class MiddlewareLifecycle {
       draft: senderBefore.value,
       actions: actionsCopy(senderBefore.actions),
       final,
+      mode: 'post_response',
       ...(iteration === undefined ? {} : { iteration }),
       ...(chunk === undefined ? {} : { chunk }),
       signal: controller.signal,

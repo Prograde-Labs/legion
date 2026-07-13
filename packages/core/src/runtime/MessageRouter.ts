@@ -947,16 +947,14 @@ export class MessageRouter implements MessageRouterPort {
           error: resumed.error,
           ...(resumed.persisted ? { partial: true, storedMessageId: resumed.storedMessageId } : {}),
         };
-        if (resumed.error !== 'Middleware approval checkpoint is stale') {
-          await approvals.recordRouterResult(
-            approvalId,
-            result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
-          );
-          try {
-            await approvals.acknowledge(approvalId);
-          } catch {
-            return result;
-          }
+        await approvals.recordRouterResult(
+          approvalId,
+          result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
+        );
+        try {
+          await approvals.acknowledge(approvalId);
+        } catch {
+          return result;
         }
         return result;
       }
@@ -1005,6 +1003,16 @@ export class MessageRouter implements MessageRouterPort {
         };
       }
       try {
+        const providerClaim = await approvals.claimProviderExecution(approvalId);
+        if (providerClaim !== 'claimed') {
+          const cached = approvals.getRecord(approvalId)?.routerResult;
+          if (cached) return cached;
+          return {
+            conversationId: checkpoint.conversationId,
+            status: 'error',
+            error: 'Middleware provider outcome unknown and was not retried',
+          };
+        }
         const runtimeContext = this.buildRuntimeContext(
           thread,
           participant.id,
@@ -1098,7 +1106,7 @@ export class MessageRouter implements MessageRouterPort {
         thread,
         draft,
         actions,
-        mode: 'pre_runtime',
+        mode: checkpoint.mode ?? 'pre_runtime',
         signal: context.signal,
         skipDraftHooks: true,
       });
@@ -1113,6 +1121,9 @@ export class MessageRouter implements MessageRouterPort {
           actions: inbound.actions,
           context,
         });
+      }
+      if ((checkpoint.mode ?? 'pre_runtime') === 'post_response') {
+        return { conversationId: thread.id, status: 'success' as const };
       }
       return this.resumeRuntime(
         thread,

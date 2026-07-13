@@ -743,4 +743,34 @@ describe('PendingApprovalRegistry continuations', () => {
       }),
     ).rejects.toThrow(/conflict/i);
   });
+
+  it('accepts empty successful router responses and preserves completed provider execution', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(approvalId);
+    await reg.recordResumeResult(approvalId, { status: 'success' });
+    expect(await reg.claimProviderExecution(approvalId)).toBe('claimed');
+    await reg.recordRouterResult(approvalId, {
+      conversationId: 'c1',
+      status: 'success',
+      response: '',
+    });
+    expect(await reg.claimProviderExecution(approvalId)).toBe('completed');
+    expect(reg.getRecord(approvalId)?.routerResult).toEqual({
+      conversationId: 'c1',
+      status: 'success',
+      response: '',
+    });
+  });
 });

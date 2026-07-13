@@ -77,6 +77,7 @@ export interface MessagePhaseInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
+  mode?: 'pre_runtime' | 'post_response';
 }
 
 export interface AfterReceiveInput {
@@ -929,6 +930,7 @@ export class MiddlewareRunner {
         draft: checkpoint.draft!,
         final: checkpoint.final!,
         ...(checkpoint.iteration === undefined ? {} : { iteration: checkpoint.iteration }),
+        ...(checkpoint.mode === undefined ? {} : { mode: checkpoint.mode }),
       });
     }
     if (checkpoint.phase === 'afterReceive') {
@@ -1443,6 +1445,9 @@ export class MiddlewareRunner {
             ...((input as MessagePhaseInput).iteration === undefined
               ? {}
               : { iteration: (input as MessagePhaseInput).iteration }),
+            ...((input as MessagePhaseInput).mode === undefined
+              ? {}
+              : { mode: (input as MessagePhaseInput).mode }),
           }
         : phase === 'buildSystemPrompt'
           ? { prompt: value as string }

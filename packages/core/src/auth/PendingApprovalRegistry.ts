@@ -35,6 +35,7 @@ export interface ApprovalRecord extends PendingApprovalInput {
   resumeResult?: ToolResult;
   routerResult?: ApprovalRouterResult;
   successorApprovalId?: string;
+  providerExecution?: 'pending' | 'executing' | 'completed' | 'unknown';
 }
 
 export interface ApprovalRouterResult {
@@ -693,7 +694,7 @@ function validateCheckpoint(value: unknown): void {
   }
 
   if (checkpoint.phase === 'beforeSend' || checkpoint.phase === 'beforeReceive') {
-    for (const field of ['prompt', 'message', 'mode', 'persistedMessageId', 'runtimeResume']) {
+    for (const field of ['prompt', 'message', 'persistedMessageId', 'runtimeResume']) {
       if (checkpoint[field] !== undefined) {
         throw new TypeError(
           `Value at $.continuation.checkpoint.${field} is invalid for message phase`,
@@ -706,6 +707,13 @@ function validateCheckpoint(value: unknown): void {
     }
     if (checkpoint.iteration !== undefined) {
       requiredInteger(checkpoint.iteration, '$.continuation.checkpoint.iteration');
+    }
+    if (
+      checkpoint.mode !== undefined &&
+      checkpoint.mode !== 'pre_runtime' &&
+      checkpoint.mode !== 'post_response'
+    ) {
+      throw new TypeError('Value at $.continuation.checkpoint.mode is invalid');
     }
   } else if (checkpoint.phase === 'afterReceive') {
     for (const field of ['draft', 'prompt', 'final', 'iteration', 'runtimeResume']) {
@@ -848,7 +856,16 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.successorApprovalId === undefined
       ? {}
       : { successorApprovalId: requiredString(cloned.successorApprovalId, 'successorApprovalId') }),
+    ...(cloned.providerExecution === undefined
+      ? {}
+      : { providerExecution: cloned.providerExecution }),
   };
+  if (
+    record.providerExecution !== undefined &&
+    !['pending', 'executing', 'completed', 'unknown'].includes(record.providerExecution)
+  ) {
+    throw new TypeError('Approval provider execution lifecycle is invalid');
+  }
   if (
     record.lifecycle === 'pending' &&
     (record.decision !== undefined || record.resumeResult !== undefined)
@@ -897,7 +914,9 @@ function snapshotRouterResult(value: ApprovalRouterResult): ApprovalRouterResult
   if (result.status !== 'success' && result.status !== 'error') {
     throw new TypeError('Approval router result status is invalid');
   }
-  if (result.response !== undefined) requiredString(result.response, '$.routerResult.response');
+  if (result.response !== undefined && typeof result.response !== 'string') {
+    throw new TypeError('Approval router result response must be a string');
+  }
   if (result.error !== undefined) requiredString(result.error, '$.routerResult.error');
   if (result.partial !== undefined && typeof result.partial !== 'boolean') {
     throw new TypeError('Approval router result partial is invalid');
@@ -983,6 +1002,15 @@ function recovery(data: RegistryData): boolean {
     ) {
       record.resumeResult = { status: 'error', error: INTERRUPTION_ERROR };
       record.lifecycle = 'decided';
+      changed = true;
+    }
+    if (record.providerExecution === 'executing') {
+      record.providerExecution = 'unknown';
+      record.routerResult = {
+        conversationId: record.conversationId,
+        status: 'error',
+        error: 'Middleware provider outcome unknown and was not retried',
+      };
       changed = true;
     }
   }
@@ -1254,7 +1282,30 @@ export class PendingApprovalRegistry {
         throw new LegionError('Conflicting approval router result', 'APPROVAL_CONFLICT');
       }
       record.routerResult = snapshot;
+      if (record.providerExecution === 'executing') record.providerExecution = 'completed';
       return undefined;
+    });
+  }
+
+  async claimProviderExecution(approvalId: string): Promise<'claimed' | 'completed' | 'unknown'> {
+    return this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      if (record.providerExecution === 'completed' || record.routerResult !== undefined)
+        return 'completed';
+      if (record.providerExecution === 'unknown') return 'unknown';
+      if (record.providerExecution === 'executing') {
+        record.providerExecution = 'unknown';
+        record.routerResult = {
+          conversationId: record.conversationId,
+          status: 'error',
+          error: 'Middleware provider outcome unknown and was not retried',
+        };
+        return 'unknown';
+      }
+      record.providerExecution = 'executing';
+      return 'claimed';
     });
   }
 
