@@ -1,5 +1,5 @@
 import type { Storage } from '../storage/Storage.js';
-import type { ParticipantConfig } from '@legion/types';
+import type { MiddlewareInstanceConfig, ParticipantConfig } from '@legion/types';
 import { ConflictError, InvariantError, ParticipantNotFoundError } from '../errors/LegionError.js';
 import { createDefaultParticipants } from './default-participants.js';
 import { EventBus } from '../events/EventBus.js';
@@ -8,6 +8,7 @@ const PARTICIPANTS_PREFIX = 'collective/participants';
 
 export class Collective {
   private participants = new Map<string, ParticipantConfig>();
+  private participantMutationTails = new Map<string, Promise<void>>();
 
   constructor(eventBus: EventBus);
   constructor(storage: Storage, participants: ParticipantConfig[]);
@@ -78,6 +79,24 @@ export class Collective {
     await this.storage.writeJson(`${PARTICIPANTS_PREFIX}/${config.id}.json`, config);
   }
 
+  private async withParticipantMutation<T>(id: string, mutate: () => Promise<T>): Promise<T> {
+    const previous = this.participantMutationTails.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.participantMutationTails.set(id, current);
+    await previous;
+    try {
+      return await mutate();
+    } finally {
+      release();
+      if (this.participantMutationTails.get(id) === current) {
+        this.participantMutationTails.delete(id);
+      }
+    }
+  }
+
   async add(config: ParticipantConfig): Promise<void> {
     if (this.participants.has(config.id)) {
       throw new ConflictError(`Participant already exists: ${config.id}`);
@@ -88,16 +107,35 @@ export class Collective {
   }
 
   async update(id: string, patch: Partial<ParticipantConfig>): Promise<void> {
-    const existing = this.getOrThrow(id);
-    const updated = { ...existing, ...patch } as ParticipantConfig;
-    if (existing.operator === true && updated.operator === false) {
-      const otherOperators = this.operators().filter((p) => p.id !== id);
-      if (otherOperators.length === 0) {
-        throw new InvariantError('Cannot strip operator authority from the last operator');
+    await this.withParticipantMutation(id, async () => {
+      const existing = this.getOrThrow(id);
+      const updated = { ...existing, ...patch } as ParticipantConfig;
+      if (existing.operator === true && updated.operator === false) {
+        const otherOperators = this.operators().filter((p) => p.id !== id);
+        if (otherOperators.length === 0) {
+          throw new InvariantError('Cannot strip operator authority from the last operator');
+        }
       }
-    }
-    this.participants.set(id, updated);
-    await this.persist(updated);
+      await this.persist(updated);
+      this.participants.set(id, updated);
+    });
+  }
+
+  async replaceMiddleware(
+    participantId: string,
+    middleware: MiddlewareInstanceConfig[],
+  ): Promise<ParticipantConfig> {
+    return this.withParticipantMutation(participantId, async () => {
+      const existing = this.getOrThrow(participantId);
+      const updated = {
+        ...existing,
+        middleware,
+        middlewareRevision: (existing.middlewareRevision ?? 0) + 1,
+      } as ParticipantConfig;
+      await this.persist(updated);
+      this.participants.set(participantId, updated);
+      return updated;
+    });
   }
 
   async retire(id: string): Promise<void> {

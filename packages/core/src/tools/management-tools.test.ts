@@ -23,9 +23,10 @@ import {
   deleteConversationTool,
   queryUsageTool,
   listModelsTool,
+  setParticipantMiddlewareTool,
   managementTools,
 } from './management-tools.js';
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage, MiddlewareInstanceConfig } from '@legion/types';
 import type { ToolContext } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';
@@ -136,11 +137,80 @@ describe('management tools', () => {
     expect(collective.get('agent-x')?.type).toBe('agent');
   });
 
+  it('create_agent validates enabled middleware and persists a cloned revision-zero list', async () => {
+    const { context, collective, storage } = await makeContext();
+    const validate = vi.fn().mockResolvedValue(undefined);
+    const middleware: MiddlewareInstanceConfig[] = [
+      { id: 'audit', type: 'audit-log', config: { nested: { value: 1 } } },
+      { id: 'later', type: 'unavailable', enabled: false, config: {} },
+    ];
+
+    const result = await createAgentTool.execute(
+      {
+        id: 'middleware-agent',
+        name: 'Middleware Agent',
+        systemPrompt: 'test',
+        model: { model: 'test-model' },
+        middleware,
+      },
+      { ...context, middlewareValidator: { validate } } as ToolContext,
+    );
+
+    expect(result.status).toBe('success');
+    expect(validate).toHaveBeenCalledWith([middleware[0]]);
+    middleware[0].config.nested = { value: 2 };
+    expect(collective.get('middleware-agent')).toEqual(
+      expect.objectContaining({
+        middleware: [
+          { id: 'audit', type: 'audit-log', config: { nested: { value: 1 } } },
+          { id: 'later', type: 'unavailable', enabled: false, config: {} },
+        ],
+        middlewareRevision: 0,
+      }),
+    );
+    expect(await storage.readJson('collective/participants/middleware-agent.json')).toEqual(
+      expect.objectContaining({ middlewareRevision: 0 }),
+    );
+  });
+
+  it('create_agent rejects non-array middleware without adding a participant', async () => {
+    const { context, collective } = await makeContext();
+
+    const result = await createAgentTool.execute(
+      {
+        id: 'bad-middleware-agent',
+        name: 'Bad Middleware Agent',
+        systemPrompt: 'test',
+        model: { model: 'test-model' },
+        middleware: {},
+      },
+      context,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'middleware must be an array when provided',
+    });
+    expect(collective.get('bad-middleware-agent')).toBeUndefined();
+  });
+
   it('list_participants returns the roster', async () => {
     const { context } = await makeContext();
     const result = await listParticipantsTool.execute({}, context);
     expect(result.status).toBe('success');
     expect((result.data as { id: string }[]).some((p) => p.id === 'operator')).toBe(true);
+  });
+
+  it('list_participants exposes effective middleware defaults', async () => {
+    const { context } = await makeContext();
+    const result = await listParticipantsTool.execute({}, context);
+
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'operator', middleware: [], middlewareRevision: 0 }),
+      ]),
+    );
   });
 
   it('retire_agent retires an agent', async () => {
@@ -1036,6 +1106,180 @@ describe('management tools', () => {
       model: 'gpt-4o',
       temperature: 0.2,
       maxTokens: 100,
+    });
+  });
+});
+
+describe('participant middleware management', () => {
+  async function makeAgentContext() {
+    const result = await makeContext();
+    await result.collective.add({
+      id: 'target-agent',
+      name: 'Target Agent',
+      type: 'agent',
+      systemPrompt: 'test',
+      model: { model: 'test-model' },
+      tools: {},
+      maxIterations: 20,
+    });
+    return result;
+  }
+
+  it('registers set_participant_middleware exactly once with its contract schema', () => {
+    const matches = managementTools.filter((tool) => tool.name === 'set_participant_middleware');
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toBe(setParticipantMiddlewareTool);
+    expect(matches[0].parameters).toEqual(
+      expect.objectContaining({
+        type: 'object',
+        required: ['participantId', 'middleware'],
+        properties: expect.objectContaining({
+          participantId: { type: 'string' },
+          middleware: expect.objectContaining({ type: 'array' }),
+        }),
+      }),
+    );
+  });
+
+  it('atomically replaces ordered middleware and increments an absent revision', async () => {
+    const { context, collective } = await makeAgentContext();
+    const middleware: MiddlewareInstanceConfig[] = [
+      { id: 'second', type: 'known', config: { order: 2 } },
+      { id: 'first', type: 'known', config: { order: 1 } },
+    ];
+    const validate = vi.fn().mockResolvedValue(undefined);
+
+    const result = await setParticipantMiddlewareTool.execute(
+      { participantId: 'target-agent', middleware },
+      { ...context, middlewareValidator: { validate } } as ToolContext,
+    );
+
+    expect(result).toEqual({
+      status: 'success',
+      data: { participantId: 'target-agent', middleware, revision: 1 },
+    });
+    expect(collective.get('target-agent')).toEqual(
+      expect.objectContaining({ middleware, middlewareRevision: 1 }),
+    );
+  });
+
+  it('serializes concurrent replacements without losing revision increments', async () => {
+    const { context, collective } = await makeAgentContext();
+    const validator = { validate: vi.fn().mockResolvedValue(undefined) };
+    const calls = ['one', 'two'].map((id) =>
+      setParticipantMiddlewareTool.execute(
+        {
+          participantId: 'target-agent',
+          middleware: [{ id, type: 'known', config: {} }],
+        },
+        { ...context, middlewareValidator: validator } as ToolContext,
+      ),
+    );
+
+    const results = await Promise.all(calls);
+
+    expect(results.map((result) => (result.data as { revision: number }).revision).sort()).toEqual([
+      1, 2,
+    ]);
+    expect(collective.get('target-agent')?.middlewareRevision).toBe(2);
+  });
+
+  it('rejects duplicate instance ids before invoking validator', async () => {
+    const { context } = await makeAgentContext();
+    const validate = vi.fn();
+
+    const result = await setParticipantMiddlewareTool.execute(
+      {
+        participantId: 'target-agent',
+        middleware: [
+          { id: 'duplicate', type: 'one', config: {} },
+          { id: 'duplicate', type: 'two', config: {} },
+        ],
+      },
+      { ...context, middlewareValidator: { validate } } as ToolContext,
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('duplicate');
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('persists disabled unavailable middleware without a validator', async () => {
+    const { context, collective } = await makeAgentContext();
+    const middleware = [{ id: 'future', type: 'not-installed', enabled: false, config: {} }];
+
+    const result = await setParticipantMiddlewareTool.execute(
+      { participantId: 'target-agent', middleware },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect(collective.get('target-agent')?.middleware).toEqual(middleware);
+  });
+
+  it('fails closed when enabled middleware cannot be validated', async () => {
+    const { context, collective } = await makeAgentContext();
+
+    const result = await setParticipantMiddlewareTool.execute(
+      {
+        participantId: 'target-agent',
+        middleware: [{ id: 'active', type: 'known', config: {} }],
+      },
+      context,
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('validator unavailable');
+    expect(collective.get('target-agent')?.middleware).toBeUndefined();
+  });
+
+  it('rejects malformed entries and non-JSON config safely', async () => {
+    const { context } = await makeAgentContext();
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+    class CustomConfig {
+      value = true;
+    }
+    const invalidMiddleware: unknown[] = [
+      null,
+      { id: '', type: 'known', config: {} },
+      { id: 'x', type: '', config: {} },
+      { id: 'x', type: 'known', enabled: 'yes', config: {} },
+      { id: 'x', type: 'known', failureMode: 'maybe', config: {} },
+      { id: 'x', type: 'known', config: [] },
+      { id: 'x', type: 'known', config: { value: undefined } },
+      { id: 'x', type: 'known', config: { value: Number.POSITIVE_INFINITY } },
+      { id: 'x', type: 'known', config: { value: 1n } },
+      { id: 'x', type: 'known', config: cycle },
+      { id: 'x', type: 'known', config: new CustomConfig() },
+    ];
+
+    for (const middleware of invalidMiddleware) {
+      const result = await setParticipantMiddlewareTool.execute(
+        { participantId: 'target-agent', middleware: [middleware] },
+        context,
+      );
+      expect(result.status).toBe('error');
+      expect(result.error).toBeTruthy();
+    }
+  });
+
+  it('clones replacement middleware before persistence', async () => {
+    const { context, collective } = await makeAgentContext();
+    const middleware: MiddlewareInstanceConfig[] = [
+      { id: 'clone', type: 'known', enabled: false, config: { nested: { value: 1 } } },
+    ];
+
+    const result = await setParticipantMiddlewareTool.execute(
+      { participantId: 'target-agent', middleware },
+      context,
+    );
+    middleware[0].config.nested = { value: 9 };
+
+    expect(result.status).toBe('success');
+    expect(collective.get('target-agent')?.middleware?.[0].config).toEqual({
+      nested: { value: 1 },
     });
   });
 });

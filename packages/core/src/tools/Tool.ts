@@ -6,6 +6,7 @@ import type {
   StreamChunk,
   LLMChunk,
   ConversationOrigin,
+  MiddlewareInstanceConfig,
 } from '@legion/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
@@ -66,6 +67,10 @@ export interface MessageRouterPort {
   }): AsyncGenerator<LLMChunk, MessageRouterResult>;
 }
 
+export interface MiddlewareConfigurationValidator {
+  validate(instances: readonly MiddlewareInstanceConfig[]): Promise<void>;
+}
+
 /**
  * Context handed to every tool execution. `participant` is always the principal.
  * Runtime-only collaborators are optional here; @legion/runtime's RuntimeContext
@@ -88,6 +93,7 @@ export interface ToolContext {
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;
   conversationStore?: ConversationStore;
+  middlewareValidator?: MiddlewareConfigurationValidator;
   /** AbortSignal set by transport when a streaming call is cancelled. */
   signal?: AbortSignal;
   /** Narrow cancellation capability — only for the cancel_stream tool. */

@@ -7,6 +7,8 @@ import type {
   ConversationMutation,
   ModelConfig,
   MessageData,
+  JSONValue,
+  MiddlewareInstanceConfig,
 } from '@legion/types';
 import {
   compactRange,
@@ -39,6 +41,86 @@ function sanitizeModelConfig(model: ModelConfig): ModelConfig {
   return sanitized;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): value is JSONValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object') return false;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) return value.every((item) => isJSONValue(item, ancestors));
+    if (!isPlainObject(value)) return false;
+    return Object.values(value).every((item) => isJSONValue(item, ancestors));
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function validateMiddleware(value: unknown): MiddlewareInstanceConfig[] {
+  if (!Array.isArray(value)) throw new Error('middleware must be an array');
+  const ids = new Set<string>();
+  for (const [index, entry] of value.entries()) {
+    if (!isPlainObject(entry)) throw new Error(`middleware[${index}] must be a plain object`);
+    if (typeof entry.id !== 'string' || entry.id.trim().length === 0) {
+      throw new Error(`middleware[${index}].id must be a non-empty string`);
+    }
+    if (ids.has(entry.id)) throw new Error(`duplicate middleware instance id: ${entry.id}`);
+    ids.add(entry.id);
+    if (typeof entry.type !== 'string' || entry.type.trim().length === 0) {
+      throw new Error(`middleware[${index}].type must be a non-empty string`);
+    }
+    if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') {
+      throw new Error(`middleware[${index}].enabled must be a boolean when provided`);
+    }
+    if (
+      entry.failureMode !== undefined &&
+      entry.failureMode !== 'open' &&
+      entry.failureMode !== 'closed'
+    ) {
+      throw new Error(`middleware[${index}].failureMode must be open or closed when provided`);
+    }
+    if (!isPlainObject(entry.config) || !isJSONValue(entry.config)) {
+      throw new Error(`middleware[${index}].config must be a JSON-safe object`);
+    }
+  }
+  return structuredClone(value) as MiddlewareInstanceConfig[];
+}
+
+async function validateEnabledMiddleware(
+  middleware: MiddlewareInstanceConfig[],
+  context: ToolContext,
+): Promise<MiddlewareInstanceConfig[]> {
+  const enabled = middleware.filter((instance) => instance.enabled !== false);
+  if (enabled.length > 0) {
+    if (!context.middlewareValidator) {
+      throw new Error('middleware configuration validator unavailable');
+    }
+    await context.middlewareValidator.validate(enabled);
+  }
+  return structuredClone(middleware);
+}
+
+const middlewareSchema = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      type: { type: 'string' },
+      enabled: { type: 'boolean' },
+      failureMode: { type: 'string', enum: ['open', 'closed'] },
+      config: { type: 'object' },
+    },
+    required: ['id', 'type', 'config'],
+  },
+} as const;
+
 export const createAgentTool: Tool = {
   name: 'create_agent',
   description: 'Create a new agent participant in the collective.',
@@ -55,20 +137,29 @@ export const createAgentTool: Tool = {
           'Map of tool name to policy (auto or requires_approval). Absent tools are hidden from the agent.',
       },
       maxIterations: { type: 'number' },
+      middleware: middlewareSchema,
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, systemPrompt, model, tools, maxIterations } = args as {
+    const { id, name, systemPrompt, model, tools, maxIterations, middleware } = args as {
       id: string;
       name: string;
       systemPrompt: string;
       model: ModelConfig;
       tools?: Record<string, ToolPolicy>;
       maxIterations?: number;
+      middleware?: unknown;
     };
     try {
+      if (middleware !== undefined && !Array.isArray(middleware)) {
+        throw new Error('middleware must be an array when provided');
+      }
       const collective = requireCollective(context);
+      const validatedMiddleware =
+        middleware === undefined
+          ? undefined
+          : await validateEnabledMiddleware(validateMiddleware(middleware), context);
       const config: AgentConfig = {
         id,
         name,
@@ -78,6 +169,9 @@ export const createAgentTool: Tool = {
         model: sanitizeModelConfig(model),
         maxIterations: maxIterations ?? 20,
         status: 'active',
+        ...(validatedMiddleware === undefined
+          ? {}
+          : { middleware: validatedMiddleware, middlewareRevision: 0 }),
       };
       await collective.add(config);
       return { status: 'success', data: { id } };
@@ -114,7 +208,14 @@ export const listParticipantsTool: Tool = {
     try {
       const list = requireCollective(context)
         .list()
-        .map((p) => ({ id: p.id, name: p.name, type: p.type, status: p.status ?? 'active' }));
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          status: p.status ?? 'active',
+          middleware: p.middleware ?? [],
+          middlewareRevision: p.middlewareRevision ?? 0,
+        }));
       return { status: 'success', data: list };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
@@ -198,6 +299,48 @@ export const removeToolPolicyTool: Tool = {
       delete tools[tool];
       await collective.update(participantId, { tools });
       return { status: 'success', data: { participantId, tool } };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const setParticipantMiddlewareTool: Tool = {
+  name: 'set_participant_middleware',
+  description: "Replace a participant's ordered middleware configuration.",
+  parameters: {
+    type: 'object',
+    properties: {
+      participantId: { type: 'string' },
+      middleware: middlewareSchema,
+    },
+    required: ['participantId', 'middleware'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = isPlainObject(args) ? args : {};
+    if (typeof input.participantId !== 'string') {
+      return { status: 'error', error: 'participantId must be a string' };
+    }
+    if (!Array.isArray(input.middleware)) {
+      return { status: 'error', error: 'middleware must be an array' };
+    }
+    try {
+      const middleware = await validateEnabledMiddleware(
+        validateMiddleware(input.middleware),
+        context,
+      );
+      const participant = await requireCollective(context).replaceMiddleware(
+        input.participantId,
+        middleware,
+      );
+      return {
+        status: 'success',
+        data: {
+          participantId: participant.id,
+          middleware: participant.middleware,
+          revision: participant.middlewareRevision,
+        },
+      };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
@@ -925,6 +1068,7 @@ export const managementTools: Tool[] = [
   getParticipantTool,
   setToolPolicyTool,
   removeToolPolicyTool,
+  setParticipantMiddlewareTool,
   editMessageTool,
   pruneMessageTool,
   compactConversationTool,
