@@ -773,4 +773,35 @@ describe('PendingApprovalRegistry continuations', () => {
       response: '',
     });
   });
+
+  it('completes provider execution when handing off to a successor approval', async () => {
+    const reg = new PendingApprovalRegistry();
+    const parent = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    const child = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: { ...checkpoint(), checkpointId: 'mwcp-2' } },
+    });
+    await reg.resolve(parent.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(parent.approvalId);
+    await reg.recordResumeResult(parent.approvalId, { status: 'success' });
+    await reg.claimProviderExecution(parent.approvalId);
+    await reg.recordSuccessor(parent.approvalId, child.approvalId);
+    expect(reg.getRecord(parent.approvalId)).toMatchObject({
+      providerExecution: 'completed',
+      successorApprovalId: child.approvalId,
+    });
+  });
 });

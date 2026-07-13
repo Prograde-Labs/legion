@@ -1326,6 +1326,7 @@ export class PendingApprovalRegistry {
         );
       }
       record.successorApprovalId = successorApprovalId;
+      if (record.providerExecution === 'executing') record.providerExecution = 'completed';
       if (record.lifecycle === 'resuming') {
         record.resumeResult = { status: 'success', data: { successorApprovalId } };
         record.lifecycle = 'decided';

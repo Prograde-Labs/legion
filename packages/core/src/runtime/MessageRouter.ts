@@ -872,18 +872,22 @@ export class MessageRouter implements MessageRouterPort {
     if (record.successorApprovalId) {
       const successor = approvals.getRecord(record.successorApprovalId);
       const successorCheckpoint = successor?.continuation?.checkpoint;
-      if (successorCheckpoint) {
+      if (successor) {
         try {
           await approvals.acknowledge(approvalId);
         } catch {
           // Parent already has immutable successor; never replay it.
         }
         return {
-          conversationId: successorCheckpoint.conversationId,
+          conversationId: successor.conversationId,
           status: 'pending_approval',
           approvalId: record.successorApprovalId,
-          checkpointId: successorCheckpoint.checkpointId,
-          pendingParticipantId: successorCheckpoint.participantId,
+          ...(successorCheckpoint === undefined
+            ? {}
+            : {
+                checkpointId: successorCheckpoint.checkpointId,
+                pendingParticipantId: successorCheckpoint.participantId,
+              }),
         };
       }
     }
@@ -1046,6 +1050,17 @@ export class MessageRouter implements MessageRouterPort {
             storedMessageId: checkpoint.runtimeResume.incomingMessageId,
           },
         );
+        if (runtimeResult.kind === 'pending_approval') {
+          const successorApprovalId = runtimeResult.approvalRequests[0]?.approvalId;
+          if (successorApprovalId) {
+            await approvals.recordSuccessor(approvalId, successorApprovalId);
+            try {
+              await approvals.acknowledge(approvalId);
+            } catch {
+              // Durable successor linkage prevents provider replay.
+            }
+          }
+        }
         if (result.status === 'success' || result.status === 'error') {
           await approvals.recordRouterResult(
             approvalId,
@@ -1153,6 +1168,7 @@ export class MessageRouter implements MessageRouterPort {
         actions: resumed.actions,
         final: checkpoint.final!,
         ...(checkpoint.iteration === undefined ? {} : { iteration: checkpoint.iteration }),
+        ...(checkpoint.mode === undefined ? {} : { mode: checkpoint.mode }),
         signal: context.signal,
       });
       if (beforeReceive.kind !== 'continue') {
