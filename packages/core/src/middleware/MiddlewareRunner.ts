@@ -14,7 +14,9 @@ import type {
   MiddlewareEventBus,
   MiddlewareLogger,
   MiddlewarePhase,
+  MiddlewareCheckpoint,
   ParticipantConfig,
+  ToolResult,
 } from '@legion/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
@@ -72,6 +74,7 @@ export interface MessagePhaseInput {
   chunk?: MessageDraftContext['chunk'];
   signal?: AbortSignal;
   startIndex?: number;
+  runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
 }
 
 export interface AfterReceiveInput {
@@ -84,6 +87,7 @@ export interface AfterReceiveInput {
   persistedMessageId?: string;
   signal?: AbortSignal;
   startIndex?: number;
+  runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
 }
 
 export interface SystemPromptInput {
@@ -96,6 +100,7 @@ export interface SystemPromptInput {
   persistedMessageId: string;
   signal?: AbortSignal;
   startIndex?: number;
+  runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
 }
 
 export interface AfterSendInput {
@@ -107,6 +112,7 @@ export interface AfterSendInput {
   persistedMessageId?: string;
   signal?: AbortSignal;
   startIndex?: number;
+  runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
 }
 
 export interface MiddlewareRunnerDependencies {
@@ -154,6 +160,22 @@ interface HookCancelled {
 }
 
 type HookExecution = HookSuccess | HookFailure | HookSkipped | HookCancelled;
+
+interface ToolRequest {
+  kind: 'tool';
+  requestId: string;
+  tool: string;
+  arguments: Record<string, JSONValue>;
+  stateOnSuccess?: JSONValue;
+}
+
+type ToolPhaseInput = MessagePhaseInput | AfterReceiveInput | SystemPromptInput | AfterSendInput;
+
+type ToolRequestOutcome =
+  | { kind: 'continue'; snapshots: PhaseSnapshots }
+  | { kind: 'failure'; snapshots: PhaseSnapshots; failure: HookFailure }
+  | { kind: 'cancelled'; snapshots: PhaseSnapshots }
+  | { kind: 'pending_approval'; approvalId: string; checkpointId: string; participantId: string };
 
 interface PhaseSnapshots {
   participant: ParticipantConfig;
@@ -273,6 +295,12 @@ function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
 function requireString(value: unknown, field: string): string {
   if (typeof value !== 'string') throw new TypeError(`Middleware result ${field} must be a string`);
   return value;
+}
+
+function requireNonEmptyString(value: unknown, field: string): string {
+  const result = requireString(value, field);
+  if (result.trim() === '') throw new TypeError(`Middleware result ${field} must be non-empty`);
+  return result;
 }
 
 function cloneWithOptionalFields<T extends object>(
@@ -664,7 +692,7 @@ export class MiddlewareRunner {
     let current = cloneDraft(input.draft, '$.draft');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
-    const snapshots = this.buildPhaseSnapshots(input);
+    let snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, input.phase)) continue;
@@ -697,7 +725,24 @@ export class MiddlewareRunner {
           this.recordSuccess(instance, input.phase, input, execution);
           return { kind: 'reject', error };
         }
-        if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
+        if (kind === 'tool') {
+          const outcome = await this.requestTool(
+            instance,
+            input.phase,
+            input,
+            snapshots,
+            index,
+            result as unknown as ToolRequest,
+            current,
+          );
+          if (outcome.kind === 'pending_approval') return outcome;
+          snapshots = outcome.snapshots;
+          if (outcome.kind === 'cancelled') return abortResult(CANCELLATION_ERROR);
+          if (outcome.kind === 'failure' && outcome.failure.failureMode === 'closed') {
+            return abortResult(outcome.failure.error);
+          }
+          continue;
+        }
         throw new TypeError(`Unsupported ${input.phase} middleware outcome: ${kind}`);
       } catch (error) {
         const failure = this.recordFailure(
@@ -727,7 +772,7 @@ export class MiddlewareRunner {
     const current = persisted.message;
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
-    const snapshots = this.buildPhaseSnapshots(input);
+    let snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'afterReceive')) continue;
@@ -780,7 +825,25 @@ export class MiddlewareRunner {
           this.recordSuccess(instance, 'afterReceive', input, execution);
           return abortResult(error, storedMessageId);
         }
-        if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
+        if (kind === 'tool') {
+          const outcome = await this.requestTool(
+            instance,
+            'afterReceive',
+            input,
+            snapshots,
+            index,
+            result as unknown as ToolRequest,
+            current,
+            storedMessageId,
+          );
+          if (outcome.kind === 'pending_approval') return outcome;
+          snapshots = outcome.snapshots;
+          if (outcome.kind === 'cancelled') return abortResult(CANCELLATION_ERROR, storedMessageId);
+          if (outcome.kind === 'failure' && outcome.failure.failureMode === 'closed') {
+            return abortResult(outcome.failure.error, storedMessageId);
+          }
+          continue;
+        }
         throw new TypeError(`Unsupported afterReceive middleware outcome: ${kind}`);
       } catch (error) {
         const failure = this.recordFailure(
@@ -810,7 +873,7 @@ export class MiddlewareRunner {
     let current = input.prompt;
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
-    const snapshots = this.buildPhaseSnapshots(input);
+    let snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'buildSystemPrompt')) continue;
@@ -855,7 +918,25 @@ export class MiddlewareRunner {
           this.recordSuccess(instance, 'buildSystemPrompt', input, execution);
           return abortResult(error, storedMessageId);
         }
-        if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
+        if (kind === 'tool') {
+          const outcome = await this.requestTool(
+            instance,
+            'buildSystemPrompt',
+            input,
+            snapshots,
+            index,
+            result as unknown as ToolRequest,
+            current,
+            storedMessageId,
+          );
+          if (outcome.kind === 'pending_approval') return outcome;
+          snapshots = outcome.snapshots;
+          if (outcome.kind === 'cancelled') return abortResult(CANCELLATION_ERROR, storedMessageId);
+          if (outcome.kind === 'failure' && outcome.failure.failureMode === 'closed') {
+            return abortResult(outcome.failure.error, storedMessageId);
+          }
+          continue;
+        }
         throw new TypeError(`Unsupported buildSystemPrompt middleware outcome: ${kind}`);
       } catch (error) {
         const failure = this.recordFailure(
@@ -881,7 +962,7 @@ export class MiddlewareRunner {
     const current = persisted.message;
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
-    const snapshots = this.buildPhaseSnapshots(input);
+    let snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'afterSend')) continue;
@@ -912,7 +993,25 @@ export class MiddlewareRunner {
           this.recordSuccess(instance, 'afterSend', input, execution);
           return abortResult(error, storedMessageId);
         }
-        if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
+        if (kind === 'tool') {
+          const outcome = await this.requestTool(
+            instance,
+            'afterSend',
+            input,
+            snapshots,
+            index,
+            result as unknown as ToolRequest,
+            current,
+            storedMessageId,
+          );
+          if (outcome.kind === 'pending_approval') return outcome;
+          snapshots = outcome.snapshots;
+          if (outcome.kind === 'cancelled') return abortResult(CANCELLATION_ERROR, storedMessageId);
+          if (outcome.kind === 'failure' && outcome.failure.failureMode === 'closed') {
+            return abortResult(outcome.failure.error, storedMessageId);
+          }
+          continue;
+        }
         throw new TypeError(`Unsupported afterSend middleware outcome: ${kind}`);
       } catch (error) {
         const failure = this.recordFailure(
@@ -929,6 +1028,310 @@ export class MiddlewareRunner {
       }
     }
     return { kind: 'continue', value: current, actions: cloneJsonSafe(snapshots.actions) };
+  }
+
+  private appendAction(snapshots: PhaseSnapshots, action: MiddlewareActionResult): PhaseSnapshots {
+    return {
+      ...snapshots,
+      actions: deepFreeze(cloneJsonSafe([...snapshots.actions, action], '$.actions')),
+    };
+  }
+
+  private toolAction(
+    instance: MiddlewareInstanceConfig,
+    input: CommonInput,
+    request: ToolRequest,
+    status: MiddlewareActionResult['status'],
+    result?: ToolResult,
+  ): MiddlewareActionResult {
+    return {
+      requestId: request.requestId,
+      participantId: input.participant.id,
+      instanceId: instance.id,
+      tool: request.tool,
+      status,
+      ...(result === undefined ? {} : { result: cloneJsonSafe(result, '$.toolResult') }),
+    };
+  }
+
+  private toolFailure(
+    instance: MiddlewareInstanceConfig,
+    phase: MiddlewarePhase,
+    input: ToolPhaseInput,
+    snapshots: PhaseSnapshots,
+    request: ToolRequest,
+    status: MiddlewareActionResult['status'],
+    error: unknown,
+    result?: ToolResult,
+  ): Extract<ToolRequestOutcome, { kind: 'failure' }> {
+    return {
+      kind: 'failure',
+      snapshots: this.appendAction(
+        snapshots,
+        this.toolAction(instance, input, request, status, result),
+      ),
+      failure: this.recordFailure(instance, phase, input, error, 0),
+    };
+  }
+
+  private safeToolResult(value: unknown): ToolResult {
+    try {
+      const result = cloneJsonSafe(value, '$.toolResult') as ToolResult;
+      if (
+        !isPlainRecord(result) ||
+        !['success', 'error', 'pending_approval', 'rejected'].includes(result.status)
+      ) {
+        throw new TypeError('Middleware tool returned an invalid result');
+      }
+      return result;
+    } catch {
+      return { status: 'error', error: 'Middleware tool returned an unsafe result' };
+    }
+  }
+
+  private async applyToolState(
+    instance: MiddlewareInstanceConfig,
+    input: ToolPhaseInput,
+    value: JSONValue,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const detached = cloneJsonSafe(value, '$.stateOnSuccess');
+    const mutation = await this.dependencies.conversationStore.mutate(
+      input.thread.id,
+      (conversation) => {
+        if (signal.aborted) throw new Error('Middleware operation cancelled');
+        return {
+          ...conversation,
+          middlewareState: {
+            ...conversation.middlewareState,
+            [input.participant.id]: {
+              ...conversation.middlewareState?.[input.participant.id],
+              [instance.id]: detached,
+            },
+          },
+        };
+      },
+      { signal },
+    );
+    input.thread.data = mutation.after;
+  }
+
+  private checkpoint(
+    instance: MiddlewareInstanceConfig,
+    phase: MiddlewarePhase,
+    input: ToolPhaseInput,
+    index: number,
+    request: ToolRequest,
+    value: MessageDraft | MessageData | string,
+    actions: MiddlewareActionResult[],
+    persistedMessageId?: string,
+  ): MiddlewareCheckpoint {
+    const checkpoint: MiddlewareCheckpoint = {
+      checkpointId: createId('mwcp'),
+      operationId: input.operationId,
+      conversationId: input.thread.id,
+      phase,
+      participantId: input.participant.id,
+      instanceId: instance.id,
+      middlewareType: instance.type,
+      middlewareRevision: input.participant.middlewareRevision ?? 0,
+      nextHookIndex: index + 1,
+      actionCursor: actions.length,
+      request: {
+        requestId: request.requestId,
+        tool: request.tool,
+        arguments: cloneJsonSafe(request.arguments, '$.request.arguments'),
+        ...(request.stateOnSuccess === undefined
+          ? {}
+          : { stateOnSuccess: cloneJsonSafe(request.stateOnSuccess, '$.request.stateOnSuccess') }),
+      },
+      actions: cloneJsonSafe(actions, '$.actions'),
+      observedHead: input.thread.data.activeBranchHead,
+      ...(phase === 'beforeSend' || phase === 'beforeReceive'
+        ? {
+            draft: cloneDraft(value as MessageDraft, '$.checkpoint.draft'),
+            final: (input as MessagePhaseInput).final,
+            ...((input as MessagePhaseInput).iteration === undefined
+              ? {}
+              : { iteration: (input as MessagePhaseInput).iteration }),
+          }
+        : phase === 'buildSystemPrompt'
+          ? { prompt: value as string }
+          : {
+              message: cloneMessage(value as MessageData, '$.checkpoint.message'),
+              ...(phase === 'afterReceive' ? { mode: (input as AfterReceiveInput).mode } : {}),
+            }),
+      ...(persistedMessageId === undefined ? {} : { persistedMessageId }),
+      ...(input.runtimeResume === undefined
+        ? {}
+        : { runtimeResume: cloneJsonSafe(input.runtimeResume, '$.runtimeResume') }),
+      createdAt: new Date().toISOString(),
+    };
+    return checkpoint;
+  }
+
+  private async requestTool(
+    instance: MiddlewareInstanceConfig,
+    phase: MiddlewarePhase,
+    input: ToolPhaseInput,
+    snapshots: PhaseSnapshots,
+    index: number,
+    request: ToolRequest,
+    value: MessageDraft | MessageData | string,
+    persistedMessageId?: string,
+  ): Promise<ToolRequestOutcome> {
+    const signal = input.signal ?? new AbortController().signal;
+    if (signal.aborted) return { kind: 'cancelled', snapshots };
+    try {
+      requireNonEmptyString(request.requestId, 'requestId');
+      requireNonEmptyString(request.tool, 'tool');
+      cloneJsonSafe(request.arguments, '$.request.arguments');
+      if (snapshots.actions.some((action) => action.requestId === request.requestId)) {
+        return this.toolFailure(
+          instance,
+          phase,
+          input,
+          snapshots,
+          request,
+          'error',
+          new TypeError('Duplicate middleware tool request ID'),
+        );
+      }
+      if ('final' in input && input.final !== true) {
+        return this.toolFailure(
+          instance,
+          phase,
+          input,
+          snapshots,
+          request,
+          'error',
+          new TypeError('Middleware tool requests require final message output'),
+        );
+      }
+
+      const authorization = this.dependencies.authEngine.authorize(
+        input.participant.id,
+        request.tool,
+        request.arguments,
+        input.participant.tools,
+      );
+      if (!authorization.authorized && authorization.reason !== 'requires_approval') {
+        return this.toolFailure(
+          instance,
+          phase,
+          input,
+          snapshots,
+          request,
+          'rejected',
+          new Error('Middleware tool is not authorized'),
+          { status: 'rejected', message: 'Middleware tool is not authorized' },
+        );
+      }
+
+      if (authorization.reason === 'requires_approval') {
+        const checkpoint = this.checkpoint(
+          instance,
+          phase,
+          input,
+          index,
+          request,
+          value,
+          snapshots.actions,
+          persistedMessageId,
+        );
+        const { approvalId } = await this.dependencies.pendingApprovals.create({
+          conversationId: input.thread.id,
+          requesterId: input.participant.id,
+          tool: request.tool,
+          args: request.arguments,
+          continuation: { kind: 'middleware', checkpoint },
+        });
+        this.recordSuccess(instance, phase, input, {
+          status: 'success',
+          result: request,
+          duration: 0,
+          failureMode: this.failureMode(instance),
+        });
+        this.safeEmit('tool:call', {
+          conversationId: input.thread.id,
+          participantId: input.participant.id,
+          tool: request.tool,
+          callId: request.requestId,
+        });
+        this.safeEmit('tool:result', {
+          conversationId: input.thread.id,
+          participantId: input.participant.id,
+          tool: request.tool,
+          callId: request.requestId,
+          status: 'pending_approval',
+        });
+        this.safeEmit('approval:requested', {
+          conversationId: input.thread.id,
+          participantId: input.participant.id,
+          tool: request.tool,
+          approvalId,
+        });
+        return {
+          kind: 'pending_approval',
+          approvalId,
+          checkpointId: checkpoint.checkpointId,
+          participantId: input.participant.id,
+        };
+      }
+
+      const rawResult = await this.dependencies.toolRegistry.execute(
+        request.tool,
+        cloneJsonSafe(request.arguments, '$.request.arguments'),
+        this.dependencies.buildToolContext(input.participant, input.thread, signal),
+      );
+      const result = this.safeToolResult(rawResult);
+      await this.refreshThread(input.thread);
+      if (signal.aborted) return { kind: 'cancelled', snapshots };
+      const status: MiddlewareActionResult['status'] =
+        result.status === 'success'
+          ? 'success'
+          : result.status === 'rejected'
+            ? 'rejected'
+            : 'error';
+      const nextSnapshots = this.appendAction(
+        snapshots,
+        this.toolAction(instance, input, request, status, result),
+      );
+      if (result.status !== 'success') {
+        return {
+          kind: 'failure',
+          snapshots: nextSnapshots,
+          failure: this.recordFailure(
+            instance,
+            phase,
+            input,
+            new Error('Middleware tool did not succeed'),
+            0,
+          ),
+        };
+      }
+      if (request.stateOnSuccess !== undefined) {
+        if (signal.aborted) return { kind: 'cancelled', snapshots: nextSnapshots };
+        try {
+          await this.applyToolState(instance, input, request.stateOnSuccess, signal);
+        } catch (error) {
+          return {
+            kind: 'failure',
+            snapshots: nextSnapshots,
+            failure: this.recordFailure(instance, phase, input, error, 0),
+          };
+        }
+      }
+      this.recordSuccess(instance, phase, input, {
+        status: 'success',
+        result,
+        duration: 0,
+        failureMode: this.failureMode(instance),
+      });
+      return { kind: 'continue', snapshots: nextSnapshots };
+    } catch (error) {
+      return this.toolFailure(instance, phase, input, snapshots, request, 'error', error);
+    }
   }
 
   private enabled(

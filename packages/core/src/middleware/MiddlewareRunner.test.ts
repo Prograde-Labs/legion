@@ -136,6 +136,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
     logs,
     conversationStore,
     toolRegistry,
+    pendingApprovals,
     storage,
     runnerDependencies,
     persistMessage,
@@ -203,6 +204,185 @@ describe('MiddlewareRunner', () => {
       Extract<MiddlewarePhaseResult<unknown>, { kind: 'pending_approval' }>
     >().not.toEqualTypeOf<never>();
     expectTypeOf<SystemPromptInput['persistedMessageId']>().toEqualTypeOf<string>();
+  });
+
+  it('executes an auto-authorized middleware tool once then resumes following hook with action', async () => {
+    const f = await fixture([instance('request'), instance('following')]);
+    f.participant.tools = { write: 'auto' };
+    const calls: string[] = [];
+    f.toolRegistry.register({
+      name: 'write',
+      description: 'write',
+      parameters: schema,
+      execute: async (_args, context) => {
+        calls.push(context.participant.id);
+        return { status: 'success', data: { ok: true } };
+      },
+    });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          if (context.instance.id === 'request') {
+            return {
+              kind: 'tool',
+              requestId: 'write-1',
+              tool: 'write',
+              arguments: {},
+              stateOnSuccess: { ok: true },
+            };
+          }
+          expect(context.actions).toEqual([
+            {
+              requestId: 'write-1',
+              participantId: 'participant',
+              instanceId: 'request',
+              tool: 'write',
+              status: 'success',
+              result: { status: 'success', data: { ok: true } },
+            },
+          ]);
+          return { kind: 'continue', message: { ...context.message, content: 'continued' } };
+        },
+      }),
+      'test:runner',
+    );
+
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-tool-auto',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      }),
+    ).resolves.toMatchObject({ kind: 'continue', value: draft({ content: 'continued' }) });
+    expect(calls).toEqual(['participant']);
+    expect(f.thread.data.middlewareState).toEqual({ participant: { request: { ok: true } } });
+  });
+
+  it('durably checkpoints approval-required middleware tools before emitting request events', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = { risky: 'requires_approval' };
+    const events: string[] = [];
+    f.eventBus.on('tool:call', () => events.push('tool:call'));
+    f.eventBus.on('tool:result', () => events.push('tool:result'));
+    f.eventBus.on('approval:requested', () => events.push('approval:requested'));
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'risky-1',
+          tool: 'risky',
+          arguments: { path: 'x' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'operation-tool-approval',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    expect(result).toMatchObject({ kind: 'pending_approval', participantId: 'participant' });
+    if (result.kind !== 'pending_approval') throw new Error('Expected pending approval');
+    expect(f.pendingApprovals.getRecord(result.approvalId)).toMatchObject({
+      lifecycle: 'pending',
+      continuation: {
+        kind: 'middleware',
+        checkpoint: {
+          checkpointId: result.checkpointId,
+          nextHookIndex: 1,
+          actionCursor: 0,
+          participantId: 'participant',
+          instanceId: 'request',
+          middlewareType: 'test:middleware',
+          middlewareRevision: 0,
+          observedHead: '',
+          request: { requestId: 'risky-1', tool: 'risky', arguments: { path: 'x' } },
+        },
+      },
+    });
+    expect(events).toEqual(['tool:call', 'tool:result', 'approval:requested']);
+  });
+
+  it('records rejected tool actions and applies open versus closed failure modes without replaying request hook', async () => {
+    const f = await fixture([
+      instance('open', { failureMode: 'open' }),
+      instance('closed', { failureMode: 'closed' }),
+      instance('later', { failureMode: 'open' }),
+    ]);
+    const calls: string[] = [];
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          calls.push(context.instance.id);
+          if (context.instance.id === 'later') return { kind: 'continue' };
+          return {
+            kind: 'tool',
+            requestId: `${context.instance.id}-1`,
+            tool: 'hidden',
+            arguments: {},
+          };
+        },
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'operation-rejected-tools',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    expect(calls).toEqual(['open', 'closed']);
+    expect(result).toEqual({
+      kind: 'abort',
+      error: expect.stringMatching(/diagnostic.*diag-/i),
+      persisted: false,
+    });
+  });
+
+  it('rejects provisional and duplicate tool requests without executing tools', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = { write: 'auto' };
+    const execute = vi.spyOn(f.toolRegistry, 'execute');
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({ kind: 'tool', requestId: 'repeat', tool: 'write', arguments: {} }),
+      }),
+      'test:runner',
+    );
+    const prior: MiddlewareActionResult[] = [
+      {
+        requestId: 'repeat',
+        participantId: 'participant',
+        instanceId: 'previous',
+        tool: 'write',
+        status: 'success',
+      },
+    ];
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-duplicate-tool',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: prior,
+        final: false,
+      }),
+    ).resolves.toMatchObject({ kind: 'abort' });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('runs enabled instances in participant order with isolated participant-instance state', async () => {

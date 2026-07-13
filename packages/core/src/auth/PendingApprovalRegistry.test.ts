@@ -2,7 +2,30 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
+import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { PendingApprovalRegistry } from './PendingApprovalRegistry.js';
+import type { MiddlewareCheckpoint } from '@legion/types';
+
+function checkpoint(): MiddlewareCheckpoint {
+  return {
+    checkpointId: 'mwcp-1',
+    operationId: 'operation-1',
+    conversationId: 'c1',
+    phase: 'beforeSend',
+    participantId: 'agent-b',
+    instanceId: 'audit',
+    middlewareType: 'test:audit',
+    middlewareRevision: 2,
+    nextHookIndex: 1,
+    actionCursor: 0,
+    draft: { senderId: 'agent-b', recipientId: 'operator', role: 'assistant', content: 'hello' },
+    final: true,
+    request: { requestId: 'request-1', tool: 'file_write', arguments: { path: 'x' } },
+    actions: [],
+    observedHead: 'message-1',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+}
 
 describe('PendingApprovalRegistry (in-memory)', () => {
   it('creates a pending approval and returns approvalId', async () => {
@@ -100,5 +123,111 @@ describe('PendingApprovalRegistry (durable)', () => {
     const reg2 = await PendingApprovalRegistry.load(storage);
     expect(reg2.get(approvalId)).toBeUndefined(); // no longer pending
     expect(reg2.getDecision(approvalId)?.message).toBe('too risky');
+  });
+});
+
+describe('PendingApprovalRegistry continuations', () => {
+  it('atomically stores detached middleware continuation and idempotent decision', async () => {
+    const reg = new PendingApprovalRegistry();
+    const continuation = checkpoint();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: continuation },
+    });
+    continuation.request.arguments.path = 'mutated';
+
+    const stored = reg.getRecord(approvalId)!;
+    expect(stored.lifecycle).toBe('pending');
+    expect(stored.continuation).toEqual({ kind: 'middleware', checkpoint: checkpoint() });
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:01:00.000Z',
+    });
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:01:00.000Z',
+    });
+    await expect(
+      reg.resolve(approvalId, {
+        approved: false,
+        decidedByParticipantId: 'operator',
+        decidedAt: '2026-01-01T00:01:00.000Z',
+      }),
+    ).rejects.toThrow(/conflict/i);
+  });
+
+  it('claims resume once, retains durable result, and acknowledges only continuation', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:01:00.000Z',
+    });
+
+    expect((await reg.beginResume(approvalId)).status).toBe('ready');
+    expect((await reg.beginResume(approvalId)).status).toBe('in_progress');
+    await reg.recordResumeResult(approvalId, { status: 'success', data: { written: true } });
+    expect((await reg.beginResume(approvalId)).status).toBe('ready');
+    await reg.acknowledge(approvalId);
+    expect((await reg.beginResume(approvalId)).status).toBe('acknowledged');
+    expect(reg.getRecord(approvalId)?.continuation).toBeUndefined();
+    expect(reg.getRecord(approvalId)?.resumeResult).toEqual({
+      status: 'success',
+      data: { written: true },
+    });
+  });
+
+  it('detaches public records and recovers an interrupted middleware execution without retry', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { nested: { value: 'safe' } },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    const record = reg.getRecord(approvalId)!;
+    (record.args as { nested: { value: string } }).nested.value = 'mutated';
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:01:00.000Z',
+    });
+    await reg.beginResume(approvalId);
+
+    const recovered = await PendingApprovalRegistry.load(storage);
+    expect(recovered.getRecord(approvalId)?.args).toEqual({ nested: { value: 'safe' } });
+    expect(recovered.getRecord(approvalId)?.resumeResult).toEqual({
+      status: 'error',
+      error: 'Interrupted middleware tool execution; outcome unknown and tool was not retried',
+    });
+    expect((await recovered.beginResume(approvalId)).status).toBe('ready');
+  });
+
+  it('does not publish mutation when persistence fails and later mutations recover', async () => {
+    const storage = new MemoryStorage();
+    const write = vi.spyOn(storage, 'writeJson').mockRejectedValueOnce(new Error('disk full'));
+    const reg = new PendingApprovalRegistry(storage);
+    await expect(
+      reg.create({ conversationId: 'c1', requesterId: 'agent-b', tool: 'file_write', args: {} }),
+    ).rejects.toThrow('disk full');
+    expect(reg.listPending()).toEqual([]);
+    write.mockRestore();
+    await expect(
+      reg.create({ conversationId: 'c1', requesterId: 'agent-b', tool: 'file_write', args: {} }),
+    ).resolves.toEqual({ approvalId: expect.stringMatching(/^appr-/) });
   });
 });
