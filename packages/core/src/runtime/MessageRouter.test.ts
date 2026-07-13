@@ -47,6 +47,15 @@ async function setup(dir: string) {
     responses: [],
     status: 'active',
   });
+  await storage.writeJson('collective/participants/agent.json', {
+    id: 'agent',
+    name: 'Agent',
+    type: 'agent',
+    tools: {},
+    systemPrompt: 'Base prompt',
+    model: { model: 'test-model' },
+    status: 'active',
+  });
   const collective = await Collective.load(storage);
   const eventBus = new EventBus();
   const store = new FileConversationStore(storage, eventBus);
@@ -132,6 +141,7 @@ async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefiniti
       base.collective,
       base.eventBus,
       new MiddlewareLifecycle(runner, base.eventBus),
+      runner,
     ),
   };
 }
@@ -628,6 +638,35 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(handle).not.toHaveBeenCalled();
   });
 
+  it('stops after inbound complete without invoking recipient runtime', async () => {
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Complete middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        afterReceive: (context) =>
+          context.mode === 'pre_runtime' && context.participant.id === 'mock-1'
+            ? { kind: 'complete' }
+            : { kind: 'continue' },
+      },
+    });
+    const handle = vi.fn(async () => ({ kind: 'response' as const, content: 'must not run' }));
+    runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'complete this',
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(result.response).toBeUndefined();
+    expect(handle).not.toHaveBeenCalled();
+    expect(Object.values((await store.load(result.conversationId))!.messages)).toHaveLength(1);
+  });
+
   it('routes pre-runtime middleware responses through lifecycle without runtime dispatch', async () => {
     const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
       type: 'test:router-middleware',
@@ -662,6 +701,135 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(result).toMatchObject({ status: 'success', response: 'short circuit' });
     expect(handle).not.toHaveBeenCalled();
     expect(Object.values((await store.load(result.conversationId))!.messages)).toHaveLength(2);
+  });
+
+  it('routes pre-runtime responses through full response lifecycle', async () => {
+    const phases: string[] = [];
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Respond lifecycle middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          phases.push(`${context.participant.id}:beforeSend`);
+          return {
+            kind: 'continue',
+            message: {
+              ...context.message,
+              content: `${context.message.content}:${context.participant.id}:beforeSend`,
+            },
+          };
+        },
+        beforeReceive: (context) => {
+          phases.push(`${context.participant.id}:beforeReceive`);
+          return { kind: 'continue', message: context.message };
+        },
+        afterSend: (context) => {
+          phases.push(`${context.participant.id}:afterSend`);
+          return { kind: 'continue' };
+        },
+        afterReceive: (context) => {
+          phases.push(`${context.participant.id}:afterReceive:${context.mode}`);
+          if (context.mode !== 'pre_runtime' || context.participant.id !== 'mock-1') {
+            return { kind: 'continue' };
+          }
+          return {
+            kind: 'respond',
+            message: {
+              senderId: 'mock-1',
+              recipientId: 'op',
+              role: 'assistant',
+              content: 'short circuit',
+            },
+          };
+        },
+      },
+    });
+    const handle = vi.fn(async () => ({ kind: 'response' as const, content: 'must not run' }));
+    runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      response: 'short circuit:mock-1:beforeSend',
+    });
+    expect(handle).not.toHaveBeenCalled();
+    expect(phases.slice(-4)).toEqual([
+      'mock-1:beforeSend',
+      'op:beforeReceive',
+      'mock-1:afterSend',
+      'op:afterReceive:post_response',
+    ]);
+    expect(Object.values((await store.load(result.conversationId))!.messages)).toHaveLength(2);
+  });
+
+  it('does not expose agent prompt hooks to non-agent runtimes', async () => {
+    const { router, baseContext, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Agent prompt middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: { buildSystemPrompt: () => ({ kind: 'continue' }) },
+    });
+    const handle = vi.fn(async (_incoming, context) => {
+      expect(context.buildSystemPrompt).toBeUndefined();
+      return { kind: 'void' as const };
+    });
+    runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'not an agent',
+      context: baseContext,
+    });
+    expect(handle).toHaveBeenCalledOnce();
+  });
+
+  it('provides agent prompt hooks backed by middleware runner', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Agent prompt middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        buildSystemPrompt: () => ({
+          kind: 'continue',
+          change: { operation: 'append', content: ':middleware' },
+        }),
+      },
+    });
+    await collective.update('agent', {
+      middleware: [{ id: 'agent-middleware', type: 'test:router-middleware', config: {} }],
+    });
+    const handle = vi.fn(async (incoming, context) => {
+      expect(context.buildSystemPrompt).toBeDefined();
+      await expect(
+        context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 0,
+          incomingMessageId: incoming.id,
+          actions: [],
+        }),
+      ).resolves.toEqual({ kind: 'continue', prompt: 'Base prompt:middleware', actions: [] });
+      return { kind: 'void' as const };
+    });
+    runtimeRegistry.registerFactory('agent', () => ({ handle }));
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'prompt me',
+      context: baseContext,
+    });
+    expect(handle).toHaveBeenCalledOnce();
   });
 
   it('routes replyTo runtime responses through injected lifecycle', async () => {

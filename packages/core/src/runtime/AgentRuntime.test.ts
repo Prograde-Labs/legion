@@ -23,7 +23,13 @@ import type { LLMChunk } from '@legion/types';
 import type { ModelPricing, PricingSource } from '../providers/PricingSource.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
-import type { AgentConfig, JSONSchema, Tool, MessageData } from '@legion/types';
+import type {
+  AgentConfig,
+  JSONSchema,
+  Tool,
+  MessageData,
+  MiddlewareActionResult,
+} from '@legion/types';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 
@@ -897,5 +903,130 @@ describe('AgentRuntime.handleStream()', () => {
     }
     expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'Hello!')).toBe(true);
     expect(next.value.kind).toBe('response');
+  });
+});
+
+describe('AgentRuntime: middleware prompts', () => {
+  it('reloads and transforms the prompt before every provider iteration', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const action = {
+      requestId: 'prompt-action',
+      tool: 'echo',
+      arguments: { text: 'prompt' },
+      result: { status: 'success', data: 'prompt' },
+    } as MiddlewareActionResult;
+    const buildSystemPrompt = vi.fn(async (input) => ({
+      kind: 'continue' as const,
+      prompt: `prepared ${input.iteration}`,
+      actions: input.iteration === 0 ? [action] : input.actions,
+    }));
+    context.buildSystemPrompt = buildSystemPrompt;
+
+    await new AgentRuntime('agent-1', router).handle(inbound, context);
+
+    expect(buildSystemPrompt).toHaveBeenCalledTimes(2);
+    expect(buildSystemPrompt.mock.calls.map(([input]) => input.actions)).toEqual([[], [action]]);
+    expect(providerRequests.map(([message]) => message.content)).toEqual([
+      'prepared 0',
+      'prepared 1',
+    ]);
+  });
+
+  it.each([
+    [
+      'abort',
+      { kind: 'abort' as const, error: 'internal middleware detail' },
+      { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
+    ],
+    [
+      'pending approval',
+      {
+        kind: 'pending' as const,
+        approvalId: 'appr-prompt',
+        checkpointId: 'mwcp-prompt',
+        preparedPrompt: 'prepared',
+        actionCursor: 0,
+      },
+      { kind: 'middleware_pending', approvalId: 'appr-prompt', checkpointId: 'mwcp-prompt' },
+    ],
+  ])('does not call provider when prompt hook returns %s', async (_name, hookResult, expected) => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    context.buildSystemPrompt = vi.fn(async () => hookResult);
+
+    await expect(new AgentRuntime('agent-1', router).handle(inbound, context)).resolves.toEqual(
+      expected,
+    );
+    expect(providerRequests).toHaveLength(0);
+  });
+
+  it('resumes at saved provider boundary without replaying prompt hook', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const buildSystemPrompt = vi.fn(async (input) => ({
+      kind: 'continue' as const,
+      prompt: `prepared ${input.iteration}`,
+      actions: input.actions,
+    }));
+    context.buildSystemPrompt = buildSystemPrompt;
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await expect(
+      runtime.resumeFromMiddleware!(
+        {
+          kind: 'agent_provider',
+          participantId: 'agent-1',
+          incomingMessageId: inbound.id,
+          iteration: 4,
+          preparedPrompt: 'saved prompt',
+          actionCursor: 0,
+          actions: [],
+        },
+        context,
+      ),
+    ).resolves.toEqual({ kind: 'response', content: 'done' });
+
+    expect(buildSystemPrompt.mock.calls.map(([input]) => input.iteration)).toEqual([5]);
+    expect(providerRequests.map(([message]) => message.content)).toEqual([
+      'saved prompt',
+      'prepared 5',
+    ]);
+  });
+
+  it('rejects invalid provider-boundary resume data before calling provider', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await expect(
+      runtime.resumeFromMiddleware!(
+        {
+          kind: 'agent_provider',
+          participantId: 'agent-1',
+          incomingMessageId: inbound.id,
+          iteration: 0,
+          preparedPrompt: 'saved prompt',
+          actionCursor: 1,
+          actions: [],
+        },
+        context,
+      ),
+    ).resolves.toEqual({ kind: 'middleware_abort', error: 'Invalid middleware provider resume' });
+    expect(providerRequests).toHaveLength(0);
   });
 });

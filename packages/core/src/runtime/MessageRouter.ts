@@ -7,6 +7,7 @@ import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
+  AgentConfig,
   ConversationOrigin,
   MessageUsage,
   LLMChunk,
@@ -18,6 +19,7 @@ import {
   MiddlewareLifecycle,
   type InboundLifecycleResult,
 } from '../middleware/MiddlewareLifecycle.js';
+import type { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
 
 export interface SendOptions {
   senderId: string;
@@ -41,6 +43,7 @@ export class MessageRouter implements MessageRouterPort {
     private collective: Collective,
     private eventBus: EventBus,
     private lifecycle?: MiddlewareLifecycle,
+    private middlewareRunner?: MiddlewareRunner,
   ) {}
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
@@ -110,9 +113,13 @@ export class MessageRouter implements MessageRouterPort {
     participantId: string,
     toolContext: ToolContext,
     depth: number,
+    middlewareState?: {
+      operationId: string;
+      incomingMessageId: string;
+    },
   ): RuntimeContext {
     const participant = this.collective.getOrThrow(participantId);
-    return {
+    const context: RuntimeContext = {
       ...(toolContext as RuntimeContext),
       participant,
       conversationId: thread.id,
@@ -120,6 +127,48 @@ export class MessageRouter implements MessageRouterPort {
       communicationDepth: depth,
       messageRouter: this,
     };
+    if (
+      this.lifecycle &&
+      this.middlewareRunner &&
+      middlewareState &&
+      participant.type === 'agent'
+    ) {
+      const agent = participant as AgentConfig;
+      context.buildSystemPrompt = async ({ basePrompt, iteration, incomingMessageId, actions }) => {
+        const result = await this.middlewareRunner!.runSystemPrompt({
+          operationId: middlewareState.operationId,
+          participant: agent,
+          thread,
+          prompt: basePrompt,
+          actions,
+          persistedMessageId: incomingMessageId,
+          signal: toolContext.signal,
+          runtimeResume: {
+            kind: 'agent_provider',
+            participantId: agent.id,
+            incomingMessageId: middlewareState.incomingMessageId,
+            iteration,
+            preparedPrompt: basePrompt,
+            actionCursor: actions.length,
+            actions,
+          },
+        });
+        if (result.kind === 'continue') {
+          return { kind: 'continue', prompt: result.value, actions: result.actions };
+        }
+        if (result.kind === 'pending_approval') {
+          return {
+            kind: 'pending',
+            approvalId: result.approvalId,
+            checkpointId: result.checkpointId,
+            preparedPrompt: basePrompt,
+            actionCursor: actions.length,
+          };
+        }
+        return { kind: 'abort', error: result.error };
+      };
+    }
+    return context;
   }
 
   private async persistResponse(
@@ -131,6 +180,7 @@ export class MessageRouter implements MessageRouterPort {
       operationId: string;
       actions: MiddlewareActionResult[];
       context: ToolContext;
+      storedMessageId?: string;
     },
   ): Promise<MessageRouterResult> {
     if (this.lifecycle && lifecycleState) {
@@ -373,6 +423,19 @@ export class MessageRouter implements MessageRouterPort {
         approvalRequests: result.approvalRequests,
       };
     }
+    if (result.kind === 'middleware_pending') {
+      return {
+        conversationId: thread.id,
+        status: 'pending_approval',
+        approvalId: result.approvalId,
+        checkpointId: result.checkpointId,
+        pendingParticipantId: senderId,
+        approvalRequests: [],
+      };
+    }
+    if (result.kind === 'middleware_abort') {
+      return { conversationId: thread.id, status: 'error', error: result.error };
+    }
     return { conversationId: thread.id, status: 'success' };
   }
 
@@ -416,7 +479,12 @@ export class MessageRouter implements MessageRouterPort {
 
     let inbound: Awaited<ReturnType<ConversationThread['append']>>;
     let lifecycleState:
-      | { operationId: string; actions: MiddlewareActionResult[]; context: ToolContext }
+      | {
+          operationId: string;
+          actions: MiddlewareActionResult[];
+          context: ToolContext;
+          storedMessageId?: string;
+        }
       | undefined;
     if (this.lifecycle) {
       const sender = this.collective.get(opts.senderId);
@@ -454,7 +522,12 @@ export class MessageRouter implements MessageRouterPort {
       if (result.kind !== 'continue')
         return this.mapLifecycleResult(result, thread.id, opts.context);
       inbound = result.value;
-      lifecycleState = { operationId, actions: result.actions, context: opts.context };
+      lifecycleState = {
+        operationId,
+        actions: result.actions,
+        context: opts.context,
+        storedMessageId: inbound.id,
+      };
     } else {
       inbound = await thread.append(
         {
@@ -480,6 +553,9 @@ export class MessageRouter implements MessageRouterPort {
       recipient.id,
       { ...opts.context, communicationDepth: depth },
       depth,
+      lifecycleState === undefined
+        ? undefined
+        : { operationId: lifecycleState.operationId, incomingMessageId: inbound.id },
     );
 
     if (opts.replyTo) {
@@ -620,6 +696,7 @@ export class MessageRouter implements MessageRouterPort {
       operationId: string;
       actions: MiddlewareActionResult[];
       context: ToolContext;
+      storedMessageId?: string;
     },
   ): Promise<MessageRouterResult> {
     if (result.kind === 'response') {
@@ -630,6 +707,31 @@ export class MessageRouter implements MessageRouterPort {
         conversationId: thread.id,
         status: 'pending_approval',
         approvalRequests: result.approvalRequests,
+      };
+    }
+    if (result.kind === 'middleware_pending') {
+      return {
+        conversationId: thread.id,
+        status: 'pending_approval',
+        approvalId: result.approvalId,
+        checkpointId: result.checkpointId,
+        pendingParticipantId: senderId,
+        approvalRequests: lifecycleState
+          ? this.approvalRequests(lifecycleState.context, result.approvalId)
+          : [],
+        ...(lifecycleState?.storedMessageId === undefined
+          ? {}
+          : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+      };
+    }
+    if (result.kind === 'middleware_abort') {
+      return {
+        conversationId: thread.id,
+        status: 'error',
+        error: result.error,
+        ...(lifecycleState?.storedMessageId === undefined
+          ? {}
+          : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
       };
     }
     // kind === 'void'
@@ -646,6 +748,7 @@ export class MessageRouter implements MessageRouterPort {
       operationId: string;
       actions: MiddlewareActionResult[];
       context: ToolContext;
+      storedMessageId?: string;
     },
   ): Promise<void> {
     await this.withLock(thread.id, async () => undefined);
