@@ -10,6 +10,7 @@ import type {
   MiddlewareDefinition,
   MiddlewareHookContext,
   MiddlewareInstanceConfig,
+  MiddlewareEventBus,
   MiddlewareLogger,
   MiddlewarePhase,
   ParticipantConfig,
@@ -21,6 +22,7 @@ import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ToolRegistry } from '../tools/ToolRegistry.js';
+import { createId } from '../util/ids.js';
 import { cloneJsonSafe } from './json.js';
 import type { MiddlewareRegistry } from './MiddlewareRegistry.js';
 
@@ -131,7 +133,7 @@ interface CommonInput {
 
 interface HookSuccess {
   status: 'success';
-  result: Record<string, unknown>;
+  result: unknown;
   duration: number;
   failureMode: FailureMode;
 }
@@ -146,7 +148,80 @@ interface HookSkipped {
   status: 'skipped';
 }
 
-type HookExecution = HookSuccess | HookFailure | HookSkipped;
+interface HookCancelled {
+  status: 'cancelled';
+}
+
+type HookExecution = HookSuccess | HookFailure | HookSkipped | HookCancelled;
+
+interface PhaseSnapshots {
+  participant: ParticipantConfig;
+  activeChain: MessageData[];
+  actions: MiddlewareActionResult[];
+  eventBus: MiddlewareEventBus;
+  logger: MiddlewareLogger;
+}
+
+interface HookLifecycle {
+  accepting: boolean;
+  cancelled: boolean;
+  pending: Set<Promise<void>>;
+}
+
+const executionQueues = new WeakMap<ConversationStore, Map<string, Promise<void>>>();
+const CANCELLATION_ERROR = 'Middleware operation cancelled';
+
+async function serializeConversation<T>(
+  store: ConversationStore,
+  conversationId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let queues = executionQueues.get(store);
+  if (!queues) {
+    queues = new Map();
+    executionQueues.set(store, queues);
+  }
+  const previous = queues.get(conversationId) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => gate);
+  queues.set(conversationId, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (queues.get(conversationId) === tail) queues.delete(conversationId);
+    if (queues.size === 0) executionQueues.delete(store);
+  }
+}
+
+async function raceAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<{ cancelled: true } | { cancelled: false; value: T }> {
+  if (signal.aborted) return { cancelled: true };
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      cleanup();
+      resolve({ cancelled: true });
+    };
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve({ cancelled: false, value });
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -166,11 +241,14 @@ function cloneWithOptionalFields<T extends object>(
 ): T {
   if (!isPlainRecord(value)) throw new TypeError(`Value at ${path} must be a plain object`);
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Object.getOwnPropertySymbols(value).length > 0) {
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) {
     throw new TypeError(`Value at ${path} is not JSON-safe: symbol keys are unsupported`);
   }
   const normalized: Record<string, unknown> = {};
   for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!descriptor.enumerable) {
+      throw new TypeError(`Value at ${path}.${key} is not JSON-safe: field must be enumerable`);
+    }
     if ('get' in descriptor || 'set' in descriptor) {
       throw new TypeError(`Value at ${path}.${key} is not JSON-safe: accessors are unsupported`);
     }
@@ -201,41 +279,6 @@ function cloneDraft(value: MessageDraft, path: string): MessageDraft {
 
 function cloneMessage(value: MessageData, path: string): MessageData {
   return cloneWithOptionalFields(value, MESSAGE_OPTIONAL_FIELDS, path);
-}
-
-function safeError(error: unknown): { name: string; message: string } {
-  if (typeof error === 'string') return { name: 'Error', message: error };
-  if (error === null || typeof error !== 'object') {
-    return { name: 'Error', message: String(error) };
-  }
-
-  let descriptors: PropertyDescriptorMap;
-  try {
-    descriptors = Object.getOwnPropertyDescriptors(error);
-  } catch {
-    return { name: 'Error', message: 'Middleware hook failed' };
-  }
-  const ownName = descriptors.name;
-  const ownMessage = descriptors.message;
-  let name =
-    ownName && 'value' in ownName && typeof ownName.value === 'string' ? ownName.value : 'Error';
-  const message =
-    ownMessage && 'value' in ownMessage && typeof ownMessage.value === 'string'
-      ? ownMessage.value
-      : 'Middleware hook failed';
-
-  if (name === 'Error') {
-    try {
-      const prototype = Object.getPrototypeOf(error) as object | null;
-      const prototypeName = prototype && Object.getOwnPropertyDescriptor(prototype, 'name');
-      if (prototypeName && 'value' in prototypeName && typeof prototypeName.value === 'string') {
-        name = prototypeName.value;
-      }
-    } catch {
-      // Keep generic Error without touching accessors.
-    }
-  }
-  return { name, message };
 }
 
 type AbortPhaseResult = Extract<MiddlewarePhaseResult<never>, { kind: 'abort' }>;
@@ -341,18 +384,219 @@ function validateDraft(value: unknown, original?: MessageDraft): MessageDraft {
   return candidate;
 }
 
+interface OutcomeSchema {
+  required: readonly string[];
+  optional?: readonly string[];
+}
+
+function inspectOutcome(
+  value: unknown,
+  schemas: Readonly<Record<string, OutcomeSchema>>,
+): { kind: string; values: Record<string, unknown> } {
+  if (!isPlainRecord(value)) throw new TypeError('Middleware result must be a plain object');
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) {
+    throw new TypeError('Middleware result symbol fields are unsupported');
+  }
+  const kindDescriptor = descriptors.kind;
+  if (!kindDescriptor || 'get' in kindDescriptor || 'set' in kindDescriptor) {
+    throw new TypeError('Middleware result kind must be a data property');
+  }
+  if (!kindDescriptor.enumerable) throw new TypeError('Middleware result kind must be enumerable');
+  const kind = requireString(kindDescriptor.value, 'kind');
+  const schema = schemas[kind];
+  if (!schema) throw new TypeError(`Unsupported middleware outcome: ${kind}`);
+  const allowed = new Set(['kind', ...schema.required, ...(schema.optional ?? [])]);
+  const values: Record<string, unknown> = {};
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!allowed.has(key))
+      throw new TypeError(`Middleware ${kind} result field ${key} is unsupported`);
+    if ('get' in descriptor || 'set' in descriptor) {
+      throw new TypeError(`Middleware result field ${key} must not be an accessor`);
+    }
+    if (!descriptor.enumerable) {
+      throw new TypeError(`Middleware result field ${key} must be enumerable`);
+    }
+    if (key === 'kind') continue;
+    if (descriptor.value === undefined && schema.optional?.includes(key)) continue;
+    values[key] = descriptor.value;
+  }
+  for (const required of schema.required) {
+    if (!Object.hasOwn(values, required)) {
+      throw new TypeError(`Middleware ${kind} result requires ${required}`);
+    }
+  }
+  return { kind, values };
+}
+
+function parseToolOutcome(values: Record<string, unknown>): Record<string, unknown> {
+  if (
+    values.arguments === null ||
+    typeof values.arguments !== 'object' ||
+    Array.isArray(values.arguments)
+  ) {
+    throw new TypeError('Middleware tool result arguments must be a plain object');
+  }
+  const args = cloneJsonSafe(values.arguments, '$.result.arguments');
+  if (!isPlainRecord(args)) throw new TypeError('Middleware tool result arguments must be plain');
+  return {
+    kind: 'tool',
+    requestId: requireString(values.requestId, 'requestId'),
+    tool: requireString(values.tool, 'tool'),
+    arguments: args,
+    ...(values.stateOnSuccess === undefined
+      ? {}
+      : { stateOnSuccess: cloneJsonSafe(values.stateOnSuccess, '$.result.stateOnSuccess') }),
+  };
+}
+
+function parseMessageOutcome(value: unknown): Record<string, unknown> {
+  const outcome = inspectOutcome(value, {
+    continue: { required: [], optional: ['message'] },
+    reject: { required: ['error'] },
+    tool: { required: ['requestId', 'tool', 'arguments'], optional: ['stateOnSuccess'] },
+  });
+  if (outcome.kind === 'continue') {
+    return {
+      kind: 'continue',
+      ...(outcome.values.message === undefined
+        ? {}
+        : { message: cloneDraft(outcome.values.message as MessageDraft, '$.result.message') }),
+    };
+  }
+  if (outcome.kind === 'reject') {
+    return { kind: 'reject', error: requireString(outcome.values.error, 'error') };
+  }
+  return parseToolOutcome(outcome.values);
+}
+
+function parseAfterReceiveOutcome(value: unknown): Record<string, unknown> {
+  const outcome = inspectOutcome(value, {
+    continue: { required: [] },
+    complete: { required: [] },
+    respond: { required: ['message'] },
+    abort: { required: ['error'] },
+    tool: { required: ['requestId', 'tool', 'arguments'], optional: ['stateOnSuccess'] },
+  });
+  if (outcome.kind === 'respond') {
+    return {
+      kind: 'respond',
+      message: cloneDraft(outcome.values.message as MessageDraft, '$.result.message'),
+    };
+  }
+  if (outcome.kind === 'abort') {
+    return { kind: 'abort', error: requireString(outcome.values.error, 'error') };
+  }
+  if (outcome.kind === 'tool') return parseToolOutcome(outcome.values);
+  return { kind: outcome.kind };
+}
+
+function parsePromptChange(value: unknown): Record<string, string> {
+  if (!isPlainRecord(value)) throw new TypeError('Middleware prompt change must be a plain object');
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) {
+    throw new TypeError('Middleware prompt change symbol fields are unsupported');
+  }
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (key !== 'operation' && key !== 'content') {
+      throw new TypeError(`Middleware prompt change field ${key} is unsupported`);
+    }
+    if ('get' in descriptor || 'set' in descriptor) {
+      throw new TypeError(`Middleware prompt change field ${key} must not be an accessor`);
+    }
+    if (!descriptor.enumerable) {
+      throw new TypeError(`Middleware prompt change field ${key} must be enumerable`);
+    }
+  }
+  const operationDescriptor = descriptors.operation;
+  const contentDescriptor = descriptors.content;
+  if (!operationDescriptor || !('value' in operationDescriptor)) {
+    throw new TypeError('Middleware prompt change requires operation');
+  }
+  if (!contentDescriptor || !('value' in contentDescriptor)) {
+    throw new TypeError('Middleware prompt change requires content');
+  }
+  const operation = requireString(operationDescriptor.value, 'change.operation');
+  if (operation !== 'append' && operation !== 'prepend' && operation !== 'replace') {
+    throw new TypeError(`Unsupported prompt change operation: ${operation}`);
+  }
+  return { operation, content: requireString(contentDescriptor.value, 'change.content') };
+}
+
+function parseSystemPromptOutcome(value: unknown): Record<string, unknown> {
+  const outcome = inspectOutcome(value, {
+    continue: { required: [], optional: ['change'] },
+    abort: { required: ['error'] },
+    tool: { required: ['requestId', 'tool', 'arguments'], optional: ['stateOnSuccess'] },
+  });
+  if (outcome.kind === 'continue') {
+    return {
+      kind: 'continue',
+      ...(outcome.values.change === undefined
+        ? {}
+        : { change: parsePromptChange(outcome.values.change) }),
+    };
+  }
+  if (outcome.kind === 'abort') {
+    return { kind: 'abort', error: requireString(outcome.values.error, 'error') };
+  }
+  return parseToolOutcome(outcome.values);
+}
+
+function parseAfterSendOutcome(value: unknown): Record<string, unknown> {
+  const outcome = inspectOutcome(value, {
+    continue: { required: [] },
+    abort: { required: ['error'] },
+    tool: { required: ['requestId', 'tool', 'arguments'], optional: ['stateOnSuccess'] },
+  });
+  if (outcome.kind === 'abort') {
+    return { kind: 'abort', error: requireString(outcome.values.error, 'error') };
+  }
+  if (outcome.kind === 'tool') return parseToolOutcome(outcome.values);
+  return { kind: 'continue' };
+}
+
 export class MiddlewareRunner {
   constructor(private readonly dependencies: MiddlewareRunnerDependencies) {}
 
-  async runMessagePhase(input: MessagePhaseInput): Promise<MessagePhaseResult> {
+  runMessagePhase(input: MessagePhaseInput): Promise<MessagePhaseResult> {
+    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
+      await this.refreshThread(input.thread);
+      return this.runMessagePhaseUnlocked(input);
+    });
+  }
+
+  runAfterReceive(input: AfterReceiveInput): Promise<AfterReceivePhaseResult> {
+    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
+      await this.refreshThread(input.thread);
+      return this.runAfterReceiveUnlocked(input);
+    });
+  }
+
+  runSystemPrompt(input: SystemPromptInput): Promise<SystemPromptPhaseResult> {
+    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
+      await this.refreshThread(input.thread);
+      return this.runSystemPromptUnlocked(input);
+    });
+  }
+
+  runAfterSend(input: AfterSendInput): Promise<AfterSendPhaseResult> {
+    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
+      await this.refreshThread(input.thread);
+      return this.runAfterSendUnlocked(input);
+    });
+  }
+
+  private async runMessagePhaseUnlocked(input: MessagePhaseInput): Promise<MessagePhaseResult> {
+    if (input.signal?.aborted) return abortResult(CANCELLATION_ERROR);
     let current = cloneDraft(input.draft, '$.draft');
-    const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
+    const snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, input.phase)) continue;
-      const execution = await this.invoke(instance, input.phase, input, (base) => ({
+      const execution = await this.invoke(instance, input.phase, input, snapshots, (base) => ({
         ...base,
         message: cloneJsonSafe(current, '$.message'),
         final: input.final,
@@ -360,22 +604,24 @@ export class MiddlewareRunner {
         ...(input.chunk === undefined ? {} : { chunk: cloneJsonSafe(input.chunk, '$.chunk') }),
       }));
       if (execution.status === 'skipped') continue;
+      if (execution.status === 'cancelled') return abortResult(CANCELLATION_ERROR);
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') return abortResult(execution.error);
         continue;
       }
 
       try {
-        const kind = requireString(execution.result.kind, 'kind');
+        const result = parseMessageOutcome(execution.result);
+        const kind = result.kind;
         if (kind === 'continue') {
-          if (execution.result.message !== undefined) {
-            current = validateDraft(execution.result.message, current);
+          if (result.message !== undefined) {
+            current = validateDraft(result.message, current);
           }
           this.recordSuccess(instance, input.phase, input, execution);
           continue;
         }
         if (kind === 'reject') {
-          const error = requireString(execution.result.error, 'error');
+          const error = requireString(result.error, 'error');
           this.recordSuccess(instance, input.phase, input, execution);
           return { kind: 'reject', error };
         }
@@ -393,25 +639,35 @@ export class MiddlewareRunner {
         if (failure.failureMode === 'closed') return abortResult(failure.error);
       }
     }
-    return { kind: 'continue', value: cloneJsonSafe(current), actions: cloneJsonSafe(actions) };
+    return {
+      kind: 'continue',
+      value: cloneJsonSafe(current),
+      actions: cloneJsonSafe(snapshots.actions),
+    };
   }
 
-  async runAfterReceive(input: AfterReceiveInput): Promise<AfterReceivePhaseResult> {
+  private async runAfterReceiveUnlocked(
+    input: AfterReceiveInput,
+  ): Promise<AfterReceivePhaseResult> {
     const persisted = persistedMessage(input.thread, input.message, input.persistedMessageId);
     const storedMessageId = persisted.id;
+    if (input.signal?.aborted) return abortResult(CANCELLATION_ERROR, storedMessageId);
     const current = persisted.message;
-    const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
+    const snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'afterReceive')) continue;
-      const execution = await this.invoke(instance, 'afterReceive', input, (base) => ({
+      const execution = await this.invoke(instance, 'afterReceive', input, snapshots, (base) => ({
         ...base,
         message: cloneJsonSafe(current, '$.message'),
         mode: input.mode,
       }));
       if (execution.status === 'skipped') continue;
+      if (execution.status === 'cancelled') {
+        return abortResult(CANCELLATION_ERROR, storedMessageId);
+      }
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') {
           return abortResult(execution.error, storedMessageId);
@@ -420,20 +676,21 @@ export class MiddlewareRunner {
       }
 
       try {
-        const kind = requireString(execution.result.kind, 'kind');
+        const result = parseAfterReceiveOutcome(execution.result);
+        const kind = result.kind;
         if (kind === 'continue') {
           this.recordSuccess(instance, 'afterReceive', input, execution);
           continue;
         }
         if (kind === 'complete') {
           this.recordSuccess(instance, 'afterReceive', input, execution);
-          return { kind: 'complete', actions: cloneJsonSafe(actions) };
+          return { kind: 'complete', actions: cloneJsonSafe(snapshots.actions) };
         }
         if (kind === 'respond') {
           if (input.mode === 'post_response') {
             throw new TypeError('Middleware respond outcome is invalid in post_response mode');
           }
-          const draft = validateDraft(execution.result.message, {
+          const draft = validateDraft(result.message, {
             senderId: input.participant.id,
             recipientId: current.replyTo ?? current.senderId,
             role: 'assistant',
@@ -443,11 +700,11 @@ export class MiddlewareRunner {
           return {
             kind: 'respond',
             draft,
-            actions: cloneJsonSafe(actions),
+            actions: cloneJsonSafe(snapshots.actions),
           };
         }
         if (kind === 'abort') {
-          const error = requireString(execution.result.error, 'error');
+          const error = requireString(result.error, 'error');
           this.recordSuccess(instance, 'afterReceive', input, execution);
           return abortResult(error, storedMessageId);
         }
@@ -467,26 +724,38 @@ export class MiddlewareRunner {
         }
       }
     }
-    return { kind: 'continue', value: current, actions: cloneJsonSafe(actions) };
+    return { kind: 'continue', value: current, actions: cloneJsonSafe(snapshots.actions) };
   }
 
-  async runSystemPrompt(input: SystemPromptInput): Promise<SystemPromptPhaseResult> {
+  private async runSystemPromptUnlocked(
+    input: SystemPromptInput,
+  ): Promise<SystemPromptPhaseResult> {
     if (input.participant.type !== 'agent') {
       throw new TypeError('Middleware system prompt requires an agent participant');
     }
     const storedMessageId = validatePersistedMessageId(input.thread, input.persistedMessageId);
+    if (input.signal?.aborted) return abortResult(CANCELLATION_ERROR, storedMessageId);
     let current = input.prompt;
-    const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
+    const snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'buildSystemPrompt')) continue;
-      const execution = await this.invoke(instance, 'buildSystemPrompt', input, (base) => ({
-        ...base,
-        prompt: current,
-      }));
+      const execution = await this.invoke(
+        instance,
+        'buildSystemPrompt',
+        input,
+        snapshots,
+        (base) => ({
+          ...base,
+          prompt: current,
+        }),
+      );
       if (execution.status === 'skipped') continue;
+      if (execution.status === 'cancelled') {
+        return abortResult(CANCELLATION_ERROR, storedMessageId);
+      }
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') {
           return abortResult(execution.error, storedMessageId);
@@ -495,24 +764,22 @@ export class MiddlewareRunner {
       }
 
       try {
-        const kind = requireString(execution.result.kind, 'kind');
+        const result = parseSystemPromptOutcome(execution.result);
+        const kind = result.kind;
         if (kind === 'continue') {
-          if (execution.result.change !== undefined) {
-            if (!isPlainRecord(execution.result.change)) {
-              throw new TypeError('Middleware prompt change must be a plain object');
-            }
-            const operation = requireString(execution.result.change.operation, 'change.operation');
-            const content = requireString(execution.result.change.content, 'change.content');
+          if (result.change !== undefined) {
+            const change = result.change as Record<string, unknown>;
+            const operation = requireString(change.operation, 'change.operation');
+            const content = requireString(change.content, 'change.content');
             if (operation === 'append') current += content;
             else if (operation === 'prepend') current = content + current;
             else if (operation === 'replace') current = content;
-            else throw new TypeError(`Unsupported prompt change operation: ${operation}`);
           }
           this.recordSuccess(instance, 'buildSystemPrompt', input, execution);
           continue;
         }
         if (kind === 'abort') {
-          const error = requireString(execution.result.error, 'error');
+          const error = requireString(result.error, 'error');
           this.recordSuccess(instance, 'buildSystemPrompt', input, execution);
           return abortResult(error, storedMessageId);
         }
@@ -532,24 +799,28 @@ export class MiddlewareRunner {
         }
       }
     }
-    return { kind: 'continue', value: current, actions: cloneJsonSafe(actions) };
+    return { kind: 'continue', value: current, actions: cloneJsonSafe(snapshots.actions) };
   }
 
-  async runAfterSend(input: AfterSendInput): Promise<AfterSendPhaseResult> {
+  private async runAfterSendUnlocked(input: AfterSendInput): Promise<AfterSendPhaseResult> {
     const persisted = persistedMessage(input.thread, input.message, input.persistedMessageId);
     const storedMessageId = persisted.id;
+    if (input.signal?.aborted) return abortResult(CANCELLATION_ERROR, storedMessageId);
     const current = persisted.message;
-    const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
+    const snapshots = this.buildPhaseSnapshots(input);
     for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'afterSend')) continue;
-      const execution = await this.invoke(instance, 'afterSend', input, (base) => ({
+      const execution = await this.invoke(instance, 'afterSend', input, snapshots, (base) => ({
         ...base,
         message: cloneJsonSafe(current, '$.message'),
       }));
       if (execution.status === 'skipped') continue;
+      if (execution.status === 'cancelled') {
+        return abortResult(CANCELLATION_ERROR, storedMessageId);
+      }
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') {
           return abortResult(execution.error, storedMessageId);
@@ -558,13 +829,14 @@ export class MiddlewareRunner {
       }
 
       try {
-        const kind = requireString(execution.result.kind, 'kind');
+        const result = parseAfterSendOutcome(execution.result);
+        const kind = result.kind;
         if (kind === 'continue') {
           this.recordSuccess(instance, 'afterSend', input, execution);
           continue;
         }
         if (kind === 'abort') {
-          const error = requireString(execution.result.error, 'error');
+          const error = requireString(result.error, 'error');
           this.recordSuccess(instance, 'afterSend', input, execution);
           return abortResult(error, storedMessageId);
         }
@@ -584,7 +856,7 @@ export class MiddlewareRunner {
         }
       }
     }
-    return { kind: 'continue', value: current, actions: cloneJsonSafe(actions) };
+    return { kind: 'continue', value: current, actions: cloneJsonSafe(snapshots.actions) };
   }
 
   private enabled(
@@ -594,7 +866,7 @@ export class MiddlewareRunner {
   ): boolean {
     if (instance.enabled !== false) return true;
     const started = performance.now();
-    this.dependencies.logger.debug('Middleware hook skipped', {
+    this.safeLog('debug', 'Middleware hook skipped', {
       operationId: input.operationId,
       conversationId: input.thread.id,
       participantId: input.participant.id,
@@ -611,6 +883,7 @@ export class MiddlewareRunner {
     instance: MiddlewareInstanceConfig,
     phase: MiddlewarePhase,
     input: CommonInput,
+    snapshots: PhaseSnapshots,
     phaseContext: (base: MiddlewareHookContext<unknown>) => object,
   ): Promise<HookExecution> {
     const started = performance.now();
@@ -633,13 +906,45 @@ export class MiddlewareRunner {
       if (!hook) return { status: 'skipped' };
 
       const signal = input.signal ?? new AbortController().signal;
-      const context = phaseContext(this.buildBaseContext(instance, input, signal));
-      const rawResult = await hook(context);
-      const result = cloneJsonSafe(rawResult, '$.result');
-      if (!isPlainRecord(result)) throw new TypeError('Middleware result must be a plain object');
+      if (signal.aborted) return { status: 'cancelled' };
+      const lifecycle: HookLifecycle = {
+        accepting: true,
+        cancelled: false,
+        pending: new Set(),
+      };
+      const context = phaseContext(
+        this.buildBaseContext(instance, input, signal, snapshots, lifecycle),
+      );
+      const hookPromise = Promise.resolve()
+        .then(() => hook(context))
+        .then(
+          (value) => {
+            lifecycle.accepting = false;
+            return { ok: true as const, value };
+          },
+          (error: unknown) => {
+            lifecycle.accepting = false;
+            return { ok: false as const, error };
+          },
+        );
+      const hookRace = await raceAbort(hookPromise, signal);
+      if (hookRace.cancelled) {
+        lifecycle.accepting = false;
+        lifecycle.cancelled = true;
+        void Promise.allSettled([...lifecycle.pending]);
+        return { status: 'cancelled' };
+      }
+      lifecycle.accepting = false;
+      const pendingRace = await raceAbort(Promise.all([...lifecycle.pending]), signal);
+      if (pendingRace.cancelled) {
+        lifecycle.cancelled = true;
+        void Promise.allSettled([...lifecycle.pending]);
+        return { status: 'cancelled' };
+      }
+      if (!hookRace.value.ok) throw hookRace.value.error;
       return {
         status: 'success',
-        result,
+        result: hookRace.value.value,
         duration: performance.now() - started,
         failureMode,
       };
@@ -659,14 +964,14 @@ export class MiddlewareRunner {
     instance: MiddlewareInstanceConfig,
     input: CommonInput,
     signal: AbortSignal,
+    snapshots: PhaseSnapshots,
+    lifecycle: HookLifecycle,
   ): MiddlewareHookContext<unknown> {
-    const participant = cloneJsonSafe(input.participant, '$.participant');
+    const participant = cloneJsonSafe(snapshots.participant, '$.participant');
     const detachedInstance = cloneJsonSafe(instance, '$.instance');
     const config = cloneJsonSafe(instance.config, '$.config');
-    const activeChain = input.thread.activeChain.map((message, index) =>
-      cloneMessage(message, `$.activeChain[${index}]`),
-    );
-    const actions = cloneJsonSafe(input.actions, '$.actions');
+    const activeChain = cloneJsonSafe(snapshots.activeChain, '$.activeChain');
+    const actions = cloneJsonSafe(snapshots.actions, '$.actions');
     return {
       operationId: input.operationId,
       participant,
@@ -676,29 +981,50 @@ export class MiddlewareRunner {
       activeChain,
       actions,
       getState: () => {
+        if (!lifecycle.accepting || lifecycle.cancelled || signal.aborted) {
+          throw new Error('Middleware context is inactive');
+        }
         const state = input.thread.data.middlewareState?.[input.participant.id]?.[instance.id];
         return state === undefined ? undefined : cloneJsonSafe(state, '$.state');
       },
-      setState: async (value: JSONValue) => {
-        const detached = cloneJsonSafe(value, '$.state');
-        const mutation = await this.dependencies.conversationStore.mutate(
-          input.thread.id,
-          (conversation) => ({
-            ...conversation,
-            middlewareState: {
-              ...conversation.middlewareState,
-              [input.participant.id]: {
-                ...conversation.middlewareState?.[input.participant.id],
-                [instance.id]: detached,
-              },
+      setState: (value: JSONValue) => {
+        if (!lifecycle.accepting || lifecycle.cancelled || signal.aborted) {
+          const rejected = Promise.reject(new Error('Middleware context is inactive'));
+          void rejected.catch(() => undefined);
+          return rejected;
+        }
+        const operation = (async () => {
+          const detached = cloneJsonSafe(value, '$.state');
+          const mutation = await this.dependencies.conversationStore.mutate(
+            input.thread.id,
+            (conversation) => {
+              if (lifecycle.cancelled || signal.aborted) {
+                throw new Error('Middleware context is inactive');
+              }
+              return {
+                ...conversation,
+                middlewareState: {
+                  ...conversation.middlewareState,
+                  [input.participant.id]: {
+                    ...conversation.middlewareState?.[input.participant.id],
+                    [instance.id]: detached,
+                  },
+                },
+              };
             },
-          }),
-        );
-        input.thread.data = mutation.after;
+          );
+          if (lifecycle.cancelled || signal.aborted) {
+            throw new Error('Middleware context is inactive');
+          }
+          input.thread.data = mutation.after;
+        })();
+        lifecycle.pending.add(operation);
+        void operation.catch(() => undefined);
+        return operation;
       },
       signal,
-      eventBus: this.dependencies.eventBus,
-      logger: this.dependencies.logger,
+      eventBus: snapshots.eventBus,
+      logger: snapshots.logger,
     };
   }
 
@@ -706,26 +1032,28 @@ export class MiddlewareRunner {
     instance: MiddlewareInstanceConfig,
     phase: MiddlewarePhase,
     input: CommonInput,
-    error: unknown,
+    _error: unknown,
     duration: number,
     resolvedFailureMode?: FailureMode,
   ): HookFailure {
-    const details = safeError(error);
     const failureMode = resolvedFailureMode ?? this.failureMode(instance);
-    this.dependencies.eventBus.emit('middleware:error', {
+    const diagnosticId = createId('diag');
+    const message = `Middleware execution failed (diagnostic ${diagnosticId})`;
+    this.safeEmit('middleware:error', {
       conversationId: input.thread.id,
       participantId: input.participant.id,
       instanceId: instance.id,
       middlewareType: instance.type,
       phase,
       failureMode,
-      error: details,
+      error: { name: 'MiddlewareError', message },
     });
-    this.dependencies.logger.warn('Middleware hook failed', {
+    this.safeLog('warn', 'Middleware hook failed', {
       ...this.logFields(instance, phase, input, duration),
       failureMode,
+      diagnosticId,
     });
-    return { status: 'failure', failureMode, error: details.message };
+    return { status: 'failure', failureMode, error: message };
   }
 
   private recordSuccess(
@@ -734,7 +1062,7 @@ export class MiddlewareRunner {
     input: CommonInput,
     execution: HookSuccess,
   ): void {
-    this.dependencies.logger.debug('Middleware hook completed', {
+    this.safeLog('debug', 'Middleware hook completed', {
       ...this.logFields(instance, phase, input, execution.duration),
       failureMode: execution.failureMode,
     });
@@ -743,6 +1071,69 @@ export class MiddlewareRunner {
   private failureMode(instance: MiddlewareInstanceConfig): FailureMode {
     if (instance.failureMode) return instance.failureMode;
     return this.dependencies.registry.get(instance.type)?.defaultFailureMode ?? 'closed';
+  }
+
+  private async refreshThread(thread: ConversationThread): Promise<void> {
+    const stored = await this.dependencies.conversationStore.load(thread.id);
+    if (!stored) throw new TypeError('Middleware conversation must exist in storage');
+    thread.data = stored;
+  }
+
+  private buildPhaseSnapshots(input: CommonInput): PhaseSnapshots {
+    return {
+      participant: cloneJsonSafe(input.participant, '$.participant'),
+      activeChain: input.thread.activeChain.map((message, index) =>
+        cloneMessage(message, `$.activeChain[${index}]`),
+      ),
+      actions: cloneJsonSafe(input.actions, '$.actions'),
+      eventBus: Object.freeze({
+        emit: (
+          event: Parameters<MiddlewareEventBus['emit']>[0],
+          data: Parameters<MiddlewareEventBus['emit']>[1],
+        ) => {
+          this.safeEmit(event, data);
+        },
+      }) as MiddlewareEventBus,
+      logger: Object.freeze({
+        debug: (message: string, fields?: Record<string, unknown>) =>
+          this.safeLog('debug', message, fields),
+        info: (message: string, fields?: Record<string, unknown>) =>
+          this.safeLog('info', message, fields),
+        warn: (message: string, fields?: Record<string, unknown>) =>
+          this.safeLog('warn', message, fields),
+        error: (message: string, fields?: Record<string, unknown>) =>
+          this.safeLog('error', message, fields),
+      }),
+    };
+  }
+
+  private safeEmit<TEvent extends Parameters<MiddlewareEventBus['emit']>[0]>(
+    event: TEvent,
+    data: Parameters<MiddlewareEventBus['emit']>[1],
+  ): void {
+    try {
+      const detached = cloneJsonSafe(data, '$.event');
+      (this.dependencies.eventBus.emit as (name: TEvent, payload: typeof detached) => void).call(
+        this.dependencies.eventBus,
+        event,
+        detached,
+      );
+    } catch {
+      // Telemetry must not affect middleware control flow.
+    }
+  }
+
+  private safeLog(
+    level: keyof MiddlewareLogger,
+    message: string,
+    fields?: Record<string, unknown>,
+  ): void {
+    try {
+      const detached = fields === undefined ? undefined : cloneJsonSafe(fields, '$.logFields');
+      this.dependencies.logger[level].call(this.dependencies.logger, message, detached);
+    } catch {
+      // Telemetry must not affect middleware control flow.
+    }
   }
 
   private logFields(
