@@ -187,6 +187,58 @@ describe('loadWorkspaceMiddleware', () => {
     expect(registry.get('first')).toBeDefined();
   });
 
+  it('wraps a destination change during import without partially committing', async () => {
+    const registry = new MiddlewareRegistry();
+    const globalWithRegistry = globalThis as typeof globalThis & {
+      __legionDestinationRegistry?: MiddlewareRegistry;
+    };
+    globalWithRegistry.__legionDestinationRegistry = registry;
+    await writeFile(
+      join(workspaceRoot, 'changes-destination.mjs'),
+      `
+        globalThis.__legionDestinationRegistry.register({
+          type: 'changed',
+          displayName: 'Changed externally',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object' },
+          hooks: {},
+        }, 'external:test');
+        export default {
+          type: 'changed',
+          displayName: 'Staged',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object' },
+          hooks: {},
+        };
+      `,
+      'utf8',
+    );
+
+    try {
+      const error = await captureLoadError(
+        loadWorkspaceMiddleware(
+          workspaceRoot,
+          [{ id: 'changed', module: 'changes-destination.mjs' }],
+          registry,
+        ),
+      );
+
+      expect(error.code).toBe('MIDDLEWARE_LOAD_FAILED');
+      expect(error.diagnostics).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: 'error' })]),
+      );
+      expect(registry.list()).toEqual([
+        expect.objectContaining({
+          type: 'changed',
+          displayName: 'Changed externally',
+          source: 'external:test',
+        }),
+      ]);
+    } finally {
+      delete globalWithRegistry.__legionDestinationRegistry;
+    }
+  });
+
   it('preserves prior success and current error diagnostics on failure', async () => {
     await writeFile(join(workspaceRoot, 'first.mjs'), definitionSource('first'), 'utf8');
 

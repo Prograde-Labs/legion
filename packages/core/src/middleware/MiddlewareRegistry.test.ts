@@ -38,6 +38,48 @@ describe('MiddlewareRegistry', () => {
     expect(() => registry.register(definition(), 'builtin:other')).toThrow(/already registered/i);
   });
 
+  it('does not publish a valid first batch entry when the second is invalid', () => {
+    const registry = new MiddlewareRegistry();
+
+    expect(() =>
+      registry.registerBatch([
+        { definition: definition({ type: 'first' }), source: 'builtin:first' },
+        {
+          definition: definition({ type: 'second', hooks: undefined }) as MiddlewareDefinition,
+          source: 'builtin:second',
+        },
+      ]),
+    ).toThrow(/hooks/i);
+    expect(registry.list()).toEqual([]);
+  });
+
+  it('does not publish a batch containing duplicate types', () => {
+    const registry = new MiddlewareRegistry();
+
+    expect(() =>
+      registry.registerBatch([
+        { definition: definition({ type: 'duplicate' }), source: 'builtin:first' },
+        { definition: definition({ type: 'duplicate' }), source: 'builtin:second' },
+      ]),
+    ).toThrow(/already registered/i);
+    expect(registry.list()).toEqual([]);
+  });
+
+  it('does not publish earlier batch entries when a later type already exists', () => {
+    const registry = new MiddlewareRegistry();
+    registry.register(definition({ type: 'existing' }), 'builtin:existing');
+    const before = registry.list();
+
+    expect(() =>
+      registry.registerBatch([
+        { definition: definition({ type: 'new' }), source: 'builtin:new' },
+        { definition: definition({ type: 'existing' }), source: 'builtin:duplicate' },
+      ]),
+    ).toThrow(/already registered/i);
+    expect(registry.list()).toEqual(before);
+    expect(registry.get('new')).toBeUndefined();
+  });
+
   it.each([
     ['omitted', {}],
     ['undefined', { description: undefined }],

@@ -136,8 +136,22 @@ export async function loadWorkspaceMiddleware(
     }
   }
 
-  for (const middleware of staged) {
-    registry.register(middleware.definition, middleware.source);
+  try {
+    registry.registerBatch(staged);
+  } catch (error) {
+    const publicError = 'Middleware destination changed during loading';
+    const diagnostic: MiddlewareDiagnostic = {
+      type: '<batch>',
+      source: 'workspace:<batch>',
+      status: 'error',
+      error: publicError,
+      configurationErrors: [],
+    };
+    throw new MiddlewareLoadError(
+      `Failed to commit workspace middleware: ${publicError}`,
+      [...diagnostics, diagnostic],
+      error,
+    );
   }
   return diagnostics.map(detachDiagnostic);
 }
