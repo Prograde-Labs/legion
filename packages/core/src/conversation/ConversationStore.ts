@@ -29,6 +29,7 @@ export interface ConversationStore {
 
 export interface ConversationMutationGuard {
   expectedActiveBranchHead?: string;
+  signal?: AbortSignal;
 }
 
 export interface ConversationMutationResult {

@@ -216,6 +216,28 @@ describe('FileConversationStore', () => {
     expect((await store.load(conversation.id))?.title).toBe('unchanged');
   });
 
+  it('checks mutation abort after callback and before persistence', async () => {
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'unchanged',
+    });
+    const controller = new AbortController();
+
+    await expect(
+      store.mutate(
+        conversation.id,
+        (current) => {
+          controller.abort();
+          return { ...current, title: 'must-not-commit' };
+        },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow(/abort/i);
+    expect((await store.load(conversation.id))?.title).toBe('unchanged');
+  });
+
   it('rejects origin mutations', async () => {
     const conversation = await store.create({
       schemaVersion: '2.0',

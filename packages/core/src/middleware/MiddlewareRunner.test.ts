@@ -136,6 +136,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
     logs,
     conversationStore,
     toolRegistry,
+    storage,
     runnerDependencies,
     persistMessage,
   };
@@ -343,6 +344,7 @@ describe('MiddlewareRunner', () => {
       duration: expect.any(Number),
       failureMode: 'open',
       diagnosticId: expect.stringMatching(/^diag-/),
+      errorCategory: 'Error',
     });
   });
 
@@ -1374,28 +1376,143 @@ describe('MiddlewareRunner', () => {
       'test:runner',
     );
     const controller = new AbortController();
-    const cancelledOperation = cancelled.runner.runMessagePhase({
-      operationId: 'operation-cancelled-state',
-      phase: 'beforeSend',
-      participant: cancelled.participant,
-      thread: cancelled.thread,
-      draft: draft(),
-      actions: [],
-      final: true,
-      signal: controller.signal,
-    });
+    let cancelSettled = false;
+    const cancelledOperation = cancelled.runner
+      .runMessagePhase({
+        operationId: 'operation-cancelled-state',
+        phase: 'beforeSend',
+        participant: cancelled.participant,
+        thread: cancelled.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+        signal: controller.signal,
+      })
+      .finally(() => {
+        cancelSettled = true;
+      });
     await cancelEntered.promise;
     controller.abort();
+    await Promise.resolve();
+    expect(cancelSettled).toBe(false);
+    cancelRelease.resolve();
     await expect(cancelledOperation).resolves.toEqual({
       kind: 'abort',
       error: 'Middleware operation cancelled',
       persisted: false,
     });
-    cancelRelease.resolve();
-    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(
       (await cancelled.conversationStore.load(cancelled.thread.id))?.middlewareState,
     ).toBeUndefined();
+  });
+
+  it('settles canceled state writes at the storage commit boundary before returning', async () => {
+    const beforeCommit = await fixture([instance('before-commit')]);
+    const callbackDone = deferred();
+    const releaseCallback = deferred();
+    const originalMutate = beforeCommit.conversationStore.mutate.bind(
+      beforeCommit.conversationStore,
+    );
+    vi.spyOn(beforeCommit.conversationStore, 'mutate').mockImplementation(
+      (conversationId, callback, guard) =>
+        originalMutate(
+          conversationId,
+          async (conversation) => {
+            const candidate = await callback(conversation);
+            callbackDone.resolve();
+            await releaseCallback.promise;
+            return candidate;
+          },
+          guard,
+        ),
+    );
+    beforeCommit.registry.register(
+      middlewareDefinition({
+        beforeSend: async (context) => {
+          await context.setState({ value: 'must-not-commit' });
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+    const beforeController = new AbortController();
+    let beforeSettled = false;
+    const beforeOperation = beforeCommit.runner
+      .runMessagePhase({
+        operationId: 'operation-abort-before-commit',
+        phase: 'beforeSend',
+        participant: beforeCommit.participant,
+        thread: beforeCommit.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+        signal: beforeController.signal,
+      })
+      .finally(() => {
+        beforeSettled = true;
+      });
+    await callbackDone.promise;
+    beforeController.abort();
+    await Promise.resolve();
+    expect(beforeSettled).toBe(false);
+    releaseCallback.resolve();
+    await expect(beforeOperation).resolves.toEqual({
+      kind: 'abort',
+      error: 'Middleware operation cancelled',
+      persisted: false,
+    });
+    expect(
+      (await beforeCommit.conversationStore.load(beforeCommit.thread.id))?.middlewareState,
+    ).toBeUndefined();
+
+    const afterCommit = await fixture([instance('after-commit')]);
+    const writeStarted = deferred();
+    const releaseWrite = deferred();
+    const originalWrite = afterCommit.storage.writeJson.bind(afterCommit.storage);
+    vi.spyOn(afterCommit.storage, 'writeJson').mockImplementation(async (key, value) => {
+      if (
+        key.includes(`conversations/${afterCommit.thread.id}`) &&
+        (value as { middlewareState?: unknown }).middlewareState !== undefined
+      ) {
+        writeStarted.resolve();
+        await releaseWrite.promise;
+      }
+      await originalWrite(key, value);
+    });
+    afterCommit.registry.register(
+      middlewareDefinition({
+        beforeSend: async (context) => {
+          await context.setState({ value: 'committed' });
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+    const afterController = new AbortController();
+    const afterOperation = afterCommit.runner.runMessagePhase({
+      operationId: 'operation-abort-after-commit-point',
+      phase: 'beforeSend',
+      participant: afterCommit.participant,
+      thread: afterCommit.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+      signal: afterController.signal,
+    });
+    await writeStarted.promise;
+    afterController.abort();
+    releaseWrite.resolve();
+    await expect(afterOperation).resolves.toEqual({
+      kind: 'abort',
+      error: 'Middleware operation cancelled',
+      persisted: false,
+    });
+    expect(
+      (await afterCommit.conversationStore.load(afterCommit.thread.id))?.middlewareState,
+    ).toEqual({ participant: { 'after-commit': { value: 'committed' } } });
+    expect(afterCommit.thread.data.middlewareState).toEqual({
+      participant: { 'after-commit': { value: 'committed' } },
+    });
   });
 
   it('serializes state read-modify-write phases across runner instances', async () => {
@@ -1472,6 +1589,188 @@ describe('MiddlewareRunner', () => {
     expect(hook).toHaveBeenCalledOnce();
   });
 
+  it('cancels a queued waiter promptly without letting later work bypass its predecessor', async () => {
+    const f = await fixture([instance('queue')]);
+    const firstStarted = deferred();
+    const releaseFirst = deferred();
+    const calls: string[] = [];
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: async (context) => {
+          calls.push(context.operationId);
+          if (context.operationId === 'operation-queue-first') {
+            firstStarted.resolve();
+            await releaseFirst.promise;
+          }
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+    const first = f.runner.runMessagePhase({
+      operationId: 'operation-queue-first',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    await firstStarted.promise;
+    const controller = new AbortController();
+    const second = f.runner.runMessagePhase({
+      operationId: 'operation-queue-cancelled',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+      signal: controller.signal,
+    });
+    const third = f.runner.runMessagePhase({
+      operationId: 'operation-queue-third',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    controller.abort();
+
+    await expect(second).resolves.toEqual({
+      kind: 'abort',
+      error: 'Middleware operation cancelled',
+      persisted: false,
+    });
+    expect(calls).toEqual(['operation-queue-first']);
+    releaseFirst.resolve();
+    await Promise.all([first, third]);
+    expect(calls).toEqual(['operation-queue-first', 'operation-queue-third']);
+  });
+
+  it('maps queued post-persistence cancellation using authoritative message state', async () => {
+    const f = await fixture([instance('queue-post')]);
+    const firstStarted = deferred();
+    const releaseFirst = deferred();
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: async () => {
+          firstStarted.resolve();
+          await releaseFirst.promise;
+          return { kind: 'continue' };
+        },
+        afterReceive: () => ({ kind: 'continue' }),
+      }),
+      'test:runner',
+    );
+    const incoming = await f.persistMessage({ id: 'queued-incoming' });
+    const first = f.runner.runMessagePhase({
+      operationId: 'operation-queue-post-first',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    await firstStarted.promise;
+    const controller = new AbortController();
+    const queued = f.runner.runAfterReceive({
+      operationId: 'operation-queue-post-cancelled',
+      participant: f.participant,
+      thread: f.thread,
+      message: incoming,
+      mode: 'pre_runtime',
+      actions: [],
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(queued).resolves.toEqual({
+      kind: 'abort',
+      error: 'Middleware operation cancelled',
+      persisted: true,
+      storedMessageId: incoming.id,
+    });
+    releaseFirst.resolve();
+    await first;
+  });
+
+  it('fails same-conversation nested execution fast while allowing another conversation', async () => {
+    const f = await fixture([
+      instance('nested', { failureMode: 'open' }),
+      instance('later', { failureMode: 'open' }),
+    ]);
+    const otherData = await f.conversationStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const otherThread = new ConversationThread(otherData, f.conversationStore);
+    const calls: string[] = [];
+    let distinctCompleted = false;
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: async (context) => {
+          calls.push(`${context.conversationId}:${context.instance.id}`);
+          if (context.instance.id !== 'nested') return { kind: 'continue' };
+          if (context.operationId === 'operation-nested-same') {
+            await f.runner.runMessagePhase({
+              operationId: 'operation-nested-inner',
+              phase: 'beforeSend',
+              participant: f.participant,
+              thread: f.thread,
+              draft: draft(),
+              actions: [],
+              final: true,
+            });
+          } else if (context.operationId === 'operation-nested-distinct') {
+            await f.runner.runMessagePhase({
+              operationId: 'operation-other-conversation',
+              phase: 'beforeSend',
+              participant: { ...f.participant, middleware: [] },
+              thread: otherThread,
+              draft: draft(),
+              actions: [],
+              final: true,
+            });
+            distinctCompleted = true;
+          }
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-nested-same',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      }),
+    ).resolves.toMatchObject({ kind: 'continue' });
+    expect(calls).toEqual([`${f.thread.id}:nested`, `${f.thread.id}:later`]);
+
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-nested-distinct',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      }),
+    ).resolves.toMatchObject({ kind: 'continue' });
+    expect(distinctCompleted).toBe(true);
+  });
+
   it('uses authoritative storage instead of locally injected persistence', async () => {
     const f = await fixture([instance('must-not-run')]);
     const hook = vi.fn(() => ({ kind: 'continue' as const }));
@@ -1521,7 +1820,7 @@ describe('MiddlewareRunner', () => {
     f.registry.register(
       middlewareDefinition({
         beforeSend: () => {
-          const error = new Error(secret);
+          const error = new TypeError(secret);
           error.name = 'PrivateTokenError';
           throw error;
         },
@@ -1553,8 +1852,12 @@ describe('MiddlewareRunner', () => {
         },
       }),
     ]);
+    const eventMessage = (events[0] as { error: { message: string } }).error.message;
+    const diagnosticId = eventMessage.match(/diag-[a-f0-9-]+/)?.[0];
+    expect(diagnosticId).toBeDefined();
+    expect(result.kind === 'abort' && result.error).toBe(eventMessage);
     expect(f.logs.find((entry) => entry.level === 'warn')?.fields).toEqual(
-      expect.objectContaining({ diagnosticId: expect.stringMatching(/^diag-/) }),
+      expect.objectContaining({ diagnosticId, errorCategory: 'TypeError' }),
     );
     expect(publicJson).not.toContain(secret);
     expect(publicJson).not.toContain('PrivateTokenError');
@@ -1701,6 +2004,56 @@ describe('MiddlewareRunner', () => {
         final: true,
       }),
     ).resolves.toMatchObject({ kind: 'continue' });
+  });
+
+  it('handles rejecting thenables returned by logger and event telemetry', async () => {
+    const f = await fixture([instance('async-telemetry')]);
+    const secret = 'async telemetry secret';
+    const rejectAsync = () => Promise.reject(new Error(secret));
+    const asyncLogger: MiddlewareLogger = {
+      debug: rejectAsync as unknown as MiddlewareLogger['debug'],
+      info: rejectAsync as unknown as MiddlewareLogger['info'],
+      warn: rejectAsync as unknown as MiddlewareLogger['warn'],
+      error: rejectAsync as unknown as MiddlewareLogger['error'],
+    };
+    vi.spyOn(f.eventBus, 'emit').mockImplementation(
+      rejectAsync as unknown as typeof f.eventBus.emit,
+    );
+    const runner = new MiddlewareRunner({ ...f.runnerDependencies, logger: asyncLogger });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          context.logger.info('async hook log');
+          context.eventBus.emit('iteration', {
+            conversationId: context.conversationId,
+            participantId: context.participant.id,
+            iteration: 1,
+          });
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown) => unhandled.push(error);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      await expect(
+        runner.runMessagePhase({
+          operationId: 'operation-async-telemetry',
+          phase: 'beforeSend',
+          participant: f.participant,
+          thread: f.thread,
+          draft: draft(),
+          actions: [],
+          final: true,
+        }),
+      ).resolves.toMatchObject({ kind: 'continue' });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   it('reads active chain once for multiple hooks in one phase', async () => {

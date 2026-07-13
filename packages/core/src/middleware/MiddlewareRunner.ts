@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   AgentConfig,
   FailureMode,
@@ -18,7 +19,7 @@ import type {
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
-import type { ConversationThread } from '../conversation/ConversationThread.js';
+import { ConversationThread } from '../conversation/ConversationThread.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ToolRegistry } from '../tools/ToolRegistry.js';
@@ -169,13 +170,26 @@ interface HookLifecycle {
 }
 
 const executionQueues = new WeakMap<ConversationStore, Map<string, Promise<void>>>();
+const executionOwner = new AsyncLocalStorage<{
+  store: ConversationStore;
+  conversationId: string;
+}>();
 const CANCELLATION_ERROR = 'Middleware operation cancelled';
+
+class QueueCancelledError extends Error {}
+
+class ReentrantExecutionError extends Error {}
 
 async function serializeConversation<T>(
   store: ConversationStore,
   conversationId: string,
+  signal: AbortSignal | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
+  const owner = executionOwner.getStore();
+  if (owner?.store === store && owner.conversationId === conversationId) {
+    throw new ReentrantExecutionError('Nested middleware execution for the same conversation');
+  }
   let queues = executionQueues.get(store);
   if (!queues) {
     queues = new Map();
@@ -188,9 +202,21 @@ async function serializeConversation<T>(
   });
   const tail = previous.catch(() => undefined).then(() => gate);
   queues.set(conversationId, tail);
-  await previous.catch(() => undefined);
+  const waitSignal = signal ?? new AbortController().signal;
+  const wait = await raceAbort(
+    previous.catch(() => undefined),
+    waitSignal,
+  );
+  if (wait.cancelled) {
+    release();
+    void tail.then(() => {
+      if (queues?.get(conversationId) === tail) queues.delete(conversationId);
+      if (queues?.size === 0) executionQueues.delete(store);
+    });
+    throw new QueueCancelledError(CANCELLATION_ERROR);
+  }
   try {
-    return await operation();
+    return await executionOwner.run({ store, conversationId }, operation);
   } finally {
     release();
     if (queues.get(conversationId) === tail) queues.delete(conversationId);
@@ -560,31 +586,62 @@ export class MiddlewareRunner {
   constructor(private readonly dependencies: MiddlewareRunnerDependencies) {}
 
   runMessagePhase(input: MessagePhaseInput): Promise<MessagePhaseResult> {
-    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
-      await this.refreshThread(input.thread);
-      return this.runMessagePhaseUnlocked(input);
-    });
+    return this.runSerialized(
+      input,
+      async () => {
+        await this.refreshThread(input.thread);
+        return this.runMessagePhaseUnlocked(input);
+      },
+      () => abortResult(CANCELLATION_ERROR),
+    );
   }
 
   runAfterReceive(input: AfterReceiveInput): Promise<AfterReceivePhaseResult> {
-    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
-      await this.refreshThread(input.thread);
-      return this.runAfterReceiveUnlocked(input);
-    });
+    return this.runSerialized(
+      input,
+      async () => {
+        await this.refreshThread(input.thread);
+        return this.runAfterReceiveUnlocked(input);
+      },
+      async () => {
+        const authoritative = await this.loadAuthoritativeThread(input.thread.id);
+        const persisted = persistedMessage(authoritative, input.message, input.persistedMessageId);
+        return abortResult(CANCELLATION_ERROR, persisted.id);
+      },
+    );
   }
 
   runSystemPrompt(input: SystemPromptInput): Promise<SystemPromptPhaseResult> {
-    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
-      await this.refreshThread(input.thread);
-      return this.runSystemPromptUnlocked(input);
-    });
+    return this.runSerialized(
+      input,
+      async () => {
+        await this.refreshThread(input.thread);
+        return this.runSystemPromptUnlocked(input);
+      },
+      async () => {
+        if (input.participant.type !== 'agent') {
+          throw new TypeError('Middleware system prompt requires an agent participant');
+        }
+        const authoritative = await this.loadAuthoritativeThread(input.thread.id);
+        const id = validatePersistedMessageId(authoritative, input.persistedMessageId);
+        return abortResult(CANCELLATION_ERROR, id);
+      },
+    );
   }
 
   runAfterSend(input: AfterSendInput): Promise<AfterSendPhaseResult> {
-    return serializeConversation(this.dependencies.conversationStore, input.thread.id, async () => {
-      await this.refreshThread(input.thread);
-      return this.runAfterSendUnlocked(input);
-    });
+    return this.runSerialized(
+      input,
+      async () => {
+        await this.refreshThread(input.thread);
+        return this.runAfterSendUnlocked(input);
+      },
+      async () => {
+        const authoritative = await this.loadAuthoritativeThread(input.thread.id);
+        const persisted = persistedMessage(authoritative, input.message, input.persistedMessageId);
+        return abortResult(CANCELLATION_ERROR, persisted.id);
+      },
+    );
   }
 
   private async runMessagePhaseUnlocked(input: MessagePhaseInput): Promise<MessagePhaseResult> {
@@ -931,14 +988,14 @@ export class MiddlewareRunner {
       if (hookRace.cancelled) {
         lifecycle.accepting = false;
         lifecycle.cancelled = true;
-        void Promise.allSettled([...lifecycle.pending]);
+        await Promise.allSettled([...lifecycle.pending]);
         return { status: 'cancelled' };
       }
       lifecycle.accepting = false;
       const pendingRace = await raceAbort(Promise.all([...lifecycle.pending]), signal);
       if (pendingRace.cancelled) {
         lifecycle.cancelled = true;
-        void Promise.allSettled([...lifecycle.pending]);
+        await Promise.allSettled([...lifecycle.pending]);
         return { status: 'cancelled' };
       }
       if (!hookRace.value.ok) throw hookRace.value.error;
@@ -1012,10 +1069,8 @@ export class MiddlewareRunner {
                 },
               };
             },
+            { signal },
           );
-          if (lifecycle.cancelled || signal.aborted) {
-            throw new Error('Middleware context is inactive');
-          }
           input.thread.data = mutation.after;
         })();
         lifecycle.pending.add(operation);
@@ -1032,12 +1087,13 @@ export class MiddlewareRunner {
     instance: MiddlewareInstanceConfig,
     phase: MiddlewarePhase,
     input: CommonInput,
-    _error: unknown,
+    error: unknown,
     duration: number,
     resolvedFailureMode?: FailureMode,
   ): HookFailure {
     const failureMode = resolvedFailureMode ?? this.failureMode(instance);
     const diagnosticId = createId('diag');
+    const errorCategory = this.errorCategory(error);
     const message = `Middleware execution failed (diagnostic ${diagnosticId})`;
     this.safeEmit('middleware:error', {
       conversationId: input.thread.id,
@@ -1052,6 +1108,7 @@ export class MiddlewareRunner {
       ...this.logFields(instance, phase, input, duration),
       failureMode,
       diagnosticId,
+      errorCategory,
     });
     return { status: 'failure', failureMode, error: message };
   }
@@ -1071,6 +1128,30 @@ export class MiddlewareRunner {
   private failureMode(instance: MiddlewareInstanceConfig): FailureMode {
     if (instance.failureMode) return instance.failureMode;
     return this.dependencies.registry.get(instance.type)?.defaultFailureMode ?? 'closed';
+  }
+
+  private async runSerialized<T>(
+    input: CommonInput,
+    operation: () => Promise<T>,
+    queuedCancellation: () => T | Promise<T>,
+  ): Promise<T> {
+    try {
+      return await serializeConversation(
+        this.dependencies.conversationStore,
+        input.thread.id,
+        input.signal,
+        operation,
+      );
+    } catch (error) {
+      if (error instanceof QueueCancelledError) return queuedCancellation();
+      throw error;
+    }
+  }
+
+  private async loadAuthoritativeThread(conversationId: string): Promise<ConversationThread> {
+    const stored = await this.dependencies.conversationStore.load(conversationId);
+    if (!stored) throw new TypeError('Middleware conversation must exist in storage');
+    return new ConversationThread(stored, this.dependencies.conversationStore);
   }
 
   private async refreshThread(thread: ConversationThread): Promise<void> {
@@ -1113,11 +1194,10 @@ export class MiddlewareRunner {
   ): void {
     try {
       const detached = cloneJsonSafe(data, '$.event');
-      (this.dependencies.eventBus.emit as (name: TEvent, payload: typeof detached) => void).call(
-        this.dependencies.eventBus,
-        event,
-        detached,
-      );
+      const result = (
+        this.dependencies.eventBus.emit as (name: TEvent, payload: typeof detached) => unknown
+      ).call(this.dependencies.eventBus, event, detached);
+      this.ignoreTelemetryResult(result);
     } catch {
       // Telemetry must not affect middleware control flow.
     }
@@ -1130,10 +1210,43 @@ export class MiddlewareRunner {
   ): void {
     try {
       const detached = fields === undefined ? undefined : cloneJsonSafe(fields, '$.logFields');
-      this.dependencies.logger[level].call(this.dependencies.logger, message, detached);
+      const result = (
+        this.dependencies.logger[level] as (
+          logMessage: string,
+          logFields?: Record<string, unknown>,
+        ) => unknown
+      ).call(this.dependencies.logger, message, detached);
+      this.ignoreTelemetryResult(result);
     } catch {
       // Telemetry must not affect middleware control flow.
     }
+  }
+
+  private ignoreTelemetryResult(value: unknown): void {
+    try {
+      if (
+        value !== null &&
+        (typeof value === 'object' || typeof value === 'function') &&
+        typeof (value as { then?: unknown }).then === 'function'
+      ) {
+        void Promise.resolve(value).catch(() => undefined);
+      }
+    } catch {
+      // Telemetry thenable inspection must not affect middleware control flow.
+    }
+  }
+
+  private errorCategory(error: unknown): string {
+    try {
+      if (error instanceof TypeError) return 'TypeError';
+      if (error instanceof RangeError) return 'RangeError';
+      if (error instanceof SyntaxError) return 'SyntaxError';
+      if (error instanceof ReferenceError) return 'ReferenceError';
+      if (error instanceof Error) return 'Error';
+    } catch {
+      return 'UnknownError';
+    }
+    return 'NonErrorThrow';
   }
 
   private logFields(

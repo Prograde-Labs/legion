@@ -109,6 +109,9 @@ export class FileConversationStore implements ConversationStore {
       }
 
       const beforeMetadata = getConversationEventMetadata(current);
+      if (guard?.signal?.aborted) {
+        throw new Error('Conversation mutation aborted before persistence');
+      }
       const persisted = await this.persist(structuredClone(candidate));
       const afterMetadata = getConversationEventMetadata(persisted);
       if (!isDeepStrictEqual(beforeMetadata, afterMetadata)) {
