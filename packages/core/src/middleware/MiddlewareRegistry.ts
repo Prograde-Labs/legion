@@ -9,7 +9,7 @@ import type {
 } from '@legion/types';
 import { LegionError } from '../errors/LegionError.js';
 import type { MiddlewareConfigurationValidator } from '../tools/Tool.js';
-import { assertJsonSafe } from './json.js';
+import { cloneJsonSafe } from './json.js';
 
 interface Registration {
   definition: MiddlewareDefinition;
@@ -24,32 +24,6 @@ interface NormalizedDefinition {
   defaultFailureMode: unknown;
   configSchema: unknown;
   hooks: unknown;
-}
-
-function cloneJson<T>(value: T): T {
-  assertJsonSafe(value);
-  return cloneJsonValue(value) as T;
-}
-
-function cloneJsonValue(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Array.isArray(value)) {
-    return Array.from({ length: value.length }, (_, index) =>
-      cloneJsonValue(descriptors[String(index)]!.value),
-    );
-  }
-
-  const clone = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
-  for (const [key, descriptor] of Object.entries(descriptors)) {
-    Object.defineProperty(clone, key, {
-      configurable: true,
-      enumerable: true,
-      value: cloneJsonValue(descriptor.value),
-      writable: true,
-    });
-  }
-  return clone;
 }
 
 function requireNonEmptyString(value: unknown, field: string): asserts value is string {
@@ -139,7 +113,7 @@ function detachedDefinition(registration: Registration): MiddlewareDefinition {
     displayName: definition.displayName,
     ...(definition.description === undefined ? {} : { description: definition.description }),
     defaultFailureMode: definition.defaultFailureMode,
-    configSchema: cloneJson(definition.configSchema),
+    configSchema: cloneJsonSafe(definition.configSchema),
     hooks: { ...definition.hooks },
   };
 }
@@ -160,7 +134,8 @@ export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
     if (normalized.configSchema === null || typeof normalized.configSchema !== 'object') {
       throw new TypeError('Middleware definition configSchema type must be a non-empty string');
     }
-    const schemaType = Object.getOwnPropertyDescriptor(normalized.configSchema, 'type');
+    const configSchema = cloneJsonSafe(normalized.configSchema, '$.configSchema') as JSONSchema;
+    const schemaType = Object.getOwnPropertyDescriptor(configSchema, 'type');
     if (!schemaType || 'get' in schemaType || 'set' in schemaType) {
       throw new TypeError('Middleware definition configSchema type must be a non-empty string');
     }
@@ -168,7 +143,6 @@ export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
     if (typeof schemaTypeValue !== 'string' || schemaTypeValue.trim() === '') {
       throw new TypeError('Middleware definition configSchema type must be a non-empty string');
     }
-    const configSchema = cloneJson(normalized.configSchema) as JSONSchema;
     if (normalized.type.startsWith('builtin:') && !source.startsWith('builtin:')) {
       throw new TypeError('Middleware types using builtin: prefix are reserved');
     }
@@ -179,7 +153,7 @@ export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
       );
     }
 
-    const metadata = cloneJson({
+    const metadata = cloneJsonSafe({
       type: normalized.type,
       displayName: normalized.displayName,
       ...(normalized.description === undefined ? {} : { description: normalized.description }),
@@ -190,6 +164,12 @@ export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
     const validator = new Ajv({ allErrors: true, strict: true }).compile(
       metadata.configSchema as JSONSchema,
     );
+    if ((validator as ValidateFunction & { $async?: boolean }).$async === true) {
+      throw new LegionError(
+        `Async config schema is unsupported for middleware ${normalized.type}`,
+        'MIDDLEWARE_CONFIG_INVALID',
+      );
+    }
     const storedDefinition: MiddlewareDefinition = {
       type: metadata.type,
       displayName: metadata.displayName,
@@ -208,15 +188,16 @@ export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
   }
 
   validateConfig(type: string, config: unknown): string[] {
+    let configSnapshot: unknown;
     try {
-      assertJsonSafe(config);
+      configSnapshot = cloneJsonSafe(config);
     } catch (error) {
       return [error instanceof Error ? error.message : String(error)];
     }
 
     const registration = this.registrations.get(type);
     if (!registration) return [`Middleware type unavailable: ${type}`];
-    if (registration.validator(config)) return [];
+    if (registration.validator(configSnapshot)) return [];
     return (registration.validator.errors ?? []).map(
       (error) => `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`,
     );

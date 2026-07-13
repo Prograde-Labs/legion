@@ -1,4 +1,4 @@
-import { assertJsonSafe } from './json.js';
+import { assertJsonSafe, cloneJsonSafe } from './json.js';
 
 describe('assertJsonSafe', () => {
   it('permits repeated non-cyclic shared objects', () => {
@@ -69,5 +69,34 @@ describe('assertJsonSafe', () => {
 
     expect(() => assertJsonSafe(value)).toThrow(/toJSON.*non-enumerable/i);
     expect(invoked).toBe(false);
+  });
+
+  it('clones from descriptors without invoking property gets', () => {
+    let gets = 0;
+    const value = new Proxy(
+      { label: 'safe' },
+      {
+        get() {
+          gets += 1;
+          throw new Error('get trap must not run');
+        },
+      },
+    );
+
+    expect(cloneJsonSafe(value)).toEqual({ label: 'safe' });
+    expect(gets).toBe(0);
+  });
+
+  it('reports Proxy descriptor failures as controlled JSON-safe errors', () => {
+    const value = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('descriptor trap');
+        },
+      },
+    );
+
+    expect(() => cloneJsonSafe(value)).toThrow(/not JSON-safe.*inspect/i);
   });
 });

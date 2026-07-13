@@ -227,6 +227,82 @@ describe('MiddlewareRegistry', () => {
     ).not.toThrow();
   });
 
+  it('rejects async schemas without registering or causing an unhandled rejection', async () => {
+    const registry = new MiddlewareRegistry();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown): void => {
+      unhandled.push(error);
+    };
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      expect(() =>
+        registry.register(
+          definition({ configSchema: { $async: true, type: 'object' } }),
+          'builtin:core',
+        ),
+      ).toThrow(expect.objectContaining({ code: 'MIDDLEWARE_CONFIG_INVALID' }));
+      expect(registry.get('labeler')).toBeUndefined();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('validates a stable config snapshot without invoking Proxy gets', () => {
+    const registry = new MiddlewareRegistry();
+    registry.register(definition(), 'builtin:core');
+    let gets = 0;
+    const config = new Proxy(
+      { label: 'safe' },
+      {
+        get() {
+          gets += 1;
+          throw new Error('get trap must not run');
+        },
+      },
+    );
+
+    expect(registry.validateConfig('labeler', config)).toEqual([]);
+    expect(gets).toBe(0);
+  });
+
+  it('snapshots a Proxy schema without invoking property gets', () => {
+    let gets = 0;
+    const configSchema = new Proxy(
+      { type: 'object' },
+      {
+        get() {
+          gets += 1;
+          throw new Error('get trap must not run');
+        },
+      },
+    );
+
+    expect(() =>
+      new MiddlewareRegistry().register(definition({ configSchema }), 'builtin:core'),
+    ).not.toThrow();
+    expect(gets).toBe(0);
+  });
+
+  it('handles Proxy schema descriptor failures without partial registration', () => {
+    const registry = new MiddlewareRegistry();
+    const configSchema = new Proxy(
+      { type: 'object' },
+      {
+        ownKeys() {
+          throw new Error('descriptor trap');
+        },
+      },
+    );
+
+    expect(() => registry.register(definition({ configSchema }), 'builtin:core')).toThrow(
+      /not JSON-safe.*inspect/i,
+    );
+    expect(registry.list()).toEqual([]);
+  });
+
   it.each([
     ['absent', { properties: {} }],
     ['empty', { type: '' }],
@@ -252,10 +328,10 @@ describe('MiddlewareRegistry', () => {
 
     expect(() =>
       new MiddlewareRegistry().register(definition({ configSchema: inherited }), 'builtin:core'),
-    ).toThrow(/configSchema type/i);
+    ).toThrow(/configSchema|JSON-safe/i);
     expect(() =>
       new MiddlewareRegistry().register(definition({ configSchema: accessor }), 'builtin:core'),
-    ).toThrow(/configSchema type/i);
+    ).toThrow(/configSchema|JSON-safe/i);
     expect(invoked).toBe(false);
   });
 
