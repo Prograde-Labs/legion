@@ -22,6 +22,7 @@ import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
+import type { Collective } from '../collective/Collective.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ToolRegistry } from '../tools/ToolRegistry.js';
@@ -40,7 +41,8 @@ export type MiddlewarePhaseResult<T> =
       approvalId: string;
       checkpointId: string;
       participantId: string;
-    };
+    }
+  | { kind: 'resume_pending'; approvalId: string; checkpointId: string };
 
 export type MessagePhaseResult = Extract<
   MiddlewarePhaseResult<MessageDraft>,
@@ -123,6 +125,8 @@ export interface MiddlewareRunnerDependencies {
   eventBus: EventBus;
   logger: MiddlewareLogger;
   conversationStore: ConversationStore;
+  /** Authoritative participant lookup used while resuming durable checkpoints. */
+  collective?: Collective;
   buildToolContext: (
     participant: ParticipantConfig,
     thread: ConversationThread,
@@ -685,6 +689,240 @@ export class MiddlewareRunner {
         return abortResult(CANCELLATION_ERROR, persisted.id);
       },
     );
+  }
+
+  /** Resume exactly one durable middleware checkpoint after its approval decision. */
+  async resumeApproval(
+    approvalId: string,
+    thread: ConversationThread,
+  ): Promise<MiddlewarePhaseResult<MessageDraft | MessageData | string>> {
+    const claim = await this.dependencies.pendingApprovals.beginResume(approvalId);
+    if (claim.status === 'acknowledged') {
+      return { kind: 'resume_pending', approvalId, checkpointId: '' };
+    }
+    if (claim.status === 'in_progress') {
+      const checkpointId = claim.record.continuation?.checkpoint.checkpointId ?? '';
+      return { kind: 'resume_pending', approvalId, checkpointId };
+    }
+    const continuation = claim.record.continuation;
+    const decision = claim.record.decision;
+    if (!continuation || !decision || continuation.kind !== 'middleware') {
+      return abortResult('Middleware approval checkpoint is unavailable');
+    }
+    const checkpoint = continuation.checkpoint;
+    return serializeConversation(
+      this.dependencies.conversationStore,
+      checkpoint.conversationId,
+      undefined,
+      async () => {
+        const authoritative = await this.loadAuthoritativeThread(checkpoint.conversationId);
+        const participant = this.dependencies.collective?.get(checkpoint.participantId);
+        const instance = participant?.middleware?.[checkpoint.nextHookIndex - 1];
+        if (!this.checkpointCurrent(checkpoint, thread, authoritative, participant, instance)) {
+          return abortResult(
+            'Middleware approval checkpoint is stale',
+            checkpoint.persistedMessageId,
+          );
+        }
+        if (!participant || !instance)
+          return abortResult('Middleware approval checkpoint is stale');
+        const action = await this.resumeAction(
+          approvalId,
+          checkpoint,
+          participant,
+          instance,
+          authoritative,
+          decision.approved,
+          claim.record.resumeResult !== undefined,
+        );
+        if (!('status' in action)) return action;
+        const actions = [...checkpoint.actions.slice(0, checkpoint.actionCursor), action];
+        if (action.status !== 'success' && this.failureMode(instance) === 'closed') {
+          return abortResult('Middleware approval was not approved', checkpoint.persistedMessageId);
+        }
+        return this.resumePhase(checkpoint, participant, authoritative, actions);
+      },
+    );
+  }
+
+  private checkpointCurrent(
+    checkpoint: MiddlewareCheckpoint,
+    suppliedThread: ConversationThread,
+    thread: ConversationThread,
+    participant: ParticipantConfig | undefined,
+    instance: MiddlewareInstanceConfig | undefined,
+  ): boolean {
+    if (suppliedThread.id !== checkpoint.conversationId) return false;
+    if (thread.data.activeBranchHead !== checkpoint.observedHead) return false;
+    if (!participant || (participant.status ?? 'active') !== 'active') return false;
+    if ((participant.middlewareRevision ?? 0) !== checkpoint.middlewareRevision) return false;
+    if (
+      !instance ||
+      instance.id !== checkpoint.instanceId ||
+      instance.type !== checkpoint.middlewareType
+    ) {
+      return false;
+    }
+    if (instance.enabled === false || checkpoint.nextHookIndex < 1) return false;
+    if (checkpoint.nextHookIndex > (participant.middleware?.length ?? 0)) return false;
+    if (checkpoint.actionCursor < 0 || checkpoint.actionCursor !== checkpoint.actions.length)
+      return false;
+    if (checkpoint.phase === 'afterReceive' || checkpoint.phase === 'afterSend') {
+      if (!checkpoint.message || !checkpoint.persistedMessageId) return false;
+      const stored = thread.data.messages[checkpoint.persistedMessageId];
+      if (!stored || !isDeepStrictEqual(stored, checkpoint.message)) return false;
+    }
+    if (checkpoint.phase === 'buildSystemPrompt') {
+      if (!checkpoint.persistedMessageId || !thread.data.messages[checkpoint.persistedMessageId])
+        return false;
+    }
+    return true;
+  }
+
+  private async resumeAction(
+    approvalId: string,
+    checkpoint: MiddlewareCheckpoint,
+    participant: ParticipantConfig,
+    instance: MiddlewareInstanceConfig,
+    thread: ConversationThread,
+    approved: boolean,
+    resumeRecorded: boolean,
+  ): Promise<
+    MiddlewareActionResult | Extract<MiddlewarePhaseResult<never>, { kind: 'resume_pending' }>
+  > {
+    const request: ToolRequest = { kind: 'tool', ...checkpoint.request };
+    const actionInput = {
+      operationId: checkpoint.operationId,
+      conversationId: checkpoint.conversationId,
+      participantId: participant.id,
+      instanceId: instance.id,
+      requestId: request.requestId,
+      tool: request.tool,
+      args: cloneJsonSafe(request.arguments, '$.request.arguments'),
+    };
+    let action: MiddlewareActionResult;
+    if (!approved) {
+      const result: ToolResult = {
+        status: 'rejected',
+        message: 'Middleware approval was rejected',
+      };
+      action = {
+        requestId: request.requestId,
+        participantId: participant.id,
+        instanceId: instance.id,
+        tool: request.tool,
+        status: 'rejected',
+        result,
+      };
+      if (!resumeRecorded)
+        await this.dependencies.pendingApprovals.recordResumeResult(approvalId, result);
+      return action;
+    }
+    const claimed = await this.dependencies.pendingApprovals.claimMiddlewareAction(actionInput);
+    if (claimed.kind === 'in_progress') {
+      return { kind: 'resume_pending', approvalId, checkpointId: checkpoint.checkpointId };
+    }
+    if (claimed.kind === 'completed') {
+      action = claimed.result;
+    } else {
+      let result: ToolResult;
+      try {
+        result = this.safeToolResult(
+          await this.dependencies.toolRegistry.execute(
+            request.tool,
+            actionInput.args,
+            this.dependencies.buildToolContext(participant, thread, new AbortController().signal),
+          ),
+        );
+      } catch {
+        result = this.safeToolFailure('error');
+      }
+      const status: MiddlewareActionResult['status'] =
+        result.status === 'success'
+          ? 'success'
+          : result.status === 'rejected'
+            ? 'rejected'
+            : 'error';
+      action = {
+        requestId: request.requestId,
+        participantId: participant.id,
+        instanceId: instance.id,
+        tool: request.tool,
+        status,
+        result,
+      };
+      await this.dependencies.pendingApprovals.recordMiddlewareActionResult(actionInput, action);
+    }
+    if (!resumeRecorded) {
+      await this.dependencies.pendingApprovals.recordResumeResult(
+        approvalId,
+        action.result ?? { status: action.status === 'rejected' ? 'rejected' : 'error' },
+      );
+    }
+    if (action.status === 'success' && request.stateOnSuccess !== undefined) {
+      await this.applyToolState(
+        instance,
+        {
+          operationId: checkpoint.operationId,
+          participant,
+          thread,
+          actions: [],
+        } as unknown as ToolPhaseInput,
+        request.stateOnSuccess,
+        new AbortController().signal,
+      );
+    }
+    return action;
+  }
+
+  private resumePhase(
+    checkpoint: MiddlewareCheckpoint,
+    participant: ParticipantConfig,
+    thread: ConversationThread,
+    actions: MiddlewareActionResult[],
+  ): Promise<MiddlewarePhaseResult<MessageDraft | MessageData | string>> {
+    const common = {
+      operationId: checkpoint.operationId,
+      participant,
+      thread,
+      actions,
+      startIndex: checkpoint.nextHookIndex,
+      runtimeResume: checkpoint.runtimeResume,
+    };
+    if (checkpoint.phase === 'beforeSend' || checkpoint.phase === 'beforeReceive') {
+      return this.runMessagePhaseUnlocked({
+        ...common,
+        phase: checkpoint.phase,
+        draft: checkpoint.draft!,
+        final: checkpoint.final!,
+        ...(checkpoint.iteration === undefined ? {} : { iteration: checkpoint.iteration }),
+      });
+    }
+    if (checkpoint.phase === 'afterReceive') {
+      return this.runAfterReceiveUnlocked({
+        ...common,
+        message: checkpoint.message!,
+        mode: checkpoint.mode!,
+        persistedMessageId: checkpoint.persistedMessageId,
+      });
+    }
+    if (checkpoint.phase === 'buildSystemPrompt') {
+      if (participant.type !== 'agent')
+        return Promise.resolve(
+          abortResult('Middleware approval checkpoint is stale', checkpoint.persistedMessageId),
+        );
+      return this.runSystemPromptUnlocked({
+        ...common,
+        participant,
+        prompt: checkpoint.prompt!,
+        persistedMessageId: checkpoint.persistedMessageId!,
+      });
+    }
+    return this.runAfterSendUnlocked({
+      ...common,
+      message: checkpoint.message!,
+      persistedMessageId: checkpoint.persistedMessageId,
+    });
   }
 
   private async runMessagePhaseUnlocked(input: MessagePhaseInput): Promise<MessagePhaseResult> {

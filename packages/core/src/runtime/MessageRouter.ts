@@ -857,6 +857,163 @@ export class MessageRouter implements MessageRouterPort {
     }
   }
 
+  async resumeApproval(approvalId: string, context: ToolContext): Promise<MessageRouterResult> {
+    const approvals = context.pendingApprovalRegistry as
+      | {
+          getRecord(id: string):
+            | {
+                lifecycle: string;
+                continuation?: {
+                  kind: 'middleware';
+                  checkpoint: import('@legion/types').MiddlewareCheckpoint;
+                };
+              }
+            | undefined;
+          acknowledge(id: string): Promise<void>;
+        }
+      | undefined;
+    const record = approvals?.getRecord(approvalId);
+    const checkpoint = record?.continuation?.checkpoint;
+    if (!record || !checkpoint || !this.middlewareRunner || !approvals) {
+      return {
+        conversationId: checkpoint?.conversationId ?? '',
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    }
+    if (record.lifecycle === 'acknowledged') {
+      return { conversationId: checkpoint.conversationId, status: 'success' };
+    }
+    return this.withLock(checkpoint.conversationId, async () => {
+      let resumed: Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>;
+      try {
+        const stored = await this.store.load(checkpoint.conversationId);
+        if (!stored) {
+          return {
+            conversationId: checkpoint.conversationId,
+            status: 'error',
+            error: 'Approval continuation is unavailable',
+          };
+        }
+        resumed = await this.middlewareRunner!.resumeApproval(
+          approvalId,
+          new ConversationThread(stored, this.store),
+        );
+      } catch {
+        return {
+          conversationId: checkpoint.conversationId,
+          status: 'error',
+          error: 'Approval continuation could not resume',
+        };
+      }
+      if (resumed.kind === 'resume_pending' || resumed.kind === 'pending_approval') {
+        return {
+          conversationId: checkpoint.conversationId,
+          status: 'pending_approval',
+          approvalId: resumed.kind === 'pending_approval' ? resumed.approvalId : approvalId,
+          checkpointId:
+            resumed.kind === 'pending_approval' ? resumed.checkpointId : resumed.checkpointId,
+          ...(resumed.kind === 'pending_approval'
+            ? { pendingParticipantId: resumed.participantId }
+            : {}),
+        };
+      }
+      if (resumed.kind === 'abort') {
+        const result: MessageRouterResult = {
+          conversationId: checkpoint.conversationId,
+          status: 'error',
+          error: resumed.error,
+          ...(resumed.persisted ? { partial: true, storedMessageId: resumed.storedMessageId } : {}),
+        };
+        if (resumed.error !== 'Middleware approval checkpoint is stale') {
+          try {
+            await approvals.acknowledge(approvalId);
+          } catch {
+            return {
+              conversationId: checkpoint.conversationId,
+              status: 'error',
+              error: 'Approval continuation could not resume',
+            };
+          }
+        }
+        return result;
+      }
+      if (
+        checkpoint.phase !== 'buildSystemPrompt' ||
+        !checkpoint.runtimeResume ||
+        resumed.kind !== 'continue'
+      ) {
+        return {
+          conversationId: checkpoint.conversationId,
+          status: 'error',
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      const participant = this.collective.get(checkpoint.participantId);
+      const stored = await this.store.load(checkpoint.conversationId);
+      if (!participant || !stored) {
+        return {
+          conversationId: checkpoint.conversationId,
+          status: 'error',
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      const thread = new ConversationThread(stored, this.store);
+      const runtime = this.registry.build(participant.type, participant.id);
+      if (!runtime.resumeFromMiddleware) {
+        return {
+          conversationId: checkpoint.conversationId,
+          status: 'error',
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      try {
+        const runtimeContext = this.buildRuntimeContext(
+          thread,
+          participant.id,
+          context,
+          context.communicationDepth ?? 0,
+          {
+            operationId: checkpoint.operationId,
+            incomingMessageId: checkpoint.runtimeResume.incomingMessageId,
+            actions: resumed.actions,
+          },
+        );
+        const runtimeResult = await runtime.resumeFromMiddleware(
+          {
+            ...checkpoint.runtimeResume,
+            preparedPrompt: resumed.value as string,
+            actionCursor: resumed.actions.length,
+            actions: resumed.actions,
+          },
+          runtimeContext,
+        );
+        const incoming = thread.data.messages[checkpoint.runtimeResume.incomingMessageId];
+        const result = await this.handleRuntimeResult(
+          runtimeResult,
+          thread,
+          participant.id,
+          incoming?.replyTo ?? incoming?.senderId ?? checkpoint.participantId,
+          {
+            operationId: checkpoint.operationId,
+            actions: resumed.actions,
+            context,
+            storedMessageId: checkpoint.runtimeResume.incomingMessageId,
+          },
+        );
+        if (result.status === 'success' || result.status === 'error')
+          await approvals.acknowledge(approvalId);
+        return result;
+      } catch {
+        return {
+          conversationId: checkpoint.conversationId,
+          status: 'error',
+          error: 'Approval continuation could not resume',
+        };
+      }
+    });
+  }
+
   async generate(
     conversationId: string,
     participantId: string,

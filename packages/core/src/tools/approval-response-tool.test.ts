@@ -4,6 +4,28 @@ import { AuthEngine } from '../auth/AuthEngine.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { approvalResponseTool } from './approval-response-tool.js';
 import type { ToolContext } from './Tool.js';
+import type { MiddlewareCheckpoint } from '@legion/types';
+
+function checkpoint(): MiddlewareCheckpoint {
+  return {
+    checkpointId: 'mwcp-1',
+    operationId: 'route-1',
+    conversationId: 'c1',
+    phase: 'beforeSend',
+    participantId: 'agent-b',
+    instanceId: 'middleware-1',
+    middlewareType: 'test:middleware',
+    middlewareRevision: 0,
+    nextHookIndex: 1,
+    actionCursor: 0,
+    draft: { senderId: 'agent-b', recipientId: 'op', role: 'assistant', content: 'pending' },
+    final: true,
+    request: { requestId: 'request-1', tool: 'file_write', arguments: {} },
+    actions: [],
+    observedHead: '',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+}
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -178,5 +200,48 @@ describe('approval_response tool', () => {
     const entries = log.list({ conversationId: 'c5' });
     expect(entries.length).toBe(1);
     expect(entries[0].decidedByParticipantId).toBe('op');
+  });
+
+  it('resumes middleware continuations through resumeApproval and skips acknowledged records', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    const resumeApproval = vi.fn(async () => ({
+      conversationId: 'c1',
+      status: 'success' as const,
+    }));
+    const resume = vi.fn(async () => ({ conversationId: 'c1', status: 'success' as const }));
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume,
+        resumeApproval,
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    const first = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+    expect(resumeApproval).toHaveBeenCalledWith(approvalId, context);
+    expect(resume).not.toHaveBeenCalled();
+    expect((first.data as { results: { outcome: string }[] }).results[0].outcome).toBe(
+      'resume_pending',
+    );
+
+    const second = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+    expect(resumeApproval).toHaveBeenCalledTimes(2);
+    expect((second.data as { results: { outcome: string }[] }).results[0].outcome).toBe(
+      'resume_pending',
+    );
   });
 });

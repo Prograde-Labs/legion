@@ -106,6 +106,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
     eventBus,
     logger,
     conversationStore,
+    collective,
     buildToolContext: (principal, activeThread, signal) => ({
       participant: principal,
       conversationId: activeThread.id,
@@ -131,6 +132,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
     runner,
     registry,
     participant,
+    collective,
     thread,
     eventBus,
     logs,
@@ -205,6 +207,146 @@ describe('MiddlewareRunner', () => {
     >().not.toEqualTypeOf<never>();
     expectTypeOf<SystemPromptInput['persistedMessageId']>().toEqualTypeOf<string>();
   });
+
+  it('resumes an approved checkpoint once at following hook and retains continuation', async () => {
+    const f = await fixture([instance('request'), instance('following')]);
+    f.participant.tools = { risky: 'requires_approval' };
+    const calls: string[] = [];
+    const execute = vi.fn(async () => ({ status: 'success' as const, data: { written: true } }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          calls.push(context.instance.id);
+          if (context.instance.id === 'request') {
+            return { kind: 'tool', requestId: 'resume-risky', tool: 'risky', arguments: {} };
+          }
+          expect(context.actions).toMatchObject([
+            { requestId: 'resume-risky', status: 'success', result: { data: { written: true } } },
+          ]);
+          return { kind: 'continue', message: { ...context.message, content: 'resumed' } };
+        },
+      }),
+      'test:runner',
+    );
+    const pending = await f.runner.runMessagePhase({
+      operationId: 'resume-approved',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    if (pending.kind !== 'pending_approval') throw new Error('Expected pending approval');
+    await f.pendingApprovals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(f.runner.resumeApproval(pending.approvalId, f.thread)).resolves.toMatchObject({
+      kind: 'continue',
+      value: draft({ content: 'resumed' }),
+    });
+    expect(calls).toEqual(['request', 'following']);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(f.pendingApprovals.getRecord(pending.approvalId)).toMatchObject({
+      lifecycle: 'decided',
+      continuation: { kind: 'middleware' },
+    });
+  });
+
+  it('fails stale checkpoints before executing external tool and retains continuation', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = { risky: 'requires_approval' };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'stale-risky',
+          tool: 'risky',
+          arguments: {},
+        }),
+      }),
+      'test:runner',
+    );
+    const pending = await f.runner.runMessagePhase({
+      operationId: 'resume-stale',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    if (pending.kind !== 'pending_approval') throw new Error('Expected pending approval');
+    await f.pendingApprovals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await f.conversationStore.updateHead(f.thread.id, 'different-head');
+
+    await expect(f.runner.resumeApproval(pending.approvalId, f.thread)).resolves.toMatchObject({
+      kind: 'abort',
+      persisted: false,
+      error: expect.stringMatching(/checkpoint/i),
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(f.pendingApprovals.getRecord(pending.approvalId)).toMatchObject({
+      lifecycle: 'resuming',
+      continuation: { kind: 'middleware' },
+    });
+  });
+
+  it.each([
+    ['open', 'continue'],
+    ['closed', 'abort'],
+  ] as const)(
+    'resumes rejected checkpoint using requesting %s failure mode',
+    async (failureMode, kind) => {
+      const f = await fixture([instance('request', { failureMode }), instance('following')]);
+      f.participant.tools = { risky: 'requires_approval' };
+      const execute = vi.fn();
+      f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+      const calls: string[] = [];
+      f.registry.register(
+        middlewareDefinition({
+          beforeSend: (context) => {
+            calls.push(context.instance.id);
+            return context.instance.id === 'request'
+              ? { kind: 'tool', requestId: 'rejected-risky', tool: 'risky', arguments: {} }
+              : { kind: 'continue' };
+          },
+        }),
+        'test:runner',
+      );
+      const pending = await f.runner.runMessagePhase({
+        operationId: `resume-rejected-${failureMode}`,
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      });
+      if (pending.kind !== 'pending_approval') throw new Error('Expected pending approval');
+      await f.pendingApprovals.resolve(pending.approvalId, {
+        approved: false,
+        decidedByParticipantId: 'operator',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      await expect(f.runner.resumeApproval(pending.approvalId, f.thread)).resolves.toMatchObject({
+        kind,
+      });
+      expect(calls).toEqual(failureMode === 'open' ? ['request', 'following'] : ['request']);
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
 
   it('executes an auto-authorized middleware tool once then resumes following hook with action', async () => {
     const f = await fixture([instance('request'), instance('following')]);

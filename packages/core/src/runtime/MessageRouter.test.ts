@@ -127,6 +127,7 @@ async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefiniti
     eventBus: base.eventBus,
     logger,
     conversationStore: base.store,
+    collective: base.collective,
     buildToolContext: (participant, thread, signal) => ({
       ...(base.baseContext as ToolContext),
       participant,
@@ -834,6 +835,79 @@ describe('MessageRouter: middleware lifecycle', () => {
       context: baseContext,
     });
     expect(handle).toHaveBeenCalledOnce();
+  });
+
+  it('resumes approved prompt checkpoint at provider boundary and acknowledges after terminal response', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Prompt approval middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        buildSystemPrompt: (context) =>
+          context.instance.id === 'request'
+            ? { kind: 'tool', requestId: 'prompt-gate', tool: 'gate', arguments: {} }
+            : { kind: 'continue', change: { operation: 'append', content: ':resumed' } },
+      },
+    });
+    await collective.update('agent', {
+      tools: { gate: 'requires_approval' },
+      middleware: [
+        { id: 'request', type: 'test:router-middleware', config: {} },
+        { id: 'following', type: 'test:router-middleware', config: {} },
+      ],
+    });
+    const resumeFromMiddleware = vi.fn(async (resume) => {
+      expect(resume.preparedPrompt).toBe('Base prompt:resumed');
+      expect(resume.actions).toMatchObject([{ requestId: 'prompt-gate', status: 'success' }]);
+      return { kind: 'response' as const, content: 'provider resumed', actions: resume.actions };
+    });
+    runtimeRegistry.registerFactory('agent', () => ({
+      async handle(incoming, context) {
+        const prompt = await context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 0,
+          incomingMessageId: incoming.id,
+          actions: [],
+        });
+        if (prompt.kind !== 'pending') throw new Error('Expected prompt approval');
+        return {
+          kind: 'middleware_pending' as const,
+          approvalId: prompt.approvalId,
+          checkpointId: prompt.checkpointId,
+        };
+      },
+      resumeFromMiddleware,
+    }));
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const, data: { ok: true } };
+      },
+    });
+
+    const pending = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'resume prompt',
+      context: baseContext,
+    });
+    if (!pending.approvalId) throw new Error('Expected pending approval');
+    const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    await approvals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(router.resumeApproval(pending.approvalId, baseContext)).resolves.toMatchObject({
+      status: 'success',
+      response: 'provider resumed',
+    });
+    expect(resumeFromMiddleware).toHaveBeenCalledOnce();
+    expect(approvals.getRecord(pending.approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
   });
 
   it('passes inbound and prompt actions to every response lifecycle hook', async () => {
