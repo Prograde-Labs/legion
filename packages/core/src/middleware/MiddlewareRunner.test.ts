@@ -23,6 +23,7 @@ import {
   type AfterSendPhaseResult,
   type MessagePhaseResult,
   type MiddlewarePhaseResult,
+  type SystemPromptInput,
   type SystemPromptPhaseResult,
 } from './MiddlewareRunner.js';
 
@@ -130,7 +131,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
 }
 
 function message(thread: ConversationThread, overrides: Partial<MessageData> = {}): MessageData {
-  return {
+  const value: MessageData = {
     id: 'message-1',
     parentId: null,
     conversationId: thread.id,
@@ -142,6 +143,8 @@ function message(thread: ConversationThread, overrides: Partial<MessageData> = {
     timestamp: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
+  thread.data.messages[value.id] = structuredClone(value);
+  return structuredClone(value);
 }
 
 function agentParticipant(participant: ParticipantConfig): AgentConfig {
@@ -177,6 +180,7 @@ describe('MiddlewareRunner', () => {
     expectTypeOf<
       Extract<MiddlewarePhaseResult<unknown>, { kind: 'pending_approval' }>
     >().not.toEqualTypeOf<never>();
+    expectTypeOf<SystemPromptInput['persistedMessageId']>().toEqualTypeOf<string>();
   });
 
   it('runs enabled instances in participant order with isolated participant-instance state', async () => {
@@ -435,9 +439,8 @@ describe('MiddlewareRunner', () => {
                 kind: 'respond',
                 message: draft({
                   senderId: context.participant.id,
-                  recipientId: context.message.senderId,
+                  recipientId: context.message.replyTo ?? context.message.senderId,
                   role: 'assistant',
-                  replyTo: context.message.replyTo ?? context.message.senderId,
                   content: 'short circuit',
                 }),
               }
@@ -462,7 +465,6 @@ describe('MiddlewareRunner', () => {
         senderId: 'participant',
         recipientId: 'sender',
         role: 'assistant',
-        replyTo: 'sender',
         content: 'short circuit',
       }),
       actions: [],
@@ -497,6 +499,49 @@ describe('MiddlewareRunner', () => {
     ).resolves.toEqual({ kind: 'complete', actions: [] });
   });
 
+  it('routes fire-and-forget pre-runtime responses to replyTo without carrying replyTo forward', async () => {
+    const f = await fixture([instance('respond')]);
+    const incoming = message(f.thread, {
+      id: 'incoming-fire-and-forget',
+      recipientId: f.participant.id,
+      replyTo: 'operator',
+    });
+    f.registry.register(
+      middlewareDefinition({
+        afterReceive: (context) => ({
+          kind: 'respond',
+          message: {
+            senderId: context.participant.id,
+            recipientId: context.message.replyTo ?? context.message.senderId,
+            role: 'assistant',
+            content: 'dispatched response',
+          },
+        }),
+      }),
+      'test:runner',
+    );
+
+    await expect(
+      f.runner.runAfterReceive({
+        operationId: 'operation-fire-and-forget-response',
+        participant: f.participant,
+        thread: f.thread,
+        message: incoming,
+        mode: 'pre_runtime',
+        actions: [],
+      }),
+    ).resolves.toEqual({
+      kind: 'respond',
+      draft: {
+        senderId: f.participant.id,
+        recipientId: 'operator',
+        role: 'assistant',
+        content: 'dispatched response',
+      },
+      actions: [],
+    });
+  });
+
   it.each(['senderId', 'recipientId', 'role', 'replyTo'] as const)(
     'rejects forged pre-runtime response %s according to effective failure mode',
     async (field) => {
@@ -516,9 +561,8 @@ describe('MiddlewareRunner', () => {
             calls += 1;
             const baseline = {
               senderId: context.participant.id,
-              recipientId: context.message.senderId,
+              recipientId: context.message.replyTo ?? context.message.senderId,
               role: 'assistant' as const,
-              replyTo: context.message.replyTo,
               content: 'response',
             };
             return {
@@ -603,6 +647,7 @@ describe('MiddlewareRunner', () => {
       }),
       'test:runner',
     );
+    const promptMessage = message(f.thread, { id: 'prompt-message' });
 
     await expect(
       f.runner.runSystemPrompt({
@@ -611,6 +656,7 @@ describe('MiddlewareRunner', () => {
         thread: f.thread,
         prompt: 'x',
         actions: [],
+        persistedMessageId: promptMessage.id,
       }),
     ).resolves.toEqual({ kind: 'continue', value: 'R', actions: [] });
     await expect(
@@ -639,6 +685,7 @@ describe('MiddlewareRunner', () => {
       }),
       'test:runner',
     );
+    message(f.thread, { id: 'incoming-2' });
 
     await expect(
       f.runner.runSystemPrompt({
@@ -736,6 +783,46 @@ describe('MiddlewareRunner', () => {
     },
   );
 
+  it.each(['afterReceive', 'afterSend'] as const)(
+    'rejects unstored, cross-conversation, and changed messages in %s before hooks',
+    async (api) => {
+      const f = await fixture([instance('must-not-run')]);
+      const other = await fixture();
+      const hook = vi.fn(() => ({ kind: 'continue' as const }));
+      f.registry.register(
+        middlewareDefinition({ afterReceive: hook, afterSend: hook }),
+        'test:runner',
+      );
+      const unstored = message(f.thread, { id: 'unstored' });
+      delete f.thread.data.messages[unstored.id];
+      const crossConversation = message(other.thread, { id: 'cross-conversation' });
+      const stored = message(f.thread, { id: 'changed' });
+      const changed = { ...stored, content: 'forged content' };
+
+      for (const invalid of [unstored, crossConversation, changed]) {
+        const call =
+          api === 'afterReceive'
+            ? f.runner.runAfterReceive({
+                operationId: 'operation-invalid-persistence',
+                participant: f.participant,
+                thread: f.thread,
+                message: invalid,
+                mode: 'pre_runtime',
+                actions: [],
+              })
+            : f.runner.runAfterSend({
+                operationId: 'operation-invalid-persistence',
+                participant: f.participant,
+                thread: f.thread,
+                message: invalid,
+                actions: [],
+              });
+        await expect(call).rejects.toThrow(/message.*(stored|match|conversation)/i);
+      }
+      expect(hook).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects empty system-prompt persistedMessageId before hooks', async () => {
     const f = await fixture([instance('must-not-run')]);
     const hook = vi.fn(() => ({ kind: 'continue' as const }));
@@ -754,6 +841,27 @@ describe('MiddlewareRunner', () => {
     expect(hook).not.toHaveBeenCalled();
   });
 
+  it('rejects missing and unknown system-prompt persistedMessageId before hooks', async () => {
+    const f = await fixture([instance('must-not-run')]);
+    const hook = vi.fn(() => ({ kind: 'continue' as const }));
+    f.registry.register(middlewareDefinition({ buildSystemPrompt: hook }), 'test:runner');
+    const base = {
+      operationId: 'operation-prompt-persistence',
+      participant: agentParticipant(f.participant),
+      thread: f.thread,
+      prompt: 'prompt',
+      actions: [],
+    };
+
+    await expect(f.runner.runSystemPrompt(base as unknown as SystemPromptInput)).rejects.toThrow(
+      /persistedMessageId.*required/i,
+    );
+    await expect(
+      f.runner.runSystemPrompt({ ...base, persistedMessageId: 'unknown-message' }),
+    ).rejects.toThrow(/persistedMessageId.*stored/i);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
   it('rejects non-agent system-prompt participants before hooks', async () => {
     const f = await fixture([instance('must-not-run')]);
     const hook = vi.fn(() => ({ kind: 'continue' as const }));
@@ -766,6 +874,7 @@ describe('MiddlewareRunner', () => {
         thread: f.thread,
         prompt: 'prompt',
         actions: [],
+        persistedMessageId: message(f.thread, { id: 'non-agent-message' }).id,
       }),
     ).rejects.toThrow(/agent participant/i);
     expect(hook).not.toHaveBeenCalled();
@@ -810,12 +919,14 @@ describe('MiddlewareRunner', () => {
           });
         }
         if (api === 'systemPrompt') {
+          const persisted = message(f.thread, { id: 'system-index-message' });
           return f.runner.runSystemPrompt({
             operationId: 'operation-index',
             participant: agentParticipant(f.participant),
             thread: f.thread,
             prompt: 'prompt',
             actions: [],
+            persistedMessageId: persisted.id,
             startIndex,
           });
         }

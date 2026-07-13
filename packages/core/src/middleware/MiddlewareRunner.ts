@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type {
   AgentConfig,
   FailureMode,
@@ -88,8 +89,8 @@ export interface SystemPromptInput {
   thread: ConversationThread;
   prompt: string;
   actions: MiddlewareActionResult[];
-  /** Set by future runtime-resume wiring when prompt construction follows a persisted message. */
-  persistedMessageId?: string;
+  /** Incoming message ID supplied by E7 runtime wiring. */
+  persistedMessageId: string;
   signal?: AbortSignal;
   startIndex?: number;
 }
@@ -263,19 +264,45 @@ function validateStartIndex(startIndex: number | undefined, instanceCount: numbe
   return resolved;
 }
 
-function persistedMessageId(message: MessageData, supplied?: string): string {
-  if (typeof message.id !== 'string' || message.id.trim() === '') {
+function persistedMessage(
+  thread: ConversationThread,
+  message: MessageData,
+  suppliedId?: string,
+): { id: string; message: MessageData } {
+  const detached = cloneMessage(message, '$.message');
+  if (typeof detached.id !== 'string' || detached.id.trim() === '') {
     throw new TypeError('Middleware message.id must be a non-empty string');
   }
-  if (supplied !== undefined && supplied !== message.id) {
+  if (suppliedId !== undefined && suppliedId !== detached.id) {
     throw new TypeError('Middleware persistedMessageId must match message.id');
   }
-  return message.id;
+  const stored = thread.data.messages[detached.id];
+  if (!stored) {
+    throw new TypeError('Middleware message must exist in the current thread stored messages');
+  }
+  const detachedStored = cloneMessage(stored, '$.storedMessage');
+  if (
+    detachedStored.id !== detached.id ||
+    detachedStored.conversationId !== thread.id ||
+    !isDeepStrictEqual(detached, detachedStored)
+  ) {
+    throw new TypeError('Middleware message must match the current thread stored message');
+  }
+  return { id: detached.id, message: detached };
 }
 
-function validateOptionalPersistedMessageId(value: string | undefined): string | undefined {
-  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
-    throw new TypeError('Middleware persistedMessageId must be a non-empty string when present');
+function validatePersistedMessageId(thread: ConversationThread, value: string | undefined): string {
+  if (value === undefined) {
+    throw new TypeError('Middleware persistedMessageId is required');
+  }
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new TypeError('Middleware persistedMessageId must be a non-empty string');
+  }
+  const stored = thread.data.messages[value];
+  if (!stored || stored.id !== value || stored.conversationId !== thread.id) {
+    throw new TypeError(
+      'Middleware persistedMessageId must identify a current thread stored message',
+    );
   }
   return value;
 }
@@ -370,8 +397,9 @@ export class MiddlewareRunner {
   }
 
   async runAfterReceive(input: AfterReceiveInput): Promise<AfterReceivePhaseResult> {
-    const storedMessageId = persistedMessageId(input.message, input.persistedMessageId);
-    const current = cloneMessage(input.message, '$.message');
+    const persisted = persistedMessage(input.thread, input.message, input.persistedMessageId);
+    const storedMessageId = persisted.id;
+    const current = persisted.message;
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
@@ -407,10 +435,9 @@ export class MiddlewareRunner {
           }
           const draft = validateDraft(execution.result.message, {
             senderId: input.participant.id,
-            recipientId: current.senderId,
+            recipientId: current.replyTo ?? current.senderId,
             role: 'assistant',
             content: '',
-            replyTo: current.replyTo ?? current.senderId,
           });
           this.recordSuccess(instance, 'afterReceive', input, execution);
           return {
@@ -447,7 +474,7 @@ export class MiddlewareRunner {
     if (input.participant.type !== 'agent') {
       throw new TypeError('Middleware system prompt requires an agent participant');
     }
-    const storedMessageId = validateOptionalPersistedMessageId(input.persistedMessageId);
+    const storedMessageId = validatePersistedMessageId(input.thread, input.persistedMessageId);
     let current = input.prompt;
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
@@ -509,8 +536,9 @@ export class MiddlewareRunner {
   }
 
   async runAfterSend(input: AfterSendInput): Promise<AfterSendPhaseResult> {
-    const storedMessageId = persistedMessageId(input.message, input.persistedMessageId);
-    const current = cloneMessage(input.message, '$.message');
+    const persisted = persistedMessage(input.thread, input.message, input.persistedMessageId);
+    const storedMessageId = persisted.id;
+    const current = persisted.message;
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
     const startIndex = validateStartIndex(input.startIndex, instances.length);
