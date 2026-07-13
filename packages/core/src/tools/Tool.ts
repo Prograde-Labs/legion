@@ -21,6 +21,11 @@ export interface MessageRouterResult {
   response?: string;
   status: 'success' | 'error' | 'dispatched' | 'pending_approval';
   error?: string;
+  partial?: boolean;
+  storedMessageId?: string;
+  approvalId?: string;
+  checkpointId?: string;
+  pendingParticipantId?: string;
   approvalRequests?: PendingApproval[];
 }
 

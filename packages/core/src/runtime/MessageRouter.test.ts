@@ -11,8 +11,16 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
-import type { ConversationOrigin, LLMChunk } from '@legion/types';
+import type {
+  ConversationOrigin,
+  LLMChunk,
+  MiddlewareDefinition,
+  MiddlewareLogger,
+} from '@legion/types';
 import type { ToolContext } from '../tools/Tool.js';
+import { MiddlewareLifecycle } from '../middleware/MiddlewareLifecycle.js';
+import { MiddlewareRegistry } from '../middleware/MiddlewareRegistry.js';
+import { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
 
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
@@ -70,6 +78,53 @@ async function setupReasoningRouter(dir: string) {
   return {
     ...base,
     router: new MessageRouter(base.store, registry, base.collective, base.eventBus),
+  };
+}
+
+async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefinition) {
+  const base = await setup(dir);
+  await base.collective.update('op', {
+    middleware: [{ id: 'op-middleware', type: 'test:router-middleware', config: {} }],
+  });
+  await base.collective.update('mock-1', {
+    middleware: [{ id: 'mock-middleware', type: 'test:router-middleware', config: {} }],
+  });
+  const middlewareRegistry = new MiddlewareRegistry();
+  middlewareRegistry.register(definition, 'test');
+  const logger: MiddlewareLogger = {
+    debug: () => undefined,
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+  };
+  const toolRegistry = base.baseContext.toolRegistry as ToolRegistry;
+  const runner = new MiddlewareRunner({
+    registry: middlewareRegistry,
+    authEngine: base.baseContext.authEngine as AuthEngine,
+    toolRegistry,
+    pendingApprovals: base.baseContext.pendingApprovalRegistry as PendingApprovalRegistry,
+    eventBus: base.eventBus,
+    logger,
+    conversationStore: base.store,
+    buildToolContext: (participant, thread, signal) => ({
+      ...(base.baseContext as ToolContext),
+      participant,
+      conversationId: thread.id,
+      conversation: thread,
+      signal,
+    }),
+  });
+  const runtimeRegistry = new RuntimeRegistry();
+  return {
+    ...base,
+    runtimeRegistry,
+    router: new MessageRouter(
+      base.store,
+      runtimeRegistry,
+      base.collective,
+      base.eventBus,
+      new MiddlewareLifecycle(runner, base.eventBus),
+    ),
   };
 }
 
@@ -401,6 +456,157 @@ describe('MessageRouter: synchronous send', () => {
     });
 
     expect((await store.load(existing.id))?.origin).toEqual(originalOrigin);
+  });
+});
+
+describe('MessageRouter: middleware lifecycle', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-middleware-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('routes buffered inbound and runtime response through injected lifecycle', async () => {
+    const phases: string[] = [];
+    const { router, baseContext, store, eventBus, runtimeRegistry } = await setupMiddlewareRouter(
+      dir,
+      {
+        type: 'test:router-middleware',
+        displayName: 'Router middleware',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          beforeSend: (context) => {
+            phases.push(`${context.participant.id} beforeSend`);
+            return {
+              kind: 'continue',
+              message: {
+                ...context.message,
+                content: `${context.message.content}:${context.participant.id}:send`,
+              },
+            };
+          },
+          beforeReceive: (context) => {
+            phases.push(`${context.participant.id} beforeReceive`);
+            return {
+              kind: 'continue',
+              message: {
+                ...context.message,
+                content: `${context.message.content}:${context.participant.id}:receive`,
+              },
+            };
+          },
+          afterSend: (context) => {
+            phases.push(`${context.participant.id} afterSend`);
+            return { kind: 'continue' };
+          },
+          afterReceive: (context) => {
+            phases.push(`${context.participant.id} afterReceive ${context.mode}`);
+            return { kind: 'continue' };
+          },
+        },
+      },
+    );
+    runtimeRegistry.registerFactory('mock', (id) => new MockRuntime(id));
+    eventBus.on('message:sent', ({ senderId }) => phases.push(`persist ${senderId}`));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      response: 'hello back:mock-1:send:op:receive',
+    });
+    expect(phases).toEqual([
+      'op beforeSend',
+      'mock-1 beforeReceive',
+      'persist op',
+      'op afterSend',
+      'mock-1 afterReceive pre_runtime',
+      'mock-1 beforeSend',
+      'op beforeReceive',
+      'persist mock-1',
+      'mock-1 afterSend',
+      'op afterReceive post_response',
+    ]);
+    expect(
+      Object.values((await store.load(result.conversationId))!.messages).map(
+        (message) => message.content,
+      ),
+    ).toEqual(['hello:op:send:mock-1:receive', 'hello back:mock-1:send:op:receive']);
+  });
+
+  it('maps middleware approval suspension and does not dispatch runtime', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Approval middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: () => ({ kind: 'tool', requestId: 'approval-1', tool: 'risky', arguments: {} }),
+      },
+    });
+    await collective.update('op', { tools: { risky: 'requires_approval' } });
+    const handle = vi.fn(async () => ({ kind: 'response' as const, content: 'must not run' }));
+    runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hold',
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({
+      status: 'pending_approval',
+      approvalId: expect.stringMatching(/^appr-/),
+      checkpointId: expect.stringMatching(/^mwcp-/),
+      pendingParticipantId: 'op',
+    });
+    expect(result.approvalRequests).toHaveLength(1);
+    expect(handle).not.toHaveBeenCalled();
+  });
+
+  it('routes pre-runtime middleware responses through lifecycle without runtime dispatch', async () => {
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Respond middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        afterReceive: (context) =>
+          context.mode === 'pre_runtime' && context.participant.id === 'mock-1'
+            ? {
+                kind: 'respond',
+                message: {
+                  senderId: 'mock-1',
+                  recipientId: 'op',
+                  role: 'assistant',
+                  content: 'short circuit',
+                },
+              }
+            : { kind: 'continue' },
+      },
+    });
+    const handle = vi.fn(async () => ({ kind: 'response' as const, content: 'must not run' }));
+    runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({ status: 'success', response: 'short circuit' });
+    expect(handle).not.toHaveBeenCalled();
+    expect(Object.values((await store.load(result.conversationId))!.messages)).toHaveLength(2);
   });
 });
 
