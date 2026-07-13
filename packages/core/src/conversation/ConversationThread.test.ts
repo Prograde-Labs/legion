@@ -45,6 +45,21 @@ describe('ConversationThread', () => {
     expect(thread.latest?.id).toBe(msg.id);
   });
 
+  it('does not mutate when append signal is already aborted', async () => {
+    const data = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const thread = new ConversationThread(data, store);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      thread.append(
+        { senderId: 'u', recipientId: 'a', role: 'user', content: 'cancelled' },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow(/aborted/i);
+    expect((await store.load(data.id))?.messages).toEqual({});
+  });
+
   it('preserves concurrent appends inside the append guard', async () => {
     const data = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     const events: string[] = [];

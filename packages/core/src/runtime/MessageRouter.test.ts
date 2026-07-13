@@ -2305,4 +2305,61 @@ describe('MessageRouter: middleware response streaming', () => {
       1,
     );
   });
+
+  it('blocks late custom-runtime appends after cancellation before releasing its lock', async () => {
+    const { router, baseContext, runtimeRegistry, store } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Late append guard',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {},
+    });
+    let appendBlocked = false;
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'response' as const, content: 'queued' };
+      },
+      async *handleStream(_incoming, context) {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        await new Promise<void>((resolve) => context.signal.addEventListener('abort', resolve));
+        try {
+          await context.conversation.append({
+            senderId: 'mock-1',
+            recipientId: 'op',
+            role: 'assistant',
+            content: 'late append',
+          });
+        } catch {
+          appendBlocked = true;
+        }
+        return { kind: 'response' as const, content: 'late response' };
+      },
+    }));
+    const controller = new AbortController();
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'cancel',
+      context: { ...baseContext, signal: controller.signal },
+    });
+
+    await stream.next();
+    const terminal = stream.next();
+    controller.abort();
+    const result = await terminal;
+    expect(result).toMatchObject({ done: true, value: { status: 'error' } });
+    await vi.waitFor(() => expect(appendBlocked).toBe(true));
+    expect(Object.values((await store.load(result.value.conversationId))!.messages)).toHaveLength(
+      1,
+    );
+    await expect(
+      router.send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'queued',
+        conversationId: result.value.conversationId,
+        context: baseContext,
+      }),
+    ).resolves.toMatchObject({ status: 'success' });
+  });
 });

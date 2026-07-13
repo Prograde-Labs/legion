@@ -141,6 +141,9 @@ export class MiddlewareLifecycle {
         actions = recipientBefore.actions;
       }
 
+      if (input.signal?.aborted) {
+        return { kind: 'error', error: 'Middleware operation cancelled' };
+      }
       stored = await input.thread.append(
         {
           ...draft,
@@ -148,6 +151,7 @@ export class MiddlewareLifecycle {
         },
         {
           reactivate: input.mode === 'pre_runtime',
+          signal: input.signal,
         },
       );
       this.eventBus.emit('message:sent', {

@@ -152,6 +152,13 @@ export class MessageRouter implements MessageRouterPort {
     );
   }
 
+  private createAbortSafeThread(
+    thread: ConversationThread,
+    signal: AbortSignal,
+  ): ConversationThread {
+    return new ConversationThread(thread.data, this.store, undefined, signal);
+  }
+
   private buildRuntimeContext(
     thread: ConversationThread,
     participantId: string,
@@ -468,8 +475,9 @@ export class MessageRouter implements MessageRouterPort {
           }
         : undefined;
     const streamAbort = this.combineAbortSignals(opts.context.signal);
+    const runtimeThread = this.createAbortSafeThread(thread, streamAbort.signal);
     const runtimeContext = this.buildRuntimeContext(
-      thread,
+      runtimeThread,
       recipient.id,
       { ...opts.context, communicationDepth: depth, signal: streamAbort.signal },
       depth,
@@ -599,11 +607,7 @@ export class MessageRouter implements MessageRouterPort {
       if (!streamFinished && runtimeStream) {
         streamAbort.abort();
         transformer?.abort();
-        try {
-          await runtimeStream.return(undefined as never);
-        } catch {
-          // Consumer cancellation should still release routing lock.
-        }
+        void runtimeStream.return(undefined as never).catch(() => undefined);
       }
       transformer?.dispose();
       streamAbort.dispose();

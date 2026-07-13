@@ -11,6 +11,7 @@ export class ConversationThread {
     public data: ConversationData,
     private store: ConversationStore,
     private appendGuard?: AppendGuard,
+    private appendSignal?: AbortSignal,
   ) {}
 
   get id(): string {
@@ -25,15 +26,24 @@ export class ConversationThread {
     return this.data.activeBranchHead ? this.data.messages[this.data.activeBranchHead] : undefined;
   }
 
-  async append(input: NewMessageInput, options?: { reactivate?: boolean }): Promise<MessageData> {
+  async append(
+    input: NewMessageInput,
+    options?: { reactivate?: boolean; signal?: AbortSignal },
+  ): Promise<MessageData> {
+    const signal = options?.signal ?? this.appendSignal;
     const doAppend = async () => {
-      const result = await this.store.mutate(this.data.id, (conversation) => {
-        const current =
-          options?.reactivate && getConversationStatus(conversation) === 'archived'
-            ? { ...conversation, status: 'active' as const }
-            : conversation;
-        return appendMessage(current, input);
-      });
+      if (signal?.aborted) throw new Error('Conversation append aborted before persistence');
+      const result = await this.store.mutate(
+        this.data.id,
+        (conversation) => {
+          const current =
+            options?.reactivate && getConversationStatus(conversation) === 'archived'
+              ? { ...conversation, status: 'active' as const }
+              : conversation;
+          return appendMessage(current, input);
+        },
+        { signal },
+      );
       this.data = result.after;
       return this.data.messages[this.data.activeBranchHead];
     };
