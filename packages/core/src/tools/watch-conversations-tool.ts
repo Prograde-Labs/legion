@@ -9,8 +9,10 @@ function parseFilter(args: unknown): ConversationFilter {
   }
 
   const input = args as Record<string, unknown>;
+  const allowedKeys = new Set(['participantId', 'since', 'status', 'tags', 'includeSubThreads']);
   const { participantId, since, status, tags, includeSubThreads } = input;
   if (
+    Object.keys(input).some((key) => !allowedKeys.has(key)) ||
     (participantId !== undefined && typeof participantId !== 'string') ||
     (since !== undefined && typeof since !== 'string') ||
     (status !== undefined && status !== 'active' && status !== 'archived' && status !== 'all') ||
@@ -43,24 +45,27 @@ export const watchConversationsTool: StreamingTool = {
       includeSubThreads: { type: 'boolean' },
     },
     required: [],
+    additionalProperties: false,
   },
   async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const filter = parseFilter(args);
     const queue = new AsyncQueue<StreamChunk>();
     const unsubs = [
       context.eventBus.on('conversation:created', (data) => {
-        if (conversationMatchesFilter(data.conversation, filter)) {
-          queue.push({ type: 'conversation:created', data });
+        const snapshot = structuredClone(data);
+        if (conversationMatchesFilter(snapshot.conversation, filter)) {
+          queue.push({ type: 'conversation:created', data: snapshot });
         }
       }),
       context.eventBus.on('conversation:updated', (data) => {
-        const beforeMatches = conversationMatchesFilter(data.before, filter);
-        if (conversationMatchesFilter(data.after, filter)) {
-          queue.push({ type: 'conversation:updated', data });
+        const snapshot = structuredClone(data);
+        const beforeMatches = conversationMatchesFilter(snapshot.before, filter);
+        if (conversationMatchesFilter(snapshot.after, filter)) {
+          queue.push({ type: 'conversation:updated', data: snapshot });
         } else if (beforeMatches) {
           queue.push({
             type: 'conversation:removed',
-            data: { conversationId: data.conversationId, reason: 'filter_exit' },
+            data: { conversationId: snapshot.conversationId, reason: 'filter_exit' },
           });
         }
       }),

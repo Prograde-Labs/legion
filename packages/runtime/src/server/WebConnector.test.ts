@@ -1,3 +1,5 @@
+import { request } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { WebConnector } from './WebConnector.js';
 import type { ConnectorContext } from '@legion/core';
 import type { ToolResult } from '@legion/core';
@@ -253,6 +255,63 @@ describe('WebConnector: POST /api/execute', () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(typeof body.conversationId).toBe('string');
+    await connector.stop();
+  });
+
+  it('aborts and closes an SSE generator when the client disconnects', async () => {
+    const { connector, ctx } = await makeConnector();
+    const loginRes = await inject(connector, {
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { name: 'Operator', password: 'hunter2' },
+    });
+    const { token } = JSON.parse(loginRes.body) as { token: string };
+    let signal: AbortSignal | undefined;
+    let finishNext: (() => void) | undefined;
+    const generator = {
+      next: vi.fn(
+        () =>
+          new Promise<IteratorResult<never>>((resolve) => {
+            finishNext = () => resolve({ done: true, value: undefined });
+          }),
+      ),
+      return: vi.fn(async () => ({ done: true, value: undefined }) as IteratorResult<never>),
+      throw: vi.fn(),
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
+    vi.mocked(ctx.streamTool).mockImplementation(async (_participantId, _tool, _args, opts) => {
+      signal = opts?.signal;
+      return { gen: generator, conversationId: 'conv-test' };
+    });
+    const app = (connector as any).app as ReturnType<typeof Fastify>;
+    const address = app.server.address() as AddressInfo;
+
+    await new Promise<void>((resolve, reject) => {
+      const req = request(
+        {
+          host: '127.0.0.1',
+          port: address.port,
+          path: '/api/execute',
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+        },
+        (res) => {
+          res.once('data', () => res.destroy());
+          res.once('close', resolve);
+        },
+      );
+      req.once('error', reject);
+      req.end(JSON.stringify({ tool: 'watch_conversations', args: {} }));
+    });
+
+    await vi.waitFor(() => expect(signal?.aborted).toBe(true));
+    finishNext?.();
+    await vi.waitFor(() => expect(generator.return).toHaveBeenCalledTimes(1));
     await connector.stop();
   });
 });

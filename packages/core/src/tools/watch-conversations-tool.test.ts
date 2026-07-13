@@ -69,6 +69,7 @@ describe('watch_conversations tool', () => {
         includeSubThreads: { type: 'boolean' },
       },
       required: [],
+      additionalProperties: false,
     });
   });
 
@@ -166,6 +167,7 @@ describe('watch_conversations tool', () => {
     { tags: 'project' },
     { tags: ['project', 1] },
     { includeSubThreads: 'yes' },
+    { statuz: 'active' },
   ])('rejects malformed filters: %j', async (args) => {
     const eventBus = new EventBus();
     const generator = watchConversationsTool.stream(args, fakeCtx(eventBus));
@@ -193,5 +195,51 @@ describe('watch_conversations tool', () => {
       'conversation:created',
       'conversation:updated',
     ]);
+  });
+
+  it('snapshots matching event payloads before queueing', async () => {
+    const { eventBus, controller, chunks, consumer } = await startWatch({ tags: ['watched'] });
+    const conversation = metadata('conv-1', { tags: ['watched'] });
+
+    eventBus.emit('conversation:created', { conversation });
+    conversation.tags.splice(0, 1, 'mutated');
+    conversation.title = 'Mutated after emit';
+    await flushEvents();
+    controller.abort();
+    await consumer;
+
+    expect(chunks).toEqual([
+      {
+        type: 'conversation:created',
+        data: {
+          conversation: expect.objectContaining({
+            title: 'Conversation conv-1',
+            tags: ['watched'],
+          }),
+        },
+      },
+    ]);
+  });
+
+  it('removes listeners when aborted while waiting', async () => {
+    const { eventBus, controller, consumer } = await startWatch({});
+    const off = vi.spyOn(eventBus, 'off');
+
+    controller.abort();
+    await consumer;
+
+    expect(off).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a queued event when aborted before delivery and removes listeners', async () => {
+    const { eventBus, controller, chunks, consumer } = await startWatch({});
+    const off = vi.spyOn(eventBus, 'off');
+
+    eventBus.emit('conversation:created', { conversation: metadata('conv-1') });
+    controller.abort();
+    await consumer;
+
+    expect(chunks).toEqual([]);
+    expect(off).toHaveBeenCalledTimes(2);
   });
 });
