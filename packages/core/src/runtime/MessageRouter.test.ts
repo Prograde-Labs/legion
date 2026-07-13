@@ -2060,6 +2060,128 @@ describe('MessageRouter: middleware lifecycle', () => {
       )?.content,
     ).toBe('hello back:mock-1');
   });
+
+  it.each(['sync', 'fire-and-forget', 'stream'] as const)(
+    'runs identical final middleware lifecycle for %s send',
+    async (mode) => {
+      const calls: string[] = [];
+      const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+        type: 'test:router-middleware',
+        displayName: 'Parity middleware',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          beforeSend: (context) => {
+            calls.push(`${context.participant.id}:beforeSend`);
+            return {
+              kind: 'continue',
+              message: {
+                ...context.message,
+                content:
+                  context.message.role === 'user'
+                    ? `IN:${context.message.content}`
+                    : `OUT:${context.message.content}`,
+              },
+            };
+          },
+          beforeReceive: (context) => {
+            calls.push(`${context.participant.id}:beforeReceive`);
+            return { kind: 'continue', message: context.message };
+          },
+          afterSend: (context) => {
+            calls.push(`${context.participant.id}:afterSend`);
+            return { kind: 'continue' };
+          },
+          afterReceive: (context) => {
+            calls.push(`${context.participant.id}:afterReceive:${context.mode}`);
+            return { kind: 'continue' };
+          },
+        },
+      });
+      runtimeRegistry.registerFactory('mock', () => ({
+        async handle() {
+          return { kind: 'response' as const, content: 'response' };
+        },
+        async *handleStream() {
+          return { kind: 'response' as const, content: 'response' };
+        },
+      }));
+
+      let conversationId: string;
+      if (mode === 'stream') {
+        const stream = router.sendStream({
+          senderId: 'op',
+          recipientId: 'mock-1',
+          message: 'hello',
+          context: baseContext,
+        });
+        let next = await stream.next();
+        while (!next.done) next = await stream.next();
+        conversationId = next.value.conversationId;
+      } else {
+        const result = await router.send({
+          senderId: 'op',
+          recipientId: 'mock-1',
+          message: 'hello',
+          ...(mode === 'fire-and-forget' ? { replyTo: 'op' } : {}),
+          context: baseContext,
+        });
+        conversationId = result.conversationId;
+        if (mode === 'fire-and-forget') await router.drain();
+      }
+
+      expect(calls).toEqual([
+        'op:beforeSend',
+        'mock-1:beforeReceive',
+        'op:afterSend',
+        'mock-1:afterReceive:pre_runtime',
+        'mock-1:beforeSend',
+        'op:beforeReceive',
+        'mock-1:afterSend',
+        'op:afterReceive:post_response',
+      ]);
+      expect(
+        Object.values((await store.load(conversationId))!.messages).map(
+          (message) => message.content,
+        ),
+      ).toEqual(['IN:hello', 'OUT:response']);
+    },
+  );
+
+  it('generates without rerunning inbound middleware phases', async () => {
+    const calls: string[] = [];
+    const { router, baseContext, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Generate middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          calls.push(`${context.participant.id}:beforeSend:${context.message.role}`);
+          return { kind: 'continue', message: context.message };
+        },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'response' as const, content: 'response' };
+      },
+    }));
+
+    const sent = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+    calls.length = 0;
+
+    await router.generate(sent.conversationId, 'mock-1', baseContext);
+    await router.drain();
+
+    expect(calls).not.toContain('op:beforeSend:user');
+    expect(calls).toContain('mock-1:beforeSend:assistant');
+  });
 });
 
 describe('MessageRouter: fire-and-forget', () => {

@@ -37,6 +37,18 @@ export interface SendOptions {
 
 const DEFAULT_DEPTH_LIMIT = 10;
 
+type ResponseOperation = {
+  thread: ConversationThread;
+  recipientId: string;
+  responseRecipientId: string;
+  lifecycleState?: {
+    operationId: string;
+    actions: MiddlewareActionResult[];
+    context: ToolContext;
+    storedMessageId?: string;
+  };
+};
+
 export class MessageRouter implements MessageRouterPort {
   private background = new Set<Promise<void>>();
   private locks = new Map<string, Promise<void>>();
@@ -487,33 +499,71 @@ export class MessageRouter implements MessageRouterPort {
     );
     await ensureLock(thread.id);
 
-    const inbound = await thread.append(
-      {
+    let inbound: Awaited<ReturnType<ConversationThread['append']>>;
+    let lifecycleState: ResponseOperation['lifecycleState'];
+    if (this.lifecycle) {
+      const sender = this.collective.get(opts.senderId);
+      if (!sender) {
+        return {
+          conversationId: thread.id,
+          status: 'error',
+          error: new ParticipantNotFoundError(opts.senderId).message,
+        };
+      }
+      const operationId = createId('route');
+      const inboundResult = await this.lifecycle.receive({
+        operationId,
+        sender,
+        recipient,
+        thread,
+        draft: {
+          senderId: opts.senderId,
+          recipientId: opts.recipientId,
+          role: 'user',
+          content: opts.message,
+          ...(opts.replyTo === undefined ? {} : { replyTo: opts.replyTo }),
+        },
+        actions: [],
+        mode: 'pre_runtime',
+        signal: opts.context.signal,
+      });
+      if (inboundResult.kind === 'respond') {
+        return this.respondWithLifecycle(thread, inboundResult.response, {
+          operationId,
+          actions: inboundResult.actions,
+          context: opts.context,
+        });
+      }
+      if (inboundResult.kind !== 'continue') {
+        return this.mapLifecycleResult(inboundResult, thread.id, opts.context);
+      }
+      inbound = inboundResult.value;
+      lifecycleState = {
+        operationId,
+        actions: inboundResult.actions,
+        context: opts.context,
+        storedMessageId: inbound.id,
+      };
+    } else {
+      inbound = await thread.append(
+        {
+          senderId: opts.senderId,
+          recipientId: opts.recipientId,
+          role: 'user',
+          content: opts.message,
+          replyTo: opts.replyTo,
+        },
+        { reactivate: true, signal: opts.context.signal },
+      );
+      this.eventBus.emit('message:sent', {
+        conversationId: thread.id,
         senderId: opts.senderId,
         recipientId: opts.recipientId,
-        role: 'user',
-        content: opts.message,
-        replyTo: opts.replyTo,
-      },
-      { reactivate: true, signal: opts.context.signal },
-    );
-    this.eventBus.emit('message:sent', {
-      conversationId: thread.id,
-      senderId: opts.senderId,
-      recipientId: opts.recipientId,
-      messageId: inbound.id,
-    });
+        messageId: inbound.id,
+      });
+    }
 
     const runtime = this.registry.build(recipient.type, recipient.id);
-    const lifecycleState =
-      this.lifecycle && this.middlewareRunner
-        ? {
-            operationId: createId('route'),
-            actions: [] as MiddlewareActionResult[],
-            context: opts.context,
-            storedMessageId: inbound.id,
-          }
-        : undefined;
     const streamAbort = this.combineAbortSignals(opts.context.signal);
     const runtimeThread = this.createAbortSafeThread(thread, streamAbort.signal);
     const runtimeContext = this.buildRuntimeContext(
@@ -531,7 +581,14 @@ export class MessageRouter implements MessageRouterPort {
     );
 
     if (opts.replyTo) {
-      const task = this.dispatchAsync(runtime, inbound, runtimeContext, thread, opts);
+      const task = this.dispatchAsync(
+        runtime,
+        inbound,
+        runtimeContext,
+        thread,
+        opts,
+        lifecycleState,
+      );
       this.background.add(task);
       void task
         .finally(() => {
@@ -612,12 +669,14 @@ export class MessageRouter implements MessageRouterPort {
             throw error;
           }
         }
-        return await this.handleRuntimeResult(
+        return await this.completeResponse(
+          {
+            thread,
+            recipientId: recipient.id,
+            responseRecipientId: opts.replyTo ?? opts.senderId,
+            lifecycleState,
+          },
           result,
-          thread,
-          recipient.id,
-          opts.replyTo ?? opts.senderId,
-          lifecycleState,
         );
       } else {
         const result = await runtime.handle(inbound, runtimeContext);
@@ -634,12 +693,14 @@ export class MessageRouter implements MessageRouterPort {
             throw error;
           }
         }
-        return await this.handleRuntimeResult(
+        return await this.completeResponse(
+          {
+            thread,
+            recipientId: recipient.id,
+            responseRecipientId: opts.replyTo ?? opts.senderId,
+            lifecycleState,
+          },
           result,
-          thread,
-          recipient.id,
-          opts.replyTo ?? opts.senderId,
-          lifecycleState,
         );
       }
     } catch (err) {
@@ -795,12 +856,14 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(inbound, runtimeContext);
-      return await this.handleRuntimeResult(
+      return await this.completeResponse(
+        {
+          thread,
+          recipientId: recipient.id,
+          responseRecipientId: opts.senderId,
+          lifecycleState,
+        },
         result,
-        thread,
-        recipient.id,
-        opts.senderId,
-        lifecycleState,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -847,11 +910,15 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(lastIncoming, runtimeContext);
-      return await this.handleRuntimeResult(result, thread, participant.id, lastIncoming.senderId, {
-        operationId: createId('route'),
-        actions: [],
-        context: toolContext,
-      });
+      return await this.completeResponse(
+        {
+          thread,
+          recipientId: participant.id,
+          responseRecipientId: lastIncoming.senderId,
+          lifecycleState: { operationId: createId('route'), actions: [], context: toolContext },
+        },
+        result,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
@@ -1088,17 +1155,20 @@ export class MessageRouter implements MessageRouterPort {
           runtimeContext,
         );
         const incoming = thread.data.messages[checkpoint.runtimeResume.incomingMessageId];
-        const result = await this.handleRuntimeResult(
-          runtimeResult,
-          thread,
-          participant.id,
-          incoming?.replyTo ?? incoming?.senderId ?? checkpoint.participantId,
+        const result = await this.completeResponse(
           {
-            operationId: checkpoint.operationId,
-            actions: resumed.actions,
-            context,
-            storedMessageId: checkpoint.runtimeResume.incomingMessageId,
+            thread,
+            recipientId: participant.id,
+            responseRecipientId:
+              incoming?.replyTo ?? incoming?.senderId ?? checkpoint.participantId,
+            lifecycleState: {
+              operationId: checkpoint.operationId,
+              actions: resumed.actions,
+              context,
+              storedMessageId: checkpoint.runtimeResume.incomingMessageId,
+            },
           },
+          runtimeResult,
         );
         if (
           runtimeResult.kind === 'pending_approval' ||
@@ -1399,12 +1469,14 @@ export class MessageRouter implements MessageRouterPort {
           actions,
         }),
       );
-      return this.handleRuntimeResult(
+      return this.completeResponse(
+        {
+          thread,
+          recipientId: participant.id,
+          responseRecipientId: incoming.replyTo ?? incoming.senderId,
+          lifecycleState: { operationId, actions, context, storedMessageId: incoming.id },
+        },
         result,
-        thread,
-        participant.id,
-        incoming.replyTo ?? incoming.senderId,
-        { operationId, actions, context, storedMessageId: incoming.id },
       );
     } catch {
       if (providerClaimed) return approvals!.markProviderExecutionUnknown(approvalId);
@@ -1445,7 +1517,17 @@ export class MessageRouter implements MessageRouterPort {
       }
 
       const runtime = this.registry.build(participant.type, participant.id);
-      const runtimeContext = this.buildRuntimeContext(thread, participant.id, toolContext, 0);
+      const lifecycleState = {
+        operationId: createId('route'),
+        actions: [] as MiddlewareActionResult[],
+        context: toolContext,
+        storedMessageId: lastIncoming.id,
+      };
+      const runtimeContext = this.buildRuntimeContext(thread, participant.id, toolContext, 0, {
+        operationId: lifecycleState.operationId,
+        incomingMessageId: lastIncoming.id,
+        actions: lifecycleState.actions,
+      });
       const opts: SendOptions = {
         senderId: lastIncoming.senderId,
         recipientId: participant.id,
@@ -1455,47 +1537,48 @@ export class MessageRouter implements MessageRouterPort {
         context: toolContext,
       };
 
-      const task = this.dispatchAsync(runtime, lastIncoming, runtimeContext, thread, opts, {
-        operationId: createId('route'),
-        actions: [],
-        context: toolContext,
-      });
+      const task = this.dispatchAsync(
+        runtime,
+        lastIncoming,
+        runtimeContext,
+        thread,
+        opts,
+        lifecycleState,
+      );
       this.background.add(task);
       void task.finally(() => this.background.delete(task)).catch(() => undefined);
       return { conversationId: thread.id, status: 'dispatched' };
     });
   }
 
-  private async handleRuntimeResult(
+  private async completeResponse(
+    operation: ResponseOperation,
     result: RuntimeResult,
-    thread: ConversationThread,
-    senderId: string,
-    defaultRecipientId: string,
-    lifecycleState?: {
-      operationId: string;
-      actions: MiddlewareActionResult[];
-      context: ToolContext;
-      storedMessageId?: string;
-    },
   ): Promise<MessageRouterResult> {
-    lifecycleState = this.withRuntimeActions(lifecycleState, result);
+    const lifecycleState = this.withRuntimeActions(operation.lifecycleState, result);
     if (result.kind === 'response') {
-      return this.persistResponse(thread, senderId, defaultRecipientId, result, lifecycleState);
+      return this.persistResponse(
+        operation.thread,
+        operation.recipientId,
+        operation.responseRecipientId,
+        result,
+        lifecycleState,
+      );
     }
     if (result.kind === 'pending_approval') {
       return {
-        conversationId: thread.id,
+        conversationId: operation.thread.id,
         status: 'pending_approval',
         approvalRequests: result.approvalRequests,
       };
     }
     if (result.kind === 'middleware_pending') {
       return {
-        conversationId: thread.id,
+        conversationId: operation.thread.id,
         status: 'pending_approval',
         approvalId: result.approvalId,
         checkpointId: result.checkpointId,
-        pendingParticipantId: senderId,
+        pendingParticipantId: operation.recipientId,
         approvalRequests: lifecycleState
           ? this.approvalRequests(lifecycleState.context, result.approvalId)
           : [],
@@ -1506,7 +1589,7 @@ export class MessageRouter implements MessageRouterPort {
     }
     if (result.kind === 'middleware_abort') {
       return {
-        conversationId: thread.id,
+        conversationId: operation.thread.id,
         status: 'error',
         error: result.error,
         ...(lifecycleState?.storedMessageId === undefined
@@ -1515,7 +1598,7 @@ export class MessageRouter implements MessageRouterPort {
       };
     }
     // kind === 'void'
-    return { conversationId: thread.id, status: 'success' };
+    return { conversationId: operation.thread.id, status: 'success' };
   }
 
   private async dispatchAsync(
@@ -1540,25 +1623,25 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(inbound, backgroundContext);
-      if (result.kind !== 'response') return;
-      lifecycleState = this.withRuntimeActions(lifecycleState, result);
-      const replyTarget = opts.replyTo!;
-      await this.persistResponse(
-        backgroundThread,
-        opts.recipientId,
-        replyTarget,
+      await this.completeResponse(
+        {
+          thread: backgroundThread,
+          recipientId: opts.recipientId,
+          responseRecipientId: opts.replyTo!,
+          lifecycleState,
+        },
         result,
-        lifecycleState,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const replyTarget = opts.replyTo!;
-      await this.persistResponse(
-        backgroundThread,
-        opts.recipientId,
-        replyTarget,
-        { content: `[Runtime error: ${msg}]` },
-        lifecycleState,
+      await this.completeResponse(
+        {
+          thread: backgroundThread,
+          recipientId: opts.recipientId,
+          responseRecipientId: opts.replyTo!,
+          lifecycleState,
+        },
+        { kind: 'response', content: `[Runtime error: ${msg}]` },
       );
     }
   }
