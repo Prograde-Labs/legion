@@ -26,10 +26,16 @@ import {
   setParticipantMiddlewareTool,
   managementTools,
 } from './management-tools.js';
-import type { AgentConfig, MessageUsage, MiddlewareInstanceConfig } from '@legion/types';
+import type {
+  AgentConfig,
+  ConversationData,
+  MessageUsage,
+  MiddlewareInstanceConfig,
+} from '@legion/types';
 import type { ToolContext } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';
+import type { ConversationStore } from '../conversation/ConversationStore.js';
 
 async function makeContext() {
   const storage = new MemoryStorage();
@@ -456,12 +462,7 @@ describe('management tools', () => {
   });
 
   it('get_conversation returns detached middleware provenance, parent link, and state', async () => {
-    const { context, conversationStore } = await makeContext();
-    const parent = await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
+    const { context } = await makeContext();
     const origin = {
       kind: 'middleware' as const,
       participantId: 'operator',
@@ -469,21 +470,32 @@ describe('management tools', () => {
       parentConversationId: 'origin-parent',
       parentMessageId: 'origin-message',
     };
+    const titles = { operator: 'Operator title', other: 'Other title' };
     const middlewareState = { operator: { audit: { enabled: true } } };
-    const conversation = await conversationStore.create({
+    const conversation: ConversationData = {
+      id: 'conv-stable',
       schemaVersion: '2.0',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
       activeBranchHead: '',
       messages: {},
       title: 'Shared title',
-      titles: { operator: 'Operator title', other: 'Other title' },
+      titles,
       status: 'archived',
       tags: ['important'],
       origin,
-      parentConversationId: parent.id,
+      parentConversationId: 'legacy-parent',
       middlewareState,
-    });
+    };
+    const stableStore = {
+      load: vi.fn().mockResolvedValue(conversation),
+      listByParent: vi.fn().mockResolvedValue([]),
+    } as unknown as ConversationStore;
 
-    const result = await getConversationTool.execute({ conversationId: conversation.id }, context);
+    const result = await getConversationTool.execute({ conversationId: conversation.id }, {
+      ...context,
+      conversationStore: stableStore,
+    } as ToolContext);
 
     expect(result.status).toBe('success');
     expect(result.data).toEqual(
@@ -494,20 +506,24 @@ describe('management tools', () => {
         status: 'archived',
         tags: ['important'],
         origin,
-        parentConversationId: parent.id,
+        parentConversationId: 'legacy-parent',
         middlewareState,
       }),
     );
 
     const data = result.data as {
-      origin: { participantId?: string };
-      middlewareState: { operator: { audit: { enabled: boolean } } };
+      origin: object;
+      titles: object;
+      middlewareState: { operator: { audit: object } };
     };
-    data.origin.participantId = 'mutated';
-    data.middlewareState.operator.audit.enabled = false;
-    expect(await conversationStore.load(conversation.id)).toEqual(
-      expect.objectContaining({ origin, middlewareState }),
-    );
+    expect(data.origin).toEqual(origin);
+    expect(data.origin).not.toBe(origin);
+    expect(data.titles).toEqual(titles);
+    expect(data.titles).not.toBe(titles);
+    expect(data.middlewareState).toEqual(middlewareState);
+    expect(data.middlewareState).not.toBe(middlewareState);
+    expect(data.middlewareState.operator).not.toBe(middlewareState.operator);
+    expect(data.middlewareState.operator.audit).not.toBe(middlewareState.operator.audit);
   });
 
   it('get_conversation returns superseded siblings as alternates', async () => {

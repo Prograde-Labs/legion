@@ -781,11 +781,16 @@ export const getConversationTool: Tool = {
         id: conversation.id,
         title: resolveConversationTitle(conversation, context.participant.id),
         sharedTitle: conversation.title,
-        titles: conversation.titles,
+        titles:
+          conversation.titles === undefined ? undefined : structuredClone(conversation.titles),
         status: getConversationStatus(conversation),
         tags: conversation.tags ?? [],
-        origin: conversation.origin,
-        middlewareState: conversation.middlewareState,
+        origin:
+          conversation.origin === undefined ? undefined : structuredClone(conversation.origin),
+        middlewareState:
+          conversation.middlewareState === undefined
+            ? undefined
+            : structuredClone(conversation.middlewareState),
         messages: withAlternates(conversation.messages, chain),
         parentConversationId: conversation.parentConversationId,
         parentToolCallId: conversation.parentToolCallId,
