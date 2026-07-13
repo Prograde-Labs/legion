@@ -5,6 +5,7 @@ import type {
   WorkspaceConfig,
   StreamChunk,
   LLMChunk,
+  ConversationOrigin,
 } from '@legion/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
@@ -30,6 +31,7 @@ export interface MessageRouterPort {
     message: string;
     conversationId?: string;
     replyTo?: string;
+    origin?: ConversationOrigin;
     context: ToolContext;
   }): Promise<MessageRouterResult>;
 
@@ -59,6 +61,7 @@ export interface MessageRouterPort {
     message: string;
     conversationId?: string;
     replyTo?: string;
+    origin?: ConversationOrigin;
     context: ToolContext;
   }): AsyncGenerator<LLMChunk, MessageRouterResult>;
 }

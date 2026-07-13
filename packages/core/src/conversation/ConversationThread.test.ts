@@ -112,6 +112,42 @@ describe('ConversationThread', () => {
     expect((await store.load(data.id))?.middlewareState).toEqual(thread.data.middlewareState);
   });
 
+  it('reactivates an archived conversation in the same mutation that appends', async () => {
+    const data = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+    });
+    const thread = new ConversationThread(data, store);
+    const mutate = vi.spyOn(store, 'mutate');
+
+    await thread.append(
+      { senderId: 'u', recipientId: 'a', role: 'user', content: 'wake up' },
+      { reactivate: true },
+    );
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(thread.data.status).toBe('active');
+    expect(thread.activeChain.map((message) => message.content)).toEqual(['wake up']);
+    expect((await store.load(data.id))?.status).toBe('active');
+  });
+
+  it('does not reactivate an archived conversation for middleware state writes', async () => {
+    const data = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+    });
+    const thread = new ConversationThread(data, store);
+
+    await thread.updateMiddlewareState('operator', 'instance', { state: 'stored' });
+
+    expect(thread.data.status).toBe('archived');
+    expect((await store.load(data.id))?.status).toBe('archived');
+  });
+
   it('preserves fresh conversation data when updating tool results', async () => {
     const data = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     const thread = new ConversationThread(data, store);

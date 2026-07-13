@@ -11,7 +11,7 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
-import type { LLMChunk } from '@legion/types';
+import type { ConversationOrigin, LLMChunk } from '@legion/types';
 import type { ToolContext } from '../tools/Tool.js';
 
 async function setup(dir: string) {
@@ -190,6 +190,92 @@ describe('MessageRouter: synchronous send', () => {
     const conv = await store.load(result.conversationId);
     expect(conv?.parentConversationId).toBeUndefined();
     expect(conv?.parentToolCallId).toBeUndefined();
+  });
+
+  it('reactivates an archived conversation with the inbound append atomically', async () => {
+    const { router, baseContext, store, eventBus } = await setup(dir);
+    const archived = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+    });
+    const transitions: Parameters<Parameters<typeof eventBus.on<'conversation:updated'>>[1]>[0][] =
+      [];
+    eventBus.on('conversation:updated', (event) => transitions.push(event));
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'wake up',
+      conversationId: archived.id,
+      context: baseContext,
+    });
+
+    const wakeTransitions = transitions.filter((event) => event.before.status === 'archived');
+    expect(wakeTransitions).toHaveLength(1);
+    expect(wakeTransitions[0]).toMatchObject({
+      conversationId: archived.id,
+      before: { status: 'archived', participants: [] },
+      after: { status: 'active', participants: ['op', 'mock-1'] },
+    });
+    const conversation = await store.load(archived.id);
+    expect(conversation?.status).toBe('active');
+    expect(
+      Object.values(conversation?.messages ?? {}).some((message) => message.content === 'wake up'),
+    ).toBe(true);
+  });
+
+  it('persists explicit origin intact and mirrors its parent links on creation', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const parent = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+    const origin: ConversationOrigin = {
+      kind: 'middleware',
+      participantId: 'op',
+      middlewareInstanceId: 'instance-1',
+      parentConversationId: parent.id,
+      parentMessageId: 'message-1',
+      parentToolCallId: 'origin-call',
+    };
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'start child',
+      origin,
+      context: {
+        ...baseContext,
+        conversationId: parent.id,
+        toolCallId: 'context-call',
+      },
+    });
+
+    const conversation = await store.load(result.conversationId);
+    expect(conversation?.origin).toEqual(origin);
+    expect(conversation?.parentConversationId).toBe(parent.id);
+    expect(conversation?.parentToolCallId).toBe('origin-call');
+  });
+
+  it('does not overwrite origin when sending into an existing conversation', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const originalOrigin: ConversationOrigin = { kind: 'participant', participantId: 'op' };
+    const existing = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      origin: originalOrigin,
+    });
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'continue',
+      conversationId: existing.id,
+      origin: { kind: 'middleware', middlewareInstanceId: 'ignored' },
+      context: baseContext,
+    });
+
+    expect((await store.load(existing.id))?.origin).toEqual(originalOrigin);
   });
 });
 
@@ -835,6 +921,37 @@ describe('MessageRouter.sendStream()', () => {
     expect(responseMsg).toBeDefined();
     expect(responseMsg!.senderId).toBe('mock-1');
     expect(responseMsg!.recipientId).toBe('op');
+  });
+
+  it('reactivates an archived conversation with the streaming inbound append', async () => {
+    const { router, baseContext, store, eventBus } = await setup(dir);
+    const archived = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+    });
+    const transitions: Parameters<Parameters<typeof eventBus.on<'conversation:updated'>>[1]>[0][] =
+      [];
+    eventBus.on('conversation:updated', (event) => transitions.push(event));
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'stream wake',
+      conversationId: archived.id,
+      context: baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+
+    const wakeTransitions = transitions.filter((event) => event.before.status === 'archived');
+    expect(wakeTransitions).toHaveLength(1);
+    expect(wakeTransitions[0]?.after).toMatchObject({
+      status: 'active',
+      participants: ['op', 'mock-1'],
+    });
+    expect((await store.load(archived.id))?.status).toBe('active');
   });
 });
 

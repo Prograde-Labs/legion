@@ -6,7 +6,7 @@ import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../too
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
-import type { MessageUsage, LLMChunk } from '@legion/types';
+import type { ConversationOrigin, MessageUsage, LLMChunk } from '@legion/types';
 
 export interface SendOptions {
   senderId: string;
@@ -14,6 +14,7 @@ export interface SendOptions {
   message: string;
   conversationId?: string;
   replyTo?: string;
+  origin?: ConversationOrigin;
   context: ToolContext;
 }
 
@@ -58,7 +59,11 @@ export class MessageRouter implements MessageRouterPort {
 
   private async getThread(
     conversationId?: string,
-    parent?: { parentConversationId: string; parentToolCallId?: string },
+    creation?: {
+      parentConversationId?: string;
+      parentToolCallId?: string;
+      origin?: ConversationOrigin;
+    },
   ): Promise<ConversationThread> {
     if (conversationId) {
       const existing = await this.store.load(conversationId);
@@ -68,8 +73,10 @@ export class MessageRouter implements MessageRouterPort {
       schemaVersion: '2.0',
       activeBranchHead: '',
       messages: {},
-      parentConversationId: parent?.parentConversationId,
-      parentToolCallId: parent?.parentToolCallId,
+      parentConversationId:
+        creation?.origin?.parentConversationId ?? creation?.parentConversationId,
+      parentToolCallId: creation?.origin?.parentToolCallId ?? creation?.parentToolCallId,
+      origin: creation?.origin,
     });
     return new ConversationThread(created, this.store);
   }
@@ -151,23 +158,29 @@ export class MessageRouter implements MessageRouterPort {
       };
     }
 
-    const parentConvId = opts.context.conversationId;
-    const parentLink =
-      !opts.conversationId && parentConvId && parentConvId !== ''
-        ? {
-            parentConversationId: parentConvId,
-            parentToolCallId: opts.context.toolCallId as string | undefined,
-          }
-        : undefined;
-    const thread = await this.getThread(opts.conversationId, parentLink);
+    const parentConversationId = opts.context.conversationId || undefined;
+    const parentToolCallId = opts.context.toolCallId;
+    const origin: ConversationOrigin = opts.origin ?? {
+      kind: parentToolCallId ? 'tool' : 'participant',
+      participantId: opts.senderId,
+      parentConversationId,
+      parentToolCallId,
+    };
+    const thread = await this.getThread(
+      opts.conversationId,
+      opts.conversationId ? undefined : { parentConversationId, parentToolCallId, origin },
+    );
 
-    const inbound = await thread.append({
-      senderId: opts.senderId,
-      recipientId: opts.recipientId,
-      role: 'user',
-      content: opts.message,
-      replyTo: opts.replyTo,
-    });
+    const inbound = await thread.append(
+      {
+        senderId: opts.senderId,
+        recipientId: opts.recipientId,
+        role: 'user',
+        content: opts.message,
+        replyTo: opts.replyTo,
+      },
+      { reactivate: true },
+    );
     this.eventBus.emit('message:sent', {
       conversationId: thread.id,
       senderId: opts.senderId,
@@ -255,23 +268,29 @@ export class MessageRouter implements MessageRouterPort {
 
     // When no explicit conversationId is provided, create a new conversation.
     // If the caller is itself in a real conversation, stamp the parent link.
-    const parentConvId = opts.context.conversationId;
-    const parentLink =
-      !opts.conversationId && parentConvId && parentConvId !== ''
-        ? {
-            parentConversationId: parentConvId,
-            parentToolCallId: opts.context.toolCallId as string | undefined,
-          }
-        : undefined;
-    const thread = await this.getThread(opts.conversationId, parentLink);
+    const parentConversationId = opts.context.conversationId || undefined;
+    const parentToolCallId = opts.context.toolCallId;
+    const origin: ConversationOrigin = opts.origin ?? {
+      kind: parentToolCallId ? 'tool' : 'participant',
+      participantId: opts.senderId,
+      parentConversationId,
+      parentToolCallId,
+    };
+    const thread = await this.getThread(
+      opts.conversationId,
+      opts.conversationId ? undefined : { parentConversationId, parentToolCallId, origin },
+    );
 
-    const inbound = await thread.append({
-      senderId: opts.senderId,
-      recipientId: opts.recipientId,
-      role: 'user',
-      content: opts.message,
-      replyTo: opts.replyTo,
-    });
+    const inbound = await thread.append(
+      {
+        senderId: opts.senderId,
+        recipientId: opts.recipientId,
+        role: 'user',
+        content: opts.message,
+        replyTo: opts.replyTo,
+      },
+      { reactivate: true },
+    );
     this.eventBus.emit('message:sent', {
       conversationId: thread.id,
       senderId: opts.senderId,

@@ -2,6 +2,7 @@ import type { ConversationData, JSONValue, MessageData, ToolCallResult } from '@
 import { ConversationNotFoundError } from '../errors/LegionError.js';
 import type { ConversationStore } from './ConversationStore.js';
 import { appendMessage, getActiveChain, type NewMessageInput } from './conversation-ops.js';
+import { getConversationStatus } from './conversation-metadata.js';
 
 export type AppendGuard = <T>(thread: ConversationThread, append: () => Promise<T>) => Promise<T>;
 
@@ -24,11 +25,15 @@ export class ConversationThread {
     return this.data.activeBranchHead ? this.data.messages[this.data.activeBranchHead] : undefined;
   }
 
-  async append(input: NewMessageInput): Promise<MessageData> {
+  async append(input: NewMessageInput, options?: { reactivate?: boolean }): Promise<MessageData> {
     const doAppend = async () => {
-      const result = await this.store.mutate(this.data.id, (conversation) =>
-        appendMessage(conversation, input),
-      );
+      const result = await this.store.mutate(this.data.id, (conversation) => {
+        const current =
+          options?.reactivate && getConversationStatus(conversation) === 'archived'
+            ? { ...conversation, status: 'active' as const }
+            : conversation;
+        return appendMessage(current, input);
+      });
       this.data = result.after;
       return this.data.messages[this.data.activeBranchHead];
     };
