@@ -577,6 +577,7 @@ export class AgentRuntime implements Runtime {
         ...context,
         toolCallId: tr.id,
       });
+      if (context.signal?.aborted) return stillPending;
       updatedResults[i] = { ...tr, result };
       context.eventBus.emit('approval:resolved', {
         conversationId: context.conversationId,
@@ -589,6 +590,8 @@ export class AgentRuntime implements Runtime {
     if (stillPending.length > 0) {
       return stillPending;
     }
+
+    if (context.signal?.aborted) return stillPending;
 
     // All resolved — update the conversation message in place.
     await (context.conversation as ConversationThread).updateToolResults(

@@ -404,6 +404,13 @@ export class MessageRouter implements MessageRouterPort {
     opts: SendOptions,
     ensureLock: (conversationId: string) => Promise<void>,
   ): AsyncGenerator<LLMChunk, MessageRouterResult> {
+    if (opts.context.signal?.aborted) {
+      return {
+        conversationId: opts.conversationId ?? '',
+        status: 'error',
+        error: 'Runtime cancelled',
+      };
+    }
     if (!this.collective.get(opts.senderId)) {
       return {
         conversationId: opts.conversationId ?? '',
@@ -455,7 +462,7 @@ export class MessageRouter implements MessageRouterPort {
         content: opts.message,
         replyTo: opts.replyTo,
       },
-      { reactivate: true },
+      { reactivate: true, signal: opts.context.signal },
     );
     this.eventBus.emit('message:sent', {
       conversationId: thread.id,
@@ -493,10 +500,12 @@ export class MessageRouter implements MessageRouterPort {
     if (opts.replyTo) {
       const task = this.dispatchAsync(runtime, inbound, runtimeContext, thread, opts);
       this.background.add(task);
-      void task.finally(() => {
-        this.background.delete(task);
-        streamAbort.dispose();
-      });
+      void task
+        .finally(() => {
+          this.background.delete(task);
+          streamAbort.dispose();
+        })
+        .catch(() => undefined);
       return { conversationId: thread.id, status: 'dispatched' };
     }
 
@@ -747,7 +756,7 @@ export class MessageRouter implements MessageRouterPort {
         lifecycleState,
       );
       this.background.add(task);
-      void task.finally(() => this.background.delete(task));
+      void task.finally(() => this.background.delete(task)).catch(() => undefined);
       return { conversationId: thread.id, status: 'dispatched' };
     }
 
@@ -861,7 +870,7 @@ export class MessageRouter implements MessageRouterPort {
         context: toolContext,
       });
       this.background.add(task);
-      void task.finally(() => this.background.delete(task));
+      void task.finally(() => this.background.delete(task)).catch(() => undefined);
       return { conversationId: thread.id, status: 'dispatched' };
     });
   }

@@ -55,17 +55,22 @@ export class ConversationThread {
    * swap pending_approval results with resolved outcomes after an approval decision.
    */
   async updateToolResults(messageId: string, toolResults: ToolCallResult[]): Promise<void> {
-    const result = await this.store.mutate(this.data.id, (conversation) => {
-      const message = conversation.messages[messageId];
-      if (!message) throw new ConversationNotFoundError(conversation.id, messageId);
-      return {
-        ...conversation,
-        messages: {
-          ...conversation.messages,
-          [messageId]: { ...message, toolResults },
-        },
-      };
-    });
+    this.throwIfAborted('tool result update');
+    const result = await this.store.mutate(
+      this.data.id,
+      (conversation) => {
+        const message = conversation.messages[messageId];
+        if (!message) throw new ConversationNotFoundError(conversation.id, messageId);
+        return {
+          ...conversation,
+          messages: {
+            ...conversation.messages,
+            [messageId]: { ...message, toolResults },
+          },
+        };
+      },
+      { signal: this.appendSignal },
+    );
     this.data = result.after;
   }
 
@@ -74,21 +79,31 @@ export class ConversationThread {
     instanceId: string,
     value: JSONValue,
   ): Promise<void> {
-    const result = await this.store.mutate(this.data.id, (conversation) => ({
-      ...conversation,
-      middlewareState: {
-        ...conversation.middlewareState,
-        [participantId]: {
-          ...conversation.middlewareState?.[participantId],
-          [instanceId]: structuredClone(value),
+    this.throwIfAborted('middleware state update');
+    const result = await this.store.mutate(
+      this.data.id,
+      (conversation) => ({
+        ...conversation,
+        middlewareState: {
+          ...conversation.middlewareState,
+          [participantId]: {
+            ...conversation.middlewareState?.[participantId],
+            [instanceId]: structuredClone(value),
+          },
         },
-      },
-    }));
+      }),
+      { signal: this.appendSignal },
+    );
     this.data = result.after;
   }
 
   async reload(): Promise<void> {
+    this.throwIfAborted('reload');
     const fresh = await this.store.load(this.data.id);
     if (fresh) this.data = fresh;
+  }
+
+  private throwIfAborted(operation: string): void {
+    if (this.appendSignal?.aborted) throw new Error(`Conversation ${operation} aborted`);
   }
 }

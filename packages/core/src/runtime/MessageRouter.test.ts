@@ -1962,6 +1962,29 @@ describe('MessageRouter: middleware response streaming', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('rejects an already-aborted stream before creating or appending a conversation', async () => {
+    const { router, baseContext, eventBus } = await setup(dir);
+    const controller = new AbortController();
+    controller.abort();
+    let created = 0;
+    let sent = 0;
+    eventBus.on('conversation:created', () => (created += 1));
+    eventBus.on('message:sent', () => (sent += 1));
+
+    await expect(
+      router
+        .sendStream({
+          senderId: 'op',
+          recipientId: 'mock-1',
+          message: 'cancelled',
+          context: { ...baseContext, signal: controller.signal },
+        })
+        .next(),
+    ).resolves.toMatchObject({ done: true, value: { status: 'error' } });
+    expect(created).toBe(0);
+    expect(sent).toBe(0);
+  });
+
   it('transforms provisional deltas, runs one final draft pass, and persists final draft', async () => {
     const hooks: { final: boolean; iteration?: number; chunk?: LLMChunk }[] = [];
     const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
