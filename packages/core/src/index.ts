@@ -64,3 +64,4 @@ export * from './process/process-tools.js';
 export * from './middleware/MiddlewareRegistry.js';
 export * from './middleware/loadWorkspaceMiddleware.js';
 export * from './middleware/json.js';
+export * from './middleware/MiddlewareRunner.js';
