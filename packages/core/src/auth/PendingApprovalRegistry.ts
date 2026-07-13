@@ -214,7 +214,51 @@ function validateDraft(value: unknown, path: string): void {
   }
 }
 
-function validateMessage(value: unknown, path: string): Record<string, unknown> {
+function validateJsonObject(value: unknown, path: string): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`Value at ${path} must be a non-array object`);
+  }
+  assertNoAliases(value, path);
+}
+
+function validateStringArray(value: unknown, path: string): void {
+  if (!Array.isArray(value)) throw new TypeError(`Value at ${path} must be an array`);
+  for (let index = 0; index < value.length; index += 1) {
+    requiredString(value[index], `${path}[${index}]`);
+  }
+  assertNoAliases(value, path);
+}
+
+function validateUsage(value: unknown, path: string): void {
+  const usage = exactObject(value, path, [
+    'input',
+    'output',
+    'reasoning',
+    'cache',
+    'cost',
+    'modelId',
+    'providerId',
+  ]);
+  for (const field of ['input', 'output', 'reasoning', 'cost']) {
+    if (typeof usage[field] !== 'number' || !Number.isFinite(usage[field])) {
+      throw new TypeError(`Value at ${path}.${field} must be a finite number`);
+    }
+  }
+  const cache = exactObject(usage.cache, `${path}.cache`, ['read', 'write']);
+  for (const field of ['read', 'write']) {
+    if (typeof cache[field] !== 'number' || !Number.isFinite(cache[field])) {
+      throw new TypeError(`Value at ${path}.cache.${field} must be a finite number`);
+    }
+  }
+  requiredString(usage.modelId, `${path}.modelId`);
+  requiredString(usage.providerId, `${path}.providerId`);
+}
+
+function validateMessage(
+  value: unknown,
+  path: string,
+  conversationId: string,
+): Record<string, unknown> {
   const message = exactObject(
     value,
     path,
@@ -243,23 +287,67 @@ function validateMessage(value: unknown, path: string): Record<string, unknown> 
       'prunedBy',
     ],
   );
-  for (const field of [
-    'id',
-    'conversationId',
-    'senderId',
-    'recipientId',
-    'content',
-    'status',
-    'timestamp',
-  ]) {
+  for (const field of ['id', 'conversationId', 'senderId', 'recipientId']) {
     requiredString(message[field], `${path}.${field}`);
   }
+  if (message.conversationId !== conversationId) {
+    throw new TypeError(`Value at ${path}.conversationId must match checkpoint conversationId`);
+  }
+  if (typeof message.content !== 'string')
+    throw new TypeError(`Value at ${path}.content must be a string`);
+  requiredIsoString(message.timestamp, `${path}.timestamp`);
   if (message.parentId !== null && typeof message.parentId !== 'string') {
     throw new TypeError(`Value at ${path}.parentId must be string or null`);
   }
-  if (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'tool') {
+  if (typeof message.parentId === 'string') requiredString(message.parentId, `${path}.parentId`);
+  if (message.role !== 'user' && message.role !== 'assistant') {
     throw new TypeError(`Value at ${path}.role is invalid`);
   }
+  if (!['active', 'superseded', 'pruned', 'compacted'].includes(message.status as string)) {
+    throw new TypeError(`Value at ${path}.status is invalid`);
+  }
+  if (message.replyTo !== undefined) requiredString(message.replyTo, `${path}.replyTo`);
+  if (message.reasoning !== undefined && typeof message.reasoning !== 'string') {
+    throw new TypeError(`Value at ${path}.reasoning must be a string`);
+  }
+  if (message.type !== undefined && message.type !== 'message' && message.type !== 'summary') {
+    throw new TypeError(`Value at ${path}.type is invalid`);
+  }
+  if (message.toolCalls !== undefined) {
+    if (!Array.isArray(message.toolCalls))
+      throw new TypeError(`Value at ${path}.toolCalls must be an array`);
+    for (let index = 0; index < message.toolCalls.length; index += 1) {
+      const call = exactObject(message.toolCalls[index], `${path}.toolCalls[${index}]`, [
+        'id',
+        'name',
+        'arguments',
+      ]);
+      requiredString(call.id, `${path}.toolCalls[${index}].id`);
+      requiredString(call.name, `${path}.toolCalls[${index}].name`);
+      validateJsonObject(call.arguments, `${path}.toolCalls[${index}].arguments`);
+    }
+  }
+  if (message.toolResults !== undefined) {
+    if (!Array.isArray(message.toolResults)) {
+      throw new TypeError(`Value at ${path}.toolResults must be an array`);
+    }
+    for (let index = 0; index < message.toolResults.length; index += 1) {
+      const result = exactObject(message.toolResults[index], `${path}.toolResults[${index}]`, [
+        'id',
+        'name',
+        'result',
+      ]);
+      requiredString(result.id, `${path}.toolResults[${index}].id`);
+      requiredString(result.name, `${path}.toolResults[${index}].name`);
+      validateToolResult(result.result, `${path}.toolResults[${index}].result`);
+    }
+  }
+  if (message.usage !== undefined) validateUsage(message.usage, `${path}.usage`);
+  for (const field of ['editOf', 'supersededBy', 'prunedBy']) {
+    if (message[field] !== undefined) requiredString(message[field], `${path}.${field}`);
+  }
+  if (message.compacts !== undefined) validateStringArray(message.compacts, `${path}.compacts`);
+  if (message.prunedAt !== undefined) requiredIsoString(message.prunedAt, `${path}.prunedAt`);
   assertNoAliases(message, path);
   return message;
 }
@@ -268,6 +356,12 @@ function validateToolResult(value: unknown, path: string): void {
   const result = exactObject(value, path, ['status'], ['data', 'error', 'approvalId', 'message']);
   if (!['success', 'error', 'pending_approval', 'rejected'].includes(result.status as string)) {
     throw new TypeError(`Value at ${path}.status is invalid`);
+  }
+  if (result.data !== undefined) assertNoAliases(result.data, `${path}.data`);
+  for (const field of ['error', 'approvalId', 'message']) {
+    if (result[field] !== undefined && typeof result[field] !== 'string') {
+      throw new TypeError(`Value at ${path}.${field} must be a string`);
+    }
   }
   assertNoAliases(result, path);
 }
@@ -312,6 +406,11 @@ function validateRuntimeResume(
     throw new TypeError(`Value at ${path}.participantId must match checkpoint participantId`);
   }
   requiredString(resume.incomingMessageId, `${path}.incomingMessageId`);
+  if (resume.incomingMessageId !== checkpoint.persistedMessageId) {
+    throw new TypeError(
+      `Value at ${path}.incomingMessageId must match checkpoint persistedMessageId`,
+    );
+  }
   requiredInteger(resume.iteration, `${path}.iteration`);
   requiredString(resume.preparedPrompt, `${path}.preparedPrompt`);
   if (requiredInteger(resume.actionCursor, `${path}.actionCursor`) !== checkpoint.actionCursor) {
@@ -424,7 +523,11 @@ function validateCheckpoint(value: unknown): void {
         );
       }
     }
-    const message = validateMessage(checkpoint.message, '$.continuation.checkpoint.message');
+    const message = validateMessage(
+      checkpoint.message,
+      '$.continuation.checkpoint.message',
+      checkpoint.conversationId as string,
+    );
     if (checkpoint.mode !== 'pre_runtime' && checkpoint.mode !== 'post_response') {
       throw new TypeError('Value at $.continuation.checkpoint.mode is invalid');
     }
@@ -459,7 +562,11 @@ function validateCheckpoint(value: unknown): void {
         throw new TypeError(`Value at $.continuation.checkpoint.${field} is invalid for afterSend`);
       }
     }
-    const message = validateMessage(checkpoint.message, '$.continuation.checkpoint.message');
+    const message = validateMessage(
+      checkpoint.message,
+      '$.continuation.checkpoint.message',
+      checkpoint.conversationId as string,
+    );
     if (checkpoint.persistedMessageId !== message.id) {
       throw new TypeError(
         'Value at $.continuation.checkpoint.persistedMessageId must match message.id',

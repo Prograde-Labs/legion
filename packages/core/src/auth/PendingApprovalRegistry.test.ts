@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { PendingApprovalRegistry } from './PendingApprovalRegistry.js';
-import type { MiddlewareCheckpoint } from '@legion/types';
+import type { MessageData, MiddlewareCheckpoint } from '@legion/types';
 
 function checkpoint(): MiddlewareCheckpoint {
   return {
@@ -25,6 +25,51 @@ function checkpoint(): MiddlewareCheckpoint {
     observedHead: 'message-1',
     createdAt: '2026-01-01T00:00:00.000Z',
   };
+}
+
+function fullMessage(): MessageData {
+  return {
+    id: 'message-1',
+    parentId: null,
+    conversationId: 'c1',
+    senderId: 'agent-b',
+    recipientId: 'operator',
+    replyTo: 'operator',
+    role: 'assistant',
+    content: 'hello',
+    reasoning: 'because',
+    type: 'message',
+    status: 'active',
+    toolCalls: [{ id: 'call-1', name: 'file_write', arguments: { path: 'x' } }],
+    toolResults: [
+      { id: 'call-1', name: 'file_write', result: { status: 'success', data: { ok: true } } },
+    ],
+    usage: {
+      input: 1,
+      output: 2,
+      reasoning: 3,
+      cache: { read: 4, write: 5 },
+      cost: 0.01,
+      modelId: 'test-model',
+      providerId: 'test-provider',
+    },
+    timestamp: '2026-01-01T00:00:00.000Z',
+    editOf: 'message-0',
+    supersededBy: 'message-2',
+    compacts: ['message-0'],
+    prunedAt: '2026-01-01T00:01:00.000Z',
+    prunedBy: 'operator',
+  };
+}
+
+function afterSendCheckpoint(message = fullMessage()): MiddlewareCheckpoint {
+  const value = checkpoint();
+  value.phase = 'afterSend';
+  delete (value as Partial<MiddlewareCheckpoint>).draft;
+  delete (value as Partial<MiddlewareCheckpoint>).final;
+  value.message = message;
+  value.persistedMessageId = message.id;
+  return value;
 }
 
 describe('PendingApprovalRegistry (in-memory)', () => {
@@ -348,6 +393,58 @@ describe('PendingApprovalRegistry continuations', () => {
         continuation: { kind: 'middleware', checkpoint: prompt },
       }),
     ).rejects.toThrow(/runtimeResume.*participantId/i);
+    prompt.runtimeResume.participantId = 'agent-b';
+    prompt.runtimeResume.incomingMessageId = 'different-message';
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: prompt },
+      }),
+    ).rejects.toThrow(/incomingMessageId.*persistedMessageId/i);
     expect(reg.listPending()).toEqual([]);
+  });
+
+  it.each([
+    ['tool role', (message: MessageData) => ({ ...message, role: 'tool' })],
+    ['invalid status', (message: MessageData) => ({ ...message, status: 'deleted' })],
+    [
+      'malformed tool result',
+      (message: MessageData) => ({
+        ...message,
+        toolResults: [
+          { id: 'call-1', name: 'file_write', result: { status: 'success', error: 1 } },
+        ],
+      }),
+    ],
+  ])('rejects checkpoint messages with %s', async (_name, mutate) => {
+    const reg = new PendingApprovalRegistry();
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: {
+          kind: 'middleware',
+          checkpoint: afterSendCheckpoint(mutate(fullMessage())),
+        },
+      }),
+    ).rejects.toThrow(/role|status|error/i);
+  });
+
+  it('accepts a complete typed persisted message checkpoint', async () => {
+    const reg = new PendingApprovalRegistry();
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: afterSendCheckpoint() },
+      }),
+    ).resolves.toEqual({ approvalId: expect.stringMatching(/^appr-/) });
   });
 });
