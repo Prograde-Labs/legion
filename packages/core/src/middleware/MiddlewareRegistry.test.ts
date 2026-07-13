@@ -80,6 +80,41 @@ describe('MiddlewareRegistry', () => {
     expect(registry.get('new')).toBeUndefined();
   });
 
+  it('does not overwrite a registration inserted reentrantly during batch preparation', () => {
+    const registry = new MiddlewareRegistry();
+    let reentered = false;
+    const trigger = new Proxy(definition({ type: 'other' }), {
+      ownKeys(target) {
+        if (!reentered) {
+          reentered = true;
+          registry.register(
+            definition({ type: 'claimed', displayName: 'Reentrant' }),
+            'builtin:reentrant',
+          );
+        }
+        return Reflect.ownKeys(target);
+      },
+    });
+
+    expect(() =>
+      registry.registerBatch([
+        {
+          definition: definition({ type: 'claimed', displayName: 'Outer' }),
+          source: 'builtin:outer',
+        },
+        { definition: trigger, source: 'builtin:trigger' },
+      ]),
+    ).toThrow(expect.objectContaining({ code: 'CONFLICT' }));
+    expect(registry.list()).toEqual([
+      expect.objectContaining({
+        type: 'claimed',
+        displayName: 'Reentrant',
+        source: 'builtin:reentrant',
+      }),
+    ]);
+    expect(registry.get('other')).toBeUndefined();
+  });
+
   it.each([
     ['omitted', {}],
     ['undefined', { description: undefined }],

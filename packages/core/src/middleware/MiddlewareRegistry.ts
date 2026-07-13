@@ -7,7 +7,7 @@ import type {
   MiddlewareHooks,
   MiddlewareInstanceConfig,
 } from '@legion/types';
-import { LegionError } from '../errors/LegionError.js';
+import { ConflictError, LegionError } from '../errors/LegionError.js';
 import type { MiddlewareConfigurationValidator } from '../tools/Tool.js';
 import { cloneJsonSafe } from './json.js';
 
@@ -120,12 +120,14 @@ function detachedDefinition(registration: Registration): MiddlewareDefinition {
 
 export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
   private readonly registrations = new Map<string, Registration>();
+  private revision = 0;
 
   register(definition: MiddlewareDefinition, source: string): void {
     this.registerBatch([{ definition, source }]);
   }
 
   registerBatch(entries: readonly { definition: MiddlewareDefinition; source: string }[]): void {
+    const revision = this.revision;
     const prepared = new Map<string, Registration>();
 
     for (const { definition, source } of entries) {
@@ -189,9 +191,21 @@ export class MiddlewareRegistry implements MiddlewareConfigurationValidator {
       prepared.set(normalized.type, { definition: storedDefinition, source, validator });
     }
 
+    if (this.revision !== revision) {
+      throw new ConflictError('Middleware registry changed during registration');
+    }
+    for (const type of prepared.keys()) {
+      if (this.registrations.has(type)) {
+        throw new LegionError(
+          `Middleware already registered: ${type}`,
+          'MIDDLEWARE_ALREADY_REGISTERED',
+        );
+      }
+    }
     for (const [type, registration] of prepared) {
       this.registrations.set(type, registration);
     }
+    if (prepared.size > 0) this.revision += 1;
   }
 
   get(type: string): MiddlewareDefinition | undefined {
