@@ -1349,6 +1349,54 @@ describe('participant middleware management', () => {
     }
   });
 
+  it('rejects malformed top-level middleware arrays without invoking numeric accessors', async () => {
+    const { context } = await makeAgentContext();
+    const sparse: unknown[] = [];
+    sparse.length = 1;
+    const withExtra: unknown[] = [];
+    (withExtra as unknown as Record<string, unknown>).extra = true;
+    const withSymbol: unknown[] = [];
+    (withSymbol as unknown as Record<symbol, unknown>)[Symbol('extra')] = true;
+    const getter = vi.fn(() => ({ id: 'getter', type: 'known', enabled: false, config: {} }));
+    const withAccessor: unknown[] = [];
+    Object.defineProperty(withAccessor, '0', { enumerable: true, configurable: true, get: getter });
+
+    for (const middleware of [sparse, withExtra, withSymbol, withAccessor]) {
+      const result = await setParticipantMiddlewareTool.execute(
+        { participantId: 'target-agent', middleware },
+        context,
+      );
+      expect(result.status).toBe('error');
+    }
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  it('create_agent rejects malformed top-level middleware arrays without invoking getters', async () => {
+    const { context, collective } = await makeContext();
+    const getter = vi.fn(() => ({ id: 'getter', type: 'known', enabled: false, config: {} }));
+    const middleware: unknown[] = [];
+    Object.defineProperty(middleware, '0', {
+      enumerable: true,
+      configurable: true,
+      get: getter,
+    });
+
+    const result = await createAgentTool.execute(
+      {
+        id: 'accessor-agent',
+        name: 'Accessor Agent',
+        systemPrompt: 'test',
+        model: { model: 'test' },
+        middleware,
+      },
+      context,
+    );
+
+    expect(result.status).toBe('error');
+    expect(getter).not.toHaveBeenCalled();
+    expect(collective.get('accessor-agent')).toBeUndefined();
+  });
+
   it('rejects accessors without invoking middleware or nested config getters', async () => {
     const { context } = await makeAgentContext();
     const entryGetter = vi.fn(() => 'getter-id');

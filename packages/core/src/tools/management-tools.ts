@@ -47,6 +47,26 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function snapshotDenseArray(value: unknown[]): unknown[] | undefined {
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1) return undefined;
+  for (const key of keys) {
+    if (key === 'length') continue;
+    if (typeof key !== 'string') return undefined;
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+      return undefined;
+    }
+  }
+  const snapshot: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !('value' in descriptor)) return undefined;
+    snapshot.push(descriptor.value);
+  }
+  return snapshot;
+}
+
 export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): value is JSONValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
@@ -55,28 +75,8 @@ export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): 
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      const keys = Reflect.ownKeys(value);
-      if (keys.length !== value.length + 1) return false;
-      for (const key of keys) {
-        if (key === 'length') continue;
-        if (typeof key !== 'string') return false;
-        const index = Number(key);
-        if (
-          !Number.isInteger(index) ||
-          index < 0 ||
-          index >= value.length ||
-          String(index) !== key
-        ) {
-          return false;
-        }
-      }
-      for (let index = 0; index < value.length; index += 1) {
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (!descriptor || !('value' in descriptor) || !isJSONValue(descriptor.value, ancestors)) {
-          return false;
-        }
-      }
-      return true;
+      const snapshot = snapshotDenseArray(value);
+      return snapshot !== undefined && snapshot.every((item) => isJSONValue(item, ancestors));
     }
     if (!isPlainObject(value)) return false;
     for (const key of Reflect.ownKeys(value)) {
@@ -94,10 +94,12 @@ export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): 
 
 function validateMiddleware(value: unknown): MiddlewareInstanceConfig[] {
   if (!Array.isArray(value)) throw new Error('middleware must be an array');
+  const entries = snapshotDenseArray(value);
+  if (!entries) throw new Error('middleware must be a dense array without extra properties');
   const ids = new Set<string>();
   const normalized: MiddlewareInstanceConfig[] = [];
   const allowedKeys = new Set(['id', 'type', 'enabled', 'failureMode', 'config']);
-  for (const [index, entry] of value.entries()) {
+  for (const [index, entry] of entries.entries()) {
     if (!isPlainObject(entry)) throw new Error(`middleware[${index}] must be a plain object`);
     const snapshot = new Map<PropertyKey, unknown>();
     for (const key of Reflect.ownKeys(entry)) {

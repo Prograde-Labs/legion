@@ -9,7 +9,7 @@ const PARTICIPANTS_PREFIX = 'collective/participants';
 export class Collective {
   private participants = new Map<string, ParticipantConfig>();
   private participantMutationTails = new Map<string, Promise<void>>();
-  private defaultSeedingTail = Promise.resolve();
+  private participantCreationTail = Promise.resolve();
 
   constructor(eventBus: EventBus);
   constructor(storage: Storage, participants: ParticipantConfig[]);
@@ -128,33 +128,43 @@ export class Collective {
     }
   }
 
-  private async withDefaultSeeding<T>(seed: () => Promise<T>): Promise<T> {
-    const previous = this.defaultSeedingTail;
+  private async withParticipantCreation<T>(create: () => Promise<T>): Promise<T> {
+    const previous = this.participantCreationTail;
     let release!: () => void;
-    this.defaultSeedingTail = new Promise<void>((resolve) => {
+    this.participantCreationTail = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
     try {
-      return await seed();
+      return await create();
     } finally {
       release();
     }
   }
 
-  async add(config: ParticipantConfig): Promise<void> {
-    const detachedMiddleware = config.middleware ? structuredClone(config.middleware) : undefined;
+  private async addWithoutCreationLock(config: ParticipantConfig): Promise<void> {
     await this.withParticipantMutation(config.id, async () => {
       if (this.participants.has(config.id)) {
         throw new ConflictError(`Participant already exists: ${config.id}`);
       }
-      const withStatus: ParticipantConfig = {
-        status: 'active',
-        ...config,
-        ...(detachedMiddleware === undefined ? {} : { middleware: detachedMiddleware }),
-      };
+      const withStatus: ParticipantConfig = { status: 'active', ...config };
       await this.persistAndPublish(withStatus);
     });
+  }
+
+  private async seedWithoutCreationLock(participants: ParticipantConfig[]): Promise<void> {
+    for (const participant of participants) {
+      await this.withParticipantMutation(participant.id, async () => {
+        const withStatus: ParticipantConfig = { status: 'active', ...participant };
+        await this.persistAndPublish(withStatus);
+        this.eventBus?.emit('participant:active', { participantId: withStatus.id });
+      });
+    }
+  }
+
+  async add(config: ParticipantConfig): Promise<void> {
+    const detached = structuredClone(config);
+    await this.withParticipantCreation(() => this.addWithoutCreationLock(detached));
   }
 
   async update(id: string, patch: Partial<ParticipantConfig>): Promise<void> {
@@ -213,24 +223,14 @@ export class Collective {
 
   async seed(participants: ParticipantConfig[]): Promise<void> {
     const detachedParticipants = structuredClone(participants);
-    for (const participant of detachedParticipants) {
-      await this.withParticipantMutation(participant.id, async () => {
-        const withStatus: ParticipantConfig = { status: 'active', ...participant };
-        await this.persistAndPublish(withStatus);
-        this.eventBus?.emit('participant:active', { participantId: withStatus.id });
-      });
-    }
+    await this.withParticipantCreation(() => this.seedWithoutCreationLock(detachedParticipants));
   }
 
   async seedDefaultsIfEmpty(): Promise<string[]> {
-    return this.withDefaultSeeding(async () => {
+    return this.withParticipantCreation(async () => {
       if (this.participants.size > 0) return [];
       const defaults = createDefaultParticipants();
-      for (const config of defaults) {
-        await this.withParticipantMutation(config.id, async () => {
-          await this.persistAndPublish(config);
-        });
-      }
+      for (const config of defaults) await this.addWithoutCreationLock(config);
       return defaults.map((participant) => participant.id);
     });
   }

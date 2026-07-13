@@ -371,6 +371,58 @@ describe('Collective: seedDefaultsIfEmpty', () => {
     expect(results.filter((ids) => ids.length === 0)).toHaveLength(1);
   });
 
+  it('serializes add against default seeding without overwriting a custom operator', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    const blocked = storage.blockNextWrite();
+    const adding = collective.add({
+      id: 'operator',
+      name: 'Custom Operator',
+      type: 'user',
+      tools: {},
+      operator: true,
+    });
+    await blocked.started.promise;
+    let defaultsSettled = false;
+    const defaults = collective.seedDefaultsIfEmpty().finally(() => {
+      defaultsSettled = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(defaultsSettled).toBe(false);
+    blocked.release.resolve();
+    await adding;
+    expect(await defaults).toEqual([]);
+    expect(collective.get('operator')?.name).toBe('Custom Operator');
+    expect(await storage.readJson('collective/participants/operator.json')).toEqual(
+      expect.objectContaining({ name: 'Custom Operator' }),
+    );
+  });
+
+  it('serializes seed against default seeding without overwriting seeded state', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    const blocked = storage.blockNextWrite();
+    const seeding = collective.seed([
+      { id: 'operator', name: 'Seeded Operator', type: 'user', tools: {}, operator: true },
+    ]);
+    await blocked.started.promise;
+    let defaultsSettled = false;
+    const defaults = collective.seedDefaultsIfEmpty().finally(() => {
+      defaultsSettled = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(defaultsSettled).toBe(false);
+    blocked.release.resolve();
+    await seeding;
+    expect(await defaults).toEqual([]);
+    expect(collective.get('operator')?.name).toBe('Seeded Operator');
+    expect(await storage.readJson('collective/participants/operator.json')).toEqual(
+      expect.objectContaining({ name: 'Seeded Operator' }),
+    );
+  });
+
   it('does not publish defaults when persistence fails', async () => {
     const storage = new ControlledStorage();
     const collective = await Collective.load(storage);
