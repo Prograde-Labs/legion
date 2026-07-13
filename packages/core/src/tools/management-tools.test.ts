@@ -26,7 +26,7 @@ import {
   setParticipantMiddlewareTool,
   managementTools,
 } from './management-tools.js';
-import type { MessageUsage, MiddlewareInstanceConfig } from '@legion/types';
+import type { AgentConfig, MessageUsage, MiddlewareInstanceConfig } from '@legion/types';
 import type { ToolContext } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';
@@ -1058,6 +1058,28 @@ describe('management tools', () => {
     expect((data as any).systemPrompt).toBe('You are a test agent.');
   });
 
+  it('get_participant returns a detached participant snapshot', async () => {
+    const { context, collective } = await makeContext();
+    await collective.add({
+      id: 'detached-agent',
+      name: 'Detached Agent',
+      type: 'agent',
+      tools: { communicate: 'auto' },
+      systemPrompt: 'test',
+      model: { model: 'test' },
+      maxIterations: 20,
+    });
+
+    const result = await getParticipantTool.execute({ id: 'detached-agent' }, context);
+    const participant = result.data as AgentConfig;
+    participant.name = 'Mutated';
+    participant.tools.communicate = 'requires_approval';
+
+    expect(collective.get('detached-agent')).toEqual(
+      expect.objectContaining({ name: 'Detached Agent', tools: { communicate: 'auto' } }),
+    );
+  });
+
   it('get_participant returns error for unknown id', async () => {
     const { context } = await makeContext();
     const result = await getParticipantTool.execute({ id: 'nonexistent' }, context);
@@ -1170,12 +1192,17 @@ describe('participant middleware management', () => {
     const schema = matches[0].parameters.properties?.middleware as {
       items: {
         additionalProperties?: boolean;
-        properties: { id: { minLength?: number }; type: { minLength?: number } };
+        properties: {
+          id: { minLength?: number; pattern?: string };
+          type: { minLength?: number; pattern?: string };
+        };
       };
     };
     expect(schema.items.additionalProperties).toBe(false);
     expect(schema.items.properties.id.minLength).toBe(1);
     expect(schema.items.properties.type.minLength).toBe(1);
+    expect(schema.items.properties.id.pattern).toBe('\\S');
+    expect(schema.items.properties.type.pattern).toBe('\\S');
   });
 
   it('atomically replaces ordered middleware and increments an absent revision', async () => {
@@ -1299,6 +1326,47 @@ describe('participant middleware management', () => {
       expect(result.status).toBe('error');
       expect(result.error).toBeTruthy();
     }
+  });
+
+  it('rejects sparse and custom-property arrays in middleware config', async () => {
+    const { context } = await makeAgentContext();
+    const sparse: unknown[] = [];
+    sparse.length = 1;
+    const withExtra: unknown[] = [];
+    (withExtra as unknown as Record<string, unknown>).extra = true;
+    const withSymbol: unknown[] = [];
+    (withSymbol as unknown as Record<symbol, unknown>)[Symbol('extra')] = true;
+
+    for (const value of [sparse, withExtra, withSymbol]) {
+      const result = await setParticipantMiddlewareTool.execute(
+        {
+          participantId: 'target-agent',
+          middleware: [{ id: 'array', type: 'known', enabled: false, config: { value } }],
+        },
+        context,
+      );
+      expect(result.status).toBe('error');
+    }
+  });
+
+  it('rejects accessors without invoking middleware or nested config getters', async () => {
+    const { context } = await makeAgentContext();
+    const entryGetter = vi.fn(() => 'getter-id');
+    const entry = { type: 'known', enabled: false, config: {} } as Record<string, unknown>;
+    Object.defineProperty(entry, 'id', { enumerable: true, get: entryGetter });
+    const configGetter = vi.fn(() => true);
+    const config: Record<string, unknown> = {};
+    Object.defineProperty(config, 'secret', { enumerable: true, get: configGetter });
+
+    for (const middleware of [entry, { id: 'nested', type: 'known', enabled: false, config }]) {
+      const result = await setParticipantMiddlewareTool.execute(
+        { participantId: 'target-agent', middleware: [middleware] },
+        context,
+      );
+      expect(result.status).toBe('error');
+    }
+    expect(entryGetter).not.toHaveBeenCalled();
+    expect(configGetter).not.toHaveBeenCalled();
   });
 
   it('rejects inherited required fields and unknown string or symbol keys', async () => {

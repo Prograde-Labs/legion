@@ -18,6 +18,7 @@ class ControlledStorage extends MemoryStorage {
     release: ReturnType<typeof deferred>;
   };
   failNextWrite = false;
+  writeCount = 0;
 
   blockNextWrite() {
     const blockedWrite = { started: deferred(), release: deferred() };
@@ -26,6 +27,7 @@ class ControlledStorage extends MemoryStorage {
   }
 
   override async writeJson(key: string, value: unknown): Promise<void> {
+    this.writeCount += 1;
     if (this.failNextWrite) {
       this.failNextWrite = false;
       throw new Error('simulated persistence failure');
@@ -100,6 +102,44 @@ describe('Collective: load and query', () => {
     const collective = await Collective.load(storage);
     expect(collective.findByIdentity('web', 'op-1')?.id).toBe('op-1');
     expect(collective.findByIdentity('web', 'nobody')).toBeUndefined();
+  });
+
+  it('returns detached snapshots from every public participant read', async () => {
+    const { storage, operator, agent } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', operator);
+    await storage.writeJson('collective/participants/agent-1.json', {
+      ...agent,
+      identities: [{ connector: 'web', externalId: 'agent-1' }],
+      middleware: [
+        { id: 'audit', type: 'audit', enabled: false, config: { nested: { value: 1 } } },
+      ],
+    });
+    const collective = await Collective.load(storage);
+    const snapshots = [
+      collective.get('agent-1')!,
+      collective.getOrThrow('agent-1'),
+      collective.list().find(({ id }) => id === 'agent-1')!,
+      collective.listActive().find(({ id }) => id === 'agent-1')!,
+      collective.findByIdentity('web', 'agent-1')!,
+      collective.operators()[0],
+    ];
+
+    for (const snapshot of snapshots) {
+      snapshot.name = 'Mutated';
+      snapshot.tools.mutated = 'auto';
+      if (snapshot.middleware) snapshot.middleware[0].config.nested = { value: 9 };
+    }
+
+    expect(collective.get('agent-1')).toEqual(
+      expect.objectContaining({
+        name: 'Researcher',
+        tools: { communicate: 'auto' },
+        middleware: [
+          { id: 'audit', type: 'audit', enabled: false, config: { nested: { value: 1 } } },
+        ],
+      }),
+    );
+    expect(collective.get('op-1')?.name).toBe('Operator');
   });
 });
 
@@ -283,10 +323,18 @@ describe('Collective: mutation and invariants', () => {
     const result = await collective.replaceMiddleware('clone-agent', replacement);
     replacement[0].config.nested.value = 4;
     result.middleware![0].config.nested = { value: 5 };
+    result.name = 'Mutated result';
+    result.tools.mutated = 'auto';
 
-    expect(collective.get('clone-agent')?.middleware).toEqual([
-      { id: 'replacement', type: 'audit', enabled: false, config: { nested: { value: 3 } } },
-    ]);
+    expect(collective.get('clone-agent')).toEqual(
+      expect.objectContaining({
+        name: 'Clone Agent',
+        tools: {},
+        middleware: [
+          { id: 'replacement', type: 'audit', enabled: false, config: { nested: { value: 3 } } },
+        ],
+      }),
+    );
   });
 });
 
@@ -304,6 +352,34 @@ describe('Collective: seedDefaultsIfEmpty', () => {
     await storage.writeJson('collective/participants/op-1.json', operator);
     const collective = await Collective.load(storage);
     expect(await collective.seedDefaultsIfEmpty()).toEqual([]);
+  });
+
+  it('serializes concurrent empty checks so defaults seed once', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    const blocked = storage.blockNextWrite();
+
+    const first = collective.seedDefaultsIfEmpty();
+    await blocked.started.promise;
+    const second = collective.seedDefaultsIfEmpty();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(storage.writeCount).toBe(1);
+    blocked.release.resolve();
+    const results = await Promise.all([first, second]);
+    expect(results.filter((ids) => ids.includes('operator'))).toHaveLength(1);
+    expect(results.filter((ids) => ids.length === 0)).toHaveLength(1);
+  });
+
+  it('does not publish defaults when persistence fails', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    storage.failNextWrite = true;
+
+    await expect(collective.seedDefaultsIfEmpty()).rejects.toThrow('simulated persistence failure');
+
+    expect(collective.list()).toEqual([]);
+    expect(await collective.seedDefaultsIfEmpty()).toContain('operator');
   });
 });
 
@@ -325,5 +401,50 @@ describe('Collective: participant events', () => {
     bus.on('participant:retired', (p) => seen.push(p.participantId));
     await collective.retire('p1');
     expect(seen).toEqual(['p1']);
+  });
+
+  it('does not publish or emit a seeded participant when persistence fails', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    const bus = new EventBus();
+    collective.eventBus = bus;
+    const seen: string[] = [];
+    bus.on('participant:active', ({ participantId }) => seen.push(participantId));
+    storage.failNextWrite = true;
+
+    await expect(
+      collective.seed([{ id: 'failed', name: 'Failed', type: 'user', tools: {} }]),
+    ).rejects.toThrow('simulated persistence failure');
+
+    expect(collective.get('failed')).toBeUndefined();
+    expect(seen).toEqual([]);
+  });
+
+  it('serializes concurrent seed writes for one participant', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    const blocked = storage.blockNextWrite();
+    const first = collective.seed([{ id: 'seeded', name: 'First', type: 'user', tools: {} }]);
+    await blocked.started.promise;
+    let secondSettled = false;
+    const second = collective
+      .seed([{ id: 'seeded', name: 'Second', type: 'user', tools: {} }])
+      .finally(() => {
+        secondSettled = true;
+      });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(secondSettled).toBe(false);
+    blocked.release.resolve();
+    await Promise.all([first, second]);
+    expect(collective.get('seeded')?.name).toBe('Second');
+    expect(await storage.readJson('collective/participants/seeded.json')).toEqual(
+      expect.objectContaining({ name: 'Second' }),
+    );
+  });
+
+  it('does not expose the unsafe synchronous modify API', async () => {
+    const collective = await Collective.load(new MemoryStorage());
+    expect((collective as unknown as { modify?: unknown }).modify).toBeUndefined();
   });
 });

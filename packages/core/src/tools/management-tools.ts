@@ -54,11 +54,39 @@ export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): 
   if (ancestors.has(value)) return false;
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) return value.every((item) => isJSONValue(item, ancestors));
+    if (Array.isArray(value)) {
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== value.length + 1) return false;
+      for (const key of keys) {
+        if (key === 'length') continue;
+        if (typeof key !== 'string') return false;
+        const index = Number(key);
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= value.length ||
+          String(index) !== key
+        ) {
+          return false;
+        }
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !('value' in descriptor) || !isJSONValue(descriptor.value, ancestors)) {
+          return false;
+        }
+      }
+      return true;
+    }
     if (!isPlainObject(value)) return false;
-    return Reflect.ownKeys(value).every(
-      (key) => typeof key === 'string' && isJSONValue(value[key], ancestors),
-    );
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string') return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !('value' in descriptor) || !isJSONValue(descriptor.value, ancestors)) {
+        return false;
+      }
+    }
+    return true;
   } finally {
     ancestors.delete(value);
   }
@@ -71,44 +99,51 @@ function validateMiddleware(value: unknown): MiddlewareInstanceConfig[] {
   const allowedKeys = new Set(['id', 'type', 'enabled', 'failureMode', 'config']);
   for (const [index, entry] of value.entries()) {
     if (!isPlainObject(entry)) throw new Error(`middleware[${index}] must be a plain object`);
+    const snapshot = new Map<PropertyKey, unknown>();
     for (const key of Reflect.ownKeys(entry)) {
       if (typeof key !== 'string' || !allowedKeys.has(key)) {
         throw new Error(`middleware[${index}] contains an unknown property`);
       }
+      const descriptor = Object.getOwnPropertyDescriptor(entry, key);
+      if (!descriptor || !('value' in descriptor)) {
+        throw new Error(`middleware[${index}].${key} must be a data property`);
+      }
+      snapshot.set(key, descriptor.value);
     }
     for (const key of ['id', 'type', 'config']) {
-      if (!Object.prototype.hasOwnProperty.call(entry, key)) {
+      if (!snapshot.has(key)) {
         throw new Error(`middleware[${index}].${key} must be an own property`);
       }
     }
-    if (typeof entry.id !== 'string' || entry.id.trim().length === 0) {
+    const id = snapshot.get('id');
+    const type = snapshot.get('type');
+    const enabled = snapshot.get('enabled');
+    const failureMode = snapshot.get('failureMode');
+    const config = snapshot.get('config');
+    if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error(`middleware[${index}].id must be a non-empty string`);
     }
-    if (ids.has(entry.id)) throw new Error(`duplicate middleware instance id: ${entry.id}`);
-    ids.add(entry.id);
-    if (typeof entry.type !== 'string' || entry.type.trim().length === 0) {
+    if (ids.has(id)) throw new Error(`duplicate middleware instance id: ${id}`);
+    ids.add(id);
+    if (typeof type !== 'string' || type.trim().length === 0) {
       throw new Error(`middleware[${index}].type must be a non-empty string`);
     }
-    if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') {
+    if (snapshot.has('enabled') && typeof enabled !== 'boolean') {
       throw new Error(`middleware[${index}].enabled must be a boolean when provided`);
     }
-    if (
-      entry.failureMode !== undefined &&
-      entry.failureMode !== 'open' &&
-      entry.failureMode !== 'closed'
-    ) {
+    if (snapshot.has('failureMode') && failureMode !== 'open' && failureMode !== 'closed') {
       throw new Error(`middleware[${index}].failureMode must be open or closed when provided`);
     }
-    if (!isPlainObject(entry.config) || !isJSONValue(entry.config)) {
+    if (!isPlainObject(config) || !isJSONValue(config)) {
       throw new Error(`middleware[${index}].config must be a JSON-safe object`);
     }
     const instance: MiddlewareInstanceConfig = {
-      id: entry.id,
-      type: entry.type,
-      config: structuredClone(entry.config) as Record<string, JSONValue>,
+      id,
+      type,
+      config: structuredClone(config) as Record<string, JSONValue>,
     };
-    if (entry.enabled !== undefined) instance.enabled = entry.enabled;
-    if (entry.failureMode !== undefined) instance.failureMode = entry.failureMode;
+    if (snapshot.has('enabled')) instance.enabled = enabled as boolean;
+    if (snapshot.has('failureMode')) instance.failureMode = failureMode as 'open' | 'closed';
     normalized.push(instance);
   }
   return normalized;
@@ -133,8 +168,8 @@ const middlewareSchema = {
   items: {
     type: 'object',
     properties: {
-      id: { type: 'string', minLength: 1 },
-      type: { type: 'string', minLength: 1 },
+      id: { type: 'string', minLength: 1, pattern: '\\S' },
+      type: { type: 'string', minLength: 1, pattern: '\\S' },
       enabled: { type: 'boolean' },
       failureMode: { type: 'string', enum: ['open', 'closed'] },
       config: { type: 'object' },

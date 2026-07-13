@@ -9,6 +9,7 @@ const PARTICIPANTS_PREFIX = 'collective/participants';
 export class Collective {
   private participants = new Map<string, ParticipantConfig>();
   private participantMutationTails = new Map<string, Promise<void>>();
+  private defaultSeedingTail = Promise.resolve();
 
   constructor(eventBus: EventBus);
   constructor(storage: Storage, participants: ParticipantConfig[]);
@@ -47,36 +48,66 @@ export class Collective {
   }
 
   get(id: string): ParticipantConfig | undefined {
-    return this.participants.get(id);
+    const participant = this.getStored(id);
+    return participant ? structuredClone(participant) : undefined;
   }
 
   getOrThrow(id: string): ParticipantConfig {
-    const p = this.participants.get(id);
-    if (!p) throw new ParticipantNotFoundError(id);
-    return p;
+    return structuredClone(this.getStoredOrThrow(id));
   }
 
   list(): ParticipantConfig[] {
-    return [...this.participants.values()];
+    return this.listStored().map((participant) => structuredClone(participant));
   }
 
   listActive(): ParticipantConfig[] {
-    return this.list().filter((p) => (p.status ?? 'active') === 'active');
+    return this.listStored()
+      .filter((participant) => (participant.status ?? 'active') === 'active')
+      .map((participant) => structuredClone(participant));
   }
 
   findByIdentity(connector: string, externalId: string): ParticipantConfig | undefined {
-    return this.list().find((p) =>
-      p.identities?.some((i) => i.connector === connector && i.externalId === externalId),
+    const participant = this.listStored().find((candidate) =>
+      candidate.identities?.some(
+        (identity) => identity.connector === connector && identity.externalId === externalId,
+      ),
     );
+    return participant ? structuredClone(participant) : undefined;
   }
 
   operators(): ParticipantConfig[] {
-    return this.listActive().filter((p) => p.operator === true);
+    return this.operatorsStored().map((participant) => structuredClone(participant));
+  }
+
+  private getStored(id: string): ParticipantConfig | undefined {
+    return this.participants.get(id);
+  }
+
+  private getStoredOrThrow(id: string): ParticipantConfig {
+    const participant = this.getStored(id);
+    if (!participant) throw new ParticipantNotFoundError(id);
+    return participant;
+  }
+
+  private listStored(): ParticipantConfig[] {
+    return [...this.participants.values()];
+  }
+
+  private operatorsStored(): ParticipantConfig[] {
+    return this.listStored().filter(
+      (participant) =>
+        (participant.status ?? 'active') === 'active' && participant.operator === true,
+    );
   }
 
   private async persist(config: ParticipantConfig): Promise<void> {
     if (!this.storage) return;
     await this.storage.writeJson(`${PARTICIPANTS_PREFIX}/${config.id}.json`, config);
+  }
+
+  private async persistAndPublish(config: ParticipantConfig): Promise<void> {
+    await this.persist(config);
+    this.participants.set(config.id, config);
   }
 
   private async withParticipantMutation<T>(id: string, mutate: () => Promise<T>): Promise<T> {
@@ -97,6 +128,20 @@ export class Collective {
     }
   }
 
+  private async withDefaultSeeding<T>(seed: () => Promise<T>): Promise<T> {
+    const previous = this.defaultSeedingTail;
+    let release!: () => void;
+    this.defaultSeedingTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await seed();
+    } finally {
+      release();
+    }
+  }
+
   async add(config: ParticipantConfig): Promise<void> {
     const detachedMiddleware = config.middleware ? structuredClone(config.middleware) : undefined;
     await this.withParticipantMutation(config.id, async () => {
@@ -108,24 +153,24 @@ export class Collective {
         ...config,
         ...(detachedMiddleware === undefined ? {} : { middleware: detachedMiddleware }),
       };
-      await this.persist(withStatus);
-      this.participants.set(withStatus.id, withStatus);
+      await this.persistAndPublish(withStatus);
     });
   }
 
   async update(id: string, patch: Partial<ParticipantConfig>): Promise<void> {
     await this.withParticipantMutation(id, async () => {
-      const existing = this.getOrThrow(id);
+      const existing = this.getStoredOrThrow(id);
       const updated = { ...existing, ...patch } as ParticipantConfig;
       if (updated.middleware) updated.middleware = structuredClone(updated.middleware);
       if (existing.operator === true && updated.operator === false) {
-        const otherOperators = this.operators().filter((p) => p.id !== id);
+        const otherOperators = this.operatorsStored().filter(
+          (participant) => participant.id !== id,
+        );
         if (otherOperators.length === 0) {
           throw new InvariantError('Cannot strip operator authority from the last operator');
         }
       }
-      await this.persist(updated);
-      this.participants.set(id, updated);
+      await this.persistAndPublish(updated);
     });
   }
 
@@ -135,59 +180,58 @@ export class Collective {
   ): Promise<ParticipantConfig> {
     const detachedMiddleware = structuredClone(middleware);
     return this.withParticipantMutation(participantId, async () => {
-      const existing = this.getOrThrow(participantId);
+      const existing = this.getStoredOrThrow(participantId);
       const updated = {
         ...existing,
         middleware: detachedMiddleware,
         middlewareRevision: (existing.middlewareRevision ?? 0) + 1,
       } as ParticipantConfig;
-      await this.persist(updated);
-      this.participants.set(participantId, updated);
-      return { ...updated, middleware: structuredClone(updated.middleware) } as ParticipantConfig;
+      await this.persistAndPublish(updated);
+      return structuredClone(updated);
     });
   }
 
   async retire(id: string): Promise<void> {
     await this.withParticipantMutation(id, async () => {
-      const existing = this.getOrThrow(id);
+      const existing = this.getStoredOrThrow(id);
       if (existing.protected) {
         throw new InvariantError(`Cannot retire protected participant: ${id}`);
       }
       if (existing.operator === true) {
-        const otherActiveOperators = this.operators().filter((p) => p.id !== id);
+        const otherActiveOperators = this.operatorsStored().filter(
+          (participant) => participant.id !== id,
+        );
         if (otherActiveOperators.length === 0) {
           throw new InvariantError('Cannot retire the last active operator');
         }
       }
       const updated = { ...existing, status: 'retired' as const };
-      await this.persist(updated);
-      this.participants.set(id, updated);
+      await this.persistAndPublish(updated);
       this.eventBus?.emit('participant:retired', { participantId: id });
     });
   }
 
   async seed(participants: ParticipantConfig[]): Promise<void> {
-    for (const p of participants) {
-      const withStatus: ParticipantConfig = { status: 'active', ...p };
-      this.participants.set(withStatus.id, withStatus);
-      await this.persist(withStatus);
-      this.eventBus?.emit('participant:active', { participantId: withStatus.id });
+    const detachedParticipants = structuredClone(participants);
+    for (const participant of detachedParticipants) {
+      await this.withParticipantMutation(participant.id, async () => {
+        const withStatus: ParticipantConfig = { status: 'active', ...participant };
+        await this.persistAndPublish(withStatus);
+        this.eventBus?.emit('participant:active', { participantId: withStatus.id });
+      });
     }
-  }
-
-  modify(id: string, updates: { name?: string }): ParticipantConfig {
-    const p = this.getOrThrow(id);
-    if (updates.name !== undefined) p.name = updates.name;
-    return p;
   }
 
   async seedDefaultsIfEmpty(): Promise<string[]> {
-    if (this.participants.size > 0) return [];
-    const defaults = createDefaultParticipants();
-    for (const config of defaults) {
-      this.participants.set(config.id, config);
-      await this.persist(config);
-    }
-    return defaults.map((p) => p.id);
+    return this.withDefaultSeeding(async () => {
+      if (this.participants.size > 0) return [];
+      const defaults = createDefaultParticipants();
+      for (const config of defaults) {
+        await this.withParticipantMutation(config.id, async () => {
+          await this.persistAndPublish(config);
+        });
+      }
+      return defaults.map((participant) => participant.id);
+    });
   }
 }
