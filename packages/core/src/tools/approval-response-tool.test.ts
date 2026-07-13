@@ -359,4 +359,79 @@ describe('approval_response tool', () => {
 
     expect(resume).toHaveBeenCalledTimes(2);
   });
+
+  it('resumes different requesters in one conversation independently while coalescing same-requester approvals', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId: first } = await reg.create({
+      conversationId: 'c-shared',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: {},
+    });
+    const { approvalId: second } = await reg.create({
+      conversationId: 'c-shared',
+      requesterId: 'agent-a',
+      tool: 'file_delete',
+      args: {},
+    });
+    const { approvalId: third } = await reg.create({
+      conversationId: 'c-shared',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi.fn(async (conversationId: string, requesterId: string) => ({
+      conversationId,
+      status: 'success' as const,
+      response: requesterId,
+    }));
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    await approvalResponseTool.execute(
+      {
+        decisions: [
+          { approvalId: first, decision: 'approve' },
+          { approvalId: second, decision: 'approve' },
+          { approvalId: third, decision: 'approve' },
+        ],
+      },
+      context,
+    );
+
+    expect(resume).toHaveBeenCalledTimes(2);
+    expect(resume).toHaveBeenCalledWith('c-shared', 'agent-a', context);
+    expect(resume).toHaveBeenCalledWith('c-shared', 'agent-b', context);
+  });
+
+  it('releases a generic resume lease when router returns an error result', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-error-result',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi
+      .fn()
+      .mockResolvedValueOnce({ conversationId: 'c-error-result', status: 'error' as const })
+      .mockResolvedValueOnce({ conversationId: 'c-error-result', status: 'success' as const });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect(resume).toHaveBeenCalledTimes(2);
+  });
 });

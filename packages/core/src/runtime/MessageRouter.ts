@@ -887,35 +887,47 @@ export class MessageRouter implements MessageRouterPort {
         error: 'Approval continuation is unavailable',
       };
     }
-    if (record.successorApprovalId) {
-      const successor = approvals.getRecord(record.successorApprovalId);
-      const successorCheckpoint = successor?.continuation?.checkpoint;
-      if (successor) {
-        if (successor.lifecycle === 'acknowledged') {
-          return (
-            successor.routerResult ?? {
-              conversationId: successor.conversationId,
-              status: 'success',
-            }
-          );
-        }
-        try {
-          await approvals.acknowledge(approvalId);
-        } catch {
-          // Parent already has immutable successor; never replay it.
-        }
-        return {
-          conversationId: successor.conversationId,
-          status: 'pending_approval',
-          approvalId: record.successorApprovalId,
-          ...(successorCheckpoint === undefined
-            ? {}
-            : {
-                checkpointId: successorCheckpoint.checkpointId,
-                pendingParticipantId: successorCheckpoint.participantId,
-              }),
-        };
+    const successorApprovalIds =
+      record.successorApprovalIds ??
+      (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
+    if (successorApprovalIds.length > 0) {
+      const successors = successorApprovalIds
+        .map((successorApprovalId) => approvals.getRecord(successorApprovalId))
+        .filter((successor): successor is NonNullable<typeof successor> => successor !== undefined);
+      const pendingSuccessors = successors.filter(
+        (successor) => successor.lifecycle !== 'acknowledged',
+      );
+      if (pendingSuccessors.length === 0) {
+        return (
+          successors[0]?.routerResult ?? {
+            conversationId: record.conversationId,
+            status: 'success',
+          }
+        );
       }
+      try {
+        await approvals.acknowledge(approvalId);
+      } catch {
+        // Parent already has immutable successors; never replay runtime execution.
+      }
+      const first = pendingSuccessors[0];
+      const firstCheckpoint = first.continuation?.checkpoint;
+      return {
+        conversationId: first.conversationId,
+        status: 'pending_approval',
+        ...(pendingSuccessors.length === 1 ? { approvalId: first.approvalId } : {}),
+        ...(firstCheckpoint === undefined
+          ? {}
+          : {
+              checkpointId: firstCheckpoint.checkpointId,
+              pendingParticipantId: firstCheckpoint.participantId,
+            }),
+        approvalRequests: pendingSuccessors
+          .map((successor) => approvals.get(successor.approvalId))
+          .filter(
+            (successor): successor is NonNullable<typeof successor> => successor !== undefined,
+          ),
+      };
     }
     return this.withLock(checkpoint.conversationId, async () => {
       let resumed: Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>;
@@ -989,7 +1001,28 @@ export class MessageRouter implements MessageRouterPort {
             error: 'Approval continuation is unavailable',
           };
         }
-        const result = await this.resumeNonPromptCheckpoint(checkpoint, resumed, context);
+        const result = await this.resumeNonPromptCheckpoint(
+          checkpoint,
+          resumed,
+          context,
+          approvalId,
+        );
+        if (result.status === 'pending_approval') {
+          const successorApprovalIds = [
+            ...new Set([
+              ...(result.approvalId === undefined ? [] : [result.approvalId]),
+              ...(result.approvalRequests?.map((request) => request.approvalId) ?? []),
+            ]),
+          ];
+          if (successorApprovalIds.length > 0) {
+            await approvals.recordSuccessors(approvalId, successorApprovalIds);
+            try {
+              await approvals.acknowledge(approvalId);
+            } catch {
+              // Durable successor linkage prevents runtime replay.
+            }
+          }
+        }
         if (result.status === 'success' || result.status === 'error') {
           await approvals.recordRouterResult(
             approvalId,
@@ -1069,12 +1102,12 @@ export class MessageRouter implements MessageRouterPort {
           runtimeResult.kind === 'pending_approval' ||
           runtimeResult.kind === 'middleware_pending'
         ) {
-          const successorApprovalId =
+          const successorApprovalIds =
             runtimeResult.kind === 'pending_approval'
-              ? runtimeResult.approvalRequests[0]?.approvalId
-              : runtimeResult.approvalId;
-          if (successorApprovalId) {
-            await approvals.recordSuccessor(approvalId, successorApprovalId);
+              ? runtimeResult.approvalRequests.map((request) => request.approvalId)
+              : [runtimeResult.approvalId];
+          if (successorApprovalIds.length > 0) {
+            await approvals.recordSuccessors(approvalId, successorApprovalIds);
             try {
               await approvals.acknowledge(approvalId);
             } catch {
@@ -1108,6 +1141,7 @@ export class MessageRouter implements MessageRouterPort {
     checkpoint: import('@legion/types').MiddlewareCheckpoint,
     resumed: Extract<Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>, { kind: 'continue' }>,
     context: ToolContext,
+    approvalId: string,
   ): Promise<MessageRouterResult> {
     if (!this.lifecycle || !this.middlewareRunner) {
       return {
@@ -1168,6 +1202,7 @@ export class MessageRouter implements MessageRouterPort {
         inbound.actions,
         checkpoint.operationId,
         context,
+        approvalId,
       );
     };
     if (checkpoint.phase === 'beforeSend') {
@@ -1231,6 +1266,7 @@ export class MessageRouter implements MessageRouterPort {
         afterReceive,
         context,
         checkpoint.mode ?? 'pre_runtime',
+        approvalId,
       );
     }
     return this.finishAfterReceive(
@@ -1240,6 +1276,7 @@ export class MessageRouter implements MessageRouterPort {
       resumed as never,
       context,
       checkpoint.mode ?? 'pre_runtime',
+      approvalId,
     );
   }
 
@@ -1250,6 +1287,7 @@ export class MessageRouter implements MessageRouterPort {
     result: import('../middleware/MiddlewareRunner.js').AfterReceivePhaseResult,
     context: ToolContext,
     mode: 'pre_runtime' | 'post_response',
+    approvalId: string,
   ): Promise<MessageRouterResult> {
     if (!this.lifecycle)
       return {
@@ -1300,6 +1338,7 @@ export class MessageRouter implements MessageRouterPort {
       result.actions,
       operationId,
       context,
+      approvalId,
     );
   }
 
@@ -1310,6 +1349,7 @@ export class MessageRouter implements MessageRouterPort {
     actions: MiddlewareActionResult[],
     operationId: string,
     context: ToolContext,
+    approvalId: string,
   ): Promise<MessageRouterResult> {
     const participant = this.collective.get(participantId);
     if (!participant)
@@ -1320,6 +1360,24 @@ export class MessageRouter implements MessageRouterPort {
       };
     const runtime = this.registry.build(participant.type, participant.id);
     try {
+      const approvals = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
+      if (!approvals) {
+        return {
+          conversationId: thread.id,
+          status: 'error',
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      const providerClaim = await approvals.claimProviderExecution(approvalId);
+      if (providerClaim !== 'claimed') {
+        const cached = approvals.getRecord(approvalId)?.routerResult;
+        if (cached) return cached;
+        return {
+          conversationId: thread.id,
+          status: 'error',
+          error: 'Middleware provider outcome unknown and was not retried',
+        };
+      }
       const result = await runtime.handle(
         incoming,
         this.buildRuntimeContext(thread, participant.id, context, context.communicationDepth ?? 0, {

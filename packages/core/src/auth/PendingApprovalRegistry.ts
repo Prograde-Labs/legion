@@ -35,6 +35,7 @@ export interface ApprovalRecord extends PendingApprovalInput {
   resumeResult?: ToolResult;
   routerResult?: ApprovalRouterResult;
   successorApprovalId?: string;
+  successorApprovalIds?: string[];
   providerExecution?: 'pending' | 'executing' | 'completed' | 'unknown';
 }
 
@@ -467,6 +468,12 @@ function middlewareActionKey(input: MiddlewareActionInput): string {
   ]);
 }
 
+function genericResumeKey(conversationId: string, requesterId: string): string {
+  requiredString(conversationId, 'genericResume.conversationId');
+  requiredString(requesterId, 'genericResume.requesterId');
+  return JSON.stringify([conversationId, requesterId]);
+}
+
 function unknownMiddlewareActionResult(input: MiddlewareActionInput): MiddlewareActionResult {
   return {
     requestId: input.requestId,
@@ -857,6 +864,22 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.successorApprovalId === undefined
       ? {}
       : { successorApprovalId: requiredString(cloned.successorApprovalId, 'successorApprovalId') }),
+    ...(cloned.successorApprovalIds === undefined
+      ? {}
+      : {
+          successorApprovalIds: (() => {
+            if (!Array.isArray(cloned.successorApprovalIds)) {
+              throw new TypeError('Approval successorApprovalIds must be an array');
+            }
+            const ids = cloned.successorApprovalIds.map((id, index) =>
+              requiredString(id, `successorApprovalIds[${index}]`),
+            );
+            if (new Set(ids).size !== ids.length) {
+              throw new TypeError('Approval successorApprovalIds must be unique');
+            }
+            return ids;
+          })(),
+        }),
     ...(cloned.providerExecution === undefined
       ? {}
       : { providerExecution: cloned.providerExecution }),
@@ -1268,39 +1291,36 @@ export class PendingApprovalRegistry {
     });
   }
 
-  async claimGenericResume(approvalId: string): Promise<'claimed' | 'completed'> {
+  async claimGenericResume(
+    conversationId: string,
+    requesterId: string,
+  ): Promise<'claimed' | 'completed'> {
+    const key = genericResumeKey(conversationId, requesterId);
     return this.mutate((data) => {
-      if (!data.records[approvalId]) {
-        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
-      }
-      if (data.genericResumes[approvalId] !== undefined) return 'completed';
-      data.genericResumes[approvalId] = 'executing';
+      if (data.genericResumes[key] !== undefined) return 'completed';
+      data.genericResumes[key] = 'executing';
       return 'claimed';
     });
   }
 
-  async completeGenericResume(approvalId: string): Promise<void> {
+  async completeGenericResume(conversationId: string, requesterId: string): Promise<void> {
+    const key = genericResumeKey(conversationId, requesterId);
     await this.mutate((data) => {
-      if (!data.records[approvalId]) {
-        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
-      }
-      if (data.genericResumes[approvalId] === undefined) {
+      if (data.genericResumes[key] === undefined) {
         throw new LegionError(
-          `Generic approval resume was not claimed: ${approvalId}`,
+          `Generic approval resume was not claimed: ${key}`,
           'APPROVAL_CONFLICT',
         );
       }
-      data.genericResumes[approvalId] = 'completed';
+      data.genericResumes[key] = 'completed';
       return undefined;
     });
   }
 
-  async releaseGenericResume(approvalId: string): Promise<void> {
+  async releaseGenericResume(conversationId: string, requesterId: string): Promise<void> {
+    const key = genericResumeKey(conversationId, requesterId);
     await this.mutate((data) => {
-      if (!data.records[approvalId]) {
-        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
-      }
-      if (data.genericResumes[approvalId] === 'executing') delete data.genericResumes[approvalId];
+      if (data.genericResumes[key] === 'executing') delete data.genericResumes[key];
       return undefined;
     });
   }
@@ -1374,25 +1394,38 @@ export class PendingApprovalRegistry {
   }
 
   async recordSuccessor(approvalId: string, successorApprovalId: string): Promise<void> {
-    requiredString(successorApprovalId, 'successorApprovalId');
+    await this.recordSuccessors(approvalId, [successorApprovalId]);
+  }
+
+  async recordSuccessors(approvalId: string, successorApprovalIds: string[]): Promise<void> {
+    if (successorApprovalIds.length === 0) return;
+    const successorIds = successorApprovalIds.map((id, index) =>
+      requiredString(id, `successorApprovalIds[${index}]`),
+    );
+    if (new Set(successorIds).size !== successorIds.length) {
+      throw new LegionError('Duplicate approval successors', 'APPROVAL_CONFLICT');
+    }
     await this.mutate((data) => {
       const record = data.records[approvalId];
       if (!record)
         throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
-      if (record.successorApprovalId !== undefined) {
-        if (record.successorApprovalId === successorApprovalId) return undefined;
-        throw new LegionError('Conflicting approval successor', 'APPROVAL_CONFLICT');
+      for (const successorApprovalId of successorIds) {
+        if (!data.records[successorApprovalId]) {
+          throw new LegionError(
+            `Unknown approval request: ${successorApprovalId}`,
+            'APPROVAL_NOT_FOUND',
+          );
+        }
       }
-      if (!data.records[successorApprovalId]) {
-        throw new LegionError(
-          `Unknown approval request: ${successorApprovalId}`,
-          'APPROVAL_NOT_FOUND',
-        );
-      }
-      record.successorApprovalId = successorApprovalId;
+      const existing =
+        record.successorApprovalIds ??
+        (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
+      const merged = [...existing, ...successorIds.filter((id) => !existing.includes(id))];
+      record.successorApprovalIds = merged;
+      record.successorApprovalId = merged[0];
       if (record.providerExecution === 'executing') record.providerExecution = 'completed';
       if (record.lifecycle === 'resuming') {
-        record.resumeResult = { status: 'success', data: { successorApprovalId } };
+        record.resumeResult = { status: 'success', data: { successorApprovalIds: merged } };
         record.lifecycle = 'decided';
       }
       return undefined;

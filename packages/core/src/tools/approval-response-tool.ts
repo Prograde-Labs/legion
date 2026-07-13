@@ -55,7 +55,7 @@ export const approvalResponseTool: Tool = {
     }
 
     const results: Array<{ approvalId: string; outcome: string }> = [];
-    const toResume = new Map<string, { requesterId: string; approvalIds: string[] }>();
+    const toResume = new Map<string, { conversationId: string; requesterId: string }>();
     const seen = new Set<string>();
 
     for (const { approvalId, decision, message } of decisions) {
@@ -140,32 +140,31 @@ export const approvalResponseTool: Tool = {
       }
 
       results.push({ approvalId, outcome: decision });
-      if ((await pendingRegistry.claimGenericResume(approvalId)) === 'claimed') {
-        const pending = toResume.get(record.conversationId);
-        if (pending) pending.approvalIds.push(approvalId);
-        else {
-          toResume.set(record.conversationId, {
-            requesterId: record.requesterId,
-            approvalIds: [approvalId],
-          });
-        }
+      if (
+        (await pendingRegistry.claimGenericResume(record.conversationId, record.requesterId)) ===
+        'claimed'
+      ) {
+        toResume.set(JSON.stringify([record.conversationId, record.requesterId]), {
+          conversationId: record.conversationId,
+          requesterId: record.requesterId,
+        });
       }
     }
 
     if (context.messageRouter) {
-      for (const [conversationId, pending] of toResume) {
+      for (const pending of toResume.values()) {
         let resumed = false;
         try {
-          await context.messageRouter.resume(conversationId, pending.requesterId, context);
-          resumed = true;
-        } finally {
-          await Promise.all(
-            pending.approvalIds.map((approvalId) =>
-              resumed
-                ? pendingRegistry.completeGenericResume(approvalId)
-                : pendingRegistry.releaseGenericResume(approvalId),
-            ),
+          const result = await context.messageRouter.resume(
+            pending.conversationId,
+            pending.requesterId,
+            context,
           );
+          resumed = result.status !== 'error';
+        } finally {
+          await (resumed
+            ? pendingRegistry.completeGenericResume(pending.conversationId, pending.requesterId)
+            : pendingRegistry.releaseGenericResume(pending.conversationId, pending.requesterId));
         }
       }
     }
