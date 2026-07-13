@@ -208,6 +208,71 @@ describe('PendingApprovalRegistry continuations', () => {
     },
   );
 
+  it.each([
+    ['missing result', { status: 'success', result: undefined }],
+    [
+      'success with error result',
+      { status: 'success', result: { status: 'error', error: 'failed' } },
+    ],
+    ['error with success result', { status: 'error', result: { status: 'success' } }],
+    ['rejected with success result', { status: 'rejected', result: { status: 'success' } }],
+  ])('rejects terminal middleware action %s without completing claim', async (_name, patch) => {
+    const reg = new PendingApprovalRegistry();
+    const claim = {
+      operationId: 'operation-1',
+      conversationId: 'c1',
+      participantId: 'agent-b',
+      instanceId: 'audit',
+      requestId: 'request-1',
+      tool: 'file_write',
+      args: { path: 'x' },
+    };
+    await reg.claimMiddlewareAction(claim);
+    const result = {
+      requestId: claim.requestId,
+      participantId: claim.participantId,
+      instanceId: claim.instanceId,
+      tool: claim.tool,
+      status: 'success',
+      result: { status: 'success', data: { written: true } },
+      ...patch,
+    };
+    await expect(reg.recordMiddlewareActionResult(claim, result as never)).rejects.toThrow();
+    await expect(reg.claimMiddlewareAction(claim)).resolves.toEqual({ kind: 'in_progress' });
+  });
+
+  it('fails closed loading completed action whose terminal result does not bind claim', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const claim = {
+      operationId: 'operation-1',
+      conversationId: 'c1',
+      participantId: 'agent-b',
+      instanceId: 'audit',
+      requestId: 'request-1',
+      tool: 'file_write',
+      args: { path: 'x' },
+    };
+    await reg.claimMiddlewareAction(claim);
+    await reg.recordMiddlewareActionResult(claim, {
+      requestId: claim.requestId,
+      participantId: claim.participantId,
+      instanceId: claim.instanceId,
+      tool: claim.tool,
+      status: 'error',
+      result: { status: 'error', error: 'safe' },
+    });
+    const data = (await storage.readJson<Record<string, unknown>>(
+      'pending-approvals/registry.json',
+    ))!;
+    const action = Object.values(
+      data.middlewareActions as Record<string, Record<string, unknown>>,
+    )[0];
+    (action.result as Record<string, unknown>).tool = 'wrong';
+    await storage.writeJson('pending-approvals/registry.json', data);
+    await expect(PendingApprovalRegistry.load(storage)).rejects.toThrow(/match|tool/i);
+  });
+
   it('keeps live middleware action claim in progress until first executor records terminal result', async () => {
     const storage = new MemoryStorage();
     const reg = new PendingApprovalRegistry(storage);

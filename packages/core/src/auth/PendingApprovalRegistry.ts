@@ -461,6 +461,32 @@ function snapshotMiddlewareActionResult(value: MiddlewareActionResult): Middlewa
   return cloneJsonSafe(value, '$.middlewareAction.result') as MiddlewareActionResult;
 }
 
+function validateActionResultForClaim(
+  claim: MiddlewareActionInput,
+  result: MiddlewareActionResult,
+): void {
+  if (
+    result.requestId !== claim.requestId ||
+    result.participantId !== claim.participantId ||
+    result.instanceId !== claim.instanceId ||
+    result.tool !== claim.tool
+  ) {
+    throw new TypeError('Middleware action terminal result must match claim identity');
+  }
+  if (result.result === undefined) {
+    throw new TypeError('Middleware action terminal result requires ToolResult');
+  }
+  if (result.status === 'success' && result.result.status !== 'success') {
+    throw new TypeError('Successful middleware action requires successful ToolResult');
+  }
+  if (result.status === 'error' && result.result.status !== 'error') {
+    throw new TypeError('Errored middleware action requires error ToolResult');
+  }
+  if (result.status === 'rejected' && result.result.status !== 'rejected') {
+    throw new TypeError('Rejected middleware action requires rejected ToolResult');
+  }
+}
+
 function snapshotMiddlewareActionRecord(value: MiddlewareActionRecord): MiddlewareActionRecord {
   const record = exactObject(
     value,
@@ -497,13 +523,16 @@ function snapshotMiddlewareActionRecord(value: MiddlewareActionRecord): Middlewa
   if (record.lifecycle === 'executing' && record.result !== undefined) {
     throw new TypeError('Executing middleware action may not have result');
   }
+  const result =
+    record.result === undefined
+      ? undefined
+      : snapshotMiddlewareActionResult(record.result as MiddlewareActionResult);
+  if (record.lifecycle === 'completed') validateActionResultForClaim(input, result!);
   return {
     ...input,
     lifecycle: record.lifecycle,
     createdAt: record.createdAt as string,
-    ...(record.result === undefined
-      ? {}
-      : { result: snapshotMiddlewareActionResult(record.result as MiddlewareActionResult) }),
+    ...(result === undefined ? {} : { result }),
   };
 }
 
@@ -1009,14 +1038,7 @@ export class PendingApprovalRegistry {
   ): Promise<void> {
     const snapshot = snapshotMiddlewareActionInput(input);
     const actionResult = snapshotMiddlewareActionResult(result);
-    if (
-      actionResult.requestId !== snapshot.requestId ||
-      actionResult.participantId !== snapshot.participantId ||
-      actionResult.instanceId !== snapshot.instanceId ||
-      actionResult.tool !== snapshot.tool
-    ) {
-      throw new LegionError('Middleware action result does not match claim', 'APPROVAL_CONFLICT');
-    }
+    validateActionResultForClaim(snapshot, actionResult);
     const key = middlewareActionKey(snapshot);
     await this.mutate((data) => {
       const existing = data.middlewareActions[key];
