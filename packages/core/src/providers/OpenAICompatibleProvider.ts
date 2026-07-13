@@ -139,6 +139,7 @@ export class OpenAICompatibleProvider implements Provider {
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,
+    options?: { signal?: AbortSignal },
   ): AsyncGenerator<ProviderStreamChunk> {
     const body: Record<string, unknown> = {
       model: model.model,
@@ -163,6 +164,7 @@ export class OpenAICompatibleProvider implements Provider {
         ...authHeaders(this.apiKey),
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
 
     if (!res.ok) {
@@ -181,6 +183,7 @@ export class OpenAICompatibleProvider implements Provider {
     let usage: OAIUsage | undefined;
     let finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter' | null = null;
     let streamDone = false;
+    let completed = false;
 
     try {
       while (true) {
@@ -248,7 +251,9 @@ export class OpenAICompatibleProvider implements Provider {
         }
         if (streamDone) break;
       }
+      completed = true;
     } finally {
+      if (!completed || options?.signal?.aborted) await reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
 

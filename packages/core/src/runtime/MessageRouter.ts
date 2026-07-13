@@ -98,6 +98,24 @@ export class MessageRouter implements MessageRouterPort {
     };
   }
 
+  private async nextStreamResult(
+    stream: AsyncGenerator<LLMChunk, RuntimeResult>,
+    signal: AbortSignal,
+  ): Promise<IteratorResult<LLMChunk, RuntimeResult> | undefined> {
+    if (signal.aborted) return undefined;
+    let removeAbort: () => void = () => undefined;
+    const aborted = new Promise<undefined>((resolve) => {
+      const abort = () => resolve(undefined);
+      removeAbort = () => signal.removeEventListener('abort', abort);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      return await Promise.race([stream.next(), aborted]);
+    } finally {
+      removeAbort();
+    }
+  }
+
   private async getThread(
     conversationId?: string,
     creation?: {
@@ -495,7 +513,14 @@ export class MessageRouter implements MessageRouterPort {
       if (runtime.handleStream) {
         const stream = runtime.handleStream(inbound, runtimeContext);
         runtimeStream = stream;
-        let next = await stream.next();
+        let next = await this.nextStreamResult(stream, streamAbort.signal);
+        if (next === undefined) {
+          streamFinished = true;
+          const chunks = transformer?.abort() ?? [];
+          void stream.return(undefined as never).catch(() => undefined);
+          for (const chunk of chunks) yield chunk;
+          return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+        }
         while (!next.done) {
           try {
             const chunks = transformer ? await transformer.push(next.value) : [next.value];
@@ -513,7 +538,14 @@ export class MessageRouter implements MessageRouterPort {
             }
             throw error;
           }
-          next = await stream.next();
+          next = await this.nextStreamResult(stream, streamAbort.signal);
+          if (next === undefined) {
+            streamFinished = true;
+            const chunks = transformer?.abort() ?? [];
+            void stream.return(undefined as never).catch(() => undefined);
+            for (const chunk of chunks) yield chunk;
+            return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+          }
         }
         const result = next.value;
         streamFinished = true;

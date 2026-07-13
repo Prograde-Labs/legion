@@ -84,6 +84,7 @@ export interface Provider {
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,
+    options?: { signal?: AbortSignal },
   ): AsyncGenerator<ProviderStreamChunk>;
 
   /** Optional: enumerate models available from this provider. */

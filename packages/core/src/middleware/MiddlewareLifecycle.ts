@@ -6,6 +6,7 @@ import type {
   MiddlewareActionResult,
   ParticipantConfig,
 } from '@legion/types';
+import { isDeepStrictEqual } from 'node:util';
 import type { RuntimeResult } from '../runtime/Runtime.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { EventBus } from '../events/EventBus.js';
@@ -65,7 +66,7 @@ export interface ResponseStreamTransformer {
   readonly signal: AbortSignal;
   push(chunk: LLMChunk): Promise<LLMChunk[]>;
   finish(result: RuntimeResult): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult }>;
-  abort(): void;
+  abort(): LLMChunk[];
   dispose(): void;
 }
 
@@ -374,9 +375,10 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
     return this.controller.signal;
   }
 
-  abort(): void {
+  abort(): LLMChunk[] {
     this.terminated = true;
     this.controller.abort();
+    return this.retract();
   }
 
   dispose(): void {
@@ -430,6 +432,18 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
         result: { conversationId: this.input.thread.id, status: 'success' },
       };
     }
+    let actions: MiddlewareActionResult[];
+    try {
+      actions = mergeActions(this.input.actions, this.actions, result.actions ?? []);
+    } catch (error) {
+      this.terminated = true;
+      this.controller.abort();
+      throw new MiddlewareStreamError(
+        error instanceof Error ? error.message : String(error),
+        this.retract(),
+        { kind: 'error', error: 'Conflicting middleware action ledger' },
+      );
+    }
     const phase = await this.lifecycle.runResponseDraft(
       this.input,
       {
@@ -438,7 +452,7 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
         ...(result.reasoning === undefined ? {} : { reasoning: result.reasoning }),
       },
       true,
-      result.actions === undefined ? this.actions : result.actions,
+      actions,
       this.controller,
     );
     if (phase.kind !== 'continue') throw this.terminalError(phase);
@@ -489,6 +503,21 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
       lifecycleResult,
     );
   }
+}
+
+function mergeActions(...ledgers: MiddlewareActionResult[][]): MiddlewareActionResult[] {
+  const merged = new Map<string, MiddlewareActionResult>();
+  for (const ledger of ledgers) {
+    for (const action of ledger) {
+      const existing = merged.get(action.requestId);
+      if (existing === undefined) {
+        merged.set(action.requestId, structuredClone(action));
+      } else if (!isDeepStrictEqual(existing, action)) {
+        throw new Error(`Conflicting middleware action result for request ${action.requestId}`);
+      }
+    }
+  }
+  return [...merged.values()];
 }
 
 function diffDraft(previous: MessageDraft, current: MessageDraft): LLMChunk[] {

@@ -344,6 +344,43 @@ describe('OpenAICompatibleProvider', () => {
 });
 
 describe('OpenAICompatibleProvider.stream()', () => {
+  it('forwards abort signal to fetch and cancels reader on generator return', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn(async () => undefined);
+    const releaseLock = vi.fn();
+    const reader = {
+      read: vi.fn(async () => ({
+        done: false,
+        value: new TextEncoder().encode(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: 'partial' } }] })}\n`,
+        ),
+      })),
+      cancel,
+      releaseLock,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => reader },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new OpenAICompatibleProvider();
+    const stream = provider.stream([], [], MODEL, { signal: controller.signal });
+    await expect(stream.next()).resolves.toEqual({
+      done: false,
+      value: { type: 'text_delta', delta: 'partial' },
+    });
+    await stream.return(undefined as never);
+    vi.unstubAllGlobals();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ['reasoning_content', 'first thought'],
     ['reasoning', 'fallback thought'],

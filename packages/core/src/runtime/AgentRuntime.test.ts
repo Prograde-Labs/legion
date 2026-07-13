@@ -904,6 +904,28 @@ describe('AgentRuntime.handleStream()', () => {
     expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'Hello!')).toBe(true);
     expect(next.value.kind).toBe('response');
   });
+
+  it('returns a non-persisting terminal when cancelled before provider streaming', async () => {
+    const { context, inbound, router, providerRequests, thread } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const controller = new AbortController();
+    context.signal = controller.signal;
+    const agent = new AgentRuntime('agent-1', router);
+    const stream = agent.handleStream!(inbound, context);
+
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'iteration_start', iteration: 0 },
+    });
+    controller.abort();
+    await expect(stream.next()).resolves.toMatchObject({
+      done: true,
+      value: { kind: 'middleware_abort', error: expect.stringMatching(/cancelled/i) },
+    });
+    expect(providerRequests).toEqual([]);
+    expect(thread.activeChain).toHaveLength(1);
+  });
 });
 
 describe('AgentRuntime: middleware prompts', () => {

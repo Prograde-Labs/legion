@@ -289,6 +289,12 @@ export class AgentRuntime implements Runtime {
     try {
       const firstIteration = start.iteration ?? 0;
       for (let i = firstIteration; i < maxIterations; i++) {
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
         await context.conversation.reload();
         let prompt = agent.systemPrompt;
         if (i === firstIteration && start.preparedPrompt !== undefined) {
@@ -328,12 +334,32 @@ export class AgentRuntime implements Runtime {
         });
 
         yield { type: 'iteration_start', iteration: i };
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
         const acc = freshAccumulator();
-        for await (const chunk of provider.stream(messages, providerTools, agent.model)) {
+        for await (const chunk of provider.stream(messages, providerTools, agent.model, {
+          signal: context.signal,
+        })) {
+          if (context.signal?.aborted) {
+            return this.withActions(
+              { kind: 'middleware_abort', error: 'Runtime cancelled' },
+              actions,
+            );
+          }
           accumulateChunk(acc, chunk);
           if (chunk.type !== 'done') {
             yield chunk;
           }
+        }
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
         }
         const response = accumulatorToResponse(acc);
 
@@ -360,6 +386,12 @@ export class AgentRuntime implements Runtime {
         const pendingApprovals: PendingApproval[] = [];
 
         for (const tc of response.toolCalls) {
+          if (context.signal?.aborted) {
+            return this.withActions(
+              { kind: 'middleware_abort', error: 'Runtime cancelled' },
+              actions,
+            );
+          }
           const authResult = context.authEngine.authorize(
             this.participantId,
             tc.name,
@@ -424,6 +456,12 @@ export class AgentRuntime implements Runtime {
         }
 
         const usage = await this.computeUsage(providerId, agent, response);
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
         // Persist the tool-call turn to the conversation.
         await context.conversation.append({
           senderId: this.participantId,
@@ -453,6 +491,9 @@ export class AgentRuntime implements Runtime {
         actions,
       );
     } catch (err) {
+      if (context.signal?.aborted) {
+        return this.withActions({ kind: 'middleware_abort', error: 'Runtime cancelled' }, actions);
+      }
       const msg = err instanceof Error ? err.message : String(err);
       return this.withActions(
         {

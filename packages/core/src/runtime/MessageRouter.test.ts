@@ -2139,4 +2139,170 @@ describe('MessageRouter: middleware response streaming', () => {
     await expect(queued).resolves.toMatchObject({ status: 'success', response: 'queued' });
     expect(calls).toBe(2);
   });
+
+  it('keeps provisional failure-open actions when final runtime actions arrive', async () => {
+    const finalActions: string[][] = [];
+    const { router, baseContext, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Streaming action ledger',
+      defaultFailureMode: 'open',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          if (context.message.role !== 'assistant') return { kind: 'continue' };
+          if (!context.final) {
+            return { kind: 'tool', requestId: 'provisional', tool: 'missing', arguments: {} };
+          }
+          finalActions.push(context.actions.map((action) => action.requestId));
+          return { kind: 'continue' };
+        },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream() {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'text_delta', delta: 'draft' } as const;
+        return {
+          kind: 'response' as const,
+          content: 'draft',
+          actions: [
+            {
+              requestId: 'runtime',
+              participantId: 'mock-1',
+              instanceId: 'runtime',
+              tool: 'runtime_tool',
+              status: 'success' as const,
+              result: { status: 'success' as const, data: 'done' },
+            },
+          ],
+        };
+      },
+    }));
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'stream',
+      context: baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+
+    expect(next.value.status).toBe('success');
+    expect(finalActions).toEqual([['provisional', 'runtime']]);
+  });
+
+  it('returns from a blocked agent provider on abort and releases its conversation lock', async () => {
+    const { router, baseContext, collective, runtimeRegistry, store } = await setupMiddlewareRouter(
+      dir,
+      {
+        type: 'test:router-middleware',
+        displayName: 'Blocked provider',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {},
+      },
+    );
+    await collective.update('agent', {
+      middleware: [{ id: 'agent-middleware', type: 'test:router-middleware', config: {} }],
+    });
+    let providerSignal: AbortSignal | undefined;
+    const provider: Provider = {
+      async *stream(_messages, _tools, _model, options) {
+        providerSignal = options?.signal;
+        await new Promise<void>(() => undefined);
+      },
+    };
+    const modelRouter = {
+      async resolveWithId() {
+        return { provider, providerId: 'test' };
+      },
+    } as ModelRouter;
+    runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
+    runtimeRegistry.registerFactory('mock', (id) => new MockRuntime(id));
+    const controller = new AbortController();
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'block',
+      context: { ...baseContext, signal: controller.signal },
+    });
+
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'iteration_start', iteration: 0 },
+    });
+    const terminal = stream.next();
+    await vi.waitFor(() => expect(providerSignal).toBeDefined());
+    controller.abort();
+    let terminalResult: Awaited<typeof terminal> | undefined;
+    void terminal.then((result) => {
+      terminalResult = result;
+    });
+    await vi.waitFor(() => expect(terminalResult).toBeDefined());
+    expect(terminalResult).toMatchObject({
+      done: true,
+      value: { status: 'error', error: expect.stringMatching(/cancelled|aborted/i) },
+    });
+    const conversationId = terminalResult!.value.conversationId;
+    expect(Object.values((await store.load(conversationId))!.messages)).toHaveLength(1);
+
+    await expect(
+      router.send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'queued',
+        conversationId,
+        context: baseContext,
+      }),
+    ).resolves.toMatchObject({ status: 'success' });
+  });
+
+  it('retracts emitted provisional output when stream context aborts', async () => {
+    const { router, baseContext, runtimeRegistry, store } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Abort retraction',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {},
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream(_incoming, context) {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'text_delta', delta: 'partial' } as const;
+        await new Promise<void>((resolve) => context.signal.addEventListener('abort', resolve));
+        return { kind: 'response' as const, content: 'must not persist' };
+      },
+    }));
+    const controller = new AbortController();
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'abort',
+      context: { ...baseContext, signal: controller.signal },
+    });
+
+    await stream.next();
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'text_delta', delta: 'partial' },
+    });
+    const retraction = stream.next();
+    controller.abort();
+    await expect(retraction).resolves.toMatchObject({
+      done: false,
+      value: { type: 'message_snapshot', content: '' },
+    });
+    const terminal = await stream.next();
+    expect(terminal).toMatchObject({ done: true, value: { status: 'error' } });
+    expect(Object.values((await store.load(terminal.value.conversationId))!.messages)).toHaveLength(
+      1,
+    );
+  });
 });
