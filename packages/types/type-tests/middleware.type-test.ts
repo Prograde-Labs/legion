@@ -1,10 +1,154 @@
 import type {
+  JSONSchema,
   LLMChunk,
+  MessageData,
+  MessageDraft,
+  MiddlewareActionResult,
   MiddlewareCheckpoint,
   MiddlewareDefinitionSummary,
   MiddlewareDiagnostic,
   MiddlewarePhase,
+  RequestTool,
 } from '../src/index.js';
+
+type Equal<TLeft, TRight> =
+  (<T>() => T extends TLeft ? 1 : 2) extends <T>() => T extends TRight ? 1 : 2
+    ? (<T>() => T extends TRight ? 1 : 2) extends <T>() => T extends TLeft ? 1 : 2
+      ? true
+      : false
+    : false;
+type Expect<T extends true> = T;
+type Expand<T> = { [TKey in keyof T]: T[TKey] };
+type RequiredKeys<T> = {
+  [TKey in keyof T]-?: object extends Pick<T, TKey> ? never : TKey;
+}[keyof T];
+type OptionalKeys<T> = Exclude<keyof T, RequiredKeys<T>>;
+
+type ExpectedDiagnostic = {
+  type: string;
+  source: string;
+  status: 'loaded' | 'error';
+  error?: string;
+  configurationErrors: Array<{
+    participantId: string;
+    instanceId: string;
+    errors: string[];
+  }>;
+};
+
+type ExpectedRuntimeResume = {
+  kind: 'agent_provider';
+  participantId: string;
+  incomingMessageId: string;
+  iteration: number;
+  preparedPrompt: string;
+  actionCursor: number;
+  actions: MiddlewareActionResult[];
+};
+
+type ExpectedCheckpoint = {
+  checkpointId: string;
+  operationId: string;
+  conversationId: string;
+  phase: MiddlewarePhase;
+  participantId: string;
+  instanceId: string;
+  middlewareType: string;
+  middlewareRevision: number;
+  nextHookIndex: number;
+  actionCursor: number;
+  draft?: MessageDraft;
+  prompt?: string;
+  message?: MessageData;
+  mode?: 'pre_runtime' | 'post_response';
+  final?: boolean;
+  iteration?: number;
+  request: Omit<RequestTool, 'kind'>;
+  actions: MiddlewareActionResult[];
+  observedHead: string;
+  persistedMessageId?: string;
+  runtimeResume?: ExpectedRuntimeResume;
+  createdAt: string;
+};
+
+type ExpectedDefinitionSummary = {
+  type: string;
+  displayName: string;
+  description?: string;
+  defaultFailureMode: 'open' | 'closed';
+  configSchema: JSONSchema;
+  source: string;
+};
+
+export type MiddlewareContractAssertions = [
+  Expect<
+    Equal<
+      MiddlewarePhase,
+      'beforeSend' | 'beforeReceive' | 'afterReceive' | 'buildSystemPrompt' | 'afterSend'
+    >
+  >,
+  Expect<Equal<Expand<MiddlewareDiagnostic>, ExpectedDiagnostic>>,
+  Expect<
+    Equal<RequiredKeys<MiddlewareDiagnostic>, 'type' | 'source' | 'status' | 'configurationErrors'>
+  >,
+  Expect<Equal<OptionalKeys<MiddlewareDiagnostic>, 'error'>>,
+  Expect<
+    Equal<MiddlewareDiagnostic['configurationErrors'], ExpectedDiagnostic['configurationErrors']>
+  >,
+  Expect<Equal<Expand<MiddlewareCheckpoint>, ExpectedCheckpoint>>,
+  Expect<
+    Equal<
+      RequiredKeys<MiddlewareCheckpoint>,
+      | 'checkpointId'
+      | 'operationId'
+      | 'conversationId'
+      | 'phase'
+      | 'participantId'
+      | 'instanceId'
+      | 'middlewareType'
+      | 'middlewareRevision'
+      | 'nextHookIndex'
+      | 'actionCursor'
+      | 'request'
+      | 'actions'
+      | 'observedHead'
+      | 'createdAt'
+    >
+  >,
+  Expect<
+    Equal<
+      OptionalKeys<MiddlewareCheckpoint>,
+      | 'draft'
+      | 'prompt'
+      | 'message'
+      | 'mode'
+      | 'final'
+      | 'iteration'
+      | 'persistedMessageId'
+      | 'runtimeResume'
+    >
+  >,
+  Expect<Equal<MiddlewareCheckpoint['request'], Omit<RequestTool, 'kind'>>>,
+  Expect<Equal<MiddlewareCheckpoint['actions'], MiddlewareActionResult[]>>,
+  Expect<Equal<NonNullable<MiddlewareCheckpoint['runtimeResume']>, ExpectedRuntimeResume>>,
+  Expect<
+    Equal<NonNullable<MiddlewareCheckpoint['runtimeResume']>['actions'], MiddlewareActionResult[]>
+  >,
+  Expect<Equal<Expand<MiddlewareDefinitionSummary>, ExpectedDefinitionSummary>>,
+  Expect<
+    Equal<
+      RequiredKeys<MiddlewareDefinitionSummary>,
+      'type' | 'displayName' | 'defaultFailureMode' | 'configSchema' | 'source'
+    >
+  >,
+  Expect<Equal<OptionalKeys<MiddlewareDefinitionSummary>, 'description'>>,
+  Expect<
+    Equal<
+      Extract<LLMChunk, { type: 'message_snapshot' }>,
+      { type: 'message_snapshot'; content: string; reasoning?: string }
+    >
+  >,
+];
 
 const diagnostic = {
   type: 'audit',
@@ -59,11 +203,4 @@ const snapshot = {
   reasoning: 'Finished',
 } satisfies LLMChunk;
 
-const exactPhase: 'beforeSend' = checkpoint.phase;
-const exactResumeKind: 'agent_provider' = checkpoint.runtimeResume.kind;
-const exactSnapshotType: 'message_snapshot' = snapshot.type;
-
-// @ts-expect-error checkpoints require execution identity and state fields
-const missingCheckpoint: MiddlewareCheckpoint = {};
-
-void [diagnostic, definition, exactPhase, exactResumeKind, exactSnapshotType, missingCheckpoint];
+void [diagnostic, definition, checkpoint, snapshot];
