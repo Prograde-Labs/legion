@@ -49,4 +49,25 @@ describe('assertJsonSafe', () => {
     expect(invoked).toBe(false);
     expect(() => assertJsonSafe(symbolKey)).toThrow(/symbol key/i);
   });
+
+  it('rejects non-enumerable own properties', () => {
+    const object = Object.defineProperty({}, 'hidden', { value: 'data' });
+    const array = Object.defineProperty([1], '0', { enumerable: false });
+
+    expect(() => assertJsonSafe(object)).toThrow(/hidden.*non-enumerable/i);
+    expect(() => assertJsonSafe(array)).toThrow(/\$\[0\].*non-enumerable/i);
+  });
+
+  it('rejects non-enumerable toJSON without invoking it', () => {
+    let invoked = false;
+    const value = Object.defineProperty({}, 'toJSON', {
+      value() {
+        invoked = true;
+        return {};
+      },
+    });
+
+    expect(() => assertJsonSafe(value)).toThrow(/toJSON.*non-enumerable/i);
+    expect(invoked).toBe(false);
+  });
 });

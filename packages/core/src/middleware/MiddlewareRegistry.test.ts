@@ -82,7 +82,6 @@ describe('MiddlewareRegistry', () => {
     ['missing displayName', { displayName: undefined }],
     ['empty displayName', { displayName: '' }],
     ['missing hooks', { hooks: undefined }],
-    ['empty hooks', { hooks: {} }],
     ['missing schema', { configSchema: undefined }],
     ['empty schema', { configSchema: {} }],
     ['missing failure mode', { defaultFailureMode: undefined }],
@@ -95,15 +94,46 @@ describe('MiddlewareRegistry', () => {
     ).toThrow();
   });
 
-  it('reserves builtin types from workspace sources', () => {
+  it('accepts an empty hooks object', () => {
     const registry = new MiddlewareRegistry();
 
-    expect(() =>
-      registry.register(definition({ type: 'builtin:audit' }), 'workspace:local'),
-    ).toThrow(/reserved/i);
+    expect(() => registry.register(definition({ hooks: {} }), 'builtin:core')).not.toThrow();
+    expect(registry.get('labeler')?.hooks).toEqual({});
+  });
+
+  it('rejects unsafe hook containers without invoking accessors', () => {
+    let invoked = false;
+    const accessor = Object.defineProperty({}, 'beforeSend', {
+      enumerable: true,
+      get() {
+        invoked = true;
+        return () => ({ kind: 'continue' });
+      },
+    });
+    const inherited = Object.create({ beforeSend: () => ({ kind: 'continue' }) }) as Record<
+      string,
+      unknown
+    >;
+
+    expect(() => registryWithHooks(accessor as MiddlewareDefinition['hooks'])).toThrow(/accessor/i);
+    expect(invoked).toBe(false);
+    expect(() => registryWithHooks(inherited as MiddlewareDefinition['hooks'])).toThrow(
+      /plain object/i,
+    );
+  });
+
+  it('reserves builtin types for trusted builtin sources', () => {
+    const registry = new MiddlewareRegistry();
+
+    for (const source of ['workspace:local', 'module:third-party', 'arbitrary']) {
+      expect(() => registry.register(definition({ type: `builtin:${source}` }), source)).toThrow(
+        /reserved/i,
+      );
+    }
     expect(() =>
       registry.register(definition({ type: 'builtin:trusted' }), 'builtin:core'),
     ).not.toThrow();
+    expect(() => registry.register(definition({ type: 'ordinary' }), 'arbitrary')).not.toThrow();
   });
 
   it('returns errors for unavailable types', () => {
@@ -136,6 +166,56 @@ describe('MiddlewareRegistry', () => {
     expect(registry.list()).toEqual([]);
   });
 
+  it('allows corrected registration after failed compilation with the same schema ID', () => {
+    const registry = new MiddlewareRegistry();
+    const schemaId = 'urn:legion:test:labeler';
+
+    expect(() =>
+      registry.register(
+        definition({ configSchema: { $id: schemaId, type: 'object', unknownKeyword: true } }),
+        'builtin:core',
+      ),
+    ).toThrow();
+    expect(() =>
+      registry.register(
+        definition({ configSchema: { $id: schemaId, type: 'object' } }),
+        'builtin:core',
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ['absent', { properties: {} }],
+    ['empty', { type: '' }],
+  ])('rejects config schemas with %s own type', (_name, configSchema) => {
+    expect(() =>
+      new MiddlewareRegistry().register(
+        definition({ configSchema: configSchema as MiddlewareDefinition['configSchema'] }),
+        'builtin:core',
+      ),
+    ).toThrow(/configSchema type/i);
+  });
+
+  it('rejects inherited and accessor schema types without invoking getters', () => {
+    let invoked = false;
+    const inherited = Object.assign(Object.create({ type: 'object' }), { properties: {} });
+    const accessor = Object.defineProperty({}, 'type', {
+      enumerable: true,
+      get() {
+        invoked = true;
+        return 'object';
+      },
+    });
+
+    expect(() =>
+      new MiddlewareRegistry().register(definition({ configSchema: inherited }), 'builtin:core'),
+    ).toThrow(/configSchema type/i);
+    expect(() =>
+      new MiddlewareRegistry().register(definition({ configSchema: accessor }), 'builtin:core'),
+    ).toThrow(/configSchema type/i);
+    expect(invoked).toBe(false);
+  });
+
   it('snapshots schema metadata while preserving registered hook references', () => {
     const registry = new MiddlewareRegistry();
     const original = definition();
@@ -155,4 +235,28 @@ describe('MiddlewareRegistry', () => {
     expect(registry.get('labeler')?.hooks.beforeSend).toBe(hook);
     expect(registry.validateConfig('labeler', { label: 'safe' })).toEqual([]);
   });
+
+  it('does not invoke inherited toJSON while snapshotting registration metadata', () => {
+    let invoked = false;
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value(this: object) {
+        invoked = true;
+        return this;
+      },
+    });
+
+    try {
+      expect(() => new MiddlewareRegistry().register(definition(), 'builtin:core')).not.toThrow();
+      expect(invoked).toBe(false);
+    } finally {
+      delete (Object.prototype as { toJSON?: unknown }).toJSON;
+    }
+  });
 });
+
+function registryWithHooks(hooks: MiddlewareDefinition['hooks']): MiddlewareRegistry {
+  const registry = new MiddlewareRegistry();
+  registry.register(definition({ hooks }), 'builtin:core');
+  return registry;
+}

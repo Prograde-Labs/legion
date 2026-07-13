@@ -33,6 +33,7 @@ export function assertJsonSafe(
     if (Array.isArray(value)) {
       for (const key of Object.keys(descriptors)) {
         if (key === 'length') continue;
+        const descriptor = descriptors[key]!;
         const index = Number(key);
         if (
           !Number.isInteger(index) ||
@@ -41,6 +42,9 @@ export function assertJsonSafe(
           index >= value.length
         ) {
           fail(childPath(path, key), `custom array property ${key} is unsupported`);
+        }
+        if (!descriptor.enumerable) {
+          fail(`${path}[${index}]`, 'non-enumerable properties are unsupported');
         }
       }
       for (let index = 0; index < value.length; index += 1) {
@@ -58,10 +62,13 @@ export function assertJsonSafe(
     for (const key of Object.keys(descriptors)) {
       const descriptor = descriptors[key]!;
       const propertyPath = childPath(path, key);
+      if (!descriptor.enumerable) {
+        fail(propertyPath, 'non-enumerable properties are unsupported');
+      }
       if ('get' in descriptor || 'set' in descriptor) {
         fail(propertyPath, 'accessor properties are unsupported');
       }
-      if (descriptor.enumerable) assertJsonSafe(descriptor.value, propertyPath, ancestors);
+      assertJsonSafe(descriptor.value, propertyPath, ancestors);
     }
   } finally {
     ancestors.delete(value);
