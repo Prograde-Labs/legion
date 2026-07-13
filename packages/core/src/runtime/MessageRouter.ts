@@ -161,7 +161,10 @@ export class MessageRouter implements MessageRouterPort {
       };
     }
 
-    const parentConversationId = opts.context.conversationId || undefined;
+    const parentConversationId =
+      opts.context.conversationId && opts.context.conversationId !== opts.conversationId
+        ? opts.context.conversationId
+        : undefined;
     const parentToolCallId = opts.context.toolCallId;
     const origin: ConversationOrigin = opts.origin ?? {
       kind: parentToolCallId ? 'tool' : 'participant',
@@ -272,7 +275,10 @@ export class MessageRouter implements MessageRouterPort {
 
     // When no explicit conversationId is provided, create a new conversation.
     // If the caller is itself in a real conversation, stamp the parent link.
-    const parentConversationId = opts.context.conversationId || undefined;
+    const parentConversationId =
+      opts.context.conversationId && opts.context.conversationId !== opts.conversationId
+        ? opts.context.conversationId
+        : undefined;
     const parentToolCallId = opts.context.toolCallId;
     const origin: ConversationOrigin = opts.origin ?? {
       kind: parentToolCallId ? 'tool' : 'participant',

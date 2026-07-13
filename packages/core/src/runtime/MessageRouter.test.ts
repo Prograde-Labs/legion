@@ -325,6 +325,62 @@ describe('MessageRouter: synchronous send', () => {
     expect(conversation?.parentToolCallId).toBe('origin-call');
   });
 
+  it('does not self-parent a buffered fallback when context has the requested missing id', async () => {
+    const { router, baseContext, store } = await setup(dir);
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'same id fallback',
+      conversationId: 'conv-missing',
+      context: {
+        ...baseContext,
+        conversationId: 'conv-missing',
+        toolCallId: 'context-call',
+      },
+    });
+
+    const conversation = await store.load(result.conversationId);
+    expect(conversation?.origin).toEqual({
+      kind: 'tool',
+      participantId: 'op',
+      parentToolCallId: 'context-call',
+    });
+    expect(conversation?.parentConversationId).toBeUndefined();
+    expect(conversation?.parentToolCallId).toBe('context-call');
+  });
+
+  it('preserves a distinct context parent when a supplied conversation id falls back', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'distinct parent fallback',
+      conversationId: 'conv-missing',
+      context: {
+        ...baseContext,
+        conversationId: parent.id,
+        toolCallId: 'context-call',
+      },
+    });
+
+    const conversation = await store.load(result.conversationId);
+    expect(conversation?.origin).toEqual({
+      kind: 'tool',
+      participantId: 'op',
+      parentConversationId: parent.id,
+      parentToolCallId: 'context-call',
+    });
+    expect(conversation?.parentConversationId).toBe(parent.id);
+    expect(conversation?.parentToolCallId).toBe('context-call');
+  });
+
   it('does not overwrite origin when sending into an existing conversation', async () => {
     const { router, baseContext, store } = await setup(dir);
     const originalOrigin: ConversationOrigin = { kind: 'participant', participantId: 'op' };
@@ -1094,6 +1150,32 @@ describe('MessageRouter.sendStream()', () => {
     expect(conversation?.origin).toEqual(origin);
     expect(conversation?.parentConversationId).toBe(parent.id);
     expect(conversation?.parentToolCallId).toBe('origin-call');
+  });
+
+  it('does not self-parent a streamed fallback when context has the requested missing id', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'same id stream fallback',
+      conversationId: 'conv-missing',
+      context: {
+        ...baseContext,
+        conversationId: 'conv-missing',
+        toolCallId: 'context-call',
+      },
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+
+    const conversation = await store.load(next.value.conversationId);
+    expect(conversation?.origin).toEqual({
+      kind: 'tool',
+      participantId: 'op',
+      parentToolCallId: 'context-call',
+    });
+    expect(conversation?.parentConversationId).toBeUndefined();
+    expect(conversation?.parentToolCallId).toBe('context-call');
   });
 });
 
