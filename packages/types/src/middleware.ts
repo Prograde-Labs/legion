@@ -132,6 +132,51 @@ export interface RequestTool {
   stateOnSuccess?: JSONValue;
 }
 
+export interface MiddlewareDiagnostic {
+  type: string;
+  source: string;
+  status: 'loaded' | 'error';
+  error?: string;
+  configurationErrors: Array<{
+    participantId: string;
+    instanceId: string;
+    errors: string[];
+  }>;
+}
+
+export interface MiddlewareCheckpoint {
+  checkpointId: string;
+  operationId: string;
+  conversationId: string;
+  phase: MiddlewarePhase;
+  participantId: string;
+  instanceId: string;
+  middlewareType: string;
+  middlewareRevision: number;
+  nextHookIndex: number;
+  actionCursor: number;
+  draft?: MessageDraft;
+  prompt?: string;
+  message?: MessageData;
+  mode?: 'pre_runtime' | 'post_response';
+  final?: boolean;
+  iteration?: number;
+  request: Omit<RequestTool, 'kind'>;
+  actions: MiddlewareActionResult[];
+  observedHead: string;
+  persistedMessageId?: string;
+  runtimeResume?: {
+    kind: 'agent_provider';
+    participantId: string;
+    incomingMessageId: string;
+    iteration: number;
+    preparedPrompt: string;
+    actionCursor: number;
+    actions: MiddlewareActionResult[];
+  };
+  createdAt: string;
+}
+
 export type MessageDraftResult = ContinueMessage | Reject | RequestTool;
 export type AfterReceiveResult = Continue | Complete | Respond | Abort | RequestTool;
 export type SystemPromptResult = ContinuePrompt | Abort | RequestTool;
@@ -154,4 +199,13 @@ export interface MiddlewareDefinition<TConfig = unknown> {
   defaultFailureMode: FailureMode;
   configSchema: JSONSchema;
   hooks: MiddlewareHooks<TConfig>;
+}
+
+export interface MiddlewareDefinitionSummary {
+  type: string;
+  displayName: string;
+  description?: string;
+  defaultFailureMode: FailureMode;
+  configSchema: JSONSchema;
+  source: string;
 }

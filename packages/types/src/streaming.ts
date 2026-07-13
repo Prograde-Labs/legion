@@ -7,6 +7,7 @@ export type LLMChunk =
   | { type: 'iteration_start'; iteration: number }
   | { type: 'reasoning_delta'; delta: string }
   | { type: 'text_delta'; delta: string }
+  | { type: 'message_snapshot'; content: string; reasoning?: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_args_delta'; index: number; delta: string };
 

@@ -1,7 +1,11 @@
 import type {
   ParticipantConfig,
   ConversationData,
+  LLMChunk,
   MessageData,
+  MiddlewareCheckpoint,
+  MiddlewareDiagnostic,
+  MiddlewarePhase,
   ToolResult,
   WorkspaceConfig,
 } from './index.js';
@@ -47,5 +51,57 @@ describe('domain type shapes', () => {
     const cfg = { version: '2' } satisfies WorkspaceConfig;
     expect(ok.status).toBe('success');
     expect(cfg.version).toBe('2');
+  });
+
+  it('accepts middleware diagnostics, checkpoints, and message snapshots', () => {
+    const diagnostic = {
+      type: 'audit',
+      source: 'workspace',
+      status: 'loaded',
+      configurationErrors: [],
+    } satisfies MiddlewareDiagnostic;
+    const phase = 'beforeSend' satisfies MiddlewarePhase;
+    const checkpoint = {
+      checkpointId: 'checkpoint-1',
+      operationId: 'operation-1',
+      conversationId: 'conv-1',
+      phase,
+      participantId: 'agent-1',
+      instanceId: 'audit-1',
+      middlewareType: 'audit',
+      middlewareRevision: 1,
+      nextHookIndex: 1,
+      actionCursor: 0,
+      request: {
+        requestId: 'request-1',
+        tool: 'communicate',
+        arguments: { recipient: 'agent-2' },
+      },
+      actions: [],
+      observedHead: 'm1',
+      runtimeResume: {
+        kind: 'agent_provider',
+        participantId: 'agent-1',
+        incomingMessageId: 'm1',
+        iteration: 1,
+        preparedPrompt: 'Continue.',
+        actionCursor: 0,
+        actions: [],
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    } satisfies MiddlewareCheckpoint;
+    const snapshot = {
+      type: 'message_snapshot',
+      content: 'Complete response',
+      reasoning: 'Finished',
+    } satisfies LLMChunk;
+
+    expect(diagnostic.status).toBe('loaded');
+    expect(checkpoint.phase).toBe('beforeSend');
+    expect(checkpoint.request.tool).toBe('communicate');
+    expect(checkpoint.runtimeResume.kind).toBe('agent_provider');
+    expect(snapshot.type).toBe('message_snapshot');
+    expectTypeOf(checkpoint.phase).toEqualTypeOf<'beforeSend'>();
+    expectTypeOf(snapshot.type).toEqualTypeOf<'message_snapshot'>();
   });
 });
