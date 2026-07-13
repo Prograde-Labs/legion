@@ -471,6 +471,7 @@ describe('management tools', () => {
       parentMessageId: 'origin-message',
     };
     const titles = { operator: 'Operator title', other: 'Other title' };
+    const tags = ['important'];
     const middlewareState = { operator: { audit: { enabled: true } } };
     const conversation: ConversationData = {
       id: 'conv-stable',
@@ -482,7 +483,7 @@ describe('management tools', () => {
       title: 'Shared title',
       titles,
       status: 'archived',
-      tags: ['important'],
+      tags,
       origin,
       parentConversationId: 'legacy-parent',
       middlewareState,
@@ -514,12 +515,15 @@ describe('management tools', () => {
     const data = result.data as {
       origin: object;
       titles: object;
+      tags: string[];
       middlewareState: { operator: { audit: object } };
     };
     expect(data.origin).toEqual(origin);
     expect(data.origin).not.toBe(origin);
     expect(data.titles).toEqual(titles);
     expect(data.titles).not.toBe(titles);
+    expect(data.tags).toEqual(tags);
+    expect(data.tags).not.toBe(tags);
     expect(data.middlewareState).toEqual(middlewareState);
     expect(data.middlewareState).not.toBe(middlewareState);
     expect(data.middlewareState.operator).not.toBe(middlewareState.operator);

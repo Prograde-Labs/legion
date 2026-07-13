@@ -784,7 +784,7 @@ export const getConversationTool: Tool = {
         titles:
           conversation.titles === undefined ? undefined : structuredClone(conversation.titles),
         status: getConversationStatus(conversation),
-        tags: conversation.tags ?? [],
+        tags: conversation.tags === undefined ? [] : [...conversation.tags],
         origin:
           conversation.origin === undefined ? undefined : structuredClone(conversation.origin),
         middlewareState:
