@@ -101,6 +101,49 @@ describe('MiddlewareRegistry', () => {
     expect(registry.get('labeler')?.hooks).toEqual({});
   });
 
+  it('accepts a null-prototype definition object', () => {
+    const candidate = Object.assign(Object.create(null), definition()) as MiddlewareDefinition;
+
+    expect(() => new MiddlewareRegistry().register(candidate, 'builtin:core')).not.toThrow();
+  });
+
+  it('rejects non-plain definitions, symbol keys, inherited fields, and unknown keys', () => {
+    class CustomDefinition {}
+    const custom = Object.assign(new CustomDefinition(), definition());
+    const symbolKey = Object.assign(definition(), { [Symbol('extra')]: true });
+    const { type: _type, ...withoutType } = definition();
+    const inheritedType = Object.assign(Object.create({ type: 'labeler' }), withoutType);
+    const unknownKey = Object.assign(definition(), { extra: true });
+
+    for (const candidate of [custom, symbolKey, inheritedType, unknownKey]) {
+      expect(() =>
+        new MiddlewareRegistry().register(candidate as MiddlewareDefinition, 'builtin:core'),
+      ).toThrow();
+    }
+  });
+
+  it.each(['type', 'hooks', 'configSchema'] as const)(
+    'rejects a stateful %s getter without invoking it or registering',
+    (field) => {
+      const registry = new MiddlewareRegistry();
+      const candidate = definition() as unknown as Record<string, unknown>;
+      let invocations = 0;
+      Object.defineProperty(candidate, field, {
+        enumerable: true,
+        get() {
+          invocations += 1;
+          return field === 'type' ? 'labeler' : field === 'hooks' ? {} : { type: 'object' };
+        },
+      });
+
+      expect(() =>
+        registry.register(candidate as unknown as MiddlewareDefinition, 'builtin:core'),
+      ).toThrow(/accessor/i);
+      expect(invocations).toBe(0);
+      expect(registry.list()).toEqual([]);
+    },
+  );
+
   it('rejects unsafe hook containers without invoking accessors', () => {
     let invoked = false;
     const accessor = Object.defineProperty({}, 'beforeSend', {
