@@ -213,6 +213,33 @@ describe('management tools', () => {
     );
   });
 
+  it('list_participants returns detached full middleware configuration', async () => {
+    const { context, collective } = await makeContext();
+    await collective.add({
+      id: 'listed-agent',
+      name: 'Listed Agent',
+      type: 'agent',
+      tools: {},
+      systemPrompt: 'test',
+      model: { model: 'test' },
+      maxIterations: 20,
+      middleware: [
+        { id: 'listed', type: 'audit', enabled: false, config: { nested: { value: 1 } } },
+      ],
+      middlewareRevision: 3,
+    });
+
+    const result = await listParticipantsTool.execute({}, context);
+    const listed = (
+      result.data as Array<{ id: string; middleware: MiddlewareInstanceConfig[] }>
+    ).find(({ id }) => id === 'listed-agent')!;
+    listed.middleware[0].config.nested = { value: 9 };
+
+    expect(collective.get('listed-agent')?.middleware?.[0].config).toEqual({
+      nested: { value: 1 },
+    });
+  });
+
   it('retire_agent retires an agent', async () => {
     const { context, collective } = await makeContext();
     await createAgentTool.execute(
@@ -1140,6 +1167,15 @@ describe('participant middleware management', () => {
         }),
       }),
     );
+    const schema = matches[0].parameters.properties?.middleware as {
+      items: {
+        additionalProperties?: boolean;
+        properties: { id: { minLength?: number }; type: { minLength?: number } };
+      };
+    };
+    expect(schema.items.additionalProperties).toBe(false);
+    expect(schema.items.properties.id.minLength).toBe(1);
+    expect(schema.items.properties.type.minLength).toBe(1);
   });
 
   it('atomically replaces ordered middleware and increments an absent revision', async () => {
@@ -1263,6 +1299,62 @@ describe('participant middleware management', () => {
       expect(result.status).toBe('error');
       expect(result.error).toBeTruthy();
     }
+  });
+
+  it('rejects inherited required fields and unknown string or symbol keys', async () => {
+    const { context, collective } = await makeAgentContext();
+    const inherited = Object.assign(Object.create({ id: 'inherited' }), {
+      type: 'known',
+      config: {},
+    });
+    const unknownCycle: Record<string, unknown> = {};
+    unknownCycle.self = unknownCycle;
+    const symbol = Symbol('unknown');
+    const withSymbol: Record<PropertyKey, unknown> = {
+      id: 'symbol',
+      type: 'known',
+      enabled: false,
+      config: {},
+      [symbol]: true,
+    };
+
+    for (const middleware of [
+      inherited,
+      { id: 'extra', type: 'known', enabled: false, config: {}, extra: unknownCycle },
+      withSymbol,
+    ]) {
+      const result = await setParticipantMiddlewareTool.execute(
+        { participantId: 'target-agent', middleware: [middleware] },
+        context,
+      );
+      expect(result.status).toBe('error');
+    }
+    expect(collective.get('target-agent')?.middleware).toBeUndefined();
+  });
+
+  it('isolates stored middleware from validator and response mutations', async () => {
+    const { context, collective } = await makeAgentContext();
+    const middleware: MiddlewareInstanceConfig[] = [
+      { id: 'isolated', type: 'known', config: { nested: { value: 1 } } },
+    ];
+    const validator = {
+      validate: vi.fn(async (instances: readonly MiddlewareInstanceConfig[]) => {
+        instances[0].config.nested = { value: 7 };
+      }),
+    };
+
+    const result = await setParticipantMiddlewareTool.execute(
+      { participantId: 'target-agent', middleware },
+      { ...context, middlewareValidator: validator } as ToolContext,
+    );
+    middleware[0].config.nested = { value: 8 };
+    const responseMiddleware = (result.data as { middleware: MiddlewareInstanceConfig[] })
+      .middleware;
+    responseMiddleware[0].config.nested = { value: 9 };
+
+    expect(collective.get('target-agent')?.middleware?.[0].config).toEqual({
+      nested: { value: 1 },
+    });
   });
 
   it('clones replacement middleware before persistence', async () => {

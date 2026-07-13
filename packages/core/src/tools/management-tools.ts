@@ -56,7 +56,9 @@ export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): 
   try {
     if (Array.isArray(value)) return value.every((item) => isJSONValue(item, ancestors));
     if (!isPlainObject(value)) return false;
-    return Object.values(value).every((item) => isJSONValue(item, ancestors));
+    return Reflect.ownKeys(value).every(
+      (key) => typeof key === 'string' && isJSONValue(value[key], ancestors),
+    );
   } finally {
     ancestors.delete(value);
   }
@@ -65,8 +67,20 @@ export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): 
 function validateMiddleware(value: unknown): MiddlewareInstanceConfig[] {
   if (!Array.isArray(value)) throw new Error('middleware must be an array');
   const ids = new Set<string>();
+  const normalized: MiddlewareInstanceConfig[] = [];
+  const allowedKeys = new Set(['id', 'type', 'enabled', 'failureMode', 'config']);
   for (const [index, entry] of value.entries()) {
     if (!isPlainObject(entry)) throw new Error(`middleware[${index}] must be a plain object`);
+    for (const key of Reflect.ownKeys(entry)) {
+      if (typeof key !== 'string' || !allowedKeys.has(key)) {
+        throw new Error(`middleware[${index}] contains an unknown property`);
+      }
+    }
+    for (const key of ['id', 'type', 'config']) {
+      if (!Object.prototype.hasOwnProperty.call(entry, key)) {
+        throw new Error(`middleware[${index}].${key} must be an own property`);
+      }
+    }
     if (typeof entry.id !== 'string' || entry.id.trim().length === 0) {
       throw new Error(`middleware[${index}].id must be a non-empty string`);
     }
@@ -88,15 +102,23 @@ function validateMiddleware(value: unknown): MiddlewareInstanceConfig[] {
     if (!isPlainObject(entry.config) || !isJSONValue(entry.config)) {
       throw new Error(`middleware[${index}].config must be a JSON-safe object`);
     }
+    const instance: MiddlewareInstanceConfig = {
+      id: entry.id,
+      type: entry.type,
+      config: structuredClone(entry.config) as Record<string, JSONValue>,
+    };
+    if (entry.enabled !== undefined) instance.enabled = entry.enabled;
+    if (entry.failureMode !== undefined) instance.failureMode = entry.failureMode;
+    normalized.push(instance);
   }
-  return structuredClone(value) as MiddlewareInstanceConfig[];
+  return normalized;
 }
 
 async function validateEnabledMiddleware(
   middleware: MiddlewareInstanceConfig[],
   context: ToolContext,
 ): Promise<MiddlewareInstanceConfig[]> {
-  const enabled = middleware.filter((instance) => instance.enabled !== false);
+  const enabled = structuredClone(middleware.filter((instance) => instance.enabled !== false));
   if (enabled.length > 0) {
     if (!context.middlewareValidator) {
       throw new Error('middleware configuration validator unavailable');
@@ -111,13 +133,14 @@ const middlewareSchema = {
   items: {
     type: 'object',
     properties: {
-      id: { type: 'string' },
-      type: { type: 'string' },
+      id: { type: 'string', minLength: 1 },
+      type: { type: 'string', minLength: 1 },
       enabled: { type: 'boolean' },
       failureMode: { type: 'string', enum: ['open', 'closed'] },
       config: { type: 'object' },
     },
     required: ['id', 'type', 'config'],
+    additionalProperties: false,
   },
 } as const;
 
@@ -213,7 +236,7 @@ export const listParticipantsTool: Tool = {
           name: p.name,
           type: p.type,
           status: p.status ?? 'active',
-          middleware: p.middleware ?? [],
+          middleware: structuredClone(p.middleware ?? []),
           middlewareRevision: p.middlewareRevision ?? 0,
         }));
       return { status: 'success', data: list };
@@ -337,7 +360,7 @@ export const setParticipantMiddlewareTool: Tool = {
         status: 'success',
         data: {
           participantId: participant.id,
-          middleware: participant.middleware,
+          middleware: structuredClone(participant.middleware ?? []),
           revision: participant.middlewareRevision,
         },
       };

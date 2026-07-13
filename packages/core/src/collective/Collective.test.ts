@@ -4,6 +4,42 @@ import type { AgentConfig, UserConfig } from '@legion/types';
 import { ConflictError, InvariantError } from '../errors/LegionError.js';
 import { EventBus } from '../events/EventBus.js';
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+class ControlledStorage extends MemoryStorage {
+  private blockedWrite?: {
+    started: ReturnType<typeof deferred>;
+    release: ReturnType<typeof deferred>;
+  };
+  failNextWrite = false;
+
+  blockNextWrite() {
+    const blockedWrite = { started: deferred(), release: deferred() };
+    this.blockedWrite = blockedWrite;
+    return blockedWrite;
+  }
+
+  override async writeJson(key: string, value: unknown): Promise<void> {
+    if (this.failNextWrite) {
+      this.failNextWrite = false;
+      throw new Error('simulated persistence failure');
+    }
+    const blockedWrite = this.blockedWrite;
+    if (blockedWrite) {
+      this.blockedWrite = undefined;
+      blockedWrite.started.resolve();
+      await blockedWrite.release.promise;
+    }
+    await super.writeJson(key, value);
+  }
+}
+
 function seedStorage() {
   const storage = new MemoryStorage();
   const operator: UserConfig = {
@@ -142,6 +178,115 @@ describe('Collective: mutation and invariants', () => {
     });
     const collective = await Collective.load(storage);
     await expect(collective.update('op-1', { operator: false })).rejects.toThrow(InvariantError);
+  });
+
+  it('serializes retire and middleware replacement using freshest participant state', async () => {
+    const storage = new ControlledStorage();
+    const { operator, agent } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', operator);
+    await storage.writeJson('collective/participants/agent-1.json', agent);
+    const collective = await Collective.load(storage);
+    const blocked = storage.blockNextWrite();
+
+    const retiring = collective.retire('agent-1');
+    await blocked.started.promise;
+    let replacementSettled = false;
+    const replacing = collective
+      .replaceMiddleware('agent-1', [{ id: 'audit', type: 'audit', enabled: false, config: {} }])
+      .finally(() => {
+        replacementSettled = true;
+      });
+    await Promise.resolve();
+
+    expect(replacementSettled).toBe(false);
+    blocked.release.resolve();
+    await Promise.all([retiring, replacing]);
+
+    expect(collective.get('agent-1')).toEqual(
+      expect.objectContaining({ status: 'retired', middlewareRevision: 1 }),
+    );
+    expect(await storage.readJson('collective/participants/agent-1.json')).toEqual(
+      expect.objectContaining({ status: 'retired', middlewareRevision: 1 }),
+    );
+  });
+
+  it('keeps memory unchanged after persistence failure and releases mutation lock', async () => {
+    const storage = new ControlledStorage();
+    const { operator, agent } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', operator);
+    await storage.writeJson('collective/participants/agent-1.json', agent);
+    const collective = await Collective.load(storage);
+    const bus = new EventBus();
+    collective.eventBus = bus;
+    const retired = vi.fn();
+    bus.on('participant:retired', retired);
+    storage.failNextWrite = true;
+
+    await expect(collective.retire('agent-1')).rejects.toThrow('simulated persistence failure');
+    expect(collective.get('agent-1')?.status).toBe('active');
+    expect(retired).not.toHaveBeenCalled();
+
+    await collective.update('agent-1', { name: 'Recovered' });
+    expect(collective.get('agent-1')?.name).toBe('Recovered');
+  });
+
+  it('serializes add and update for the same participant', async () => {
+    const storage = new ControlledStorage();
+    const collective = await Collective.load(storage);
+    const blocked = storage.blockNextWrite();
+    const adding = collective.add({
+      id: 'new-agent',
+      name: 'Initial',
+      type: 'agent',
+      tools: {},
+      systemPrompt: 'test',
+      model: { model: 'test' },
+      maxIterations: 20,
+    });
+    await blocked.started.promise;
+    let updateSettled = false;
+    const updating = collective.update('new-agent', { name: 'Updated' }).finally(() => {
+      updateSettled = true;
+    });
+    await Promise.resolve();
+
+    expect(updateSettled).toBe(false);
+    blocked.release.resolve();
+    await Promise.all([adding, updating]);
+
+    expect(collective.get('new-agent')?.name).toBe('Updated');
+    expect(await storage.readJson('collective/participants/new-agent.json')).toEqual(
+      expect.objectContaining({ name: 'Updated' }),
+    );
+  });
+
+  it('clones middleware when adding and replacing participants', async () => {
+    const collective = await Collective.load(new MemoryStorage());
+    const createdMiddleware = [
+      { id: 'created', type: 'audit', enabled: false, config: { nested: { value: 1 } } },
+    ];
+    await collective.add({
+      id: 'clone-agent',
+      name: 'Clone Agent',
+      type: 'agent',
+      tools: {},
+      systemPrompt: 'test',
+      model: { model: 'test' },
+      maxIterations: 20,
+      middleware: createdMiddleware,
+    });
+    createdMiddleware[0].config.nested.value = 2;
+
+    const replacement = [
+      { id: 'replacement', type: 'audit', enabled: false, config: { nested: { value: 3 } } },
+    ];
+    const result = await collective.replaceMiddleware('clone-agent', replacement);
+    replacement[0].config.nested.value = 4;
+    result.middleware![0].config.nested = { value: 5 };
+
+    expect(collective.get('clone-agent')?.middleware).toEqual([
+      { id: 'replacement', type: 'audit', enabled: false, config: { nested: { value: 3 } } },
+    ]);
   });
 });
 

@@ -98,18 +98,26 @@ export class Collective {
   }
 
   async add(config: ParticipantConfig): Promise<void> {
-    if (this.participants.has(config.id)) {
-      throw new ConflictError(`Participant already exists: ${config.id}`);
-    }
-    const withStatus: ParticipantConfig = { status: 'active', ...config };
-    this.participants.set(withStatus.id, withStatus);
-    await this.persist(withStatus);
+    const detachedMiddleware = config.middleware ? structuredClone(config.middleware) : undefined;
+    await this.withParticipantMutation(config.id, async () => {
+      if (this.participants.has(config.id)) {
+        throw new ConflictError(`Participant already exists: ${config.id}`);
+      }
+      const withStatus: ParticipantConfig = {
+        status: 'active',
+        ...config,
+        ...(detachedMiddleware === undefined ? {} : { middleware: detachedMiddleware }),
+      };
+      await this.persist(withStatus);
+      this.participants.set(withStatus.id, withStatus);
+    });
   }
 
   async update(id: string, patch: Partial<ParticipantConfig>): Promise<void> {
     await this.withParticipantMutation(id, async () => {
       const existing = this.getOrThrow(id);
       const updated = { ...existing, ...patch } as ParticipantConfig;
+      if (updated.middleware) updated.middleware = structuredClone(updated.middleware);
       if (existing.operator === true && updated.operator === false) {
         const otherOperators = this.operators().filter((p) => p.id !== id);
         if (otherOperators.length === 0) {
@@ -125,34 +133,37 @@ export class Collective {
     participantId: string,
     middleware: MiddlewareInstanceConfig[],
   ): Promise<ParticipantConfig> {
+    const detachedMiddleware = structuredClone(middleware);
     return this.withParticipantMutation(participantId, async () => {
       const existing = this.getOrThrow(participantId);
       const updated = {
         ...existing,
-        middleware,
+        middleware: detachedMiddleware,
         middlewareRevision: (existing.middlewareRevision ?? 0) + 1,
       } as ParticipantConfig;
       await this.persist(updated);
       this.participants.set(participantId, updated);
-      return updated;
+      return { ...updated, middleware: structuredClone(updated.middleware) } as ParticipantConfig;
     });
   }
 
   async retire(id: string): Promise<void> {
-    const existing = this.getOrThrow(id);
-    if (existing.protected) {
-      throw new InvariantError(`Cannot retire protected participant: ${id}`);
-    }
-    if (existing.operator === true) {
-      const otherActiveOperators = this.operators().filter((p) => p.id !== id);
-      if (otherActiveOperators.length === 0) {
-        throw new InvariantError('Cannot retire the last active operator');
+    await this.withParticipantMutation(id, async () => {
+      const existing = this.getOrThrow(id);
+      if (existing.protected) {
+        throw new InvariantError(`Cannot retire protected participant: ${id}`);
       }
-    }
-    const updated = { ...existing, status: 'retired' as const };
-    this.participants.set(id, updated);
-    await this.persist(updated);
-    this.eventBus?.emit('participant:retired', { participantId: id });
+      if (existing.operator === true) {
+        const otherActiveOperators = this.operators().filter((p) => p.id !== id);
+        if (otherActiveOperators.length === 0) {
+          throw new InvariantError('Cannot retire the last active operator');
+        }
+      }
+      const updated = { ...existing, status: 'retired' as const };
+      await this.persist(updated);
+      this.participants.set(id, updated);
+      this.eventBus?.emit('participant:retired', { participantId: id });
+    });
   }
 
   async seed(participants: ParticipantConfig[]): Promise<void> {
