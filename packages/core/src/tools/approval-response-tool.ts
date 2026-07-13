@@ -55,7 +55,7 @@ export const approvalResponseTool: Tool = {
     }
 
     const results: Array<{ approvalId: string; outcome: string }> = [];
-    const toResume = new Map<string, string>(); // conversationId → requesterId
+    const toResume = new Map<string, { requesterId: string; approvalIds: string[] }>();
     const seen = new Set<string>();
 
     for (const { approvalId, decision, message } of decisions) {
@@ -111,6 +111,12 @@ export const approvalResponseTool: Tool = {
           decidedByParticipantId: context.participant.id,
         });
         record = pendingRegistry.getRecord(approvalId)!;
+      } else if (
+        record.decision.approved !== (decision === 'approve') ||
+        record.decision.message !== message
+      ) {
+        results.push({ approvalId, outcome: 'conflict' });
+        continue;
       }
 
       if (record.continuation?.kind === 'middleware') {
@@ -134,12 +140,33 @@ export const approvalResponseTool: Tool = {
       }
 
       results.push({ approvalId, outcome: decision });
-      toResume.set(record.conversationId, record.requesterId);
+      if ((await pendingRegistry.claimGenericResume(approvalId)) === 'claimed') {
+        const pending = toResume.get(record.conversationId);
+        if (pending) pending.approvalIds.push(approvalId);
+        else {
+          toResume.set(record.conversationId, {
+            requesterId: record.requesterId,
+            approvalIds: [approvalId],
+          });
+        }
+      }
     }
 
     if (context.messageRouter) {
-      for (const [conversationId, requesterId] of toResume) {
-        await context.messageRouter.resume(conversationId, requesterId, context);
+      for (const [conversationId, pending] of toResume) {
+        let resumed = false;
+        try {
+          await context.messageRouter.resume(conversationId, pending.requesterId, context);
+          resumed = true;
+        } finally {
+          await Promise.all(
+            pending.approvalIds.map((approvalId) =>
+              resumed
+                ? pendingRegistry.completeGenericResume(approvalId)
+                : pendingRegistry.releaseGenericResume(approvalId),
+            ),
+          );
+        }
       }
     }
 

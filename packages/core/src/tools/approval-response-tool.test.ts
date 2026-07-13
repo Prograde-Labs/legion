@@ -244,4 +244,119 @@ describe('approval_response tool', () => {
       'resume_pending',
     );
   });
+
+  it('coalesces concurrent identical decisions into one generic resume', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-concurrent',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi.fn(async () => ({
+      conversationId: 'c-concurrent',
+      status: 'success' as const,
+    }));
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    const [first, second] = await Promise.all([
+      approvalResponseTool.execute({ decisions: [{ approvalId, decision: 'approve' }] }, context),
+      approvalResponseTool.execute({ decisions: [{ approvalId, decision: 'approve' }] }, context),
+    ]);
+
+    expect(first.status).toBe('success');
+    expect(second.status).toBe('success');
+    expect(reg.getDecision(approvalId)).toMatchObject({ approved: true });
+    expect(resume).toHaveBeenCalledOnce();
+  });
+
+  it('does not resume again when concurrent decisions conflict', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-conflict',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi.fn(async () => ({
+      conversationId: 'c-conflict',
+      status: 'success' as const,
+    }));
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    const results = await Promise.allSettled([
+      approvalResponseTool.execute({ decisions: [{ approvalId, decision: 'approve' }] }, context),
+      approvalResponseTool.execute({ decisions: [{ approvalId, decision: 'reject' }] }, context),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(reg.getDecision(approvalId)).toBeDefined();
+    expect(resume).toHaveBeenCalledOnce();
+  });
+
+  it('keeps duplicate approval IDs in one batch idempotent without double resume', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-batch',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi.fn(async () => ({ conversationId: 'c-batch', status: 'success' as const }));
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    const result = await approvalResponseTool.execute(
+      {
+        decisions: [
+          { approvalId, decision: 'approve' },
+          { approvalId, decision: 'approve' },
+        ],
+      },
+      context,
+    );
+
+    expect((result.data as { results: { outcome: string }[] }).results).toEqual([
+      { approvalId, outcome: 'approve' },
+      { approvalId, outcome: 'duplicate' },
+    ]);
+    expect(reg.getDecision(approvalId)).toMatchObject({ approved: true });
+    expect(resume).toHaveBeenCalledOnce();
+  });
+
+  it('releases a failed generic resume claim so a later identical decision can retry', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-retry',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('transient resume failure'))
+      .mockResolvedValueOnce({ conversationId: 'c-retry', status: 'success' as const });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    await expect(
+      approvalResponseTool.execute({ decisions: [{ approvalId, decision: 'approve' }] }, context),
+    ).rejects.toThrow('transient resume failure');
+    await expect(
+      approvalResponseTool.execute({ decisions: [{ approvalId, decision: 'approve' }] }, context),
+    ).resolves.toMatchObject({ status: 'success' });
+
+    expect(resume).toHaveBeenCalledTimes(2);
+  });
 });

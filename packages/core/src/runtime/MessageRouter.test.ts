@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { Collective } from '../collective/Collective.js';
+import { ConversationThread } from '../conversation/ConversationThread.js';
 import { EventBus } from '../events/EventBus.js';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
@@ -76,7 +77,7 @@ async function setup(dir: string) {
     communicationDepth: 0,
     toolRegistry: new ToolRegistry(),
     authEngine: new AuthEngine(),
-    pendingApprovalRegistry: new PendingApprovalRegistry(),
+    pendingApprovalRegistry: new PendingApprovalRegistry(storage),
   } as unknown as ToolContext;
 
   return { collective, store, eventBus, router, baseContext };
@@ -140,6 +141,8 @@ async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefiniti
   return {
     ...base,
     runtimeRegistry,
+    middlewareRegistry,
+    runner,
     router: new MessageRouter(
       base.store,
       runtimeRegistry,
@@ -838,6 +841,7 @@ describe('MessageRouter: middleware lifecycle', () => {
   });
 
   it('resumes approved prompt checkpoint at provider boundary and acknowledges after terminal response', async () => {
+    const promptCalls: string[] = [];
     const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
       type: 'test:router-middleware',
       displayName: 'Prompt approval middleware',
@@ -845,9 +849,12 @@ describe('MessageRouter: middleware lifecycle', () => {
       configSchema: { type: 'object', additionalProperties: true },
       hooks: {
         buildSystemPrompt: (context) =>
-          context.instance.id === 'request'
-            ? { kind: 'tool', requestId: 'prompt-gate', tool: 'gate', arguments: {} }
-            : { kind: 'continue', change: { operation: 'append', content: ':resumed' } },
+          (() => {
+            promptCalls.push(context.instance.id);
+            return context.instance.id === 'request'
+              ? { kind: 'tool', requestId: 'prompt-gate', tool: 'gate', arguments: {} }
+              : { kind: 'continue', change: { operation: 'append', content: ':resumed' } };
+          })(),
       },
     });
     await collective.update('agent', {
@@ -907,8 +914,487 @@ describe('MessageRouter: middleware lifecycle', () => {
       response: 'provider resumed',
     });
     expect(resumeFromMiddleware).toHaveBeenCalledOnce();
+    expect(promptCalls).toEqual(['request', 'following']);
     expect(approvals.getRecord(pending.approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
   });
+
+  it.each([
+    ['beforeSend', 'pre_runtime', 'op'],
+    ['beforeReceive', 'pre_runtime', 'mock-1'],
+    ['afterSend', 'pre_runtime', 'op'],
+    ['afterReceive', 'pre_runtime', 'mock-1'],
+    ['beforeSend', 'post_response', 'mock-1'],
+    ['beforeReceive', 'post_response', 'op'],
+    ['afterSend', 'post_response', 'mock-1'],
+    ['afterReceive', 'post_response', 'op'],
+  ] as const)(
+    'continues %s approval exactly once during %s lifecycle',
+    async (phase, mode, ownerId) => {
+      const calls: string[] = [];
+      const ledgers: MiddlewareActionResult[][] = [];
+      const role = mode === 'pre_runtime' ? 'user' : 'assistant';
+      const matches = (context: { message: { role: string } }) => context.message.role === role;
+      const request = (
+        hookPhase: typeof phase,
+        context: { instance: { id: string }; message: { role: string }; mode?: string },
+      ) => {
+        if (hookPhase !== phase || context.instance.id !== 'request' || !matches(context)) {
+          return undefined;
+        }
+        calls.push('request');
+        return {
+          kind: 'tool' as const,
+          requestId: `${phase}-${mode}`,
+          tool: 'gate',
+          arguments: {},
+        };
+      };
+      const following = (
+        hookPhase: typeof phase,
+        context: {
+          instance: { id: string };
+          message: { role: string };
+          mode?: string;
+          actions: MiddlewareActionResult[];
+        },
+      ) => {
+        if (hookPhase !== phase || context.instance.id !== 'following' || !matches(context)) {
+          return false;
+        }
+        calls.push('following');
+        ledgers.push(context.actions);
+        return true;
+      };
+      const { router, baseContext, collective, runtimeRegistry, store } =
+        await setupMiddlewareRouter(dir, {
+          type: 'test:router-middleware',
+          displayName: 'Continuation matrix middleware',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object', additionalProperties: true },
+          hooks: {
+            beforeSend: (context) => {
+              const result = request('beforeSend', context);
+              if (result) return result;
+              following('beforeSend', context);
+              return { kind: 'continue', message: context.message };
+            },
+            beforeReceive: (context) => {
+              const result = request('beforeReceive', context);
+              if (result) return result;
+              following('beforeReceive', context);
+              return { kind: 'continue', message: context.message };
+            },
+            afterSend: (context) => {
+              const result = request('afterSend', context);
+              if (result) return result;
+              following('afterSend', context);
+              return { kind: 'continue' };
+            },
+            afterReceive: (context) => {
+              const result = request('afterReceive', context);
+              if (result) return result;
+              following('afterReceive', context);
+              return { kind: 'continue' };
+            },
+          },
+        });
+      await collective.update(ownerId, {
+        tools: { gate: 'requires_approval' },
+        middleware: [
+          { id: 'request', type: 'test:router-middleware', config: {} },
+          { id: 'following', type: 'test:router-middleware', config: {} },
+        ],
+      });
+      (baseContext.toolRegistry as ToolRegistry).register({
+        name: 'gate',
+        description: 'gate',
+        parameters: { type: 'object' },
+        async execute() {
+          return { status: 'success' as const };
+        },
+      });
+      const handle = vi.fn(async () => ({ kind: 'response' as const, content: 'response' }));
+      runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+      const pending = await router.send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'continue me',
+        context: baseContext,
+      });
+      if (!pending.approvalId) throw new Error('Expected pending approval');
+      const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+      await approvals.resolve(pending.approvalId, {
+        approved: true,
+        decidedByParticipantId: 'op',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      const resumed = await router.resumeApproval(pending.approvalId, baseContext);
+      expect(resumed.status, resumed.error).toBe('success');
+      expect(calls).toEqual(['request', 'following']);
+      expect(ledgers).toMatchObject([[{ requestId: `${phase}-${mode}`, status: 'success' }]]);
+      expect(handle).toHaveBeenCalledOnce();
+      expect(approvals.getRecord(pending.approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
+      expect(Object.values((await store.load(pending.conversationId))!.messages)).toHaveLength(2);
+    },
+  );
+
+  it('acknowledges stale router checkpoints with a cached error and no runtime replay', async () => {
+    const { router, baseContext, collective, runtimeRegistry, store } = await setupMiddlewareRouter(
+      dir,
+      {
+        type: 'test:router-middleware',
+        displayName: 'Stale checkpoint middleware',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          beforeSend: () => ({
+            kind: 'tool',
+            requestId: 'stale-gate',
+            tool: 'gate',
+            arguments: {},
+          }),
+        },
+      },
+    );
+    await collective.update('op', { tools: { gate: 'requires_approval' } });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const };
+      },
+    });
+    const handle = vi.fn(async () => ({ kind: 'response' as const, content: 'must not run' }));
+    runtimeRegistry.registerFactory('mock', () => ({ handle }));
+
+    const pending = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'stale',
+      context: baseContext,
+    });
+    if (!pending.approvalId) throw new Error('Expected pending approval');
+    const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    await approvals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await store.updateHead(pending.conversationId, 'newer-head');
+
+    const first = await router.resumeApproval(pending.approvalId, baseContext);
+    const second = await router.resumeApproval(pending.approvalId, baseContext);
+
+    expect(first).toMatchObject({ status: 'error', error: expect.stringMatching(/stale/i) });
+    expect(second).toEqual(first);
+    expect(handle).not.toHaveBeenCalled();
+    expect(approvals.getRecord(pending.approvalId)).toMatchObject({
+      lifecycle: 'acknowledged',
+      routerResult: { status: 'error' },
+    });
+    expect(Object.values((await store.load(pending.conversationId))!.messages)).toHaveLength(0);
+  });
+
+  it('persists an empty provider response once before acknowledging its prompt approval', async () => {
+    const { router, baseContext, collective, runtimeRegistry, store } = await setupMiddlewareRouter(
+      dir,
+      {
+        type: 'test:router-middleware',
+        displayName: 'Empty provider middleware',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          buildSystemPrompt: (context) =>
+            context.instance.id === 'request'
+              ? { kind: 'tool', requestId: 'empty-gate', tool: 'gate', arguments: {} }
+              : { kind: 'continue' },
+        },
+      },
+    );
+    await collective.update('agent', {
+      tools: { gate: 'requires_approval' },
+      middleware: [
+        { id: 'request', type: 'test:router-middleware', config: {} },
+        { id: 'following', type: 'test:router-middleware', config: {} },
+      ],
+    });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const };
+      },
+    });
+    const resumeFromMiddleware = vi.fn(async (resume) => ({
+      kind: 'response' as const,
+      content: '',
+      actions: resume.actions,
+    }));
+    runtimeRegistry.registerFactory('agent', () => ({
+      async handle(incoming, context) {
+        const prompt = await context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 0,
+          incomingMessageId: incoming.id,
+          actions: [],
+        });
+        if (prompt.kind !== 'pending') throw new Error('Expected prompt approval');
+        return {
+          kind: 'middleware_pending' as const,
+          approvalId: prompt.approvalId,
+          checkpointId: prompt.checkpointId,
+        };
+      },
+      resumeFromMiddleware,
+    }));
+
+    const pending = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'empty response',
+      context: baseContext,
+    });
+    if (!pending.approvalId) throw new Error('Expected pending approval');
+    const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    await approvals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(router.resumeApproval(pending.approvalId, baseContext)).resolves.toMatchObject({
+      status: 'success',
+      response: '',
+    });
+    expect(resumeFromMiddleware).toHaveBeenCalledOnce();
+    expect(Object.values((await store.load(pending.conversationId))!.messages)).toMatchObject([
+      { role: 'user', content: 'empty response' },
+      { role: 'assistant', content: '' },
+    ]);
+    expect(approvals.getRecord(pending.approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
+  });
+
+  it('refuses provider-boundary replay after reload recovers an execution claim', async () => {
+    const { router, baseContext, collective, runtimeRegistry, runner, store } =
+      await setupMiddlewareRouter(dir, {
+        type: 'test:router-middleware',
+        displayName: 'Provider claim middleware',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          buildSystemPrompt: (context) =>
+            context.instance.id === 'request'
+              ? { kind: 'tool', requestId: 'claim-gate', tool: 'gate', arguments: {} }
+              : { kind: 'continue' },
+        },
+      });
+    await collective.update('agent', {
+      tools: { gate: 'requires_approval' },
+      middleware: [
+        { id: 'request', type: 'test:router-middleware', config: {} },
+        { id: 'following', type: 'test:router-middleware', config: {} },
+      ],
+    });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const };
+      },
+    });
+    const resumeFromMiddleware = vi.fn(async () => ({
+      kind: 'response' as const,
+      content: 'must not run',
+    }));
+    const handle = vi.fn(async (incoming, context) => {
+      const prompt = await context.buildSystemPrompt!({
+        basePrompt: 'Base prompt',
+        iteration: 0,
+        incomingMessageId: incoming.id,
+        actions: [],
+      });
+      if (prompt.kind !== 'pending') throw new Error('Expected prompt approval');
+      return {
+        kind: 'middleware_pending' as const,
+        approvalId: prompt.approvalId,
+        checkpointId: prompt.checkpointId,
+      };
+    });
+    runtimeRegistry.registerFactory('agent', () => ({ handle, resumeFromMiddleware }));
+
+    const pending = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'claim provider',
+      context: baseContext,
+    });
+    if (!pending.approvalId) throw new Error('Expected pending approval');
+    const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    await approvals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const thread = new ConversationThread((await store.load(pending.conversationId))!, store);
+    await expect(runner.resumeApproval(pending.approvalId, thread)).resolves.toMatchObject({
+      kind: 'continue',
+    });
+    await expect(approvals.claimProviderExecution(pending.approvalId)).resolves.toBe('claimed');
+
+    const reloaded = await PendingApprovalRegistry.load(baseContext.storage as FileStorage);
+    const reloadedContext = { ...baseContext, pendingApprovalRegistry: reloaded };
+    const first = await router.resumeApproval(pending.approvalId, reloadedContext);
+    const second = await router.resumeApproval(pending.approvalId, reloadedContext);
+
+    expect(first).toMatchObject({
+      status: 'error',
+      error: 'Middleware provider outcome unknown and was not retried',
+    });
+    expect(second).toEqual(first);
+    expect(handle).toHaveBeenCalledOnce();
+    expect(resumeFromMiddleware).not.toHaveBeenCalled();
+    expect(reloaded.getRecord(pending.approvalId)).toMatchObject({
+      lifecycle: 'acknowledged',
+      providerExecution: 'unknown',
+      routerResult: { status: 'error' },
+    });
+  });
+
+  it.each(['pending_approval', 'middleware_pending'] as const)(
+    'hands provider %s successors to a resumable child without replaying the parent',
+    async (successorKind) => {
+      let createChild = false;
+      const { router, baseContext, collective, runtimeRegistry, runner, store } =
+        await setupMiddlewareRouter(dir, {
+          type: 'test:router-middleware',
+          displayName: 'Successor handoff middleware',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object', additionalProperties: true },
+          hooks: {
+            buildSystemPrompt: (context) =>
+              context.instance.id === 'request'
+                ? { kind: 'tool', requestId: 'parent-gate', tool: 'gate', arguments: {} }
+                : { kind: 'continue' },
+            afterReceive: (context) =>
+              createChild && context.instance.id === 'child'
+                ? { kind: 'tool', requestId: 'child-gate', tool: 'gate', arguments: {} }
+                : { kind: 'continue' },
+          },
+        });
+      await collective.update('agent', {
+        tools: { gate: 'requires_approval' },
+        middleware: [
+          { id: 'request', type: 'test:router-middleware', config: {} },
+          { id: 'following', type: 'test:router-middleware', config: {} },
+          { id: 'child', type: 'test:router-middleware', config: {} },
+        ],
+      });
+      (baseContext.toolRegistry as ToolRegistry).register({
+        name: 'gate',
+        description: 'gate',
+        parameters: { type: 'object' },
+        async execute() {
+          return { status: 'success' as const };
+        },
+      });
+      let childApprovalId = '';
+      const resumeFromMiddleware = vi.fn(async () => {
+        if (successorKind === 'middleware_pending') {
+          return {
+            kind: 'middleware_pending' as const,
+            approvalId: childApprovalId,
+            checkpointId: 'child-checkpoint',
+          };
+        }
+        const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+        return {
+          kind: 'pending_approval' as const,
+          approvalRequests: [approvals.get(childApprovalId)!],
+        };
+      });
+      runtimeRegistry.registerFactory('agent', () => ({
+        async handle(incoming, context) {
+          const prompt = await context.buildSystemPrompt!({
+            basePrompt: 'Base prompt',
+            iteration: 0,
+            incomingMessageId: incoming.id,
+            actions: [],
+          });
+          if (prompt.kind !== 'pending') throw new Error('Expected prompt approval');
+          return {
+            kind: 'middleware_pending' as const,
+            approvalId: prompt.approvalId,
+            checkpointId: prompt.checkpointId,
+          };
+        },
+        resumeFromMiddleware,
+      }));
+
+      const parent = await router.send({
+        senderId: 'op',
+        recipientId: 'agent',
+        message: 'handoff',
+        context: baseContext,
+      });
+      if (!parent.approvalId) throw new Error('Expected parent approval');
+      const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+      const thread = new ConversationThread((await store.load(parent.conversationId))!, store);
+      const incoming = thread.activeChain.find((message) => message.role === 'user')!;
+      createChild = true;
+      const child = await runner.runAfterReceive({
+        operationId: 'child-setup',
+        participant: collective.getOrThrow('agent'),
+        thread,
+        message: incoming,
+        persistedMessageId: incoming.id,
+        mode: 'post_response',
+        actions: [],
+      });
+      if (child.kind !== 'pending_approval') throw new Error('Expected child approval');
+      childApprovalId = child.approvalId;
+      await approvals.resolve(parent.approvalId, {
+        approved: true,
+        decidedByParticipantId: 'op',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      const handoff = await router.resumeApproval(parent.approvalId, baseContext);
+      expect(handoff.status).toBe('pending_approval');
+      if (successorKind === 'middleware_pending') {
+        expect(handoff.approvalId).toBe(childApprovalId);
+      } else {
+        expect(handoff.approvalRequests?.map((request) => request.approvalId)).toEqual([
+          childApprovalId,
+        ]);
+      }
+      expect(resumeFromMiddleware).toHaveBeenCalledOnce();
+      expect(approvals.getRecord(parent.approvalId)).toMatchObject({
+        lifecycle: 'acknowledged',
+        successorApprovalId: childApprovalId,
+        providerExecution: 'completed',
+      });
+
+      await approvals.resolve(childApprovalId, {
+        approved: true,
+        decidedByParticipantId: 'op',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+      await expect(router.resumeApproval(childApprovalId, baseContext)).resolves.toMatchObject({
+        status: 'success',
+      });
+      await expect(router.resumeApproval(parent.approvalId, baseContext)).resolves.toMatchObject({
+        status: 'success',
+      });
+      expect(resumeFromMiddleware).toHaveBeenCalledOnce();
+      expect(approvals.getRecord(childApprovalId)).toMatchObject({ lifecycle: 'acknowledged' });
+      expect(approvals.listPending(parent.conversationId)).toEqual([]);
+    },
+  );
 
   it('passes inbound and prompt actions to every response lifecycle hook', async () => {
     const observed: string[][] = [];

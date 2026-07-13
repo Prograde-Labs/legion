@@ -349,6 +349,71 @@ describe('MiddlewareRunner', () => {
     },
   );
 
+  it.each([
+    ['open', 'continue'],
+    ['closed', 'abort'],
+  ] as const)(
+    'emits one sanitized middleware:error for rejected %s approval resumes',
+    async (failureMode, kind) => {
+      const secret = `private-token-${failureMode}`;
+      const f = await fixture([instance('request', { failureMode, config: { secret } })]);
+      f.participant.tools = { risky: 'requires_approval' };
+      const errors: unknown[] = [];
+      f.eventBus.on('middleware:error', (event) => errors.push(event));
+      f.registry.register(
+        middlewareDefinition({
+          beforeSend: () => ({
+            kind: 'tool',
+            requestId: 'rejected-event',
+            tool: 'risky',
+            arguments: { secret },
+          }),
+        }),
+        'test:runner',
+      );
+
+      const pending = await f.runner.runMessagePhase({
+        operationId: `rejected-event-${failureMode}`,
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      });
+      if (pending.kind !== 'pending_approval') throw new Error('Expected pending approval');
+      await f.pendingApprovals.resolve(pending.approvalId, {
+        approved: false,
+        decidedByParticipantId: 'operator',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+      const result = await f.runner.resumeApproval(pending.approvalId, f.thread);
+
+      expect(result.kind).toBe(kind);
+      if (result.kind === 'continue') {
+        expect(result.actions).toMatchObject([
+          { requestId: 'rejected-event', instanceId: 'request', status: 'rejected' },
+        ]);
+      }
+      expect(errors).toEqual([
+        expect.objectContaining({
+          conversationId: f.thread.id,
+          participantId: 'participant',
+          instanceId: 'request',
+          middlewareType: 'test:middleware',
+          phase: 'beforeSend',
+          failureMode,
+          error: {
+            name: 'MiddlewareError',
+            message: expect.stringMatching(/diagnostic.*diag-/i),
+          },
+        }),
+      ]);
+      expect(JSON.stringify({ result, errors, logs: f.logs })).not.toContain(secret);
+    },
+  );
+
   it('executes an auto-authorized middleware tool once then resumes following hook with action', async () => {
     const f = await fixture([instance('request'), instance('following')]);
     f.participant.tools = { write: 'auto' };

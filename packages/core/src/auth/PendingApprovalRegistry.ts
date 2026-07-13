@@ -82,6 +82,7 @@ export type MiddlewareActionClaim =
 interface RegistryData {
   records: Record<string, ApprovalRecord>;
   middlewareActions: Record<string, MiddlewareActionRecord>;
+  genericResumes: Record<string, 'executing' | 'completed'>;
 }
 
 interface LegacyRegistryData {
@@ -933,7 +934,12 @@ function normalizeData(value: unknown): RegistryData {
   }
   const data = cloneJsonSafe(value, '$.registry') as RegistryData & LegacyRegistryData;
   if (Object.hasOwn(data, 'records')) {
-    const canonical = exactObject(data, '$.registry', ['records'], ['middlewareActions']);
+    const canonical = exactObject(
+      data,
+      '$.registry',
+      ['records'],
+      ['middlewareActions', 'genericResumes'],
+    );
     if (
       data.records === null ||
       typeof data.records !== 'object' ||
@@ -953,6 +959,17 @@ function normalizeData(value: unknown): RegistryData {
     ) {
       throw new TypeError('Pending approval registry middlewareActions must be a plain object');
     }
+    const genericResumes = canonical.genericResumes ?? {};
+    if (
+      genericResumes === null ||
+      typeof genericResumes !== 'object' ||
+      Array.isArray(genericResumes) ||
+      (Object.getPrototypeOf(genericResumes) !== Object.prototype &&
+        Object.getPrototypeOf(genericResumes) !== null) ||
+      Object.values(genericResumes).some((state) => state !== 'executing' && state !== 'completed')
+    ) {
+      throw new TypeError('Pending approval registry genericResumes must be a valid plain object');
+    }
     return {
       records: Object.fromEntries(
         Object.entries(data.records).map(([approvalId, record]) => [
@@ -966,6 +983,10 @@ function normalizeData(value: unknown): RegistryData {
           snapshotMiddlewareActionRecord(action),
         ]),
       ),
+      genericResumes: cloneJsonSafe(genericResumes, '$.registry.genericResumes') as Record<
+        string,
+        'executing' | 'completed'
+      >,
     };
   }
   const legacy = exactObject(data, '$.registry', ['pending', 'decisions']);
@@ -989,7 +1010,7 @@ function normalizeData(value: unknown): RegistryData {
       ...(decision ? { decision } : {}),
     });
   }
-  return { records, middlewareActions: {} };
+  return { records, middlewareActions: {}, genericResumes: {} };
 }
 
 function recovery(data: RegistryData): boolean {
@@ -1021,11 +1042,17 @@ function recovery(data: RegistryData): boolean {
       changed = true;
     }
   }
+  for (const approvalId of Object.keys(data.genericResumes)) {
+    if (data.genericResumes[approvalId] === 'executing') {
+      data.genericResumes[approvalId] = 'completed';
+      changed = true;
+    }
+  }
   return changed;
 }
 
 export class PendingApprovalRegistry {
-  private data: RegistryData = { records: {}, middlewareActions: {} };
+  private data: RegistryData = { records: {}, middlewareActions: {}, genericResumes: {} };
   private mutations: Promise<void> = Promise.resolve();
 
   constructor(private readonly storage?: Storage) {}
@@ -1238,6 +1265,43 @@ export class PendingApprovalRegistry {
         return { status: 'ready', record };
       }
       return { status: record.resumeResult === undefined ? 'in_progress' : 'ready', record };
+    });
+  }
+
+  async claimGenericResume(approvalId: string): Promise<'claimed' | 'completed'> {
+    return this.mutate((data) => {
+      if (!data.records[approvalId]) {
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      }
+      if (data.genericResumes[approvalId] !== undefined) return 'completed';
+      data.genericResumes[approvalId] = 'executing';
+      return 'claimed';
+    });
+  }
+
+  async completeGenericResume(approvalId: string): Promise<void> {
+    await this.mutate((data) => {
+      if (!data.records[approvalId]) {
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      }
+      if (data.genericResumes[approvalId] === undefined) {
+        throw new LegionError(
+          `Generic approval resume was not claimed: ${approvalId}`,
+          'APPROVAL_CONFLICT',
+        );
+      }
+      data.genericResumes[approvalId] = 'completed';
+      return undefined;
+    });
+  }
+
+  async releaseGenericResume(approvalId: string): Promise<void> {
+    await this.mutate((data) => {
+      if (!data.records[approvalId]) {
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      }
+      if (data.genericResumes[approvalId] === 'executing') delete data.genericResumes[approvalId];
+      return undefined;
     });
   }
 

@@ -861,10 +861,28 @@ export class MessageRouter implements MessageRouterPort {
   async resumeApproval(approvalId: string, context: ToolContext): Promise<MessageRouterResult> {
     const approvals = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
     const record = approvals?.getRecord(approvalId);
-    const checkpoint = record?.continuation?.checkpoint;
-    if (!record || !checkpoint || !this.middlewareRunner || !approvals) {
+    if (!record || !approvals) {
       return {
-        conversationId: checkpoint?.conversationId ?? '',
+        conversationId: '',
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    }
+    if (record.lifecycle === 'acknowledged') {
+      return record.routerResult ?? { conversationId: record.conversationId, status: 'success' };
+    }
+    if (record.routerResult) {
+      try {
+        await approvals.acknowledge(approvalId);
+      } catch {
+        // Cached terminal routing outcome is safe; retry only acknowledgement.
+      }
+      return record.routerResult;
+    }
+    const checkpoint = record.continuation?.checkpoint;
+    if (!checkpoint || !this.middlewareRunner) {
+      return {
+        conversationId: record.conversationId,
         status: 'error',
         error: 'Approval continuation is unavailable',
       };
@@ -898,17 +916,6 @@ export class MessageRouter implements MessageRouterPort {
               }),
         };
       }
-    }
-    if (record.lifecycle === 'acknowledged') {
-      return { conversationId: checkpoint.conversationId, status: 'success' };
-    }
-    if (record.routerResult) {
-      try {
-        await approvals.acknowledge(approvalId);
-      } catch {
-        // Cached terminal routing outcome is safe; retry only acknowledgement.
-      }
-      return record.routerResult;
     }
     return this.withLock(checkpoint.conversationId, async () => {
       let resumed: Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>;
