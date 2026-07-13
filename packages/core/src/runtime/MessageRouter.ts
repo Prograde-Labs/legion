@@ -1054,6 +1054,7 @@ export class MessageRouter implements MessageRouterPort {
           error: 'Approval continuation is unavailable',
         };
       }
+      let providerClaimed = false;
       try {
         const providerClaim = await approvals.claimProviderExecution(approvalId);
         if (providerClaim !== 'claimed') {
@@ -1065,6 +1066,7 @@ export class MessageRouter implements MessageRouterPort {
             error: 'Middleware provider outcome unknown and was not retried',
           };
         }
+        providerClaimed = true;
         const runtimeContext = this.buildRuntimeContext(
           thread,
           participant.id,
@@ -1128,6 +1130,15 @@ export class MessageRouter implements MessageRouterPort {
         }
         return result;
       } catch {
+        if (providerClaimed) {
+          const result = await approvals.markProviderExecutionUnknown(approvalId);
+          try {
+            await approvals.acknowledge(approvalId);
+          } catch {
+            // Unknown provider outcome is terminal and must never replay.
+          }
+          return result;
+        }
         return {
           conversationId: checkpoint.conversationId,
           status: 'error',
@@ -1359,8 +1370,9 @@ export class MessageRouter implements MessageRouterPort {
         error: 'Approval continuation is unavailable',
       };
     const runtime = this.registry.build(participant.type, participant.id);
+    const approvals = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
+    let providerClaimed = false;
     try {
-      const approvals = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
       if (!approvals) {
         return {
           conversationId: thread.id,
@@ -1378,6 +1390,7 @@ export class MessageRouter implements MessageRouterPort {
           error: 'Middleware provider outcome unknown and was not retried',
         };
       }
+      providerClaimed = true;
       const result = await runtime.handle(
         incoming,
         this.buildRuntimeContext(thread, participant.id, context, context.communicationDepth ?? 0, {
@@ -1394,6 +1407,7 @@ export class MessageRouter implements MessageRouterPort {
         { operationId, actions, context, storedMessageId: incoming.id },
       );
     } catch {
+      if (providerClaimed) return approvals!.markProviderExecutionUnknown(approvalId);
       return {
         conversationId: thread.id,
         status: 'error',

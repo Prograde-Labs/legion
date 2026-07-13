@@ -1393,6 +1393,22 @@ export class PendingApprovalRegistry {
     });
   }
 
+  async markProviderExecutionUnknown(approvalId: string): Promise<ApprovalRouterResult> {
+    return this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      const result: ApprovalRouterResult = {
+        conversationId: record.conversationId,
+        status: 'error',
+        error: 'Middleware provider outcome unknown and was not retried',
+      };
+      record.providerExecution = 'unknown';
+      record.routerResult = result;
+      return result;
+    });
+  }
+
   async recordSuccessor(approvalId: string, successorApprovalId: string): Promise<void> {
     await this.recordSuccessors(approvalId, [successorApprovalId]);
   }

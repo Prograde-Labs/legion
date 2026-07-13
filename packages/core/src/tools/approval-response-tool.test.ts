@@ -434,4 +434,39 @@ describe('approval_response tool', () => {
 
     expect(resume).toHaveBeenCalledTimes(2);
   });
+
+  it('defers generic approval without a router and resumes when one later becomes available', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-deferred',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const withoutRouter = makeContext({ pendingApprovalRegistry: reg, messageRouter: undefined });
+
+    const deferred = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      withoutRouter,
+    );
+
+    expect((deferred.data as { results: { outcome: string }[] }).results).toEqual([
+      { approvalId, outcome: 'resume_deferred' },
+    ]);
+    const resume = vi.fn(async () => ({
+      conversationId: 'c-deferred',
+      status: 'success' as const,
+    }));
+    const withRouter = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      withRouter,
+    );
+
+    expect(reg.getDecision(approvalId)).toMatchObject({ approved: true });
+    expect(resume).toHaveBeenCalledOnce();
+  });
 });

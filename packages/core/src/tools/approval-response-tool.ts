@@ -46,6 +46,7 @@ export const approvalResponseTool: Tool = {
     const authEngine = context.authEngine as AuthEngine | undefined;
     const pendingRegistry = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
     const approvalLog = context.approvalLog as ApprovalLog | undefined;
+    const messageRouter = context.messageRouter;
 
     if (!authEngine || !pendingRegistry) {
       return {
@@ -120,12 +121,12 @@ export const approvalResponseTool: Tool = {
       }
 
       if (record.continuation?.kind === 'middleware') {
-        if (!context.messageRouter) {
+        if (!messageRouter) {
           results.push({ approvalId, outcome: 'resume_pending' });
           continue;
         }
         try {
-          await context.messageRouter.resumeApproval(approvalId, context);
+          await messageRouter.resumeApproval(approvalId, context);
         } catch {
           // Durable continuation stays retryable; approval response stays idempotent.
         }
@@ -139,6 +140,10 @@ export const approvalResponseTool: Tool = {
         continue;
       }
 
+      if (!messageRouter) {
+        results.push({ approvalId, outcome: 'resume_deferred' });
+        continue;
+      }
       results.push({ approvalId, outcome: decision });
       if (
         (await pendingRegistry.claimGenericResume(record.conversationId, record.requesterId)) ===
@@ -151,21 +156,21 @@ export const approvalResponseTool: Tool = {
       }
     }
 
-    if (context.messageRouter) {
-      for (const pending of toResume.values()) {
-        let resumed = false;
-        try {
-          const result = await context.messageRouter.resume(
-            pending.conversationId,
-            pending.requesterId,
-            context,
-          );
-          resumed = result.status !== 'error';
-        } finally {
-          await (resumed
-            ? pendingRegistry.completeGenericResume(pending.conversationId, pending.requesterId)
-            : pendingRegistry.releaseGenericResume(pending.conversationId, pending.requesterId));
-        }
+    if (!messageRouter) return { status: 'success', data: { results } };
+
+    for (const pending of toResume.values()) {
+      let resumed = false;
+      try {
+        const result = await messageRouter.resume(
+          pending.conversationId,
+          pending.requesterId,
+          context,
+        );
+        resumed = result.status !== 'error';
+      } finally {
+        await (resumed
+          ? pendingRegistry.completeGenericResume(pending.conversationId, pending.requesterId)
+          : pendingRegistry.releaseGenericResume(pending.conversationId, pending.requesterId));
       }
     }
 

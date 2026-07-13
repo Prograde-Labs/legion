@@ -1321,6 +1321,89 @@ describe('MessageRouter: middleware lifecycle', () => {
     });
   });
 
+  it('marks a throwing resumed provider as unknown without replay after reload', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Throwing provider middleware',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        buildSystemPrompt: (context) =>
+          context.instance.id === 'request'
+            ? { kind: 'tool', requestId: 'throw-gate', tool: 'gate', arguments: {} }
+            : { kind: 'continue' },
+      },
+    });
+    await collective.update('agent', {
+      tools: { gate: 'requires_approval' },
+      middleware: [
+        { id: 'request', type: 'test:router-middleware', config: {} },
+        { id: 'following', type: 'test:router-middleware', config: {} },
+      ],
+    });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const };
+      },
+    });
+    const resumeFromMiddleware = vi.fn(async () => {
+      throw new Error('provider transport failed');
+    });
+    runtimeRegistry.registerFactory('agent', () => ({
+      async handle(incoming, context) {
+        const prompt = await context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 0,
+          incomingMessageId: incoming.id,
+          actions: [],
+        });
+        if (prompt.kind !== 'pending') throw new Error('Expected prompt approval');
+        return {
+          kind: 'middleware_pending' as const,
+          approvalId: prompt.approvalId,
+          checkpointId: prompt.checkpointId,
+        };
+      },
+      resumeFromMiddleware,
+    }));
+
+    const pending = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'throw provider',
+      context: baseContext,
+    });
+    if (!pending.approvalId) throw new Error('Expected pending approval');
+    const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    await approvals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const first = await router.resumeApproval(pending.approvalId, baseContext);
+    const reloaded = await PendingApprovalRegistry.load(baseContext.storage as FileStorage);
+    const second = await router.resumeApproval(pending.approvalId, {
+      ...baseContext,
+      pendingApprovalRegistry: reloaded,
+    });
+
+    expect(first).toMatchObject({
+      status: 'error',
+      error: 'Middleware provider outcome unknown and was not retried',
+    });
+    expect(second).toEqual(first);
+    expect(resumeFromMiddleware).toHaveBeenCalledOnce();
+    expect(reloaded.getRecord(pending.approvalId)).toMatchObject({
+      lifecycle: 'acknowledged',
+      providerExecution: 'unknown',
+      routerResult: { status: 'error' },
+    });
+  });
+
   it.each([
     ['afterSend', 'op'],
     ['afterReceive', 'mock-1'],
