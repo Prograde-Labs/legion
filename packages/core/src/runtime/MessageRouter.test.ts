@@ -256,6 +256,43 @@ describe('MessageRouter: synchronous send', () => {
     expect(conversation?.parentToolCallId).toBe('origin-call');
   });
 
+  it('does not fill missing explicit origin links from buffered send context', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const originParent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const contextParent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const origin: ConversationOrigin = {
+      kind: 'middleware',
+      participantId: 'op',
+      middlewareInstanceId: 'instance-1',
+      parentConversationId: originParent.id,
+    };
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'partial origin',
+      origin,
+      context: {
+        ...baseContext,
+        conversationId: contextParent.id,
+        toolCallId: 'context-call',
+      },
+    });
+
+    const conversation = await store.load(result.conversationId);
+    expect(conversation?.origin).toEqual(origin);
+    expect(conversation?.parentConversationId).toBe(originParent.id);
+    expect(conversation?.parentToolCallId).toBeUndefined();
+  });
+
   it('does not overwrite origin when sending into an existing conversation', async () => {
     const { router, baseContext, store } = await setup(dir);
     const originalOrigin: ConversationOrigin = { kind: 'participant', participantId: 'op' };
@@ -952,6 +989,45 @@ describe('MessageRouter.sendStream()', () => {
       participants: ['op', 'mock-1'],
     });
     expect((await store.load(archived.id))?.status).toBe('active');
+  });
+
+  it('does not fill missing explicit origin links from streaming send context', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const originParent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const contextParent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const origin: ConversationOrigin = {
+      kind: 'middleware',
+      participantId: 'op',
+      middlewareInstanceId: 'instance-1',
+      parentConversationId: originParent.id,
+    };
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'partial stream origin',
+      origin,
+      context: {
+        ...baseContext,
+        conversationId: contextParent.id,
+        toolCallId: 'context-call',
+      },
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+
+    const conversation = await store.load(next.value.conversationId);
+    expect(conversation?.origin).toEqual(origin);
+    expect(conversation?.parentConversationId).toBe(originParent.id);
+    expect(conversation?.parentToolCallId).toBeUndefined();
   });
 });
 

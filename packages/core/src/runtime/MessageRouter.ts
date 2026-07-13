@@ -73,9 +73,12 @@ export class MessageRouter implements MessageRouterPort {
       schemaVersion: '2.0',
       activeBranchHead: '',
       messages: {},
-      parentConversationId:
-        creation?.origin?.parentConversationId ?? creation?.parentConversationId,
-      parentToolCallId: creation?.origin?.parentToolCallId ?? creation?.parentToolCallId,
+      parentConversationId: creation?.origin
+        ? creation.origin.parentConversationId
+        : creation?.parentConversationId,
+      parentToolCallId: creation?.origin
+        ? creation.origin.parentToolCallId
+        : creation?.parentToolCallId,
       origin: creation?.origin,
     });
     return new ConversationThread(created, this.store);
