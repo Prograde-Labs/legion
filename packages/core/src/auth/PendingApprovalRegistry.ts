@@ -826,7 +826,7 @@ function normalizeData(value: unknown): RegistryData {
   }
   const data = cloneJsonSafe(value, '$.registry') as RegistryData & LegacyRegistryData;
   if (Object.hasOwn(data, 'records')) {
-    const canonical = exactObject(data, '$.registry', ['records', 'middlewareActions']);
+    const canonical = exactObject(data, '$.registry', ['records'], ['middlewareActions']);
     if (
       data.records === null ||
       typeof data.records !== 'object' ||
@@ -836,7 +836,7 @@ function normalizeData(value: unknown): RegistryData {
     ) {
       throw new TypeError('Pending approval registry records must be a plain object');
     }
-    const middlewareActions = canonical.middlewareActions;
+    const middlewareActions = canonical.middlewareActions ?? {};
     if (
       middlewareActions === null ||
       typeof middlewareActions !== 'object' ||
@@ -917,8 +917,15 @@ export class PendingApprovalRegistry {
   static async load(storage: Storage): Promise<PendingApprovalRegistry> {
     const registry = new PendingApprovalRegistry(storage);
     const stored = await storage.readJson<unknown>(STORAGE_KEY);
+    const upgradeRecordsOnly =
+      stored !== null &&
+      typeof stored === 'object' &&
+      !Array.isArray(stored) &&
+      Object.hasOwn(stored, 'records') &&
+      !Object.hasOwn(stored, 'middlewareActions');
     if (stored !== null) registry.data = normalizeData(stored);
-    if (recovery(registry.data)) await storage.writeJson(STORAGE_KEY, registry.data);
+    if (upgradeRecordsOnly || recovery(registry.data))
+      await storage.writeJson(STORAGE_KEY, registry.data);
     return registry;
   }
 
@@ -1002,6 +1009,14 @@ export class PendingApprovalRegistry {
   ): Promise<void> {
     const snapshot = snapshotMiddlewareActionInput(input);
     const actionResult = snapshotMiddlewareActionResult(result);
+    if (
+      actionResult.requestId !== snapshot.requestId ||
+      actionResult.participantId !== snapshot.participantId ||
+      actionResult.instanceId !== snapshot.instanceId ||
+      actionResult.tool !== snapshot.tool
+    ) {
+      throw new LegionError('Middleware action result does not match claim', 'APPROVAL_CONFLICT');
+    }
     const key = middlewareActionKey(snapshot);
     await this.mutate((data) => {
       const existing = data.middlewareActions[key];

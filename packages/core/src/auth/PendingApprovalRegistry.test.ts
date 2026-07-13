@@ -258,6 +258,65 @@ describe('PendingApprovalRegistry continuations', () => {
     ).rejects.toThrow(/conflict|completed/i);
   });
 
+  it('migrates strict predecessor records-only registry and persists empty action ledger', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    const prior = (await storage.readJson<Record<string, unknown>>(
+      'pending-approvals/registry.json',
+    ))!;
+    delete prior.middlewareActions;
+    await storage.writeJson('pending-approvals/registry.json', prior);
+
+    const loaded = await PendingApprovalRegistry.load(storage);
+    expect(loaded.getRecord(approvalId)?.approvalId).toBe(approvalId);
+    expect(await storage.readJson('pending-approvals/registry.json')).toMatchObject({
+      records: expect.any(Object),
+      middlewareActions: {},
+    });
+  });
+
+  it.each([
+    ['requestId', (action: Record<string, unknown>) => (action.requestId = 'wrong')],
+    ['participantId', (action: Record<string, unknown>) => (action.participantId = 'wrong')],
+    ['instanceId', (action: Record<string, unknown>) => (action.instanceId = 'wrong')],
+    ['tool', (action: Record<string, unknown>) => (action.tool = 'wrong')],
+  ])(
+    'rejects terminal middleware action %s mismatch without completing claim',
+    async (_name, mutate) => {
+      const reg = new PendingApprovalRegistry();
+      const claim = {
+        operationId: 'operation-1',
+        conversationId: 'c1',
+        participantId: 'agent-b',
+        instanceId: 'audit',
+        requestId: 'request-1',
+        tool: 'file_write',
+        args: { path: 'x' },
+      };
+      await reg.claimMiddlewareAction(claim);
+      const result: Record<string, unknown> = {
+        requestId: claim.requestId,
+        participantId: claim.participantId,
+        instanceId: claim.instanceId,
+        tool: claim.tool,
+        status: 'success',
+        result: { status: 'success', data: { written: true } },
+      };
+      mutate(result);
+      await expect(reg.recordMiddlewareActionResult(claim, result as never)).rejects.toThrow(
+        /match|conflict/i,
+      );
+      await expect(reg.claimMiddlewareAction(claim)).resolves.toEqual({ kind: 'in_progress' });
+    },
+  );
+
   it('rejects non-canonical registry roots and contradictory canonical lifecycles', async () => {
     for (const value of [[], {}, 1, 'bad']) {
       const storage = new MemoryStorage();
