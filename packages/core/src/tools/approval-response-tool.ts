@@ -56,8 +56,14 @@ export const approvalResponseTool: Tool = {
 
     const results: Array<{ approvalId: string; outcome: string }> = [];
     const toResume = new Map<string, string>(); // conversationId → requesterId
+    const seen = new Set<string>();
 
     for (const { approvalId, decision, message } of decisions) {
+      if (seen.has(approvalId)) {
+        results.push({ approvalId, outcome: 'duplicate' });
+        continue;
+      }
+      seen.add(approvalId);
       let record = pendingRegistry.getRecord(approvalId);
       if (!record) {
         results.push({ approvalId, outcome: 'not_found' });

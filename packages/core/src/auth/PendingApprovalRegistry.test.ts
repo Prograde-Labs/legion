@@ -708,4 +708,39 @@ describe('PendingApprovalRegistry continuations', () => {
       }),
     ).resolves.toEqual({ approvalId: expect.stringMatching(/^appr-/) });
   });
+
+  it('treats concurrent semantic duplicate decisions as idempotent', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    await expect(
+      Promise.all([
+        reg.resolve(approvalId, {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          message: 'approved',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        }),
+        reg.resolve(approvalId, {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          message: 'approved',
+          decidedAt: '2026-01-01T00:01:00.000Z',
+        }),
+      ]),
+    ).resolves.toEqual([undefined, undefined]);
+    await expect(
+      reg.resolve(approvalId, {
+        approved: false,
+        decidedByParticipantId: 'operator',
+        message: 'approved',
+        decidedAt: '2026-01-01T00:02:00.000Z',
+      }),
+    ).rejects.toThrow(/conflict/i);
+  });
 });

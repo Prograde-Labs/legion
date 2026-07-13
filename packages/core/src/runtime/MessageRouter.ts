@@ -869,6 +869,24 @@ export class MessageRouter implements MessageRouterPort {
         error: 'Approval continuation is unavailable',
       };
     }
+    if (record.successorApprovalId) {
+      const successor = approvals.getRecord(record.successorApprovalId);
+      const successorCheckpoint = successor?.continuation?.checkpoint;
+      if (successorCheckpoint) {
+        try {
+          await approvals.acknowledge(approvalId);
+        } catch {
+          // Parent already has immutable successor; never replay it.
+        }
+        return {
+          conversationId: successorCheckpoint.conversationId,
+          status: 'pending_approval',
+          approvalId: record.successorApprovalId,
+          checkpointId: successorCheckpoint.checkpointId,
+          pendingParticipantId: successorCheckpoint.participantId,
+        };
+      }
+    }
     if (record.lifecycle === 'acknowledged') {
       return { conversationId: checkpoint.conversationId, status: 'success' };
     }
@@ -903,6 +921,14 @@ export class MessageRouter implements MessageRouterPort {
         };
       }
       if (resumed.kind === 'resume_pending' || resumed.kind === 'pending_approval') {
+        if (resumed.kind === 'pending_approval') {
+          await approvals.recordSuccessor(approvalId, resumed.approvalId);
+          try {
+            await approvals.acknowledge(approvalId);
+          } catch {
+            // Successor handoff is durable. Retrying parent only retries acknowledgement.
+          }
+        }
         return {
           conversationId: checkpoint.conversationId,
           status: 'pending_approval',
@@ -1146,7 +1172,7 @@ export class MessageRouter implements MessageRouterPort {
         thread,
         message,
         persistedMessageId: message.id,
-        mode: 'pre_runtime',
+        mode: checkpoint.mode ?? 'pre_runtime',
         actions: resumed.actions,
         signal: context.signal,
       });
@@ -1156,6 +1182,7 @@ export class MessageRouter implements MessageRouterPort {
         message,
         afterReceive,
         context,
+        checkpoint.mode ?? 'pre_runtime',
       );
     }
     return this.finishAfterReceive(
@@ -1164,6 +1191,7 @@ export class MessageRouter implements MessageRouterPort {
       message,
       resumed as never,
       context,
+      checkpoint.mode ?? 'pre_runtime',
     );
   }
 
@@ -1173,6 +1201,7 @@ export class MessageRouter implements MessageRouterPort {
     message: import('@legion/types').MessageData,
     result: import('../middleware/MiddlewareRunner.js').AfterReceivePhaseResult,
     context: ToolContext,
+    mode: 'pre_runtime' | 'post_response',
   ): Promise<MessageRouterResult> {
     if (!this.lifecycle)
       return {
@@ -1199,7 +1228,9 @@ export class MessageRouter implements MessageRouterPort {
         ...(result.persisted ? { partial: true, storedMessageId: result.storedMessageId } : {}),
       };
     }
-    if (result.kind === 'complete') return { conversationId: thread.id, status: 'success' };
+    if (result.kind === 'complete' || mode === 'post_response') {
+      return { conversationId: thread.id, status: 'success' };
+    }
     if (result.kind === 'respond') {
       return this.respondWithLifecycle(thread, result.draft, {
         operationId,

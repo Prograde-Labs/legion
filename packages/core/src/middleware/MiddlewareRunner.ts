@@ -112,6 +112,7 @@ export interface AfterSendInput {
   message: MessageData;
   actions: MiddlewareActionResult[];
   persistedMessageId?: string;
+  mode?: 'pre_runtime' | 'post_response';
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
@@ -755,7 +756,18 @@ export class MiddlewareRunner {
             return abortResult(failure.error, checkpoint.persistedMessageId);
           }
         }
-        return this.resumePhase(checkpoint, participant, authoritative, actions);
+        const resumedCheckpoint =
+          checkpoint.runtimeResume === undefined
+            ? checkpoint
+            : {
+                ...checkpoint,
+                runtimeResume: {
+                  ...checkpoint.runtimeResume,
+                  actions: cloneJsonSafe(actions, '$.runtimeResume.actions'),
+                  actionCursor: actions.length,
+                },
+              };
+        return this.resumePhase(resumedCheckpoint, participant, authoritative, actions);
       },
     );
   }
@@ -1439,6 +1451,9 @@ export class MiddlewareRunner {
               ...(phase === 'afterReceive' ? { mode: (input as AfterReceiveInput).mode } : {}),
             }),
       ...(persistedMessageId === undefined ? {} : { persistedMessageId }),
+      ...(phase === 'afterSend' && (input as AfterSendInput).mode !== undefined
+        ? { mode: (input as AfterSendInput).mode }
+        : {}),
       ...(input.runtimeResume === undefined
         ? {}
         : { runtimeResume: cloneJsonSafe(input.runtimeResume, '$.runtimeResume') }),

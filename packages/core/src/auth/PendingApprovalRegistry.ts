@@ -34,6 +34,7 @@ export interface ApprovalRecord extends PendingApprovalInput {
   decision?: ApprovalDecision;
   resumeResult?: ToolResult;
   routerResult?: ApprovalRouterResult;
+  successorApprovalId?: string;
 }
 
 export interface ApprovalRouterResult {
@@ -748,7 +749,7 @@ function validateCheckpoint(value: unknown): void {
       );
     }
   } else {
-    for (const field of ['draft', 'prompt', 'mode', 'final', 'iteration', 'runtimeResume']) {
+    for (const field of ['draft', 'prompt', 'final', 'iteration', 'runtimeResume']) {
       if (checkpoint[field] !== undefined) {
         throw new TypeError(`Value at $.continuation.checkpoint.${field} is invalid for afterSend`);
       }
@@ -762,6 +763,13 @@ function validateCheckpoint(value: unknown): void {
       throw new TypeError(
         'Value at $.continuation.checkpoint.persistedMessageId must match message.id',
       );
+    }
+    if (
+      checkpoint.mode !== undefined &&
+      checkpoint.mode !== 'pre_runtime' &&
+      checkpoint.mode !== 'post_response'
+    ) {
+      throw new TypeError('Value at $.continuation.checkpoint.mode is invalid');
     }
   }
   assertNoAliases(checkpoint, '$.continuation.checkpoint');
@@ -837,6 +845,9 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.routerResult === undefined
       ? {}
       : { routerResult: snapshotRouterResult(cloned.routerResult) }),
+    ...(cloned.successorApprovalId === undefined
+      ? {}
+      : { successorApprovalId: requiredString(cloned.successorApprovalId, 'successorApprovalId') }),
   };
   if (
     record.lifecycle === 'pending' &&
@@ -1161,7 +1172,12 @@ export class PendingApprovalRegistry {
       if (!record)
         throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
       if (record.decision !== undefined) {
-        if (isDeepStrictEqual(record.decision, snapshot)) return undefined;
+        if (
+          record.decision.approved === snapshot.approved &&
+          record.decision.message === snapshot.message
+        ) {
+          return undefined;
+        }
         throw new LegionError(`Conflicting approval decision: ${approvalId}`, 'APPROVAL_CONFLICT');
       }
       if (record.lifecycle !== 'pending') {
@@ -1238,6 +1254,31 @@ export class PendingApprovalRegistry {
         throw new LegionError('Conflicting approval router result', 'APPROVAL_CONFLICT');
       }
       record.routerResult = snapshot;
+      return undefined;
+    });
+  }
+
+  async recordSuccessor(approvalId: string, successorApprovalId: string): Promise<void> {
+    requiredString(successorApprovalId, 'successorApprovalId');
+    await this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      if (record.successorApprovalId !== undefined) {
+        if (record.successorApprovalId === successorApprovalId) return undefined;
+        throw new LegionError('Conflicting approval successor', 'APPROVAL_CONFLICT');
+      }
+      if (!data.records[successorApprovalId]) {
+        throw new LegionError(
+          `Unknown approval request: ${successorApprovalId}`,
+          'APPROVAL_NOT_FOUND',
+        );
+      }
+      record.successorApprovalId = successorApprovalId;
+      if (record.lifecycle === 'resuming') {
+        record.resumeResult = { status: 'success', data: { successorApprovalId } };
+        record.lifecycle = 'decided';
+      }
       return undefined;
     });
   }

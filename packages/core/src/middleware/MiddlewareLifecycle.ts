@@ -168,6 +168,7 @@ export class MiddlewareLifecycle {
         message: stored,
         persistedMessageId: stored.id,
         actions: actionsCopy(actions),
+        mode: input.mode,
         signal: input.signal,
       });
       if (senderAfter.kind !== 'continue') return this.afterSendTerminal(senderAfter, stored.id);
