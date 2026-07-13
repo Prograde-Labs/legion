@@ -1,10 +1,12 @@
 import type {
+  LLMChunk,
   MessageData,
   MessageDraft,
   MessageUsage,
   MiddlewareActionResult,
   ParticipantConfig,
 } from '@legion/types';
+import type { RuntimeResult } from '../runtime/Runtime.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { MessageRouterResult } from '../tools/Tool.js';
@@ -44,9 +46,41 @@ export interface ReceiveLifecycleInput {
   mode: 'pre_runtime' | 'post_response';
   usage?: MessageUsage;
   signal?: AbortSignal;
+  /** Final streaming delivery already ran response draft hooks. */
+  skipDraftHooks?: boolean;
 }
 
 export interface RespondLifecycleInput extends Omit<ReceiveLifecycleInput, 'mode'> {}
+
+export interface ResponseStreamInput {
+  operationId: string;
+  sender: ParticipantConfig;
+  recipient: ParticipantConfig;
+  thread: ConversationThread;
+  actions: MiddlewareActionResult[];
+  signal?: AbortSignal;
+}
+
+export interface ResponseStreamTransformer {
+  readonly signal: AbortSignal;
+  push(chunk: LLMChunk): Promise<LLMChunk[]>;
+  finish(result: RuntimeResult): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult }>;
+  abort(): void;
+  dispose(): void;
+}
+
+export class MiddlewareStreamError extends Error {
+  constructor(
+    message: string,
+    readonly chunks: LLMChunk[],
+    readonly lifecycleResult: Extract<
+      InboundLifecycleResult,
+      { kind: 'error' | 'pending_approval' }
+    >,
+  ) {
+    super(message);
+  }
+}
 
 function actionsCopy(actions: MiddlewareActionResult[]): MiddlewareActionResult[] {
   return structuredClone(actions);
@@ -74,33 +108,41 @@ export class MiddlewareLifecycle {
     }
     let stored: MessageData | undefined;
     try {
-      const senderBefore = await this.runner.runMessagePhase({
-        operationId: input.operationId,
-        phase: 'beforeSend',
-        participant: input.sender,
-        thread: input.thread,
-        draft: input.draft,
-        actions: actionsCopy(input.actions),
-        final: true,
-        signal: input.signal,
-      });
-      if (senderBefore.kind !== 'continue') return this.messageTerminal(senderBefore);
+      let draft = input.draft;
+      let actions = actionsCopy(input.actions);
+      if (!input.skipDraftHooks) {
+        const senderBefore = await this.runner.runMessagePhase({
+          operationId: input.operationId,
+          phase: 'beforeSend',
+          participant: input.sender,
+          thread: input.thread,
+          draft,
+          actions,
+          final: true,
+          signal: input.signal,
+        });
+        if (senderBefore.kind !== 'continue') return this.messageTerminal(senderBefore);
+        draft = senderBefore.value;
+        actions = senderBefore.actions;
 
-      const recipientBefore = await this.runner.runMessagePhase({
-        operationId: input.operationId,
-        phase: 'beforeReceive',
-        participant: input.recipient,
-        thread: input.thread,
-        draft: senderBefore.value,
-        actions: actionsCopy(senderBefore.actions),
-        final: true,
-        signal: input.signal,
-      });
-      if (recipientBefore.kind !== 'continue') return this.messageTerminal(recipientBefore);
+        const recipientBefore = await this.runner.runMessagePhase({
+          operationId: input.operationId,
+          phase: 'beforeReceive',
+          participant: input.recipient,
+          thread: input.thread,
+          draft,
+          actions: actionsCopy(actions),
+          final: true,
+          signal: input.signal,
+        });
+        if (recipientBefore.kind !== 'continue') return this.messageTerminal(recipientBefore);
+        draft = recipientBefore.value;
+        actions = recipientBefore.actions;
+      }
 
       stored = await input.thread.append(
         {
-          ...recipientBefore.value,
+          ...draft,
           ...(input.usage === undefined ? {} : { usage: input.usage }),
         },
         {
@@ -120,7 +162,7 @@ export class MiddlewareLifecycle {
         thread: input.thread,
         message: stored,
         persistedMessageId: stored.id,
-        actions: actionsCopy(recipientBefore.actions),
+        actions: actionsCopy(actions),
         signal: input.signal,
       });
       if (senderAfter.kind !== 'continue') return this.afterSendTerminal(senderAfter, stored.id);
@@ -190,9 +232,49 @@ export class MiddlewareLifecycle {
     };
   }
 
-  private messageTerminal(
+  createResponseStream(input: ResponseStreamInput): ResponseStreamTransformer {
+    return new ResponseStreamTransformerImpl(this, input);
+  }
+
+  async runResponseDraft(
+    input: ResponseStreamInput,
+    draft: MessageDraft,
+    final: boolean,
+    actions: MiddlewareActionResult[],
+    controller: AbortController,
+    iteration?: number,
+    chunk?: LLMChunk,
+  ): Promise<MessagePhaseResult> {
+    const senderBefore = await this.runner.runMessagePhase({
+      operationId: input.operationId,
+      phase: 'beforeSend',
+      participant: input.sender,
+      thread: input.thread,
+      draft,
+      actions: actionsCopy(actions),
+      final,
+      ...(iteration === undefined ? {} : { iteration }),
+      ...(chunk === undefined ? {} : { chunk }),
+      signal: controller.signal,
+    });
+    if (senderBefore.kind !== 'continue') return senderBefore;
+    return this.runner.runMessagePhase({
+      operationId: input.operationId,
+      phase: 'beforeReceive',
+      participant: input.recipient,
+      thread: input.thread,
+      draft: senderBefore.value,
+      actions: actionsCopy(senderBefore.actions),
+      final,
+      ...(iteration === undefined ? {} : { iteration }),
+      ...(chunk === undefined ? {} : { chunk }),
+      signal: controller.signal,
+    });
+  }
+
+  messageTerminal(
     result: Exclude<MessagePhaseResult, { kind: 'continue' }>,
-  ): InboundLifecycleResult {
+  ): Extract<InboundLifecycleResult, { kind: 'error' | 'pending_approval' }> {
     if (result.kind === 'pending_approval') {
       return {
         kind: 'pending_approval',
@@ -261,4 +343,172 @@ export class MiddlewareLifecycle {
       ...(result.storedMessageId === undefined ? {} : { storedMessageId: result.storedMessageId }),
     };
   }
+}
+
+class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
+  private readonly controller = new AbortController();
+  private raw: MessageDraft;
+  private emitted: MessageDraft;
+  private iteration: number | undefined;
+  private actions: MiddlewareActionResult[];
+  private terminated = false;
+  private readonly forwardAbort?: () => void;
+
+  constructor(
+    private readonly lifecycle: MiddlewareLifecycle,
+    private readonly input: ResponseStreamInput,
+  ) {
+    this.raw = this.baseDraft();
+    this.emitted = this.baseDraft();
+    this.actions = actionsCopy(input.actions);
+    if (input.signal) {
+      if (input.signal.aborted) this.controller.abort();
+      else {
+        this.forwardAbort = () => this.controller.abort();
+        input.signal.addEventListener('abort', this.forwardAbort, { once: true });
+      }
+    }
+  }
+
+  get signal(): AbortSignal {
+    return this.controller.signal;
+  }
+
+  abort(): void {
+    this.terminated = true;
+    this.controller.abort();
+  }
+
+  dispose(): void {
+    if (this.forwardAbort) this.input.signal?.removeEventListener('abort', this.forwardAbort);
+  }
+
+  async push(chunk: LLMChunk): Promise<LLMChunk[]> {
+    if (this.terminated) return [];
+    if (chunk.type === 'iteration_start') {
+      this.iteration = chunk.iteration;
+      this.raw = this.baseDraft();
+      this.emitted = this.baseDraft();
+      return [chunk];
+    }
+    if (chunk.type !== 'text_delta' && chunk.type !== 'reasoning_delta') return [chunk];
+    this.raw = {
+      ...this.raw,
+      ...(chunk.type === 'text_delta'
+        ? { content: `${this.raw.content}${chunk.delta}` }
+        : { reasoning: `${this.raw.reasoning ?? ''}${chunk.delta}` }),
+    };
+    const phase = await this.lifecycle.runResponseDraft(
+      this.input,
+      this.raw,
+      false,
+      this.actions,
+      this.controller,
+      this.iteration,
+      chunk,
+    );
+    if (phase.kind !== 'continue') throw this.terminalError(phase);
+    this.actions = actionsCopy(phase.actions);
+    const next = phase.value;
+    const chunks = diffDraft(this.emitted, next);
+    this.emitted = structuredClone(next);
+    return chunks;
+  }
+
+  async finish(
+    result: RuntimeResult,
+  ): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult }> {
+    if (this.terminated || this.controller.signal.aborted) {
+      throw new MiddlewareStreamError('Middleware response stream aborted', this.retract(), {
+        kind: 'error',
+        error: 'Middleware response stream aborted',
+      });
+    }
+    if (result.kind !== 'response') {
+      return {
+        chunks: this.retract(),
+        result: { conversationId: this.input.thread.id, status: 'success' },
+      };
+    }
+    const phase = await this.lifecycle.runResponseDraft(
+      this.input,
+      {
+        ...this.baseDraft(),
+        content: result.content,
+        ...(result.reasoning === undefined ? {} : { reasoning: result.reasoning }),
+      },
+      true,
+      result.actions === undefined ? this.actions : result.actions,
+      this.controller,
+    );
+    if (phase.kind !== 'continue') throw this.terminalError(phase);
+    this.actions = actionsCopy(phase.actions);
+    const finalDraft = phase.value;
+    const chunks = diffDraft(this.emitted, finalDraft);
+    this.emitted = structuredClone(finalDraft);
+    const delivered = await this.lifecycle.respond({
+      operationId: this.input.operationId,
+      sender: this.input.sender,
+      recipient: this.input.recipient,
+      thread: this.input.thread,
+      draft: finalDraft,
+      actions: this.actions,
+      signal: this.controller.signal,
+      skipDraftHooks: true,
+      ...(result.usage === undefined ? {} : { usage: result.usage }),
+    });
+    return { chunks, result: delivered };
+  }
+
+  private baseDraft(): MessageDraft {
+    return {
+      senderId: this.input.sender.id,
+      recipientId: this.input.recipient.id,
+      role: 'assistant',
+      content: '',
+    };
+  }
+
+  private retract(force = false): LLMChunk[] {
+    const emitted = this.emitted.content !== '' || this.emitted.reasoning !== undefined;
+    this.emitted = this.baseDraft();
+    return emitted || force ? [{ type: 'message_snapshot', content: '' }] : [];
+  }
+
+  private terminalError(
+    phase: Exclude<MessagePhaseResult, { kind: 'continue' }>,
+  ): MiddlewareStreamError {
+    this.terminated = true;
+    this.controller.abort();
+    const lifecycleResult = this.lifecycle.messageTerminal(phase);
+    return new MiddlewareStreamError(
+      lifecycleResult.kind === 'error'
+        ? lifecycleResult.error
+        : 'Middleware response stream stopped',
+      this.retract(true),
+      lifecycleResult,
+    );
+  }
+}
+
+function diffDraft(previous: MessageDraft, current: MessageDraft): LLMChunk[] {
+  const priorReasoning = previous.reasoning ?? '';
+  const nextReasoning = current.reasoning ?? '';
+  const contentAppends = current.content.startsWith(previous.content);
+  const reasoningAppends = nextReasoning.startsWith(priorReasoning);
+  if (!contentAppends || !reasoningAppends) {
+    return [
+      {
+        type: 'message_snapshot',
+        content: current.content,
+        ...(current.reasoning === undefined ? {} : { reasoning: current.reasoning }),
+      },
+    ];
+  }
+  const chunks: LLMChunk[] = [];
+  const reasoningDelta = nextReasoning.slice(priorReasoning.length);
+  const contentDelta = current.content.slice(previous.content.length);
+  if (reasoningDelta) chunks.push({ type: 'reasoning_delta', delta: reasoningDelta });
+  if (contentDelta) chunks.push({ type: 'text_delta', delta: contentDelta });
+  return chunks;
 }

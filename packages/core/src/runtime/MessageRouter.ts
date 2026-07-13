@@ -18,7 +18,9 @@ import type {
 import { createId } from '../util/ids.js';
 import {
   MiddlewareLifecycle,
+  MiddlewareStreamError,
   type InboundLifecycleResult,
+  type ResponseStreamTransformer,
 } from '../middleware/MiddlewareLifecycle.js';
 import type { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
 
@@ -53,6 +55,16 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   private withLock<T>(conversationId: string, fn: () => Promise<T>): Promise<T> {
+    return this.acquireLock(conversationId).then(async (release) => {
+      try {
+        return await fn();
+      } finally {
+        release();
+      }
+    });
+  }
+
+  private async acquireLock(conversationId: string): Promise<() => void> {
     const prev = this.locks.get(conversationId) ?? Promise.resolve();
     let release!: () => void;
     const next = new Promise<void>((res) => {
@@ -60,17 +72,30 @@ export class MessageRouter implements MessageRouterPort {
     });
     const queued = prev.then(() => next);
     this.locks.set(conversationId, queued);
-    return prev.then(async () => {
-      try {
-        return await fn();
-      } finally {
-        release();
-        // Best-effort cleanup: remove if no one else queued after us.
-        if (this.locks.get(conversationId) === queued) {
-          this.locks.delete(conversationId);
-        }
-      }
-    });
+    await prev;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      release();
+      if (this.locks.get(conversationId) === queued) this.locks.delete(conversationId);
+    };
+  }
+
+  private combineAbortSignals(signal?: AbortSignal): {
+    signal: AbortSignal;
+    abort(): void;
+    dispose(): void;
+  } {
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    if (signal?.aborted) forwardAbort();
+    else signal?.addEventListener('abort', forwardAbort, { once: true });
+    return {
+      signal: controller.signal,
+      abort: () => controller.abort(),
+      dispose: () => signal?.removeEventListener('abort', forwardAbort),
+    };
   }
 
   private async getThread(
@@ -334,10 +359,26 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   async *sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
-    return yield* this.sendStreamInner(opts);
+    let release: (() => void) | undefined;
+    let lockedConversationId: string | undefined;
+    const ensureLock = async (conversationId: string) => {
+      if (lockedConversationId === conversationId) return;
+      release?.();
+      release = await this.acquireLock(conversationId);
+      lockedConversationId = conversationId;
+    };
+    try {
+      if (opts.conversationId) await ensureLock(opts.conversationId);
+      return yield* this.sendStreamInner(opts, ensureLock);
+    } finally {
+      release?.();
+    }
   }
 
-  private async *sendStreamInner(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+  private async *sendStreamInner(
+    opts: SendOptions,
+    ensureLock: (conversationId: string) => Promise<void>,
+  ): AsyncGenerator<LLMChunk, MessageRouterResult> {
     if (!this.collective.get(opts.senderId)) {
       return {
         conversationId: opts.conversationId ?? '',
@@ -379,6 +420,7 @@ export class MessageRouter implements MessageRouterPort {
       parentToolCallId,
       origin,
     });
+    await ensureLock(thread.id);
 
     const inbound = await thread.append(
       {
@@ -398,76 +440,142 @@ export class MessageRouter implements MessageRouterPort {
     });
 
     const runtime = this.registry.build(recipient.type, recipient.id);
+    const lifecycleState =
+      this.lifecycle && this.middlewareRunner
+        ? {
+            operationId: createId('route'),
+            actions: [] as MiddlewareActionResult[],
+            context: opts.context,
+            storedMessageId: inbound.id,
+          }
+        : undefined;
+    const streamAbort = this.combineAbortSignals(opts.context.signal);
     const runtimeContext = this.buildRuntimeContext(
       thread,
       recipient.id,
-      { ...opts.context, communicationDepth: depth },
+      { ...opts.context, communicationDepth: depth, signal: streamAbort.signal },
       depth,
-      { operationId: createId('route'), incomingMessageId: inbound.id, actions: [] },
+      lifecycleState === undefined
+        ? undefined
+        : {
+            operationId: lifecycleState.operationId,
+            incomingMessageId: inbound.id,
+            actions: lifecycleState.actions,
+          },
     );
 
     if (opts.replyTo) {
       const task = this.dispatchAsync(runtime, inbound, runtimeContext, thread, opts);
       this.background.add(task);
-      void task.finally(() => this.background.delete(task));
+      void task.finally(() => {
+        this.background.delete(task);
+        streamAbort.dispose();
+      });
       return { conversationId: thread.id, status: 'dispatched' };
     }
 
+    let transformer: ResponseStreamTransformer | undefined;
+    let runtimeStream: AsyncGenerator<LLMChunk, RuntimeResult> | undefined;
+    let streamFinished = false;
     try {
+      if (this.lifecycle && lifecycleState) {
+        const sender = this.collective.get(recipient.id);
+        const responseRecipient = this.collective.get(opts.replyTo ?? opts.senderId);
+        if (sender && responseRecipient) {
+          transformer = this.lifecycle.createResponseStream({
+            operationId: lifecycleState.operationId,
+            sender,
+            recipient: responseRecipient,
+            thread,
+            actions: lifecycleState.actions,
+            signal: streamAbort.signal,
+          });
+        }
+      }
       if (runtime.handleStream) {
-        const result = yield* runtime.handleStream(inbound, runtimeContext);
-        return yield* this.handleRuntimeResultGenerator(
+        const stream = runtime.handleStream(inbound, runtimeContext);
+        runtimeStream = stream;
+        let next = await stream.next();
+        while (!next.done) {
+          try {
+            const chunks = transformer ? await transformer.push(next.value) : [next.value];
+            for (const chunk of chunks) yield chunk;
+          } catch (error) {
+            if (error instanceof MiddlewareStreamError) {
+              try {
+                await stream.return(undefined as never);
+                streamFinished = true;
+              } catch {
+                // Middleware rejection owns terminal result; runtime cleanup errors are secondary.
+              }
+              for (const chunk of error.chunks) yield chunk;
+              return this.mapLifecycleResult(error.lifecycleResult, thread.id, opts.context);
+            }
+            throw error;
+          }
+          next = await stream.next();
+        }
+        const result = next.value;
+        streamFinished = true;
+        if (transformer) {
+          try {
+            const finished = await transformer.finish(result);
+            for (const chunk of finished.chunks) yield chunk;
+            if (result.kind === 'response') return finished.result;
+          } catch (error) {
+            if (error instanceof MiddlewareStreamError) {
+              for (const chunk of error.chunks) yield chunk;
+              return this.mapLifecycleResult(error.lifecycleResult, thread.id, opts.context);
+            }
+            throw error;
+          }
+        }
+        return await this.handleRuntimeResult(
           result,
           thread,
           recipient.id,
-          opts.senderId,
+          opts.replyTo ?? opts.senderId,
+          lifecycleState,
         );
       } else {
         const result = await runtime.handle(inbound, runtimeContext);
-        return yield* this.handleRuntimeResultGenerator(
+        if (transformer) {
+          try {
+            const finished = await transformer.finish(result);
+            for (const chunk of finished.chunks) yield chunk;
+            if (result.kind === 'response') return finished.result;
+          } catch (error) {
+            if (error instanceof MiddlewareStreamError) {
+              for (const chunk of error.chunks) yield chunk;
+              return this.mapLifecycleResult(error.lifecycleResult, thread.id, opts.context);
+            }
+            throw error;
+          }
+        }
+        return await this.handleRuntimeResult(
           result,
           thread,
           recipient.id,
-          opts.senderId,
+          opts.replyTo ?? opts.senderId,
+          lifecycleState,
         );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
+    } finally {
+      if (!streamFinished && runtimeStream) {
+        streamAbort.abort();
+        transformer?.abort();
+        try {
+          await runtimeStream.return(undefined as never);
+        } catch {
+          // Consumer cancellation should still release routing lock.
+        }
+      }
+      transformer?.dispose();
+      streamAbort.dispose();
     }
-  }
-
-  private async *handleRuntimeResultGenerator(
-    result: RuntimeResult,
-    thread: ConversationThread,
-    senderId: string,
-    defaultRecipientId: string,
-  ): AsyncGenerator<LLMChunk, MessageRouterResult> {
-    if (result.kind === 'response') {
-      await this.persistResponse(thread, senderId, defaultRecipientId, result);
-      return { conversationId: thread.id, response: result.content, status: 'success' };
-    }
-    if (result.kind === 'pending_approval') {
-      return {
-        conversationId: thread.id,
-        status: 'pending_approval',
-        approvalRequests: result.approvalRequests,
-      };
-    }
-    if (result.kind === 'middleware_pending') {
-      return {
-        conversationId: thread.id,
-        status: 'pending_approval',
-        approvalId: result.approvalId,
-        checkpointId: result.checkpointId,
-        pendingParticipantId: senderId,
-        approvalRequests: [],
-      };
-    }
-    if (result.kind === 'middleware_abort') {
-      return { conversationId: thread.id, status: 'error', error: result.error };
-    }
-    return { conversationId: thread.id, status: 'success' };
   }
 
   private async sendInner(opts: SendOptions): Promise<MessageRouterResult> {

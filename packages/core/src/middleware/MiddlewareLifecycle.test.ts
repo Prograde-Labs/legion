@@ -1,4 +1,5 @@
 import type {
+  LLMChunk,
   MessageDraft,
   MiddlewareDefinition,
   MiddlewareInstanceConfig,
@@ -565,5 +566,89 @@ describe('MiddlewareLifecycle', () => {
       }),
     ).resolves.toMatchObject({ status: 'success' });
     expect((await f.store.load(f.thread.id))?.status).toBe('archived');
+  });
+
+  it('transforms provisional response drafts into minimal deltas and authoritative rewrites', async () => {
+    const sender = participant('sender', [instance('sender')]);
+    const recipient = participant('recipient', [instance('recipient')]);
+    const f = await fixture([sender, recipient]);
+    f.middlewareRegistry.register(
+      {
+        type: 'test:lifecycle',
+        displayName: 'Stream transform',
+        defaultFailureMode: 'closed',
+        configSchema: schema,
+        hooks: {
+          beforeSend: (context) => ({
+            kind: 'continue',
+            message: {
+              ...context.message,
+              content: context.message.content.endsWith('rewrite')
+                ? 'authoritative'
+                : context.message.content,
+              reasoning: context.message.reasoning?.toUpperCase(),
+            },
+          }),
+        },
+      } satisfies MiddlewareDefinition,
+      'test',
+    );
+    const stream = f.lifecycle.createResponseStream({
+      operationId: 'stream-1',
+      sender: recipient,
+      recipient: sender,
+      thread: f.thread,
+      actions: [],
+    });
+
+    await expect(stream.push({ type: 'iteration_start', iteration: 0 })).resolves.toEqual([
+      { type: 'iteration_start', iteration: 0 },
+    ]);
+    await expect(stream.push({ type: 'reasoning_delta', delta: 'why' })).resolves.toEqual([
+      { type: 'reasoning_delta', delta: 'WHY' },
+    ]);
+    await expect(stream.push({ type: 'text_delta', delta: 'answer' })).resolves.toEqual([
+      { type: 'text_delta', delta: 'answer' },
+    ]);
+    await expect(stream.push({ type: 'text_delta', delta: '' })).resolves.toEqual([]);
+
+    const rewritten = await stream.push({ type: 'text_delta', delta: 'rewrite' });
+    expect(rewritten).toEqual([
+      { type: 'message_snapshot', content: 'authoritative', reasoning: 'WHY' },
+    ] satisfies LLMChunk[]);
+  });
+
+  it('resets provisional response drafts per iteration and passes control chunks through unchanged', async () => {
+    const sender = participant('sender', [instance('sender')]);
+    const recipient = participant('recipient', [instance('recipient')]);
+    const f = await fixture([sender, recipient]);
+    const beforeSend = vi.fn(() => ({ kind: 'continue' as const }));
+    f.middlewareRegistry.register(
+      {
+        type: 'test:lifecycle',
+        displayName: 'Stream reset',
+        defaultFailureMode: 'closed',
+        configSchema: schema,
+        hooks: { beforeSend },
+      } satisfies MiddlewareDefinition,
+      'test',
+    );
+    const stream = f.lifecycle.createResponseStream({
+      operationId: 'stream-reset',
+      sender: recipient,
+      recipient: sender,
+      thread: f.thread,
+      actions: [],
+    });
+
+    await stream.push({ type: 'text_delta', delta: 'old' });
+    await stream.push({ type: 'iteration_start', iteration: 1 });
+    await expect(stream.push({ type: 'text_delta', delta: 'new' })).resolves.toEqual([
+      { type: 'text_delta', delta: 'new' },
+    ]);
+    await expect(
+      stream.push({ type: 'tool_call_start', index: 0, id: 'call-1', name: 'tool' }),
+    ).resolves.toEqual([{ type: 'tool_call_start', index: 0, id: 'call-1', name: 'tool' }]);
+    expect(beforeSend).toHaveBeenCalledTimes(2);
   });
 });

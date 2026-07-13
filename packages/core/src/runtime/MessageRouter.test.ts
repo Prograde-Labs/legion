@@ -1952,3 +1952,191 @@ describe('MessageRouter: reasoning persistence', () => {
     expect(response).toMatchObject({ content: 'answer', reasoning: 'analysis' });
   });
 });
+
+describe('MessageRouter: middleware response streaming', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-middleware-stream-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('transforms provisional deltas, runs one final draft pass, and persists final draft', async () => {
+    const hooks: { final: boolean; iteration?: number; chunk?: LLMChunk }[] = [];
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Streaming response transform',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          if (context.message.role !== 'assistant') return { kind: 'continue' };
+          hooks.push({ final: context.final, iteration: context.iteration, chunk: context.chunk });
+          return {
+            kind: 'continue',
+            message: {
+              ...context.message,
+              content: context.message.content.toUpperCase(),
+              reasoning: context.message.reasoning?.toUpperCase(),
+            },
+          };
+        },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream() {
+        yield { type: 'iteration_start', iteration: 4 } as const;
+        yield { type: 'reasoning_delta', delta: 'why' } as const;
+        yield { type: 'tool_call_start', index: 0, id: 'tool-1', name: 'unchanged' } as const;
+        yield { type: 'text_delta', delta: 'answer' } as const;
+        return { kind: 'response' as const, content: 'answer', reasoning: 'why' };
+      },
+    }));
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'stream',
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
+    }
+
+    expect(chunks).toEqual([
+      { type: 'iteration_start', iteration: 4 },
+      { type: 'reasoning_delta', delta: 'WHY' },
+      { type: 'tool_call_start', index: 0, id: 'tool-1', name: 'unchanged' },
+      { type: 'text_delta', delta: 'ANSWER' },
+    ]);
+    expect(hooks).toEqual([
+      { final: false, iteration: 4, chunk: { type: 'reasoning_delta', delta: 'why' } },
+      { final: false, iteration: 4, chunk: { type: 'text_delta', delta: 'answer' } },
+      { final: true, iteration: undefined, chunk: undefined },
+    ]);
+    expect(next.value).toMatchObject({ status: 'success', response: 'ANSWER' });
+    const response = Object.values((await store.load(next.value.conversationId))!.messages).find(
+      (message) => message.role === 'assistant',
+    );
+    expect(response).toMatchObject({ content: 'ANSWER', reasoning: 'WHY' });
+  });
+
+  it('retracts and aborts a rejected provisional response without persisting it', async () => {
+    let runtimeFinally = false;
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Streaming response rejection',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) =>
+          context.message.role === 'assistant'
+            ? { kind: 'reject', error: 'blocked stream' }
+            : { kind: 'continue' },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream() {
+        try {
+          yield { type: 'iteration_start', iteration: 0 } as const;
+          yield { type: 'text_delta', delta: 'secret' } as const;
+          yield { type: 'text_delta', delta: 'must not continue' } as const;
+          return { kind: 'response' as const, content: 'secret' };
+        } finally {
+          runtimeFinally = true;
+        }
+      },
+    }));
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'stream',
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
+    }
+
+    expect(chunks).toEqual([
+      { type: 'iteration_start', iteration: 0 },
+      { type: 'message_snapshot', content: '' },
+    ]);
+    expect(next.value).toMatchObject({ status: 'error', error: 'blocked stream' });
+    expect(runtimeFinally).toBe(true);
+    expect(Object.values((await store.load(next.value.conversationId))!.messages)).toHaveLength(1);
+  });
+
+  it('holds conversation lock through stream cancellation, then releases queued send', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const registry = new RuntimeRegistry();
+    let streamStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      streamStarted = resolve;
+    });
+    let calls = 0;
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        calls += 1;
+        return { kind: 'response' as const, content: 'queued' };
+      },
+      async *handleStream() {
+        calls += 1;
+        streamStarted();
+        try {
+          yield { type: 'iteration_start', iteration: 0 } as const;
+          await new Promise<void>(() => undefined);
+          return { kind: 'void' as const };
+        } finally {
+          // Generator cancellation must release MessageRouter's conversation lock.
+        }
+      },
+    }));
+    const lockedRouter = new MessageRouter(
+      store,
+      registry,
+      baseContext.collective as typeof baseContext.collective,
+      baseContext.eventBus as EventBus,
+    );
+    const first = lockedRouter.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'first',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await first.next();
+    await started;
+    const queued = lockedRouter.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'second',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await Promise.resolve();
+    expect(calls).toBe(1);
+
+    await first.return({ conversationId: conversation.id, status: 'success' });
+    await expect(queued).resolves.toMatchObject({ status: 'success', response: 'queued' });
+    expect(calls).toBe(2);
+  });
+});
