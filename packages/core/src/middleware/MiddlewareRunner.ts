@@ -1,4 +1,5 @@
 import type {
+  AgentConfig,
   FailureMode,
   JSONValue,
   MessageData,
@@ -35,6 +36,26 @@ export type MiddlewarePhaseResult<T> =
       participantId: string;
     };
 
+export type MessagePhaseResult = Extract<
+  MiddlewarePhaseResult<MessageDraft>,
+  { kind: 'continue' | 'reject' | 'abort' | 'pending_approval' }
+>;
+
+export type AfterReceivePhaseResult = Extract<
+  MiddlewarePhaseResult<MessageData>,
+  { kind: 'continue' | 'complete' | 'respond' | 'abort' | 'pending_approval' }
+>;
+
+export type SystemPromptPhaseResult = Extract<
+  MiddlewarePhaseResult<string>,
+  { kind: 'continue' | 'abort' | 'pending_approval' }
+>;
+
+export type AfterSendPhaseResult = Extract<
+  MiddlewarePhaseResult<MessageData>,
+  { kind: 'continue' | 'abort' | 'pending_approval' }
+>;
+
 export interface MessagePhaseInput {
   operationId: string;
   phase: 'beforeSend' | 'beforeReceive';
@@ -63,10 +84,11 @@ export interface AfterReceiveInput {
 
 export interface SystemPromptInput {
   operationId: string;
-  participant: ParticipantConfig;
+  participant: AgentConfig;
   thread: ConversationThread;
   prompt: string;
   actions: MiddlewareActionResult[];
+  /** Set by future runtime-resume wiring when prompt construction follows a persisted message. */
   persistedMessageId?: string;
   signal?: AbortSignal;
   startIndex?: number;
@@ -215,13 +237,47 @@ function safeError(error: unknown): { name: string; message: string } {
   return { name, message };
 }
 
-function abortResult(error: string, persistedMessageId?: string): MiddlewarePhaseResult<never> {
+type AbortPhaseResult = Extract<MiddlewarePhaseResult<never>, { kind: 'abort' }>;
+
+function abortResult(error: string, persistedMessageId?: string): AbortPhaseResult {
   return {
     kind: 'abort',
     error,
     persisted: persistedMessageId !== undefined,
     ...(persistedMessageId === undefined ? {} : { storedMessageId: persistedMessageId }),
   };
+}
+
+function validateStartIndex(startIndex: number | undefined, instanceCount: number): number {
+  const resolved = startIndex ?? 0;
+  if (
+    !Number.isFinite(resolved) ||
+    !Number.isInteger(resolved) ||
+    resolved < 0 ||
+    resolved > instanceCount
+  ) {
+    throw new TypeError(
+      `Middleware startIndex must be a finite integer between 0 and ${instanceCount} inclusive`,
+    );
+  }
+  return resolved;
+}
+
+function persistedMessageId(message: MessageData, supplied?: string): string {
+  if (typeof message.id !== 'string' || message.id.trim() === '') {
+    throw new TypeError('Middleware message.id must be a non-empty string');
+  }
+  if (supplied !== undefined && supplied !== message.id) {
+    throw new TypeError('Middleware persistedMessageId must match message.id');
+  }
+  return message.id;
+}
+
+function validateOptionalPersistedMessageId(value: string | undefined): string | undefined {
+  if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
+    throw new TypeError('Middleware persistedMessageId must be a non-empty string when present');
+  }
+  return value;
 }
 
 function validateDraft(value: unknown, original?: MessageDraft): MessageDraft {
@@ -261,11 +317,12 @@ function validateDraft(value: unknown, original?: MessageDraft): MessageDraft {
 export class MiddlewareRunner {
   constructor(private readonly dependencies: MiddlewareRunnerDependencies) {}
 
-  async runMessagePhase(input: MessagePhaseInput): Promise<MiddlewarePhaseResult<MessageDraft>> {
+  async runMessagePhase(input: MessagePhaseInput): Promise<MessagePhaseResult> {
     let current = cloneDraft(input.draft, '$.draft');
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
-    for (let index = input.startIndex ?? 0; index < instances.length; index += 1) {
+    const startIndex = validateStartIndex(input.startIndex, instances.length);
+    for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, input.phase)) continue;
       const execution = await this.invoke(instance, input.phase, input, (base) => ({
@@ -312,11 +369,13 @@ export class MiddlewareRunner {
     return { kind: 'continue', value: cloneJsonSafe(current), actions: cloneJsonSafe(actions) };
   }
 
-  async runAfterReceive(input: AfterReceiveInput): Promise<MiddlewarePhaseResult<MessageData>> {
+  async runAfterReceive(input: AfterReceiveInput): Promise<AfterReceivePhaseResult> {
+    const storedMessageId = persistedMessageId(input.message, input.persistedMessageId);
     const current = cloneMessage(input.message, '$.message');
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
-    for (let index = input.startIndex ?? 0; index < instances.length; index += 1) {
+    const startIndex = validateStartIndex(input.startIndex, instances.length);
+    for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'afterReceive')) continue;
       const execution = await this.invoke(instance, 'afterReceive', input, (base) => ({
@@ -327,7 +386,7 @@ export class MiddlewareRunner {
       if (execution.status === 'skipped') continue;
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') {
-          return abortResult(execution.error, input.persistedMessageId);
+          return abortResult(execution.error, storedMessageId);
         }
         continue;
       }
@@ -346,7 +405,13 @@ export class MiddlewareRunner {
           if (input.mode === 'post_response') {
             throw new TypeError('Middleware respond outcome is invalid in post_response mode');
           }
-          const draft = validateDraft(execution.result.message);
+          const draft = validateDraft(execution.result.message, {
+            senderId: input.participant.id,
+            recipientId: current.senderId,
+            role: 'assistant',
+            content: '',
+            replyTo: current.replyTo ?? current.senderId,
+          });
           this.recordSuccess(instance, 'afterReceive', input, execution);
           return {
             kind: 'respond',
@@ -357,7 +422,7 @@ export class MiddlewareRunner {
         if (kind === 'abort') {
           const error = requireString(execution.result.error, 'error');
           this.recordSuccess(instance, 'afterReceive', input, execution);
-          return abortResult(error, input.persistedMessageId);
+          return abortResult(error, storedMessageId);
         }
         if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
         throw new TypeError(`Unsupported afterReceive middleware outcome: ${kind}`);
@@ -371,18 +436,23 @@ export class MiddlewareRunner {
           execution.failureMode,
         );
         if (failure.failureMode === 'closed') {
-          return abortResult(failure.error, input.persistedMessageId);
+          return abortResult(failure.error, storedMessageId);
         }
       }
     }
     return { kind: 'continue', value: current, actions: cloneJsonSafe(actions) };
   }
 
-  async runSystemPrompt(input: SystemPromptInput): Promise<MiddlewarePhaseResult<string>> {
+  async runSystemPrompt(input: SystemPromptInput): Promise<SystemPromptPhaseResult> {
+    if (input.participant.type !== 'agent') {
+      throw new TypeError('Middleware system prompt requires an agent participant');
+    }
+    const storedMessageId = validateOptionalPersistedMessageId(input.persistedMessageId);
     let current = input.prompt;
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
-    for (let index = input.startIndex ?? 0; index < instances.length; index += 1) {
+    const startIndex = validateStartIndex(input.startIndex, instances.length);
+    for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'buildSystemPrompt')) continue;
       const execution = await this.invoke(instance, 'buildSystemPrompt', input, (base) => ({
@@ -392,7 +462,7 @@ export class MiddlewareRunner {
       if (execution.status === 'skipped') continue;
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') {
-          return abortResult(execution.error, input.persistedMessageId);
+          return abortResult(execution.error, storedMessageId);
         }
         continue;
       }
@@ -417,7 +487,7 @@ export class MiddlewareRunner {
         if (kind === 'abort') {
           const error = requireString(execution.result.error, 'error');
           this.recordSuccess(instance, 'buildSystemPrompt', input, execution);
-          return abortResult(error, input.persistedMessageId);
+          return abortResult(error, storedMessageId);
         }
         if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
         throw new TypeError(`Unsupported buildSystemPrompt middleware outcome: ${kind}`);
@@ -431,18 +501,20 @@ export class MiddlewareRunner {
           execution.failureMode,
         );
         if (failure.failureMode === 'closed') {
-          return abortResult(failure.error, input.persistedMessageId);
+          return abortResult(failure.error, storedMessageId);
         }
       }
     }
     return { kind: 'continue', value: current, actions: cloneJsonSafe(actions) };
   }
 
-  async runAfterSend(input: AfterSendInput): Promise<MiddlewarePhaseResult<MessageData>> {
+  async runAfterSend(input: AfterSendInput): Promise<AfterSendPhaseResult> {
+    const storedMessageId = persistedMessageId(input.message, input.persistedMessageId);
     const current = cloneMessage(input.message, '$.message');
     const actions = cloneJsonSafe(input.actions, '$.actions');
     const instances = input.participant.middleware ?? [];
-    for (let index = input.startIndex ?? 0; index < instances.length; index += 1) {
+    const startIndex = validateStartIndex(input.startIndex, instances.length);
+    for (let index = startIndex; index < instances.length; index += 1) {
       const instance = instances[index];
       if (!this.enabled(instance, input, 'afterSend')) continue;
       const execution = await this.invoke(instance, 'afterSend', input, (base) => ({
@@ -452,7 +524,7 @@ export class MiddlewareRunner {
       if (execution.status === 'skipped') continue;
       if (execution.status === 'failure') {
         if (execution.failureMode === 'closed') {
-          return abortResult(execution.error, input.persistedMessageId);
+          return abortResult(execution.error, storedMessageId);
         }
         continue;
       }
@@ -466,7 +538,7 @@ export class MiddlewareRunner {
         if (kind === 'abort') {
           const error = requireString(execution.result.error, 'error');
           this.recordSuccess(instance, 'afterSend', input, execution);
-          return abortResult(error, input.persistedMessageId);
+          return abortResult(error, storedMessageId);
         }
         if (kind === 'tool') throw new TypeError('Middleware tool outcomes are unsupported');
         throw new TypeError(`Unsupported afterSend middleware outcome: ${kind}`);
@@ -480,7 +552,7 @@ export class MiddlewareRunner {
           execution.failureMode,
         );
         if (failure.failureMode === 'closed') {
-          return abortResult(failure.error, input.persistedMessageId);
+          return abortResult(failure.error, storedMessageId);
         }
       }
     }
