@@ -1037,12 +1037,18 @@ describe('MiddlewareRunner', () => {
       middlewareDefinition({
         beforeSend: async (context) => {
           expect(context.signal).toBe(controller.signal);
-          context.participant.name = 'mutated';
-          (context.instance.config.nested as { value: string }).value = 'instance-mutated';
+          expect(Reflect.set(context.participant, 'name', 'mutated')).toBe(false);
+          expect(
+            Reflect.set(context.instance.config.nested as object, 'value', 'instance-mutated'),
+          ).toBe(false);
           expect((context.config as typeof config).nested.value).toBe('config');
-          (context.config as typeof config).nested.value = 'config-mutated';
-          (context.actions[0].result!.data as { value: string }).value = 'action-mutated';
-          (context.activeChain as MessageData[])[0].content = 'history-mutated';
+          expect(
+            Reflect.set((context.config as typeof config).nested, 'value', 'config-mutated'),
+          ).toBe(false);
+          expect(
+            Reflect.set(context.actions[0].result!.data as object, 'value', 'action-mutated'),
+          ).toBe(false);
+          expect(Reflect.set(context.activeChain[0], 'content', 'history-mutated')).toBe(false);
           (context.message as MessageDraft).content = 'context-mutated';
           const state = context.getState() as { nested: { value: string } } | undefined;
           if (!state) {
@@ -1771,6 +1777,46 @@ describe('MiddlewareRunner', () => {
     expect(distinctCompleted).toBe(true);
   });
 
+  it('allows inherited async work to run after its owning operation completes', async () => {
+    const f = await fixture([instance('background-owner')]);
+    const releaseBackground = deferred();
+    let background: Promise<unknown> | undefined;
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => {
+          background = (async () => {
+            await releaseBackground.promise;
+            return f.runner.runMessagePhase({
+              operationId: 'operation-background-after-owner',
+              phase: 'beforeSend',
+              participant: { ...f.participant, middleware: [] },
+              thread: f.thread,
+              draft: draft(),
+              actions: [],
+              final: true,
+            });
+          })();
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-background-owner',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      }),
+    ).resolves.toMatchObject({ kind: 'continue' });
+    releaseBackground.resolve();
+    await expect(background).resolves.toMatchObject({ kind: 'continue' });
+  });
+
   it('uses authoritative storage instead of locally injected persistence', async () => {
     const f = await fixture([instance('must-not-run')]);
     const hook = vi.fn(() => ({ kind: 'continue' as const }));
@@ -2075,5 +2121,79 @@ describe('MiddlewareRunner', () => {
     });
 
     expect(activeChain).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses deeply frozen phase snapshots across hooks', async () => {
+    const actions: MiddlewareActionResult[] = [
+      {
+        requestId: 'snapshot-action',
+        participantId: 'participant',
+        instanceId: 'earlier',
+        tool: 'snapshot-tool',
+        status: 'success',
+        result: { status: 'success', data: { nested: 'stable' } },
+      },
+    ];
+    const f = await fixture([
+      instance('first', { config: { nested: { value: 'first' } } }),
+      instance('second', { config: { nested: { value: 'second' } } }),
+    ]);
+    await f.thread.append(draft({ content: 'history' }));
+    let firstParticipant: ParticipantConfig | undefined;
+    let firstChain: readonly MessageData[] | undefined;
+    let firstActions: readonly MiddlewareActionResult[] | undefined;
+    let firstInstance: MiddlewareInstanceConfig | undefined;
+    let firstConfig: unknown;
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          expect(Object.isFrozen(context.participant)).toBe(true);
+          expect(Object.isFrozen(context.activeChain)).toBe(true);
+          expect(Object.isFrozen(context.activeChain[0])).toBe(true);
+          expect(Object.isFrozen(context.actions)).toBe(true);
+          expect(Object.isFrozen(context.actions[0].result?.data)).toBe(true);
+          expect(Object.isFrozen(context.instance)).toBe(true);
+          expect(Object.isFrozen(context.config)).toBe(true);
+          expect(Object.isFrozen((context.config as { nested: object }).nested)).toBe(true);
+          expect(Reflect.set(context.participant, 'name', 'mutated')).toBe(false);
+          expect(Reflect.set(context.activeChain[0], 'content', 'mutated')).toBe(false);
+          expect(Reflect.set(context.actions[0], 'tool', 'mutated')).toBe(false);
+          expect(Reflect.set(context.config as object, 'extra', true)).toBe(false);
+          if (context.instance.id === 'first') {
+            firstParticipant = context.participant;
+            firstChain = context.activeChain;
+            firstActions = context.actions;
+            firstInstance = context.instance;
+            firstConfig = context.config;
+          } else {
+            expect(context.participant).toBe(firstParticipant);
+            expect(context.activeChain).toBe(firstChain);
+            expect(context.actions).toBe(firstActions);
+            expect(context.instance).not.toBe(firstInstance);
+            expect(context.config).not.toBe(firstConfig);
+            expect((context.config as { nested: { value: string } }).nested.value).toBe('second');
+            expect(context.participant.name).toBe('Participant');
+            expect(context.activeChain[0].content).toBe('history');
+            expect(context.actions[0].tool).toBe('snapshot-tool');
+          }
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-frozen-snapshots',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions,
+        final: true,
+      }),
+    ).resolves.toMatchObject({ kind: 'continue' });
+    expect(f.participant.name).toBe('Participant');
+    expect(actions[0].tool).toBe('snapshot-tool');
   });
 });

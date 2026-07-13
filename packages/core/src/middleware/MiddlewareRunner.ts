@@ -163,6 +163,12 @@ interface PhaseSnapshots {
   logger: MiddlewareLogger;
 }
 
+interface ExecutionOwner {
+  store: ConversationStore;
+  conversationId: string;
+  active: boolean;
+}
+
 interface HookLifecycle {
   accepting: boolean;
   cancelled: boolean;
@@ -170,10 +176,7 @@ interface HookLifecycle {
 }
 
 const executionQueues = new WeakMap<ConversationStore, Map<string, Promise<void>>>();
-const executionOwner = new AsyncLocalStorage<{
-  store: ConversationStore;
-  conversationId: string;
-}>();
+const executionOwner = new AsyncLocalStorage<ExecutionOwner>();
 const CANCELLATION_ERROR = 'Middleware operation cancelled';
 
 class QueueCancelledError extends Error {}
@@ -187,7 +190,7 @@ async function serializeConversation<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const owner = executionOwner.getStore();
-  if (owner?.store === store && owner.conversationId === conversationId) {
+  if (owner?.active && owner.store === store && owner.conversationId === conversationId) {
     throw new ReentrantExecutionError('Nested middleware execution for the same conversation');
   }
   let queues = executionQueues.get(store);
@@ -215,9 +218,11 @@ async function serializeConversation<T>(
     });
     throw new QueueCancelledError(CANCELLATION_ERROR);
   }
+  const ownership: ExecutionOwner = { store, conversationId, active: true };
   try {
-    return await executionOwner.run({ store, conversationId }, operation);
+    return await executionOwner.run(ownership, operation);
   } finally {
+    ownership.active = false;
     release();
     if (queues.get(conversationId) === tail) queues.delete(conversationId);
     if (queues.size === 0) executionQueues.delete(store);
@@ -253,6 +258,16 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function deepFreeze<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return value;
+  seen.add(value);
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+    if ('value' in descriptor) deepFreeze(descriptor.value, seen);
+  }
+  return Object.freeze(value);
 }
 
 function requireString(value: unknown, field: string): string {
@@ -1024,19 +1039,16 @@ export class MiddlewareRunner {
     snapshots: PhaseSnapshots,
     lifecycle: HookLifecycle,
   ): MiddlewareHookContext<unknown> {
-    const participant = cloneJsonSafe(snapshots.participant, '$.participant');
-    const detachedInstance = cloneJsonSafe(instance, '$.instance');
-    const config = cloneJsonSafe(instance.config, '$.config');
-    const activeChain = cloneJsonSafe(snapshots.activeChain, '$.activeChain');
-    const actions = cloneJsonSafe(snapshots.actions, '$.actions');
+    const detachedInstance = deepFreeze(cloneJsonSafe(instance, '$.instance'));
+    const config = deepFreeze(cloneJsonSafe(instance.config, '$.config'));
     return {
       operationId: input.operationId,
-      participant,
+      participant: snapshots.participant,
       instance: detachedInstance,
       config,
       conversationId: input.thread.id,
-      activeChain,
-      actions,
+      activeChain: snapshots.activeChain,
+      actions: snapshots.actions,
       getState: () => {
         if (!lifecycle.accepting || lifecycle.cancelled || signal.aborted) {
           throw new Error('Middleware context is inactive');
@@ -1162,11 +1174,13 @@ export class MiddlewareRunner {
 
   private buildPhaseSnapshots(input: CommonInput): PhaseSnapshots {
     return {
-      participant: cloneJsonSafe(input.participant, '$.participant'),
-      activeChain: input.thread.activeChain.map((message, index) =>
-        cloneMessage(message, `$.activeChain[${index}]`),
+      participant: deepFreeze(cloneJsonSafe(input.participant, '$.participant')),
+      activeChain: deepFreeze(
+        input.thread.activeChain.map((message, index) =>
+          cloneMessage(message, `$.activeChain[${index}]`),
+        ),
       ),
-      actions: cloneJsonSafe(input.actions, '$.actions'),
+      actions: deepFreeze(cloneJsonSafe(input.actions, '$.actions')),
       eventBus: Object.freeze({
         emit: (
           event: Parameters<MiddlewareEventBus['emit']>[0],
