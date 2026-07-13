@@ -873,6 +873,14 @@ export class MessageRouter implements MessageRouterPort {
       const successor = approvals.getRecord(record.successorApprovalId);
       const successorCheckpoint = successor?.continuation?.checkpoint;
       if (successor) {
+        if (successor.lifecycle === 'acknowledged') {
+          return (
+            successor.routerResult ?? {
+              conversationId: successor.conversationId,
+              status: 'success',
+            }
+          );
+        }
         try {
           await approvals.acknowledge(approvalId);
         } catch {
@@ -1050,8 +1058,14 @@ export class MessageRouter implements MessageRouterPort {
             storedMessageId: checkpoint.runtimeResume.incomingMessageId,
           },
         );
-        if (runtimeResult.kind === 'pending_approval') {
-          const successorApprovalId = runtimeResult.approvalRequests[0]?.approvalId;
+        if (
+          runtimeResult.kind === 'pending_approval' ||
+          runtimeResult.kind === 'middleware_pending'
+        ) {
+          const successorApprovalId =
+            runtimeResult.kind === 'pending_approval'
+              ? runtimeResult.approvalRequests[0]?.approvalId
+              : runtimeResult.approvalId;
           if (successorApprovalId) {
             await approvals.recordSuccessor(approvalId, successorApprovalId);
             try {
