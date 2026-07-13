@@ -116,14 +116,369 @@ function snapshotResult(value: ToolResult): ToolResult {
   return cloned;
 }
 
+function exactObject(
+  value: unknown,
+  path: string,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`Value at ${path} must be a plain object`);
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    throw new TypeError(`Value at ${path} must be a plain object`);
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) {
+    throw new TypeError(`Value at ${path} has unsupported symbol fields`);
+  }
+  const allowed = new Set([...required, ...optional]);
+  const normalized: Record<string, unknown> = {};
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!allowed.has(key)) throw new TypeError(`Value at ${path}.${key} is unsupported`);
+    if (!descriptor.enumerable || 'get' in descriptor || 'set' in descriptor) {
+      throw new TypeError(`Value at ${path}.${key} must be an enumerable data property`);
+    }
+    if (descriptor.value === undefined && optional.includes(key)) continue;
+    normalized[key] = descriptor.value;
+  }
+  for (const key of required) {
+    if (!Object.hasOwn(normalized, key)) throw new TypeError(`Value at ${path} requires ${key}`);
+  }
+  return normalized;
+}
+
+function requiredInteger(value: unknown, path: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new TypeError(`Value at ${path} must be a non-negative integer`);
+  }
+  return value as number;
+}
+
+function requiredIsoString(value: unknown, path: string): string {
+  const result = requiredString(value, path);
+  if (Number.isNaN(Date.parse(result)))
+    throw new TypeError(`Value at ${path} must be an ISO timestamp`);
+  return result;
+}
+
+function assertNoAliases(value: unknown, path: string, seen = new WeakSet<object>()): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError(`Value at ${path} must be finite`);
+    return;
+  }
+  if (typeof value !== 'object') throw new TypeError(`Value at ${path} is not JSON-safe`);
+  if (seen.has(value)) throw new TypeError(`Value at ${path} may not contain aliases or cycles`);
+  seen.add(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) {
+    throw new TypeError(`Value at ${path} has unsupported symbol fields`);
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || 'get' in descriptor || 'set' in descriptor) {
+        throw new TypeError(`Value at ${path}[${index}] is not JSON-safe`);
+      }
+      assertNoAliases(descriptor.value, `${path}[${index}]`, seen);
+    }
+    return;
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    throw new TypeError(`Value at ${path} must be a plain object`);
+  }
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!descriptor.enumerable || 'get' in descriptor || 'set' in descriptor) {
+      throw new TypeError(`Value at ${path}.${key} is not JSON-safe`);
+    }
+    assertNoAliases(descriptor.value, `${path}.${key}`, seen);
+  }
+}
+
+function validateDraft(value: unknown, path: string): void {
+  const draft = exactObject(
+    value,
+    path,
+    ['senderId', 'recipientId', 'role', 'content'],
+    ['replyTo', 'reasoning'],
+  );
+  requiredString(draft.senderId, `${path}.senderId`);
+  requiredString(draft.recipientId, `${path}.recipientId`);
+  if (draft.role !== 'user' && draft.role !== 'assistant') {
+    throw new TypeError(`Value at ${path}.role must be user or assistant`);
+  }
+  requiredString(draft.content, `${path}.content`);
+  for (const field of ['replyTo', 'reasoning']) {
+    if (draft[field] !== undefined) requiredString(draft[field], `${path}.${field}`);
+  }
+}
+
+function validateMessage(value: unknown, path: string): Record<string, unknown> {
+  const message = exactObject(
+    value,
+    path,
+    [
+      'id',
+      'parentId',
+      'conversationId',
+      'senderId',
+      'recipientId',
+      'role',
+      'content',
+      'status',
+      'timestamp',
+    ],
+    [
+      'replyTo',
+      'reasoning',
+      'type',
+      'toolCalls',
+      'toolResults',
+      'usage',
+      'editOf',
+      'supersededBy',
+      'compacts',
+      'prunedAt',
+      'prunedBy',
+    ],
+  );
+  for (const field of [
+    'id',
+    'conversationId',
+    'senderId',
+    'recipientId',
+    'content',
+    'status',
+    'timestamp',
+  ]) {
+    requiredString(message[field], `${path}.${field}`);
+  }
+  if (message.parentId !== null && typeof message.parentId !== 'string') {
+    throw new TypeError(`Value at ${path}.parentId must be string or null`);
+  }
+  if (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'tool') {
+    throw new TypeError(`Value at ${path}.role is invalid`);
+  }
+  assertNoAliases(message, path);
+  return message;
+}
+
+function validateToolResult(value: unknown, path: string): void {
+  const result = exactObject(value, path, ['status'], ['data', 'error', 'approvalId', 'message']);
+  if (!['success', 'error', 'pending_approval', 'rejected'].includes(result.status as string)) {
+    throw new TypeError(`Value at ${path}.status is invalid`);
+  }
+  assertNoAliases(result, path);
+}
+
+function validateActions(value: unknown, path: string): void {
+  if (!Array.isArray(value)) throw new TypeError(`Value at ${path} must be an array`);
+  for (let index = 0; index < value.length; index += 1) {
+    const action = exactObject(
+      value[index],
+      `${path}[${index}]`,
+      ['requestId', 'participantId', 'instanceId', 'tool', 'status'],
+      ['result'],
+    );
+    for (const field of ['requestId', 'participantId', 'instanceId', 'tool']) {
+      requiredString(action[field], `${path}[${index}].${field}`);
+    }
+    if (!['success', 'error', 'rejected'].includes(action.status as string)) {
+      throw new TypeError(`Value at ${path}[${index}].status is invalid`);
+    }
+    if (action.result !== undefined) validateToolResult(action.result, `${path}[${index}].result`);
+  }
+  assertNoAliases(value, path);
+}
+
+function validateRuntimeResume(
+  value: unknown,
+  checkpoint: Record<string, unknown>,
+  path: string,
+): void {
+  const resume = exactObject(value, path, [
+    'kind',
+    'participantId',
+    'incomingMessageId',
+    'iteration',
+    'preparedPrompt',
+    'actionCursor',
+    'actions',
+  ]);
+  if (resume.kind !== 'agent_provider') throw new TypeError(`Value at ${path}.kind is invalid`);
+  requiredString(resume.participantId, `${path}.participantId`);
+  if (resume.participantId !== checkpoint.participantId) {
+    throw new TypeError(`Value at ${path}.participantId must match checkpoint participantId`);
+  }
+  requiredString(resume.incomingMessageId, `${path}.incomingMessageId`);
+  requiredInteger(resume.iteration, `${path}.iteration`);
+  requiredString(resume.preparedPrompt, `${path}.preparedPrompt`);
+  if (requiredInteger(resume.actionCursor, `${path}.actionCursor`) !== checkpoint.actionCursor) {
+    throw new TypeError(`Value at ${path}.actionCursor must match checkpoint actionCursor`);
+  }
+  validateActions(resume.actions, `${path}.actions`);
+  if (!isDeepStrictEqual(resume.actions, checkpoint.actions)) {
+    throw new TypeError(`Value at ${path}.actions must match checkpoint actions`);
+  }
+}
+
+function validateCheckpoint(value: unknown): void {
+  const checkpoint = exactObject(
+    value,
+    '$.continuation.checkpoint',
+    [
+      'checkpointId',
+      'operationId',
+      'conversationId',
+      'phase',
+      'participantId',
+      'instanceId',
+      'middlewareType',
+      'middlewareRevision',
+      'nextHookIndex',
+      'actionCursor',
+      'request',
+      'actions',
+      'observedHead',
+      'createdAt',
+    ],
+    [
+      'draft',
+      'prompt',
+      'message',
+      'mode',
+      'final',
+      'iteration',
+      'persistedMessageId',
+      'runtimeResume',
+    ],
+  );
+  for (const field of [
+    'checkpointId',
+    'operationId',
+    'conversationId',
+    'participantId',
+    'instanceId',
+    'middlewareType',
+  ]) {
+    requiredString(checkpoint[field], `$.continuation.checkpoint.${field}`);
+  }
+  if (typeof checkpoint.observedHead !== 'string') {
+    throw new TypeError('Value at $.continuation.checkpoint.observedHead must be a string');
+  }
+  if (
+    !['beforeSend', 'beforeReceive', 'afterReceive', 'buildSystemPrompt', 'afterSend'].includes(
+      checkpoint.phase as string,
+    )
+  ) {
+    throw new TypeError('Value at $.continuation.checkpoint.phase is invalid');
+  }
+  for (const field of ['middlewareRevision', 'nextHookIndex', 'actionCursor']) {
+    requiredInteger(checkpoint[field], `$.continuation.checkpoint.${field}`);
+  }
+  requiredIsoString(checkpoint.createdAt, '$.continuation.checkpoint.createdAt');
+  const request = exactObject(
+    checkpoint.request,
+    '$.continuation.checkpoint.request',
+    ['requestId', 'tool', 'arguments'],
+    ['stateOnSuccess'],
+  );
+  requiredString(request.requestId, '$.continuation.checkpoint.request.requestId');
+  requiredString(request.tool, '$.continuation.checkpoint.request.tool');
+  if (
+    request.arguments === null ||
+    typeof request.arguments !== 'object' ||
+    Array.isArray(request.arguments)
+  ) {
+    throw new TypeError(
+      'Value at $.continuation.checkpoint.request.arguments must be a non-array object',
+    );
+  }
+  assertNoAliases(request.arguments, '$.continuation.checkpoint.request.arguments');
+  if (request.stateOnSuccess !== undefined) {
+    assertNoAliases(request.stateOnSuccess, '$.continuation.checkpoint.request.stateOnSuccess');
+  }
+  validateActions(checkpoint.actions, '$.continuation.checkpoint.actions');
+
+  if (checkpoint.phase === 'beforeSend' || checkpoint.phase === 'beforeReceive') {
+    for (const field of ['prompt', 'message', 'mode', 'persistedMessageId', 'runtimeResume']) {
+      if (checkpoint[field] !== undefined) {
+        throw new TypeError(
+          `Value at $.continuation.checkpoint.${field} is invalid for message phase`,
+        );
+      }
+    }
+    validateDraft(checkpoint.draft, '$.continuation.checkpoint.draft');
+    if (typeof checkpoint.final !== 'boolean') {
+      throw new TypeError('Value at $.continuation.checkpoint.final must be boolean');
+    }
+    if (checkpoint.iteration !== undefined) {
+      requiredInteger(checkpoint.iteration, '$.continuation.checkpoint.iteration');
+    }
+  } else if (checkpoint.phase === 'afterReceive') {
+    for (const field of ['draft', 'prompt', 'final', 'iteration', 'runtimeResume']) {
+      if (checkpoint[field] !== undefined) {
+        throw new TypeError(
+          `Value at $.continuation.checkpoint.${field} is invalid for afterReceive`,
+        );
+      }
+    }
+    const message = validateMessage(checkpoint.message, '$.continuation.checkpoint.message');
+    if (checkpoint.mode !== 'pre_runtime' && checkpoint.mode !== 'post_response') {
+      throw new TypeError('Value at $.continuation.checkpoint.mode is invalid');
+    }
+    if (
+      checkpoint.persistedMessageId !== undefined &&
+      checkpoint.persistedMessageId !== message.id
+    ) {
+      throw new TypeError(
+        'Value at $.continuation.checkpoint.persistedMessageId must match message.id',
+      );
+    }
+  } else if (checkpoint.phase === 'buildSystemPrompt') {
+    for (const field of ['draft', 'message', 'mode', 'final', 'iteration']) {
+      if (checkpoint[field] !== undefined) {
+        throw new TypeError(
+          `Value at $.continuation.checkpoint.${field} is invalid for buildSystemPrompt`,
+        );
+      }
+    }
+    requiredString(checkpoint.prompt, '$.continuation.checkpoint.prompt');
+    requiredString(checkpoint.persistedMessageId, '$.continuation.checkpoint.persistedMessageId');
+    if (checkpoint.runtimeResume !== undefined) {
+      validateRuntimeResume(
+        checkpoint.runtimeResume,
+        checkpoint,
+        '$.continuation.checkpoint.runtimeResume',
+      );
+    }
+  } else {
+    for (const field of ['draft', 'prompt', 'mode', 'final', 'iteration', 'runtimeResume']) {
+      if (checkpoint[field] !== undefined) {
+        throw new TypeError(`Value at $.continuation.checkpoint.${field} is invalid for afterSend`);
+      }
+    }
+    const message = validateMessage(checkpoint.message, '$.continuation.checkpoint.message');
+    if (checkpoint.persistedMessageId !== message.id) {
+      throw new TypeError(
+        'Value at $.continuation.checkpoint.persistedMessageId must match message.id',
+      );
+    }
+  }
+  assertNoAliases(checkpoint, '$.continuation.checkpoint');
+}
+
 function snapshotContinuation(
   value: ApprovalContinuation | undefined,
 ): ApprovalContinuation | undefined {
   if (value === undefined) return undefined;
-  const cloned = cloneJsonSafe(value, '$.continuation') as ApprovalContinuation;
-  if (cloned.kind !== 'middleware' || !cloned.checkpoint || typeof cloned.checkpoint !== 'object') {
+  const continuation = exactObject(value, '$.continuation', ['kind', 'checkpoint']);
+  if (continuation.kind !== 'middleware') {
     throw new TypeError('Approval continuation must be a middleware checkpoint');
   }
+  validateCheckpoint(continuation.checkpoint);
+  const cloned = cloneJsonSafe(continuation, '$.continuation') as ApprovalContinuation;
   requiredString(cloned.checkpoint.checkpointId, 'continuation.checkpoint.checkpointId');
   requiredString(cloned.checkpoint.conversationId, 'continuation.checkpoint.conversationId');
   return cloned;
@@ -197,6 +552,7 @@ function recovery(data: RegistryData): boolean {
       record.resumeResult === undefined
     ) {
       record.resumeResult = { status: 'error', error: INTERRUPTION_ERROR };
+      record.lifecycle = 'decided';
       changed = true;
     }
   }
@@ -211,13 +567,9 @@ export class PendingApprovalRegistry {
 
   static async load(storage: Storage): Promise<PendingApprovalRegistry> {
     const registry = new PendingApprovalRegistry(storage);
-    try {
-      const stored = await storage.readJson<unknown>(STORAGE_KEY);
-      if (stored !== null) registry.data = normalizeData(stored);
-      if (recovery(registry.data)) await storage.writeJson(STORAGE_KEY, registry.data);
-    } catch {
-      // Missing registry starts empty. Invalid or unavailable persisted data is never published.
-    }
+    const stored = await storage.readJson<unknown>(STORAGE_KEY);
+    if (stored !== null) registry.data = normalizeData(stored);
+    if (recovery(registry.data)) await storage.writeJson(STORAGE_KEY, registry.data);
     return registry;
   }
 
@@ -328,6 +680,7 @@ export class PendingApprovalRegistry {
         );
       }
       if (record.lifecycle === 'decided') {
+        if (record.resumeResult !== undefined) return { status: 'ready', record };
         record.lifecycle = 'resuming';
         return { status: 'ready', record };
       }
@@ -354,6 +707,7 @@ export class PendingApprovalRegistry {
         );
       }
       record.resumeResult = snapshot;
+      record.lifecycle = 'decided';
       return undefined;
     });
   }
@@ -364,6 +718,12 @@ export class PendingApprovalRegistry {
       if (!record)
         throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
       if (record.lifecycle === 'acknowledged') return undefined;
+      if (record.lifecycle !== 'decided' || record.resumeResult === undefined) {
+        throw new LegionError(
+          `Approval request has no terminal resume result: ${approvalId}`,
+          'APPROVAL_CONFLICT',
+        );
+      }
       record.lifecycle = 'acknowledged';
       delete record.continuation;
       return undefined;

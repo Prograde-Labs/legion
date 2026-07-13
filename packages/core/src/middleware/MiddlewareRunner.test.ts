@@ -262,6 +262,52 @@ describe('MiddlewareRunner', () => {
     expect(f.thread.data.middlewareState).toEqual({ participant: { request: { ok: true } } });
   });
 
+  it('rebuilds frozen active-chain snapshots after an auto tool reload before continuing hooks', async () => {
+    const f = await fixture([instance('request'), instance('following')]);
+    f.participant.tools = { append: 'auto' };
+    f.toolRegistry.register({
+      name: 'append',
+      description: 'append',
+      parameters: schema,
+      execute: async (_args, context) => {
+        await context.conversation!.append({
+          senderId: context.participant.id,
+          recipientId: 'operator',
+          role: 'assistant',
+          content: 'tool mutation',
+        });
+        return { status: 'success' };
+      },
+    });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          if (context.instance.id === 'request') {
+            return { kind: 'tool', requestId: 'append-1', tool: 'append', arguments: {} };
+          }
+          expect(context.activeChain.map((message) => message.content)).toEqual(['tool mutation']);
+          expect(context.actions).toMatchObject([{ requestId: 'append-1', status: 'success' }]);
+          expect(Object.isFrozen(context.activeChain)).toBe(true);
+          expect(Object.isFrozen(context.actions)).toBe(true);
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+
+    await expect(
+      f.runner.runMessagePhase({
+        operationId: 'operation-tool-refresh',
+        phase: 'beforeSend',
+        participant: f.participant,
+        thread: f.thread,
+        draft: draft(),
+        actions: [],
+        final: true,
+      }),
+    ).resolves.toMatchObject({ kind: 'continue' });
+  });
+
   it('durably checkpoints approval-required middleware tools before emitting request events', async () => {
     const f = await fixture([instance('request')]);
     f.participant.tools = { risky: 'requires_approval' };

@@ -1037,6 +1037,10 @@ export class MiddlewareRunner {
     };
   }
 
+  private rebuildSnapshots(input: CommonInput, actions: MiddlewareActionResult[]): PhaseSnapshots {
+    return this.buildPhaseSnapshots({ ...input, actions });
+  }
+
   private toolAction(
     instance: MiddlewareInstanceConfig,
     input: CommonInput,
@@ -1293,10 +1297,10 @@ export class MiddlewareRunner {
           : result.status === 'rejected'
             ? 'rejected'
             : 'error';
-      const nextSnapshots = this.appendAction(
-        snapshots,
+      const nextSnapshots = this.rebuildSnapshots(input, [
+        ...snapshots.actions,
         this.toolAction(instance, input, request, status, result),
-      );
+      ]);
       if (result.status !== 'success') {
         return {
           kind: 'failure',

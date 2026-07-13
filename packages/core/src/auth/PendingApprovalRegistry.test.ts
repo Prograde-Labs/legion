@@ -230,4 +230,124 @@ describe('PendingApprovalRegistry continuations', () => {
       reg.create({ conversationId: 'c1', requesterId: 'agent-b', tool: 'file_write', args: {} }),
     ).resolves.toEqual({ approvalId: expect.stringMatching(/^appr-/) });
   });
+
+  it('rejects acknowledgement before a terminal resume result without deleting continuation', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    await expect(reg.acknowledge(approvalId)).rejects.toThrow(/terminal|result/i);
+    expect(reg.getRecord(approvalId)?.continuation).toBeDefined();
+    await reg.resolve(approvalId, {
+      approved: false,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:01:00.000Z',
+    });
+    await expect(reg.acknowledge(approvalId)).rejects.toThrow(/terminal|result/i);
+    await reg.beginResume(approvalId);
+    await expect(reg.acknowledge(approvalId)).rejects.toThrow(/terminal|result/i);
+    expect(reg.getRecord(approvalId)?.continuation).toBeDefined();
+    await reg.recordResumeResult(approvalId, { status: 'rejected', message: 'denied' });
+    await reg.acknowledge(approvalId);
+    await expect(reg.acknowledge(approvalId)).resolves.toBeUndefined();
+  });
+
+  it('fails closed when loading corrupt, unreadable, or unrecoverably persisted storage', async () => {
+    const corrupt = new MemoryStorage();
+    await corrupt.write('pending-approvals/registry.json', '{not json');
+    await expect(PendingApprovalRegistry.load(corrupt)).rejects.toThrow();
+
+    const unreadable = new MemoryStorage();
+    vi.spyOn(unreadable, 'readJson').mockRejectedValueOnce(new Error('read failed'));
+    await expect(PendingApprovalRegistry.load(unreadable)).rejects.toThrow('read failed');
+
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:01:00.000Z',
+    });
+    await reg.beginResume(approvalId);
+    vi.spyOn(storage, 'writeJson').mockRejectedValueOnce(new Error('recovery write failed'));
+    await expect(PendingApprovalRegistry.load(storage)).rejects.toThrow('recovery write failed');
+  });
+
+  it('rejects incomplete or non-canonical middleware checkpoints before creating a record', async () => {
+    const reg = new PendingApprovalRegistry();
+    const incomplete = checkpoint();
+    delete (incomplete as Partial<MiddlewareCheckpoint>).observedHead;
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: incomplete },
+      }),
+    ).rejects.toThrow(/observedHead/i);
+
+    const unknown = checkpoint() as MiddlewareCheckpoint & { unexpected: true };
+    unknown.unexpected = true;
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: unknown },
+      }),
+    ).rejects.toThrow(/unsupported|unknown/i);
+
+    const wrongPhase = checkpoint();
+    wrongPhase.phase = 'afterSend';
+    delete (wrongPhase as Partial<MiddlewareCheckpoint>).draft;
+    delete (wrongPhase as Partial<MiddlewareCheckpoint>).final;
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: wrongPhase },
+      }),
+    ).rejects.toThrow(/message|persistedMessageId/i);
+
+    const prompt = checkpoint();
+    prompt.phase = 'buildSystemPrompt';
+    delete (prompt as Partial<MiddlewareCheckpoint>).draft;
+    delete (prompt as Partial<MiddlewareCheckpoint>).final;
+    prompt.prompt = 'continue';
+    prompt.persistedMessageId = 'message-1';
+    prompt.runtimeResume = {
+      kind: 'agent_provider',
+      participantId: 'wrong-participant',
+      incomingMessageId: 'message-1',
+      iteration: 0,
+      preparedPrompt: 'continue',
+      actionCursor: 0,
+      actions: [],
+    };
+    await expect(
+      reg.create({
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: prompt },
+      }),
+    ).rejects.toThrow(/runtimeResume.*participantId/i);
+    expect(reg.listPending()).toEqual([]);
+  });
 });
