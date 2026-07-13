@@ -293,6 +293,38 @@ describe('MessageRouter: synchronous send', () => {
     expect(conversation?.parentToolCallId).toBeUndefined();
   });
 
+  it('preserves origin and links when a supplied conversation id falls back to creation', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const origin: ConversationOrigin = {
+      kind: 'middleware',
+      participantId: 'op',
+      middlewareInstanceId: 'instance-1',
+      parentConversationId: parent.id,
+      parentMessageId: 'message-1',
+      parentToolCallId: 'origin-call',
+    };
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'fallback',
+      conversationId: 'conv-missing',
+      origin,
+      context: baseContext,
+    });
+
+    expect(result.conversationId).not.toBe('conv-missing');
+    const conversation = await store.load(result.conversationId);
+    expect(conversation?.origin).toEqual(origin);
+    expect(conversation?.parentConversationId).toBe(parent.id);
+    expect(conversation?.parentToolCallId).toBe('origin-call');
+  });
+
   it('does not overwrite origin when sending into an existing conversation', async () => {
     const { router, baseContext, store } = await setup(dir);
     const originalOrigin: ConversationOrigin = { kind: 'participant', participantId: 'op' };
@@ -1028,6 +1060,40 @@ describe('MessageRouter.sendStream()', () => {
     expect(conversation?.origin).toEqual(origin);
     expect(conversation?.parentConversationId).toBe(originParent.id);
     expect(conversation?.parentToolCallId).toBeUndefined();
+  });
+
+  it('preserves origin and links when a streamed conversation id falls back to creation', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const origin: ConversationOrigin = {
+      kind: 'middleware',
+      participantId: 'op',
+      middlewareInstanceId: 'instance-1',
+      parentConversationId: parent.id,
+      parentMessageId: 'message-1',
+      parentToolCallId: 'origin-call',
+    };
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'stream fallback',
+      conversationId: 'conv-missing',
+      origin,
+      context: baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+
+    expect(next.value.conversationId).not.toBe('conv-missing');
+    const conversation = await store.load(next.value.conversationId);
+    expect(conversation?.origin).toEqual(origin);
+    expect(conversation?.parentConversationId).toBe(parent.id);
+    expect(conversation?.parentToolCallId).toBe('origin-call');
   });
 });
 

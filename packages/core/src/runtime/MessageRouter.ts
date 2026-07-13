@@ -169,10 +169,11 @@ export class MessageRouter implements MessageRouterPort {
       parentConversationId,
       parentToolCallId,
     };
-    const thread = await this.getThread(
-      opts.conversationId,
-      opts.conversationId ? undefined : { parentConversationId, parentToolCallId, origin },
-    );
+    const thread = await this.getThread(opts.conversationId, {
+      parentConversationId,
+      parentToolCallId,
+      origin,
+    });
 
     const inbound = await thread.append(
       {
@@ -279,10 +280,11 @@ export class MessageRouter implements MessageRouterPort {
       parentConversationId,
       parentToolCallId,
     };
-    const thread = await this.getThread(
-      opts.conversationId,
-      opts.conversationId ? undefined : { parentConversationId, parentToolCallId, origin },
-    );
+    const thread = await this.getThread(opts.conversationId, {
+      parentConversationId,
+      parentToolCallId,
+      origin,
+    });
 
     const inbound = await thread.append(
       {
