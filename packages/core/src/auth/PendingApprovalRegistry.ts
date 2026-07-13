@@ -33,6 +33,16 @@ export interface ApprovalRecord extends PendingApprovalInput {
   lifecycle: ApprovalLifecycle;
   decision?: ApprovalDecision;
   resumeResult?: ToolResult;
+  routerResult?: ApprovalRouterResult;
+}
+
+export interface ApprovalRouterResult {
+  conversationId: string;
+  status: 'success' | 'error';
+  response?: string;
+  error?: string;
+  partial?: boolean;
+  storedMessageId?: string;
 }
 
 /** Legacy pending-only view retained for approval-response callers. */
@@ -610,6 +620,7 @@ function validateCheckpoint(value: unknown): void {
       'iteration',
       'persistedMessageId',
       'runtimeResume',
+      'middlewareConfig',
     ],
   );
   for (const field of [
@@ -634,6 +645,9 @@ function validateCheckpoint(value: unknown): void {
   }
   for (const field of ['middlewareRevision', 'nextHookIndex', 'actionCursor']) {
     requiredInteger(checkpoint[field], `$.continuation.checkpoint.${field}`);
+  }
+  if (checkpoint.middlewareConfig !== undefined) {
+    cloneJsonSafe(checkpoint.middlewareConfig, '$.continuation.checkpoint.middlewareConfig');
   }
   requiredIsoString(checkpoint.createdAt, '$.continuation.checkpoint.createdAt');
   const request = exactObject(
@@ -820,6 +834,9 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.resumeResult === undefined
       ? {}
       : { resumeResult: snapshotResult(cloned.resumeResult) }),
+    ...(cloned.routerResult === undefined
+      ? {}
+      : { routerResult: snapshotRouterResult(cloned.routerResult) }),
   };
   if (
     record.lifecycle === 'pending' &&
@@ -856,6 +873,28 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     throw new TypeError('Approval resumeResult requires middleware continuation');
   }
   return record;
+}
+
+function snapshotRouterResult(value: ApprovalRouterResult): ApprovalRouterResult {
+  const result = exactObject(
+    value,
+    '$.routerResult',
+    ['conversationId', 'status'],
+    ['response', 'error', 'partial', 'storedMessageId'],
+  );
+  requiredString(result.conversationId, '$.routerResult.conversationId');
+  if (result.status !== 'success' && result.status !== 'error') {
+    throw new TypeError('Approval router result status is invalid');
+  }
+  if (result.response !== undefined) requiredString(result.response, '$.routerResult.response');
+  if (result.error !== undefined) requiredString(result.error, '$.routerResult.error');
+  if (result.partial !== undefined && typeof result.partial !== 'boolean') {
+    throw new TypeError('Approval router result partial is invalid');
+  }
+  if (result.storedMessageId !== undefined) {
+    requiredString(result.storedMessageId, '$.routerResult.storedMessageId');
+  }
+  return cloneJsonSafe(result, '$.routerResult') as unknown as ApprovalRouterResult;
 }
 
 function normalizeData(value: unknown): RegistryData {
@@ -1178,6 +1217,27 @@ export class PendingApprovalRegistry {
       }
       record.resumeResult = snapshot;
       record.lifecycle = 'decided';
+      return undefined;
+    });
+  }
+
+  async recordRouterResult(approvalId: string, result: ApprovalRouterResult): Promise<void> {
+    const snapshot = snapshotRouterResult(result);
+    await this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      if (
+        record.lifecycle !== 'decided' ||
+        record.resumeResult === undefined ||
+        !record.continuation
+      ) {
+        throw new LegionError('Approval request cannot record router result', 'APPROVAL_CONFLICT');
+      }
+      if (record.routerResult !== undefined && !isDeepStrictEqual(record.routerResult, snapshot)) {
+        throw new LegionError('Conflicting approval router result', 'APPROVAL_CONFLICT');
+      }
+      record.routerResult = snapshot;
       return undefined;
     });
   }

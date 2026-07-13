@@ -171,7 +171,16 @@ export class Collective {
     await this.withParticipantMutation(id, async () => {
       const existing = this.getStoredOrThrow(id);
       const updated = { ...existing, ...patch } as ParticipantConfig;
-      if (updated.middleware) updated.middleware = structuredClone(updated.middleware);
+      if (Object.hasOwn(patch, 'middleware')) {
+        updated.middleware =
+          patch.middleware === undefined ? undefined : structuredClone(patch.middleware);
+        updated.middlewareRevision = (existing.middlewareRevision ?? 0) + 1;
+      } else if (patch.middlewareRevision !== undefined) {
+        updated.middlewareRevision = Math.max(
+          existing.middlewareRevision ?? 0,
+          patch.middlewareRevision,
+        );
+      }
       if (existing.operator === true && updated.operator === false) {
         const otherOperators = this.operatorsStored().filter(
           (participant) => participant.id !== id,

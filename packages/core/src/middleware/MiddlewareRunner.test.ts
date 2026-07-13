@@ -297,7 +297,8 @@ describe('MiddlewareRunner', () => {
     });
     expect(execute).not.toHaveBeenCalled();
     expect(f.pendingApprovals.getRecord(pending.approvalId)).toMatchObject({
-      lifecycle: 'resuming',
+      lifecycle: 'decided',
+      resumeResult: { status: 'error' },
       continuation: { kind: 'middleware' },
     });
   });

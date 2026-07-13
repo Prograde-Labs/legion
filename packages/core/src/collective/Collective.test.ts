@@ -336,6 +336,25 @@ describe('Collective: mutation and invariants', () => {
       }),
     );
   });
+
+  it('bumps middleware revision when update replaces middleware', async () => {
+    const { storage, agent } = seedStorage();
+    await storage.writeJson('collective/participants/agent-1.json', {
+      ...agent,
+      middlewareRevision: 4,
+      middleware: [{ id: 'old', type: 'audit', config: { version: 1 } }],
+    });
+    const collective = await Collective.load(storage);
+    const middleware = [{ id: 'new', type: 'audit', config: { version: 2 } }];
+
+    await collective.update('agent-1', { middleware });
+    middleware[0].config.version = 3;
+
+    expect(collective.get('agent-1')).toMatchObject({
+      middlewareRevision: 5,
+      middleware: [{ id: 'new', type: 'audit', config: { version: 2 } }],
+    });
+  });
 });
 
 describe('Collective: seedDefaultsIfEmpty', () => {

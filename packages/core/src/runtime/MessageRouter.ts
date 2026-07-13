@@ -4,6 +4,7 @@ import type { Collective } from '../collective/Collective.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../tools/Tool.js';
 import { snapshotMiddlewareActions } from '../auth/PendingApprovalRegistry.js';
+import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
@@ -858,20 +859,7 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   async resumeApproval(approvalId: string, context: ToolContext): Promise<MessageRouterResult> {
-    const approvals = context.pendingApprovalRegistry as
-      | {
-          getRecord(id: string):
-            | {
-                lifecycle: string;
-                continuation?: {
-                  kind: 'middleware';
-                  checkpoint: import('@legion/types').MiddlewareCheckpoint;
-                };
-              }
-            | undefined;
-          acknowledge(id: string): Promise<void>;
-        }
-      | undefined;
+    const approvals = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
     const record = approvals?.getRecord(approvalId);
     const checkpoint = record?.continuation?.checkpoint;
     if (!record || !checkpoint || !this.middlewareRunner || !approvals) {
@@ -883,6 +871,14 @@ export class MessageRouter implements MessageRouterPort {
     }
     if (record.lifecycle === 'acknowledged') {
       return { conversationId: checkpoint.conversationId, status: 'success' };
+    }
+    if (record.routerResult) {
+      try {
+        await approvals.acknowledge(approvalId);
+      } catch {
+        // Cached terminal routing outcome is safe; retry only acknowledgement.
+      }
+      return record.routerResult;
     }
     return this.withLock(checkpoint.conversationId, async () => {
       let resumed: Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>;
@@ -926,14 +922,14 @@ export class MessageRouter implements MessageRouterPort {
           ...(resumed.persisted ? { partial: true, storedMessageId: resumed.storedMessageId } : {}),
         };
         if (resumed.error !== 'Middleware approval checkpoint is stale') {
+          await approvals.recordRouterResult(
+            approvalId,
+            result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
+          );
           try {
             await approvals.acknowledge(approvalId);
           } catch {
-            return {
-              conversationId: checkpoint.conversationId,
-              status: 'error',
-              error: 'Approval continuation could not resume',
-            };
+            return result;
           }
         }
         return result;
@@ -943,11 +939,26 @@ export class MessageRouter implements MessageRouterPort {
         !checkpoint.runtimeResume ||
         resumed.kind !== 'continue'
       ) {
-        return {
-          conversationId: checkpoint.conversationId,
-          status: 'error',
-          error: 'Approval continuation is unavailable',
-        };
+        if (resumed.kind !== 'continue') {
+          return {
+            conversationId: checkpoint.conversationId,
+            status: 'error',
+            error: 'Approval continuation is unavailable',
+          };
+        }
+        const result = await this.resumeNonPromptCheckpoint(checkpoint, resumed, context);
+        if (result.status === 'success' || result.status === 'error') {
+          await approvals.recordRouterResult(
+            approvalId,
+            result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
+          );
+          try {
+            await approvals.acknowledge(approvalId);
+          } catch {
+            return result;
+          }
+        }
+        return result;
       }
       const participant = this.collective.get(checkpoint.participantId);
       const stored = await this.store.load(checkpoint.conversationId);
@@ -1001,8 +1012,17 @@ export class MessageRouter implements MessageRouterPort {
             storedMessageId: checkpoint.runtimeResume.incomingMessageId,
           },
         );
-        if (result.status === 'success' || result.status === 'error')
-          await approvals.acknowledge(approvalId);
+        if (result.status === 'success' || result.status === 'error') {
+          await approvals.recordRouterResult(
+            approvalId,
+            result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
+          );
+          try {
+            await approvals.acknowledge(approvalId);
+          } catch {
+            return result;
+          }
+        }
         return result;
       } catch {
         return {
@@ -1012,6 +1032,237 @@ export class MessageRouter implements MessageRouterPort {
         };
       }
     });
+  }
+
+  private async resumeNonPromptCheckpoint(
+    checkpoint: import('@legion/types').MiddlewareCheckpoint,
+    resumed: Extract<Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>, { kind: 'continue' }>,
+    context: ToolContext,
+  ): Promise<MessageRouterResult> {
+    if (!this.lifecycle || !this.middlewareRunner) {
+      return {
+        conversationId: checkpoint.conversationId,
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    }
+    const stored = await this.store.load(checkpoint.conversationId);
+    if (!stored) {
+      return {
+        conversationId: checkpoint.conversationId,
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    }
+    const thread = new ConversationThread(stored, this.store);
+    const continueInbound = async (draft: MessageDraft, actions: MiddlewareActionResult[]) => {
+      const sender = this.collective.get(draft.senderId);
+      const recipient = this.collective.get(draft.recipientId);
+      if (!sender || !recipient) {
+        return {
+          conversationId: thread.id,
+          status: 'error' as const,
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      const inbound = await this.lifecycle!.receive({
+        operationId: checkpoint.operationId,
+        sender,
+        recipient,
+        thread,
+        draft,
+        actions,
+        mode: 'pre_runtime',
+        signal: context.signal,
+        skipDraftHooks: true,
+      });
+      if (inbound.kind === 'error' || inbound.kind === 'pending_approval') {
+        return this.mapLifecycleResult(inbound, thread.id, context);
+      }
+      if (inbound.kind === 'complete')
+        return { conversationId: thread.id, status: 'success' as const };
+      if (inbound.kind === 'respond') {
+        return this.respondWithLifecycle(thread, inbound.response, {
+          operationId: checkpoint.operationId,
+          actions: inbound.actions,
+          context,
+        });
+      }
+      return this.resumeRuntime(
+        thread,
+        inbound.value,
+        recipient.id,
+        inbound.actions,
+        checkpoint.operationId,
+        context,
+      );
+    };
+    if (checkpoint.phase === 'beforeSend') {
+      const draft = resumed.value as MessageDraft;
+      const recipient = this.collective.get(draft.recipientId);
+      if (!recipient) {
+        return {
+          conversationId: thread.id,
+          status: 'error',
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      const beforeReceive = await this.middlewareRunner.runMessagePhase({
+        operationId: checkpoint.operationId,
+        phase: 'beforeReceive',
+        participant: recipient,
+        thread,
+        draft,
+        actions: resumed.actions,
+        final: checkpoint.final!,
+        ...(checkpoint.iteration === undefined ? {} : { iteration: checkpoint.iteration }),
+        signal: context.signal,
+      });
+      if (beforeReceive.kind !== 'continue') {
+        return this.mapLifecycleResult(
+          this.lifecycle.messageTerminal(beforeReceive),
+          thread.id,
+          context,
+        );
+      }
+      return continueInbound(beforeReceive.value, beforeReceive.actions);
+    }
+    if (checkpoint.phase === 'beforeReceive') {
+      return continueInbound(resumed.value as MessageDraft, resumed.actions);
+    }
+    const message = checkpoint.message!;
+    if (checkpoint.phase === 'afterSend') {
+      const recipient = this.collective.get(message.recipientId);
+      if (!recipient) {
+        return {
+          conversationId: thread.id,
+          status: 'error',
+          error: 'Approval continuation is unavailable',
+        };
+      }
+      const afterReceive = await this.middlewareRunner.runAfterReceive({
+        operationId: checkpoint.operationId,
+        participant: recipient,
+        thread,
+        message,
+        persistedMessageId: message.id,
+        mode: 'pre_runtime',
+        actions: resumed.actions,
+        signal: context.signal,
+      });
+      return this.finishAfterReceive(
+        checkpoint.operationId,
+        thread,
+        message,
+        afterReceive,
+        context,
+      );
+    }
+    return this.finishAfterReceive(
+      checkpoint.operationId,
+      thread,
+      message,
+      resumed as never,
+      context,
+    );
+  }
+
+  private async finishAfterReceive(
+    operationId: string,
+    thread: ConversationThread,
+    message: import('@legion/types').MessageData,
+    result: import('../middleware/MiddlewareRunner.js').AfterReceivePhaseResult,
+    context: ToolContext,
+  ): Promise<MessageRouterResult> {
+    if (!this.lifecycle)
+      return {
+        conversationId: thread.id,
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    if (result.kind === 'pending_approval') {
+      return {
+        conversationId: thread.id,
+        status: 'pending_approval',
+        approvalId: result.approvalId,
+        checkpointId: result.checkpointId,
+        pendingParticipantId: result.participantId,
+        partial: true,
+        storedMessageId: message.id,
+      };
+    }
+    if (result.kind === 'abort') {
+      return {
+        conversationId: thread.id,
+        status: 'error',
+        error: result.error,
+        ...(result.persisted ? { partial: true, storedMessageId: result.storedMessageId } : {}),
+      };
+    }
+    if (result.kind === 'complete') return { conversationId: thread.id, status: 'success' };
+    if (result.kind === 'respond') {
+      return this.respondWithLifecycle(thread, result.draft, {
+        operationId,
+        actions: result.actions,
+        context,
+      });
+    }
+    if (message.recipientId !== result.value.recipientId) {
+      return {
+        conversationId: thread.id,
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    }
+    return this.resumeRuntime(
+      thread,
+      message,
+      message.recipientId,
+      result.actions,
+      operationId,
+      context,
+    );
+  }
+
+  private async resumeRuntime(
+    thread: ConversationThread,
+    incoming: import('@legion/types').MessageData,
+    participantId: string,
+    actions: MiddlewareActionResult[],
+    operationId: string,
+    context: ToolContext,
+  ): Promise<MessageRouterResult> {
+    const participant = this.collective.get(participantId);
+    if (!participant)
+      return {
+        conversationId: thread.id,
+        status: 'error',
+        error: 'Approval continuation is unavailable',
+      };
+    const runtime = this.registry.build(participant.type, participant.id);
+    try {
+      const result = await runtime.handle(
+        incoming,
+        this.buildRuntimeContext(thread, participant.id, context, context.communicationDepth ?? 0, {
+          operationId,
+          incomingMessageId: incoming.id,
+          actions,
+        }),
+      );
+      return this.handleRuntimeResult(
+        result,
+        thread,
+        participant.id,
+        incoming.replyTo ?? incoming.senderId,
+        { operationId, actions, context, storedMessageId: incoming.id },
+      );
+    } catch {
+      return {
+        conversationId: thread.id,
+        status: 'error',
+        error: 'Approval continuation could not resume',
+      };
+    }
   }
 
   async generate(

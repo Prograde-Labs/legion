@@ -153,6 +153,7 @@ export interface MiddlewareCheckpoint {
   instanceId: string;
   middlewareType: string;
   middlewareRevision: number;
+  middlewareConfig?: JSONValue;
   nextHookIndex: number;
   actionCursor: number;
   draft?: MessageDraft;

@@ -719,6 +719,12 @@ export class MiddlewareRunner {
         const participant = this.dependencies.collective?.get(checkpoint.participantId);
         const instance = participant?.middleware?.[checkpoint.nextHookIndex - 1];
         if (!this.checkpointCurrent(checkpoint, thread, authoritative, participant, instance)) {
+          if (claim.record.resumeResult === undefined) {
+            await this.dependencies.pendingApprovals.recordResumeResult(approvalId, {
+              status: 'error',
+              error: 'Middleware approval checkpoint is stale',
+            });
+          }
           return abortResult(
             'Middleware approval checkpoint is stale',
             checkpoint.persistedMessageId,
@@ -737,8 +743,17 @@ export class MiddlewareRunner {
         );
         if (!('status' in action)) return action;
         const actions = [...checkpoint.actions.slice(0, checkpoint.actionCursor), action];
-        if (action.status !== 'success' && this.failureMode(instance) === 'closed') {
-          return abortResult('Middleware approval was not approved', checkpoint.persistedMessageId);
+        if (action.status !== 'success') {
+          const failure = this.recordFailure(
+            instance,
+            checkpoint.phase,
+            { operationId: checkpoint.operationId, participant, thread: authoritative, actions },
+            new Error('Middleware approval action did not succeed'),
+            0,
+          );
+          if (failure.failureMode === 'closed') {
+            return abortResult(failure.error, checkpoint.persistedMessageId);
+          }
         }
         return this.resumePhase(checkpoint, participant, authoritative, actions);
       },
@@ -760,6 +775,12 @@ export class MiddlewareRunner {
       !instance ||
       instance.id !== checkpoint.instanceId ||
       instance.type !== checkpoint.middlewareType
+    ) {
+      return false;
+    }
+    if (
+      checkpoint.middlewareConfig === undefined ||
+      !isDeepStrictEqual(checkpoint.middlewareConfig, instance.config)
     ) {
       return false;
     }
@@ -1390,6 +1411,7 @@ export class MiddlewareRunner {
       instanceId: instance.id,
       middlewareType: instance.type,
       middlewareRevision: input.participant.middlewareRevision ?? 0,
+      middlewareConfig: cloneJsonSafe(instance.config, '$.checkpoint.middlewareConfig'),
       nextHookIndex: index + 1,
       actionCursor: actions.length,
       request: {

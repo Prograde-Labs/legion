@@ -1,5 +1,6 @@
 import type {
   JSONSchema,
+  JSONValue,
   LLMChunk,
   MessageData,
   MessageDraft,
@@ -55,6 +56,7 @@ type ExpectedCheckpoint = {
   instanceId: string;
   middlewareType: string;
   middlewareRevision: number;
+  middlewareConfig?: JSONValue;
   nextHookIndex: number;
   actionCursor: number;
   draft?: MessageDraft;
@@ -126,6 +128,7 @@ export type MiddlewareContractAssertions = [
       | 'iteration'
       | 'persistedMessageId'
       | 'runtimeResume'
+      | 'middlewareConfig'
     >
   >,
   Expect<Equal<MiddlewareCheckpoint['request'], Omit<RequestTool, 'kind'>>>,
