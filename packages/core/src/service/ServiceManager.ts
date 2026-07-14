@@ -6,7 +6,12 @@ import type { ConversationStore } from '../conversation/ConversationStore.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import type { Storage } from '../storage/Storage.js';
-import type { MessageRouterPort, ToolContext, ToolRegistryLike } from '../tools/Tool.js';
+import type {
+  MessageRouterPort,
+  MiddlewareConfigurationValidator,
+  ToolContext,
+  ToolRegistryLike,
+} from '../tools/Tool.js';
 import { ConfigError, ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { LegionService, ServiceInfo, ServiceStatus } from './LegionService.js';
 import { ServiceContextImpl, type ServiceContextDeps } from './ServiceContextImpl.js';
@@ -18,6 +23,7 @@ export interface ServiceManagerDeps {
   toolRegistry: ToolRegistryLike;
   authEngine: AuthEngine;
   pendingApprovalRegistry: PendingApprovalRegistry;
+  middlewareConfigurationValidator: MiddlewareConfigurationValidator;
   messageRouter: MessageRouterPort;
   eventBus: EventBus;
   storage: Storage;
@@ -74,6 +80,7 @@ export class ServiceManager {
         workspaceRoot: manager.deps.workspaceRoot,
         authEngine: manager.deps.authEngine,
         pendingApprovalRegistry: manager.deps.pendingApprovalRegistry,
+        middlewareConfigurationValidator: manager.deps.middlewareConfigurationValidator,
         messageRouter: manager.deps.messageRouter,
         stopped: abortController.signal,
         serviceManager: manager,
@@ -200,6 +207,7 @@ export class ServiceManager {
       messageRouter: this.deps.messageRouter,
       authEngine: this.deps.authEngine,
       pendingApprovalRegistry: this.deps.pendingApprovalRegistry,
+      middlewareValidator: this.deps.middlewareConfigurationValidator,
     };
   }
 }

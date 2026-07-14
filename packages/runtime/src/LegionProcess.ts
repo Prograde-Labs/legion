@@ -26,6 +26,10 @@ import {
   ModelRouter,
   ModelsDevPricingSource,
   UsageCalculator,
+  MiddlewareRegistry,
+  MiddlewareRunner,
+  MiddlewareLifecycle,
+  loadWorkspaceMiddleware,
   // Global tools
   communicateTool,
   approvalResponseTool,
@@ -39,6 +43,7 @@ import {
   watchActivityTool,
   watchConversationTool,
   watchProcessTool,
+  createListMiddlewareTool,
   // MCP
   loadMCPSources,
   type ToolSource,
@@ -46,6 +51,7 @@ import {
   type WorkspaceConfig,
   type ToolContext,
   type ConnectorContext,
+  type MiddlewareLogger,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion/core';
 import type {
@@ -54,6 +60,7 @@ import type {
   RoutingConfig,
   SystemConfig,
   ToolResult,
+  MiddlewareDiagnostic,
 } from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
@@ -72,6 +79,8 @@ export class LegionProcess {
     readonly services: ServiceManager,
     readonly connectors: ConnectorRegistry,
     readonly eventBus: EventBus,
+    readonly middlewareRegistry: MiddlewareRegistry,
+    readonly middlewareDiagnostics: readonly MiddlewareDiagnostic[],
     private readonly mcpSources: ToolSource[],
     private readonly processManager: ProcessManager,
   ) {}
@@ -130,7 +139,51 @@ export class LegionProcess {
     const authEngine = new AuthEngine();
     const pendingApprovalRegistry = await PendingApprovalRegistry.load(storage);
 
-    const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
+    const middlewareRegistry = new MiddlewareRegistry();
+    const middlewareDiagnostics = await loadWorkspaceMiddleware(
+      workspaceRoot,
+      mergedConfig.middlewareModules ?? [],
+      middlewareRegistry,
+    );
+    validateMiddlewareConfiguration(collective, middlewareRegistry, middlewareDiagnostics);
+
+    let router!: MessageRouter;
+    const middlewareRunner = new MiddlewareRunner({
+      registry: middlewareRegistry,
+      authEngine,
+      toolRegistry,
+      pendingApprovals: pendingApprovalRegistry,
+      eventBus,
+      logger: middlewareLogger,
+      conversationStore: store,
+      collective,
+      buildToolContext: (participant, conversation, signal) =>
+        buildMiddlewareToolContext({
+          participant,
+          conversation,
+          collective,
+          toolRegistry,
+          config: mergedConfig,
+          eventBus,
+          storage,
+          workspaceRoot,
+          authEngine,
+          pendingApprovalRegistry,
+          messageRouter: router,
+          conversationStore: store,
+          middlewareValidator: middlewareRegistry,
+          signal,
+        }),
+    });
+    const middlewareLifecycle = new MiddlewareLifecycle(middlewareRunner, eventBus);
+    router = new MessageRouter(
+      store,
+      runtimeRegistry,
+      collective,
+      eventBus,
+      middlewareLifecycle,
+      middlewareRunner,
+    );
 
     // ── Step 5b: Create system provider store + model router ─────────────────
     const systemStorage = new FileStorage(systemConfigDir);
@@ -170,6 +223,12 @@ export class LegionProcess {
     toolRegistry.register(watchActivityTool);
     toolRegistry.register(watchConversationTool);
     toolRegistry.register(watchProcessTool);
+    toolRegistry.register(
+      createListMiddlewareTool({
+        definitions: middlewareRegistry.list(),
+        diagnostics: middlewareDiagnostics,
+      }),
+    );
     const runtimeTools = createRuntimeTools({
       systemStore,
       systemRouting,
@@ -191,6 +250,7 @@ export class LegionProcess {
       toolRegistry,
       authEngine,
       pendingApprovalRegistry,
+      middlewareConfigurationValidator: middlewareRegistry,
       messageRouter: router,
       eventBus,
       storage,
@@ -262,6 +322,7 @@ export class LegionProcess {
       workspaceRoot,
       serviceManager,
       processManager,
+      middlewareRegistry,
     });
 
     await webConnector.start(connectorContext);
@@ -280,6 +341,8 @@ export class LegionProcess {
       serviceManager,
       connectorRegistry,
       eventBus,
+      middlewareRegistry,
+      middlewareDiagnostics,
       mcpSources,
       processManager,
     );
@@ -325,6 +388,7 @@ const RUNTIME_TOOL_NAMES = [
   'list_models',
   'get_routing',
   'save_routing',
+  'list_middleware',
 ] as const;
 
 const SUBSCRIPTION_TOOL_NAMES = [
@@ -368,6 +432,117 @@ async function ensureBootstrapRuntimeToolPolicies(collective: Collective): Promi
   }
 
   if (changed) await collective.update(BOOTSTRAP_OPERATOR_ID, { tools });
+}
+
+function validateMiddlewareConfiguration(
+  collective: Collective,
+  registry: MiddlewareRegistry,
+  diagnostics: MiddlewareDiagnostic[],
+): void {
+  for (const participant of collective.list()) {
+    const ids = new Set<string>();
+    for (const instance of participant.middleware ?? []) {
+      const errors: string[] = [];
+      if (ids.has(instance.id)) errors.push('duplicate middleware instance id');
+      ids.add(instance.id);
+      errors.push(...registry.validateConfig(instance.type, instance.config));
+      if (errors.length === 0) continue;
+
+      let diagnostic = diagnostics.find((entry) => entry.type === instance.type);
+      if (!diagnostic) {
+        diagnostic = {
+          type: instance.type,
+          source: 'workspace:<unavailable>',
+          status: 'error',
+          error: 'Middleware type unavailable',
+          configurationErrors: [],
+        };
+        diagnostics.push(diagnostic);
+      }
+      diagnostic.configurationErrors.push({
+        participantId: participant.id,
+        instanceId: instance.id,
+        errors: [...errors],
+      });
+      if (instance.enabled !== false) {
+        throw new Error(
+          `Invalid middleware '${instance.id}' on '${participant.id}': ${errors.join('; ')}`,
+        );
+      }
+    }
+  }
+}
+
+interface MiddlewareToolContextDeps {
+  participant: ToolContext['participant'];
+  conversation: ConversationThread;
+  collective: Collective;
+  toolRegistry: ToolRegistry;
+  config: WorkspaceConfig;
+  eventBus: EventBus;
+  storage: FileStorage;
+  workspaceRoot: string;
+  authEngine: AuthEngine;
+  pendingApprovalRegistry: PendingApprovalRegistry;
+  messageRouter: MessageRouter;
+  conversationStore: FileConversationStore;
+  middlewareValidator: MiddlewareRegistry;
+  signal: AbortSignal;
+}
+
+function buildMiddlewareToolContext(deps: MiddlewareToolContextDeps): ToolContext {
+  return {
+    participant: deps.participant,
+    conversationId: deps.conversation.id,
+    conversation: deps.conversation,
+    collective: deps.collective,
+    communicationDepth: 0,
+    toolRegistry: deps.toolRegistry,
+    config: deps.config,
+    eventBus: deps.eventBus,
+    storage: deps.storage,
+    workspaceRoot: deps.workspaceRoot,
+    authEngine: deps.authEngine,
+    pendingApprovalRegistry: deps.pendingApprovalRegistry,
+    messageRouter: deps.messageRouter,
+    conversationStore: deps.conversationStore,
+    middlewareValidator: deps.middlewareValidator,
+    signal: deps.signal,
+  };
+}
+
+const middlewareLogger: MiddlewareLogger = {
+  debug: (message, fields) => console.debug(message, safeMiddlewareLogFields(fields)),
+  info: (message, fields) => console.info(message, safeMiddlewareLogFields(fields)),
+  warn: (message, fields) => console.warn(message, safeMiddlewareLogFields(fields)),
+  error: (message, fields) => console.error(message, safeMiddlewareLogFields(fields)),
+};
+
+function safeMiddlewareLogFields(
+  fields: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const allowed = new Set([
+    'operationId',
+    'conversationId',
+    'participantId',
+    'instanceId',
+    'middlewareType',
+    'phase',
+    'tool',
+    'requestId',
+    'approvalId',
+    'checkpointId',
+    'duration',
+    'status',
+    'failureMode',
+  ]);
+  return Object.fromEntries(
+    Object.entries(fields ?? {}).filter(
+      ([key, value]) =>
+        allowed.has(key) &&
+        (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'),
+    ),
+  );
 }
 
 /** Read and parse `~/.config/legion/config.json`. Returns empty config on errors. */
@@ -456,6 +631,7 @@ interface ConnectorContextDeps {
   workspaceRoot: string;
   serviceManager: ServiceManager;
   processManager: ProcessManager;
+  middlewareRegistry: MiddlewareRegistry;
 }
 
 /** Build the `ConnectorContext` passed to every connector's `start()`. */
@@ -474,6 +650,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
     workspaceRoot,
     serviceManager,
     processManager,
+    middlewareRegistry,
   } = deps;
 
   return {
@@ -495,6 +672,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
         conversationStore: store,
         processManager,
+        middlewareValidator: middlewareRegistry,
       };
       return router.send({
         senderId: msg.senderId,
@@ -584,6 +762,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
         conversationStore: store,
         processManager,
+        middlewareValidator: middlewareRegistry,
       };
 
       const result = (await toolRegistry.execute(toolName, args, toolCtx)) as ToolResult;
@@ -666,6 +845,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         serviceManager,
         conversationStore: store,
         processManager,
+        middlewareValidator: middlewareRegistry,
         signal: opts?.signal,
         cancelStream: opts?.cancelStream,
       };

@@ -47,6 +47,7 @@ export * from './tools/watch-participants-tool.js';
 export * from './tools/watch-activity-tool.js';
 export * from './tools/watch-conversation-tool.js';
 export * from './tools/watch-process-tool.js';
+export * from './tools/list-middleware-tool.js';
 export { isStreamingTool } from './tools/Tool.js';
 export type { StreamingTool, AnyTool } from './tools/Tool.js';
 export * from './service/LegionService.js';
