@@ -1,5 +1,5 @@
 import { Collective } from '../collective/Collective.js';
-import { appendMessage } from '../conversation/conversation-ops.js';
+import { appendMessage, compactRange } from '../conversation/conversation-ops.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import type { ToolContext } from './Tool.js';
@@ -142,5 +142,86 @@ describe('compact_conversation automation tool', () => {
 
     expect(result.status).toBe('error');
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('does not compact again when concurrent compaction keeps active head unchanged', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockImplementation(async () => {
+      await conversationStore.mutate(parent.id, (current) =>
+        compactRange(current, ['m1', 'm2'], 'concurrent summary'),
+      );
+      return { conversationId: 'ignored', status: 'success', response: 'stale summary' };
+    });
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    expect(result.status).toBe('error');
+    const saved = await conversationStore.load(parent.id);
+    expect(
+      Object.values(saved!.messages).filter((message) => message.type === 'summary'),
+    ).toHaveLength(1);
+    expect(saved?.middlewareState).toBeUndefined();
+    expect((await conversationStore.load(send.mock.calls[0][0].conversationId))?.status).toBe(
+      'archived',
+    );
+  });
+
+  it('archives helper without compacting parent when signal aborts during summary', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const controller = new AbortController();
+    const send = vi.fn().mockImplementation(() => {
+      controller.abort();
+      return { conversationId: 'ignored', status: 'success', response: 'stale summary' };
+    });
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+      signal: controller.signal,
+    } as ToolContext);
+
+    expect(result.status).toBe('error');
+    expect((await conversationStore.load(parent.id))?.messages['m1'].status).toBe('active');
+    expect((await conversationStore.load(send.mock.calls[0][0].conversationId))?.status).toBe(
+      'archived',
+    );
+  });
+
+  it('includes provider-visible tool calls and results but not reasoning in transcript', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const withToolTurn = {
+      ...parent,
+      messages: {
+        ...parent.messages,
+        m2: {
+          ...parent.messages['m2'],
+          reasoning: 'private chain of thought',
+          toolCalls: [{ id: 'call-1', name: 'lookup', arguments: { query: 'weather' } }],
+          toolResults: [
+            { id: 'call-1', name: 'lookup', result: { status: 'success', data: { temp: 72 } } },
+          ],
+        },
+      },
+    };
+    await conversationStore.replaceForTesting(withToolTurn);
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'compressed context',
+    });
+
+    await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    const prompt = send.mock.calls[0][0].message;
+    expect(prompt).toContain('assistant: second');
+    expect(prompt).toContain('tool_call lookup: {"query":"weather"}');
+    expect(prompt).toContain('tool_result lookup: {"status":"success","data":{"temp":72}}');
+    expect(prompt).not.toContain('private chain of thought');
   });
 });

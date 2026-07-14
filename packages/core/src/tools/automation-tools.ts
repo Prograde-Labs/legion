@@ -105,6 +105,9 @@ export function createCompactConversationTool(): Tool {
           await context.conversationStore.mutate(
             parent.id,
             (current) => {
+              if (!isActivePrefix(current, input.messageIds)) {
+                throw new Error('Messages are no longer oldest contiguous active chain prefix');
+              }
               const compacted = compactRange(current, input.messageIds, summary.response!);
               summaryMessageId = Object.keys(compacted.messages).find(
                 (id) =>
@@ -124,7 +127,7 @@ export function createCompactConversationTool(): Tool {
                 },
               };
             },
-            { expectedActiveBranchHead: observedHead },
+            { expectedActiveBranchHead: observedHead, signal: context.signal },
           );
           return { status: 'success', data: { summaryMessageId } };
         } finally {
@@ -164,11 +167,17 @@ function isActivePrefix(conversation: ConversationData, messageIds: string[]): b
 function transcript(conversation: ConversationData, messageIds: string[]): string {
   return messageIds
     .map((id) => conversation.messages[id])
-    .map((message) =>
-      message.type === 'summary'
-        ? `[summary of earlier messages]: ${message.content}`
-        : `${message.role}: ${message.content}`,
-    )
+    .flatMap((message) => {
+      if (message.type === 'summary') return `[summary of earlier messages]: ${message.content}`;
+      const lines = [`${message.role}: ${message.content}`];
+      for (const call of message.toolCalls ?? []) {
+        lines.push(`tool_call ${call.name}: ${JSON.stringify(call.arguments)}`);
+      }
+      for (const result of message.toolResults ?? []) {
+        lines.push(`tool_result ${result.name}: ${JSON.stringify(result.result)}`);
+      }
+      return lines;
+    })
     .join('\n');
 }
 
