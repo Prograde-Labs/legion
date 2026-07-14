@@ -1,4 +1,5 @@
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, readdir, realpath, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 
@@ -22,6 +23,12 @@ export interface SkillDiagnostic {
 interface ParsedSkill {
   record: SkillRecord;
   instructions: string;
+}
+
+interface SkillDiscovery {
+  files: string[];
+  diagnostics: SkillDiagnostic[];
+  boundary?: string;
 }
 
 const SUPPORTED_KEYS = new Set(['name', 'description']);
@@ -49,8 +56,9 @@ export class SkillRegistry {
     for (const source of roots) {
       const discovery = await findSkillFiles(source.root, source.ownerRoot);
       diagnostics.push(...discovery.diagnostics);
+      if (!discovery.boundary) continue;
       for (const location of discovery.files) {
-        const parsed = await parseSkill(location, source.scope);
+        const parsed = await parseSkill(location, source.scope, discovery.boundary);
         diagnostics.push(...parsed.diagnostics);
         if (parsed.skill) effective.set(parsed.skill.record.name, parsed.skill);
       }
@@ -78,24 +86,21 @@ export class SkillRegistry {
   }
 }
 
-async function findSkillFiles(
-  root: string,
-  ownerRoot: string,
-): Promise<{ files: string[]; diagnostics: SkillDiagnostic[] }> {
+async function findSkillFiles(root: string, ownerRoot: string): Promise<SkillDiscovery> {
   const found: string[] = [];
   const diagnostics: SkillDiagnostic[] = [];
-  let boundary: string;
-  try {
-    boundary = resolve(await realpath(ownerRoot), '.agents', 'skills');
-  } catch (error) {
-    return { files: found, diagnostics: [readError(root, error)] };
-  }
-
   let canonicalRoot: string;
   try {
     canonicalRoot = await realpath(root);
   } catch (error) {
     if (isMissing(error)) return { files: found, diagnostics };
+    return { files: found, diagnostics: [readError(root, error)] };
+  }
+
+  let boundary: string;
+  try {
+    boundary = resolve(await realpath(ownerRoot), '.agents', 'skills');
+  } catch (error) {
     return { files: found, diagnostics: [readError(root, error)] };
   }
 
@@ -146,22 +151,17 @@ async function findSkillFiles(
   }
 
   await walk(canonicalRoot);
-  return { files: found, diagnostics };
+  return { files: found, diagnostics, boundary };
 }
 
 async function parseSkill(
   location: string,
   scope: SkillScope,
+  boundary: string,
 ): Promise<{ skill?: ParsedSkill; diagnostics: SkillDiagnostic[] }> {
   let source: string;
   try {
-    const fileStats = await stat(location);
-    if (fileStats.size > MAX_SKILL_FILE_BYTES) {
-      return {
-        diagnostics: [readError(location, `Skill file exceeds ${MAX_SKILL_FILE_BYTES} byte limit`)],
-      };
-    }
-    source = await readFile(location, 'utf8');
+    source = await readSkillFile(location, boundary);
   } catch (error) {
     return {
       diagnostics: [readError(location, error)],
@@ -221,6 +221,30 @@ async function parseSkill(
       instructions,
     },
   };
+}
+
+async function readSkillFile(location: string, boundary: string): Promise<string> {
+  const file = await open(location, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const fileStats = await file.stat();
+    const target = await realpath(location);
+    if (!isContained(boundary, target)) throw new Error('Skill file escapes its allowed boundary');
+
+    const targetStats = await stat(target);
+    if (fileStats.dev !== targetStats.dev || fileStats.ino !== targetStats.ino) {
+      throw new Error('Skill file changed during discovery');
+    }
+    if (!fileStats.isFile()) throw new Error('Skill path is not a regular file');
+
+    const buffer = Buffer.allocUnsafe(MAX_SKILL_FILE_BYTES + 1);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > MAX_SKILL_FILE_BYTES) {
+      throw new Error(`Skill file exceeds ${MAX_SKILL_FILE_BYTES} byte limit`);
+    }
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await file.close();
+  }
 }
 
 function invalid(location: string, message: string): { diagnostics: SkillDiagnostic[] } {

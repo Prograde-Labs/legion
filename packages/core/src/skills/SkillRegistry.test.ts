@@ -178,6 +178,20 @@ describe('SkillRegistry', () => {
     );
   });
 
+  it('silently ignores missing configured roots when their owners are absent', async () => {
+    const missingWorkspace = await mkdtemp(join(tmpdir(), 'legion-missing-workspace-'));
+    const missingHome = await mkdtemp(join(tmpdir(), 'legion-missing-home-'));
+    await Promise.all([
+      rm(missingWorkspace, { recursive: true, force: true }),
+      rm(missingHome, { recursive: true, force: true }),
+    ]);
+
+    const registry = await SkillRegistry.discover(missingWorkspace, missingHome);
+
+    expect(registry.list()).toEqual([]);
+    expect(registry.diagnostics()).toEqual([]);
+  });
+
   it('skips skill roots and files that symlink outside their boundary', async () => {
     const outsideRoot = await mkdtemp(join(tmpdir(), 'legion-skills-outside-'));
     try {
