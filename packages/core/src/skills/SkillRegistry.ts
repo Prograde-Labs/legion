@@ -54,7 +54,7 @@ export class SkillRegistry {
   list(): SkillRecord[] {
     return [...this.effective.values()]
       .map(({ record }) => record)
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   get(name: string): SkillRecord | undefined {

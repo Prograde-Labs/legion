@@ -98,4 +98,21 @@ describe('SkillRegistry', () => {
       expect.objectContaining({ code: 'unsupported_frontmatter', severity: 'warning' }),
     );
   });
+
+  it('lists skills in locale-independent lexical order', async () => {
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'lowercase',
+      '---\nname: alpha\ndescription: Lowercase name\n---\nInstructions',
+    );
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'uppercase',
+      '---\nname: Beta\ndescription: Uppercase name\n---\nInstructions',
+    );
+
+    const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+    expect(registry.list().map(({ name }) => name)).toEqual(['Beta', 'alpha']);
+  });
 });
