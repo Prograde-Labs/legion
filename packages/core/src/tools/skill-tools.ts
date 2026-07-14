@@ -7,6 +7,9 @@ import { SkillRegistry } from '../skills/SkillRegistry.js';
 import type { Tool } from './Tool.js';
 
 const MAX_RESOURCES = 1000;
+const MAX_RESOURCE_DIRECTORIES = 128;
+const MAX_RESOURCE_ENTRIES = 1000;
+const MAX_RESOURCE_DEPTH = 32;
 
 export interface SkillTools {
   listSkills: Tool;
@@ -22,7 +25,17 @@ export function createSkillTools(registry: SkillRegistry): SkillTools {
       async execute(): Promise<ToolResult> {
         return {
           status: 'success',
-          data: structuredClone({ skills: registry.list(), diagnostics: registry.diagnostics() }),
+          data: {
+            skills: registry
+              .list()
+              .map(({ name, description, scope }) => ({ name, description, scope })),
+            diagnostics: registry.diagnostics().map(({ severity, code, message }) => ({
+              severity,
+              code,
+              message,
+              location: '<redacted>',
+            })),
+          },
         };
       },
     },
@@ -145,10 +158,20 @@ async function listResources(skill: SkillRecord): Promise<string[]> {
   const resources: string[] = [];
   const resourcePaths = new Set<string>();
   const visited = new Set<string>();
+  let directories = 0;
+  let entryCount = 0;
 
-  async function walk(directory: string): Promise<void> {
-    if (resources.length >= MAX_RESOURCES || visited.has(directory)) return;
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (
+      resources.length >= MAX_RESOURCES ||
+      directories >= MAX_RESOURCE_DIRECTORIES ||
+      depth > MAX_RESOURCE_DEPTH ||
+      visited.has(directory)
+    ) {
+      return;
+    }
     visited.add(directory);
+    directories++;
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -156,7 +179,8 @@ async function listResources(skill: SkillRecord): Promise<string[]> {
       return;
     }
     for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-      if (resources.length >= MAX_RESOURCES) return;
+      if (resources.length >= MAX_RESOURCES || entryCount >= MAX_RESOURCE_ENTRIES) return;
+      entryCount++;
       const path = join(directory, entry.name);
       let target: string;
       try {
@@ -167,7 +191,7 @@ async function listResources(skill: SkillRecord): Promise<string[]> {
       if (!contained(boundary, target)) continue;
       try {
         const details = await stat(target);
-        if (details.isDirectory()) await walk(target);
+        if (details.isDirectory()) await walk(target, depth + 1);
         else if (details.isFile() && entry.name !== 'SKILL.md' && (await regularFile(target))) {
           const resource = relative(boundary, target).split(sep).join('/');
           if (!resourcePaths.has(resource)) {
@@ -181,7 +205,7 @@ async function listResources(skill: SkillRecord): Promise<string[]> {
     }
   }
 
-  await walk(boundary);
+  await walk(boundary, 0);
   return resources;
 }
 

@@ -75,15 +75,32 @@ describe('createSkillTools', () => {
     };
   }
 
-  it('lists effective skills with registry diagnostics', async () => {
+  it('lists public skill metadata and redacts diagnostic locations', async () => {
     await addSkill('review');
+    const invalidDirectory = join(workspaceRoot, '.agents', 'skills', 'invalid');
+    await mkdir(invalidDirectory);
+    await writeFile(join(invalidDirectory, 'SKILL.md'), 'not a skill');
     const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
     const { listSkills } = createSkillTools(registry);
 
-    await expect(listSkills.execute({}, {} as never)).resolves.toEqual({
+    const result = await listSkills.execute({}, {} as never);
+
+    expect(result).toEqual({
       status: 'success',
-      data: { skills: registry.list(), diagnostics: registry.diagnostics() },
+      data: {
+        skills: [{ name: 'review', description: 'review description', scope: 'project' }],
+        diagnostics: [
+          expect.objectContaining({
+            severity: 'error',
+            code: 'invalid_frontmatter',
+            location: '<redacted>',
+          }),
+        ],
+      },
     });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(workspaceRoot);
+    expect(serialized).not.toContain(homeRoot);
   });
 
   it('loads deduplicated selected skills, resources, and first matching activations', async () => {
@@ -170,6 +187,44 @@ describe('createSkillTools', () => {
       status: 'error',
       error: 'Skills are not enabled for participant agent: review',
     });
+  });
+
+  it('bounds resource traversal depth and entries', async () => {
+    const reviewDirectory = await addSkill('review');
+    let nested = reviewDirectory;
+    for (let index = 0; index < 40; index++) {
+      nested = join(nested, `000-nested-${index}`);
+      await mkdir(nested);
+    }
+    await writeFile(join(nested, 'deep.txt'), 'too deep');
+    const deepResource = `${nested.slice(reviewDirectory.length + 1)}/deep.txt`;
+    for (let index = 0; index < 1100; index++) {
+      await mkdir(join(reviewDirectory, `entry-${String(index).padStart(4, '0')}`));
+    }
+    await writeFile(join(reviewDirectory, 'z-last.txt'), 'too late');
+    const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+    const { loadSkills } = createSkillTools(registry);
+
+    const result = await loadSkills.execute({ names: ['review'] }, {
+      participant: participant([
+        { id: 'skills', type: 'builtin:skills', config: { skills: ['review'] } },
+      ]),
+      conversationId: 'conversation',
+      conversationStore: store(conversation()),
+    } as never);
+
+    expect(result).toEqual({
+      status: 'success',
+      data: {
+        skills: [
+          expect.objectContaining({
+            resources: expect.not.arrayContaining([deepResource]),
+          }),
+        ],
+        activations: [{ name: 'review', instanceId: 'skills' }],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('z-last.txt');
   });
 
   it('validates names and requires conversation persistence', async () => {
