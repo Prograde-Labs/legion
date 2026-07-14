@@ -1,7 +1,11 @@
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { SkillRegistry } from './SkillRegistry.js';
+
+const execFileAsync = promisify(execFile);
 
 describe('SkillRegistry', () => {
   let workspaceRoot: string;
@@ -253,4 +257,25 @@ describe('SkillRegistry', () => {
       }),
     );
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'rejects FIFO skill files without blocking discovery',
+    async () => {
+      const fifo = join(workspaceRoot, '.agents', 'skills', 'fifo', 'SKILL.md');
+      await mkdir(join(workspaceRoot, '.agents', 'skills', 'fifo'), { recursive: true });
+      await execFileAsync('mkfifo', [fifo]);
+      await skill(
+        join(workspaceRoot, '.agents', 'skills'),
+        'valid',
+        '---\nname: review\ndescription: Review code\n---\nInstructions',
+      );
+
+      const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+      expect(registry.get('review')?.description).toBe('Review code');
+      expect(registry.diagnostics()).toContainEqual(
+        expect.objectContaining({ code: 'read_error', location: fifo }),
+      );
+    },
+  );
 });

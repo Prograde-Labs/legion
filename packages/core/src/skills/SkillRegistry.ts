@@ -143,7 +143,7 @@ async function findSkillFiles(root: string, ownerRoot: string): Promise<SkillDis
       try {
         const targetStats = await stat(target);
         if (targetStats.isDirectory()) await walk(target);
-        else if (targetStats.isFile() && entry.name === 'SKILL.md') found.push(target);
+        else if (entry.name === 'SKILL.md') found.push(target);
       } catch (error) {
         if (!isMissing(error)) diagnostics.push(readError(path, error));
       }
@@ -224,7 +224,10 @@ async function parseSkill(
 }
 
 async function readSkillFile(location: string, boundary: string): Promise<string> {
-  const file = await open(location, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = await open(
+    location,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
     const fileStats = await file.stat();
     const target = await realpath(location);
