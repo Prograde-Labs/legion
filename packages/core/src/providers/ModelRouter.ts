@@ -1,4 +1,4 @@
-import type { RoutingConfig } from '@legion/types';
+import type { ProviderModel, RoutingConfig } from '@legion/types';
 import type { Provider } from './Provider.js';
 import type { SystemProviderStore } from './SystemProviderStore.js';
 
@@ -28,6 +28,16 @@ export class ModelRouter {
     }
 
     return this.autoResolve(modelId);
+  }
+
+  async getModelMetadata(modelId: string): Promise<ProviderModel | undefined> {
+    const resolved = await this.resolveWithId(modelId);
+    if (!resolved?.provider.listModels) return undefined;
+    try {
+      return (await resolved.provider.listModels()).find((model) => model.id === modelId);
+    } catch {
+      return undefined;
+    }
   }
 
   private async resolveFromList(
