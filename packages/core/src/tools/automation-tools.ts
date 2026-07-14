@@ -76,20 +76,24 @@ export function createCompactConversationTool(): Tool {
         const selectedMessages = structuredClone(
           input.messageIds.map((messageId) => parent.messages[messageId]),
         );
-        const helper = await context.conversationStore.create({
-          schemaVersion: '2.0',
-          activeBranchHead: '',
-          messages: {},
-          tags: ['compaction'],
-          origin: {
-            kind: 'middleware',
-            participantId: context.participant.id,
-            middlewareInstanceId: instance.id,
-            parentConversationId: parent.id,
-            parentMessageId: input.parentMessageId,
+        const helper = await context.conversationStore.create(
+          {
+            schemaVersion: '2.0',
+            activeBranchHead: '',
+            messages: {},
+            tags: ['compaction'],
+            origin: {
+              kind: 'middleware',
+              participantId: context.participant.id,
+              middlewareInstanceId: instance.id,
+              parentConversationId: parent.id,
+              parentMessageId: input.parentMessageId,
+            },
           },
-        });
+          { signal: context.signal },
+        );
 
+        let archiveHelper = false;
         try {
           const summary = await context.messageRouter.send({
             senderId: context.participant.id,
@@ -99,9 +103,26 @@ export function createCompactConversationTool(): Tool {
             replyTo: undefined,
             context,
           });
+          if (summary.status === 'pending_approval') {
+            return {
+              status: 'pending_approval',
+              approvalId: summary.approvalId,
+              data: {
+                conversationId: helper.id,
+                checkpointId: summary.checkpointId,
+                pendingParticipantId: summary.pendingParticipantId,
+                approvalRequests: summary.approvalRequests,
+              },
+            };
+          }
           if (summary.status === 'error') {
+            archiveHelper = true;
             return { status: 'error', error: summary.error ?? 'Summary failed' };
           }
+          if (summary.status !== 'success') {
+            return { status: 'error', error: 'Summary agent did not complete' };
+          }
+          archiveHelper = true;
           if (!summary.response)
             return { status: 'error', error: 'Summary agent returned no response' };
 
@@ -139,11 +160,16 @@ export function createCompactConversationTool(): Tool {
             { expectedActiveBranchHead: observedHead, signal: context.signal },
           );
           return { status: 'success', data: { summaryMessageId } };
+        } catch (err) {
+          archiveHelper = true;
+          throw err;
         } finally {
-          await context.conversationStore.mutate(helper.id, (current) => ({
-            ...current,
-            status: 'archived',
-          }));
+          if (archiveHelper) {
+            await context.conversationStore.mutate(helper.id, (current) => ({
+              ...current,
+              status: 'archived',
+            }));
+          }
         }
       } catch (err) {
         return { status: 'error', error: err instanceof Error ? err.message : String(err) };

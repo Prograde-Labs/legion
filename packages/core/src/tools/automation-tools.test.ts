@@ -131,6 +131,70 @@ describe('compact_conversation automation tool', () => {
     );
   });
 
+  it('keeps helper active and propagates pending summary approval without compacting parent', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const approvalRequests = [{ approvalId: 'appr-summary', tool: 'lookup' }];
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'pending_approval',
+      approvalId: 'appr-summary',
+      checkpointId: 'checkpoint-summary',
+      pendingParticipantId: 'summarizer',
+      approvalRequests,
+    });
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    const helperId = send.mock.calls[0][0].conversationId;
+    expect(result).toEqual({
+      status: 'pending_approval',
+      approvalId: 'appr-summary',
+      data: {
+        conversationId: helperId,
+        checkpointId: 'checkpoint-summary',
+        pendingParticipantId: 'summarizer',
+        approvalRequests,
+      },
+    });
+    expect((await conversationStore.load(helperId))?.status).toBeUndefined();
+    expect((await conversationStore.load(parent.id))?.messages['m1'].status).toBe('active');
+  });
+
+  it('archives helper when summary router throws a terminal error', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockRejectedValue(new Error('router failed'));
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    expect(result).toEqual({ status: 'error', error: 'router failed' });
+    expect((await conversationStore.load(send.mock.calls[0][0].conversationId))?.status).toBe(
+      'archived',
+    );
+  });
+
+  it('does not create helper when operation signal is already aborted', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const controller = new AbortController();
+    controller.abort();
+    const send = vi.fn();
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+      signal: controller.signal,
+    } as ToolContext);
+
+    expect(result.status).toBe('error');
+    expect(send).not.toHaveBeenCalled();
+    expect(await conversationStore.list({ status: 'all' })).toHaveLength(1);
+  });
+
   it('rejects noncontiguous active prefix before creating helper or sending', async () => {
     const { context, parent } = await setup();
     const send = vi.fn();
