@@ -103,9 +103,41 @@ describe('createSkillTools', () => {
     expect(serialized).not.toContain(homeRoot);
   });
 
+  it('redacts absolute paths from diagnostic messages', async () => {
+    const registry = {
+      list: () => [],
+      diagnostics: () => [
+        {
+          severity: 'error',
+          code: 'read_error',
+          location: workspaceRoot,
+          message: `Failed to read ${workspaceRoot} private/secret/SKILL.md`,
+        },
+      ],
+    } as unknown as SkillRegistry;
+    const { listSkills } = createSkillTools(registry);
+
+    const result = await listSkills.execute({}, {} as never);
+
+    expect(result).toEqual({
+      status: 'success',
+      data: {
+        skills: [],
+        diagnostics: [
+          {
+            severity: 'error',
+            code: 'read_error',
+            location: '<redacted>',
+            message: 'Failed to read <redacted>',
+          },
+        ],
+      },
+    });
+  });
+
   it('loads deduplicated selected skills, resources, and first matching activations', async () => {
     const reviewDirectory = await addSkill('review');
-    await addSkill('deploy');
+    const deployDirectory = await addSkill('deploy');
     await mkdir(join(reviewDirectory, 'references'));
     await writeFile(join(reviewDirectory, 'README.md'), 'readme');
     await writeFile(join(reviewDirectory, 'references', 'guide.md'), 'guide');
@@ -136,16 +168,18 @@ describe('createSkillTools', () => {
         status: 'success',
         data: {
           skills: [
-            expect.objectContaining({
+            {
               name: 'review',
+              baseDirectory: reviewDirectory,
               instructions: 'Follow instructions.',
               resources: ['README.md', 'references/guide.md'],
-            }),
-            expect.objectContaining({
+            },
+            {
               name: 'deploy',
+              baseDirectory: deployDirectory,
               instructions: 'Follow instructions.',
               resources: [],
-            }),
+            },
           ],
           activations: [
             { name: 'review', instanceId: 'first' },

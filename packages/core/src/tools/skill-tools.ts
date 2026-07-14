@@ -1,5 +1,5 @@
-import { constants } from 'node:fs';
-import { open, readdir, realpath, stat } from 'node:fs/promises';
+import { constants, type Dir, type Dirent } from 'node:fs';
+import { open, opendir, realpath, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import type { JSONValue, ToolResult } from '@legion/types';
 import type { SkillRecord } from '../skills/SkillRegistry.js';
@@ -10,6 +10,7 @@ const MAX_RESOURCES = 1000;
 const MAX_RESOURCE_DIRECTORIES = 128;
 const MAX_RESOURCE_ENTRIES = 1000;
 const MAX_RESOURCE_DEPTH = 32;
+const MAX_RESOURCE_ENTRIES_PER_DIRECTORY = 256;
 
 export interface SkillTools {
   listSkills: Tool;
@@ -32,7 +33,7 @@ export function createSkillTools(registry: SkillRegistry): SkillTools {
             diagnostics: registry.diagnostics().map(({ severity, code, message }) => ({
               severity,
               code,
-              message,
+              message: redactAbsolutePaths(message),
               location: '<redacted>',
             })),
           },
@@ -83,7 +84,12 @@ export function createSkillTools(registry: SkillRegistry): SkillTools {
             const record = registry.get(name);
             const instructions = await registry.readInstructions(name);
             if (!record || instructions === undefined) return undefined;
-            return { ...record, instructions, resources: await listResources(record) };
+            return {
+              name: record.name,
+              baseDirectory: record.baseDirectory,
+              instructions,
+              resources: await listResources(record),
+            };
           }),
         );
         const missing = names.filter((_, index) => skills[index] === undefined);
@@ -172,13 +178,9 @@ async function listResources(skill: SkillRecord): Promise<string[]> {
     }
     visited.add(directory);
     directories++;
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    const entries = await readDirectoryEntries(directory);
+    if (!entries) return;
+    for (const entry of entries) {
       if (resources.length >= MAX_RESOURCES || entryCount >= MAX_RESOURCE_ENTRIES) return;
       entryCount++;
       const path = join(directory, entry.name);
@@ -207,6 +209,31 @@ async function listResources(skill: SkillRecord): Promise<string[]> {
 
   await walk(boundary, 0);
   return resources;
+}
+
+async function readDirectoryEntries(directory: string) {
+  let handle: Dir | undefined;
+  try {
+    handle = await opendir(directory);
+    const entries: Dirent[] = [];
+    while (entries.length <= MAX_RESOURCE_ENTRIES_PER_DIRECTORY) {
+      const entry = await handle.read();
+      if (!entry) {
+        return entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      }
+      entries.push(entry);
+    }
+    // Skipping oversized directories keeps the bounded streaming read deterministic.
+    return undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (handle) await handle.close().catch(() => undefined);
+  }
+}
+
+function redactAbsolutePaths(message: string): string {
+  return message.replace(/(?:[A-Za-z]:[\\/]|\/(?=\S))[^\r\n]*/g, '<redacted>');
 }
 
 async function regularFile(path: string): Promise<boolean> {
