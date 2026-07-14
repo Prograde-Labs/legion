@@ -77,6 +77,15 @@ describe('auto compaction selection', () => {
     expect(selectCompactionPrefix(chain, 15, 20).map((entry) => entry.id)).toEqual(['m1']);
   });
 
+  it('always retains final message when requested retention is zero', () => {
+    const chain = [
+      message('m1', 'a'.repeat(40)),
+      message('m2', 'b'.repeat(40), 'assistant'),
+      message('m3', 'c'.repeat(40)),
+    ];
+    expect(selectCompactionPrefix(chain, 0, 0).map((entry) => entry.id)).toEqual(['m1', 'm2']);
+  });
+
   it('uses model percentage and falls back to absolute threshold', async () => {
     const middleware = definition(conversation(), 100);
     const base = {
@@ -150,6 +159,37 @@ describe('auto compaction selection', () => {
         getState: () => ({ summaryMessageId: 'old-branch' }),
       } as never),
     ).resolves.toEqual(expect.objectContaining({ kind: 'tool' }));
+  });
+
+  it('skips compaction after same instance successfully compacts conversation', async () => {
+    const middleware = definition(conversation(), 20);
+    await expect(
+      middleware.hooks.afterReceive!({
+        participant: { id: 'agent', type: 'agent', model: { model: 'm' }, systemPrompt: '' },
+        instance: { id: 'compact-1' },
+        config: {
+          triggerPercentage: 10,
+          targetPercentage: 5,
+          fallbackTokenThreshold: 10,
+          summarizerParticipantId: 'summary',
+          minimumRecentTokens: 1,
+          excludedTags: [],
+        },
+        conversationId: 'c',
+        activeChain: [message('m1', 'x'.repeat(40)), message('m2', 'y'.repeat(40))],
+        actions: [
+          {
+            requestId: 'compact:c:m1',
+            participantId: 'agent',
+            instanceId: 'compact-1',
+            tool: 'compact_conversation',
+            status: 'success',
+            result: { status: 'success' },
+          },
+        ],
+        getState: () => undefined,
+      } as never),
+    ).resolves.toEqual({ kind: 'continue' });
   });
 
   it('skips non-agent participants before model metadata lookup', async () => {

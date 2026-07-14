@@ -52,7 +52,8 @@ export function selectCompactionPrefix(
   const perMessage = chain.map((message) => estimateProviderContextTokens('', [message]));
   let retained = 0;
   let boundary = chain.length;
-  while (boundary > 0 && retained < retainTokens) retained += perMessage[--boundary];
+  const minimumRetained = Math.max(retainTokens, perMessage.at(-1) ?? 0);
+  while (boundary > 0 && retained < minimumRetained) retained += perMessage[--boundary];
   let total = perMessage.reduce((sum, count) => sum + count, 0);
   let end = 0;
   while (end < boundary && total > targetTokens) total -= perMessage[end++];
@@ -91,6 +92,16 @@ export function createAutoCompactionMiddleware(dependencies: {
     hooks: {
       async afterReceive(context) {
         if (context.participant.type !== 'agent') return { kind: 'continue' };
+        if (
+          context.actions.some(
+            (action) =>
+              action.instanceId === context.instance.id &&
+              action.tool === 'compact_conversation' &&
+              action.status === 'success',
+          )
+        ) {
+          return { kind: 'continue' };
+        }
         const conversation = await dependencies.conversationStore.load(context.conversationId);
         if (!conversation) throw new Error(`Conversation not found: ${context.conversationId}`);
         const tags = new Set(conversation.tags ?? []);
