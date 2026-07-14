@@ -6,12 +6,37 @@ import type { Tool } from './Tool.js';
 
 const SUMMARY_INSTRUCTION =
   'Summarize this conversation segment concisely. Preserve key facts, decisions, and current work so conversation can continue without original messages.';
+const TITLE_INSTRUCTION =
+  'Generate exactly one concise title for this conversation. Return only title text, with no quotation marks or explanation.';
 
 interface CompactConversationArgs {
   conversationId: string;
   messageIds: string[];
   middlewareInstanceId: string;
   parentMessageId: string;
+}
+
+interface GenerateConversationTitleArgs {
+  conversationId: string;
+  namingParticipantId: string;
+  middlewareInstanceId: string;
+  parentMessageId: string;
+  scope: 'participant' | 'shared';
+  attachedParticipantId: string;
+  maximumLength: number;
+  guidance: string;
+}
+
+export interface AutomationTools {
+  compactConversation: Tool;
+  generateConversationTitle: Tool;
+}
+
+export function createAutomationTools(): AutomationTools {
+  return {
+    compactConversation: createCompactConversationTool(),
+    generateConversationTitle: createGenerateConversationTitleTool(),
+  };
 }
 
 export function createCompactConversationTool(): Tool {
@@ -210,6 +235,133 @@ export function createCompactConversationTool(): Tool {
   };
 }
 
+export function createGenerateConversationTitleTool(): Tool {
+  return {
+    name: 'generate_conversation_title',
+    description:
+      'Generate and atomically assign a conversation title through a helper conversation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string' },
+        namingParticipantId: { type: 'string' },
+        middlewareInstanceId: { type: 'string' },
+        parentMessageId: { type: 'string' },
+        scope: { type: 'string', enum: ['participant', 'shared'] },
+        attachedParticipantId: { type: 'string' },
+        maximumLength: { type: 'integer', minimum: 1 },
+        guidance: { type: 'string' },
+      },
+      required: [
+        'conversationId',
+        'namingParticipantId',
+        'middlewareInstanceId',
+        'parentMessageId',
+        'scope',
+        'attachedParticipantId',
+        'maximumLength',
+        'guidance',
+      ],
+      additionalProperties: false,
+    } as JSONSchema,
+    async execute(args, context): Promise<ToolResult> {
+      try {
+        const input = validateTitleArgs(args);
+        if (!input)
+          return { status: 'error', error: 'Invalid generate_conversation_title arguments' };
+        if (!context.conversationStore) {
+          return { status: 'error', error: 'conversationStore unavailable in context' };
+        }
+        if (!context.messageRouter) {
+          return { status: 'error', error: 'messageRouter unavailable in context' };
+        }
+
+        const parent = await context.conversationStore.load(input.conversationId);
+        if (!parent) {
+          return { status: 'error', error: `Conversation not found: ${input.conversationId}` };
+        }
+        const existingTitle = titleFor(parent, input);
+        if (existingTitle !== undefined) {
+          return { status: 'success', data: { title: existingTitle, written: false } };
+        }
+
+        const helper = await context.conversationStore.create(
+          {
+            schemaVersion: '2.0',
+            activeBranchHead: '',
+            messages: {},
+            tags: ['conversation-title'],
+            origin: {
+              kind: 'middleware',
+              participantId: context.participant.id,
+              middlewareInstanceId: input.middlewareInstanceId,
+              parentConversationId: parent.id,
+              parentMessageId: input.parentMessageId,
+            },
+          },
+          { signal: context.signal },
+        );
+
+        try {
+          const titleResponse = await context.messageRouter.send({
+            senderId: context.participant.id,
+            recipientId: input.namingParticipantId,
+            conversationId: helper.id,
+            message: `${TITLE_INSTRUCTION}\nMaximum length: ${input.maximumLength}.\nGuidance: ${input.guidance}\n\n${transcript(
+              parent,
+              getActiveChain(parent).map((message) => message.id),
+            )}`,
+            replyTo: undefined,
+            context,
+          });
+          if (titleResponse.status === 'error') {
+            return { status: 'error', error: titleResponse.error ?? 'Title generation failed' };
+          }
+          if (titleResponse.status !== 'success' || !titleResponse.response) {
+            return { status: 'error', error: 'Title agent returned no response' };
+          }
+
+          const title = titleResponse.response.trim();
+          if (title.length === 0 || /[\r\n]/.test(title)) {
+            return { status: 'error', error: 'Generated title must be a single nonempty line' };
+          }
+          if (title.length > input.maximumLength) {
+            return {
+              status: 'error',
+              error: `Generated title exceeds maximum length of ${input.maximumLength}`,
+            };
+          }
+
+          const mutation = await context.conversationStore.mutate(
+            parent.id,
+            (current) => {
+              if (titleFor(current, input) !== undefined) return current;
+              if (input.scope === 'shared') return { ...current, title };
+              return {
+                ...current,
+                titles: { ...current.titles, [input.attachedParticipantId]: title },
+              };
+            },
+            { signal: context.signal },
+          );
+          const effectiveTitle = titleFor(mutation.after, input)!;
+          return {
+            status: 'success',
+            data: { title: effectiveTitle, written: mutation.changed },
+          };
+        } finally {
+          await context.conversationStore.mutate(helper.id, (current) => ({
+            ...current,
+            status: 'archived',
+          }));
+        }
+      } catch (err) {
+        return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+}
+
 function validateArgs(args: unknown): CompactConversationArgs | undefined {
   if (typeof args !== 'object' || args === null) return undefined;
   const input = args as Partial<CompactConversationArgs>;
@@ -224,6 +376,35 @@ function validateArgs(args: unknown): CompactConversationArgs | undefined {
     return undefined;
   }
   return input as CompactConversationArgs;
+}
+
+function validateTitleArgs(args: unknown): GenerateConversationTitleArgs | undefined {
+  if (typeof args !== 'object' || args === null) return undefined;
+  const input = args as Partial<GenerateConversationTitleArgs>;
+  if (
+    typeof input.conversationId !== 'string' ||
+    typeof input.namingParticipantId !== 'string' ||
+    typeof input.middlewareInstanceId !== 'string' ||
+    typeof input.parentMessageId !== 'string' ||
+    (input.scope !== 'participant' && input.scope !== 'shared') ||
+    typeof input.attachedParticipantId !== 'string' ||
+    typeof input.maximumLength !== 'number' ||
+    !Number.isInteger(input.maximumLength) ||
+    input.maximumLength <= 0 ||
+    typeof input.guidance !== 'string'
+  ) {
+    return undefined;
+  }
+  return input as GenerateConversationTitleArgs;
+}
+
+function titleFor(
+  conversation: ConversationData,
+  input: Pick<GenerateConversationTitleArgs, 'scope' | 'attachedParticipantId'>,
+): string | undefined {
+  return input.scope === 'shared'
+    ? conversation.title
+    : conversation.titles?.[input.attachedParticipantId];
 }
 
 function isActivePrefix(conversation: ConversationData, messageIds: string[]): boolean {

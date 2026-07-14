@@ -5,7 +5,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import type { MiddlewareCheckpoint } from '@legion/types';
 import type { ToolContext } from './Tool.js';
-import { createCompactConversationTool } from './automation-tools.js';
+import { createAutomationTools, createCompactConversationTool } from './automation-tools.js';
 
 async function setup() {
   const storage = new MemoryStorage();
@@ -422,5 +422,179 @@ describe('compact_conversation automation tool', () => {
       'tool_result id=call-2 name=lookup result={"status":"success","data":{"eta":12}}',
     );
     expect(prompt).not.toContain('private chain of thought');
+  });
+});
+
+const titleArgs = (
+  conversationId: string,
+  overrides: Partial<{
+    namingParticipantId: string;
+    middlewareInstanceId: string;
+    parentMessageId: string;
+    scope: 'participant' | 'shared';
+    attachedParticipantId: string;
+    maximumLength: number;
+    guidance: string;
+  }> = {},
+) => ({
+  conversationId,
+  namingParticipantId: 'namer',
+  middlewareInstanceId: 'conversation-title',
+  parentMessageId: 'm3',
+  scope: 'shared' as const,
+  attachedParticipantId: 'agent',
+  maximumLength: 80,
+  guidance: 'Use concise task-oriented titles.',
+  ...overrides,
+});
+
+describe('generate_conversation_title automation tool', () => {
+  it('assembles automation tools and archives title helper after writing shared title', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: '  Project status  ',
+    });
+    const tools = createAutomationTools();
+
+    const result = await tools.generateConversationTitle.execute(titleArgs(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    expect(tools.compactConversation.name).toBe('compact_conversation');
+    expect(tools.generateConversationTitle.name).toBe('generate_conversation_title');
+    expect(result).toEqual({ status: 'success', data: { title: 'Project status', written: true } });
+    const helperId = send.mock.calls[0][0].conversationId;
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: 'agent',
+        recipientId: 'namer',
+        conversationId: helperId,
+        message: expect.stringContaining('user: first'),
+      }),
+    );
+    expect(await conversationStore.load(helperId)).toEqual(
+      expect.objectContaining({
+        status: 'archived',
+        tags: ['conversation-title'],
+        origin: {
+          kind: 'middleware',
+          participantId: 'agent',
+          middlewareInstanceId: 'conversation-title',
+          parentConversationId: parent.id,
+          parentMessageId: 'm3',
+        },
+      }),
+    );
+    expect((await conversationStore.load(parent.id))?.title).toBe('Project status');
+  });
+
+  it('does not change parent and archives helper for invalid title response', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'invalid\ntitle',
+    });
+
+    const result = await createAutomationTools().generateConversationTitle.execute(
+      titleArgs(parent.id),
+      {
+        ...context,
+        messageRouter: { send },
+      } as ToolContext,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'Generated title must be a single nonempty line',
+    });
+    expect((await conversationStore.load(parent.id))?.title).toBeUndefined();
+    expect((await conversationStore.load(send.mock.calls[0][0].conversationId))?.status).toBe(
+      'archived',
+    );
+  });
+
+  it('writes participant title without changing shared title', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'Agent-specific title',
+    });
+
+    const result = await createAutomationTools().generateConversationTitle.execute(
+      titleArgs(parent.id, { scope: 'participant', attachedParticipantId: 'operator' }),
+      { ...context, messageRouter: { send } } as ToolContext,
+    );
+
+    expect(result).toEqual({
+      status: 'success',
+      data: { title: 'Agent-specific title', written: true },
+    });
+    const saved = await conversationStore.load(parent.id);
+    expect(saved?.title).toBeUndefined();
+    expect(saved?.titles).toEqual({ operator: 'Agent-specific title' });
+  });
+
+  it('keeps first concurrently generated title and returns effective title to both calls', async () => {
+    const { context, conversationStore, parent } = await setup();
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstSend = true;
+    const send = vi.fn().mockImplementation(async () => {
+      if (firstSend) {
+        firstSend = false;
+        await firstStarted;
+        return { conversationId: 'ignored', status: 'success', response: 'First title' };
+      }
+      return { conversationId: 'ignored', status: 'success', response: 'Second title' };
+    });
+    const tool = createAutomationTools().generateConversationTitle;
+    const first = tool.execute(titleArgs(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    const second = tool.execute(titleArgs(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    releaseFirst();
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(await conversationStore.load(parent.id)).toEqual(
+      expect.objectContaining({ title: 'Second title' }),
+    );
+    expect([firstResult, secondResult]).toEqual(
+      expect.arrayContaining([
+        { status: 'success', data: { title: 'Second title', written: true } },
+        { status: 'success', data: { title: 'Second title', written: false } },
+      ]),
+    );
+  });
+
+  it('returns clear dependency and router failures without title writes', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const tool = createAutomationTools().generateConversationTitle;
+
+    await expect(tool.execute(titleArgs(parent.id), context)).resolves.toEqual({
+      status: 'error',
+      error: 'messageRouter unavailable in context',
+    });
+    const send = vi.fn().mockRejectedValue(new Error('router failed'));
+    await expect(
+      tool.execute(titleArgs(parent.id), { ...context, messageRouter: { send } } as ToolContext),
+    ).resolves.toEqual({ status: 'error', error: 'router failed' });
+    expect((await conversationStore.load(parent.id))?.title).toBeUndefined();
+    expect((await conversationStore.load(send.mock.calls[0][0].conversationId))?.status).toBe(
+      'archived',
+    );
   });
 });
