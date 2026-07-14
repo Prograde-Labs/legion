@@ -25,8 +25,9 @@ describe('createSkillsMiddleware', () => {
     name: string,
     description: string,
     instructions: string,
+    directoryName = `skill-${name.length}`,
   ): Promise<string> {
-    const directory = join(workspaceRoot, '.agents', 'skills', `skill-${name.length}`);
+    const directory = join(workspaceRoot, '.agents', 'skills', directoryName);
     await mkdir(directory, { recursive: true });
     await writeFile(
       join(directory, 'SKILL.md'),
@@ -71,7 +72,11 @@ describe('createSkillsMiddleware', () => {
       },
     });
     expect(result).toMatchObject({
-      change: { content: expect.stringContaining('<available_skills>') },
+      change: {
+        content: expect.stringContaining(
+          'Use the load_skills tool to activate relevant skills before starting work.',
+        ),
+      },
     });
     expect((result as { change: { content: string } }).change.content).not.toContain('missing');
   });
@@ -88,12 +93,17 @@ describe('createSkillsMiddleware', () => {
   });
 
   it('restores selected activated skill instructions after compaction', async () => {
-    const directory = await addSkill('review', 'Review code', 'Read every changed line.');
+    const directory = await addSkill(
+      'review<&"\'',
+      'Review code',
+      'Read <every> & "line" \'now\'.',
+      'skill-<&"\'',
+    );
     const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
     const definition = createSkillsMiddleware(registry);
 
     const result = await definition.hooks.buildSystemPrompt!(
-      context({ skills: ['review'] }, { activated: ['review', 'removed'] }),
+      context({ skills: ['review<&"\''] }, { activated: ['review<&"\'', 'removed'] }),
     );
 
     expect(result).toMatchObject({
@@ -101,7 +111,7 @@ describe('createSkillsMiddleware', () => {
       change: {
         operation: 'append',
         content: expect.stringContaining(
-          `<active_skill name="review" base_directory="${directory}">Read every changed line.</active_skill>`,
+          `<active_skill name="review&lt;&amp;&quot;&apos;" base_directory="${directory.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;')}">Read &lt;every&gt; &amp; &quot;line&quot; &apos;now&apos;.</active_skill>`,
         ),
       },
     });
