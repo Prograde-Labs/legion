@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SkillRegistry } from './SkillRegistry.js';
@@ -131,5 +131,112 @@ describe('SkillRegistry', () => {
     const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
 
     expect(registry.get('deploy')?.description).toBe('Alpha deployment');
+  });
+
+  it('continues discovery when YAML aliases exhaust toJS limits', async () => {
+    const aliases = Array.from({ length: 200 }, () => '*value').join(', ');
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'alias-limit',
+      `---\nvalue: &value x\nname: deploy\ndescription: [${aliases}]\n---\nInstructions`,
+    );
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'valid',
+      '---\nname: review\ndescription: Review code\n---\nInstructions',
+    );
+
+    const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+    expect(registry.get('review')?.description).toBe('Review code');
+    expect(registry.diagnostics()).toContainEqual(
+      expect.objectContaining({
+        code: 'invalid_frontmatter',
+        location: expect.stringContaining('alias-limit'),
+      }),
+    );
+  });
+
+  it('silently ignores missing roots but diagnoses inaccessible roots', async () => {
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'valid',
+      '---\nname: review\ndescription: Review code\n---\nInstructions',
+    );
+
+    expect((await SkillRegistry.discover(workspaceRoot, homeRoot)).diagnostics()).toEqual([]);
+
+    const userSkills = join(homeRoot, '.agents', 'skills');
+    await mkdir(join(homeRoot, '.agents'), { recursive: true });
+    await writeFile(userSkills, 'not a directory', 'utf8');
+
+    const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+    expect(registry.get('review')?.description).toBe('Review code');
+    expect(registry.diagnostics()).toContainEqual(
+      expect.objectContaining({ code: 'read_error', location: userSkills }),
+    );
+  });
+
+  it('skips skill roots and files that symlink outside their boundary', async () => {
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'legion-skills-outside-'));
+    try {
+      await skill(
+        outsideRoot,
+        'root-escape',
+        '---\nname: root-escape\ndescription: Outside root\n---\nInstructions',
+      );
+      await skill(
+        join(workspaceRoot, '.agents', 'skills'),
+        'valid',
+        '---\nname: review\ndescription: Review code\n---\nInstructions',
+      );
+      await mkdir(join(homeRoot, '.agents'), { recursive: true });
+      await symlink(outsideRoot, join(homeRoot, '.agents', 'skills'), 'dir');
+      await mkdir(join(workspaceRoot, '.agents', 'skills', 'escaped'), { recursive: true });
+      await symlink(
+        join(outsideRoot, 'root-escape', 'SKILL.md'),
+        join(workspaceRoot, '.agents', 'skills', 'escaped', 'SKILL.md'),
+        'file',
+      );
+
+      const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+      expect(registry.get('review')?.description).toBe('Review code');
+      expect(registry.get('root-escape')).toBeUndefined();
+      expect(registry.diagnostics()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'read_error',
+            location: join(homeRoot, '.agents', 'skills'),
+          }),
+          expect.objectContaining({
+            code: 'read_error',
+            location: join(workspaceRoot, '.agents', 'skills', 'escaped', 'SKILL.md'),
+          }),
+        ]),
+      );
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects oversized skill files without stopping discovery', async () => {
+    await skill(join(workspaceRoot, '.agents', 'skills'), 'too-large', 'x'.repeat(1024 * 1024 + 1));
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'valid',
+      '---\nname: review\ndescription: Review code\n---\nInstructions',
+    );
+
+    const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+    expect(registry.get('review')?.description).toBe('Review code');
+    expect(registry.diagnostics()).toContainEqual(
+      expect.objectContaining({
+        code: 'read_error',
+        location: expect.stringContaining('too-large'),
+      }),
+    );
   });
 });

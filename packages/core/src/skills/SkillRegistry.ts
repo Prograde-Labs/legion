@@ -1,5 +1,5 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 
 export type SkillScope = 'project' | 'user';
@@ -25,6 +25,8 @@ interface ParsedSkill {
 }
 
 const SUPPORTED_KEYS = new Set(['name', 'description']);
+// Limit skill instructions to 1 MiB to bound discovery memory use.
+const MAX_SKILL_FILE_BYTES = 1024 * 1024;
 
 export class SkillRegistry {
   private constructor(
@@ -35,13 +37,19 @@ export class SkillRegistry {
   static async discover(workspaceRoot: string, homeRoot: string): Promise<SkillRegistry> {
     const diagnostics: SkillDiagnostic[] = [];
     const effective = new Map<string, ParsedSkill>();
-    const roots: Array<{ root: string; scope: SkillScope }> = [
-      { root: join(homeRoot, '.agents', 'skills'), scope: 'user' },
-      { root: join(workspaceRoot, '.agents', 'skills'), scope: 'project' },
+    const roots: Array<{ root: string; scope: SkillScope; ownerRoot: string }> = [
+      { root: join(homeRoot, '.agents', 'skills'), scope: 'user', ownerRoot: homeRoot },
+      {
+        root: join(workspaceRoot, '.agents', 'skills'),
+        scope: 'project',
+        ownerRoot: workspaceRoot,
+      },
     ];
 
     for (const source of roots) {
-      for (const location of await findSkillFiles(source.root)) {
+      const discovery = await findSkillFiles(source.root, source.ownerRoot);
+      diagnostics.push(...discovery.diagnostics);
+      for (const location of discovery.files) {
         const parsed = await parseSkill(location, source.scope);
         diagnostics.push(...parsed.diagnostics);
         if (parsed.skill) effective.set(parsed.skill.record.name, parsed.skill);
@@ -70,26 +78,75 @@ export class SkillRegistry {
   }
 }
 
-async function findSkillFiles(root: string): Promise<string[]> {
+async function findSkillFiles(
+  root: string,
+  ownerRoot: string,
+): Promise<{ files: string[]; diagnostics: SkillDiagnostic[] }> {
   const found: string[] = [];
+  const diagnostics: SkillDiagnostic[] = [];
+  let boundary: string;
+  try {
+    boundary = resolve(await realpath(ownerRoot), '.agents', 'skills');
+  } catch (error) {
+    return { files: found, diagnostics: [readError(root, error)] };
+  }
+
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await realpath(root);
+  } catch (error) {
+    if (isMissing(error)) return { files: found, diagnostics };
+    return { files: found, diagnostics: [readError(root, error)] };
+  }
+
+  if (canonicalRoot !== boundary) {
+    return {
+      files: found,
+      diagnostics: [readError(root, 'Skill root escapes its allowed boundary')],
+    };
+  }
+
+  const visited = new Set<string>();
 
   async function walk(directory: string): Promise<void> {
+    if (visited.has(directory)) return;
+    visited.add(directory);
+
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (!isMissing(error)) diagnostics.push(readError(directory, error));
       return;
     }
 
     for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
       const path = join(directory, entry.name);
-      if (entry.isDirectory()) await walk(path);
-      else if (entry.isFile() && entry.name === 'SKILL.md') found.push(resolve(path));
+      let target: string;
+      try {
+        target = await realpath(path);
+      } catch (error) {
+        if (!isMissing(error)) diagnostics.push(readError(path, error));
+        continue;
+      }
+
+      if (!isContained(boundary, target)) {
+        diagnostics.push(readError(path, 'Skill path escapes its allowed boundary'));
+        continue;
+      }
+
+      try {
+        const targetStats = await stat(target);
+        if (targetStats.isDirectory()) await walk(target);
+        else if (targetStats.isFile() && entry.name === 'SKILL.md') found.push(target);
+      } catch (error) {
+        if (!isMissing(error)) diagnostics.push(readError(path, error));
+      }
     }
   }
 
-  await walk(root);
-  return found;
+  await walk(canonicalRoot);
+  return { files: found, diagnostics };
 }
 
 async function parseSkill(
@@ -98,10 +155,16 @@ async function parseSkill(
 ): Promise<{ skill?: ParsedSkill; diagnostics: SkillDiagnostic[] }> {
   let source: string;
   try {
+    const fileStats = await stat(location);
+    if (fileStats.size > MAX_SKILL_FILE_BYTES) {
+      return {
+        diagnostics: [readError(location, `Skill file exceeds ${MAX_SKILL_FILE_BYTES} byte limit`)],
+      };
+    }
     source = await readFile(location, 'utf8');
   } catch (error) {
     return {
-      diagnostics: [{ severity: 'error', code: 'read_error', location, message: String(error) }],
+      diagnostics: [readError(location, error)],
     };
   }
 
@@ -111,7 +174,12 @@ async function parseSkill(
   const document = parseDocument(match[1]);
   if (document.errors.length > 0) return invalid(location, document.errors[0].message);
 
-  const value = document.toJS() as unknown;
+  let value: unknown;
+  try {
+    value = document.toJS();
+  } catch (error) {
+    return invalid(location, String(error));
+  }
   if (!isObject(value) || typeof value.name !== 'string' || typeof value.description !== 'string') {
     return invalid(location, 'Frontmatter requires string name and description');
   }
@@ -157,6 +225,18 @@ async function parseSkill(
 
 function invalid(location: string, message: string): { diagnostics: SkillDiagnostic[] } {
   return { diagnostics: [{ severity: 'error', code: 'invalid_frontmatter', location, message }] };
+}
+
+function readError(location: string, error: unknown): SkillDiagnostic {
+  return { severity: 'error', code: 'read_error', location, message: String(error) };
+}
+
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+function isContained(boundary: string, path: string): boolean {
+  return path === boundary || path.startsWith(`${boundary}${sep}`);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
