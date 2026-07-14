@@ -103,7 +103,7 @@ describe('createSkillTools', () => {
     expect(serialized).not.toContain(homeRoot);
   });
 
-  it('redacts absolute paths from diagnostic messages', async () => {
+  it('redacts absolute and UNC paths from diagnostic messages', async () => {
     const registry = {
       list: () => [],
       diagnostics: () => [
@@ -120,6 +120,35 @@ describe('createSkillTools', () => {
     const result = await listSkills.execute({}, {} as never);
 
     expect(result).toEqual({
+      status: 'success',
+      data: {
+        skills: [],
+        diagnostics: [
+          {
+            severity: 'error',
+            code: 'read_error',
+            location: '<redacted>',
+            message: 'Failed to read <redacted>',
+          },
+        ],
+      },
+    });
+
+    const uncRegistry = {
+      list: () => [],
+      diagnostics: () => [
+        {
+          severity: 'error',
+          code: 'read_error',
+          location: '\\\\server\\share\\skills',
+          message: 'Failed to read \\\\server\\share\\skills\\SKILL.md',
+        },
+      ],
+    } as unknown as SkillRegistry;
+
+    await expect(
+      createSkillTools(uncRegistry).listSkills.execute({}, {} as never),
+    ).resolves.toEqual({
       status: 'success',
       data: {
         skills: [],

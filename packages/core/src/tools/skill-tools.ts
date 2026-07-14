@@ -233,7 +233,7 @@ async function readDirectoryEntries(directory: string) {
 }
 
 function redactAbsolutePaths(message: string): string {
-  return message.replace(/(?:[A-Za-z]:[\\/]|\/(?=\S))[^\r\n]*/g, '<redacted>');
+  return message.replace(/(?:\\\\|[A-Za-z]:[\\/]|\/(?=\S))[^\r\n]*/g, '<redacted>');
 }
 
 async function regularFile(path: string): Promise<boolean> {
