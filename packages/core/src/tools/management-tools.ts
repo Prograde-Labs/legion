@@ -10,12 +10,7 @@ import type {
   JSONValue,
   MiddlewareInstanceConfig,
 } from '@legion/types';
-import {
-  compactRange,
-  editMessage,
-  getActiveChain,
-  pruneMessage,
-} from '../conversation/conversation-ops.js';
+import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
@@ -599,114 +594,6 @@ export const pruneMessageTool: Tool = {
   },
 };
 
-const DEFAULT_SUMMARY_INSTRUCTION =
-  'Summarize the following conversation segment concisely. Capture the main topics discussed, key information exchanged, any decisions or conclusions reached, and the current state of any ongoing discussion or work. Write clearly and be complete enough that the conversation can continue naturally from this summary without the original messages.';
-
-export const compactConversationTool: Tool = {
-  name: 'compact_conversation',
-  description: 'Compact a range of messages into an agent-generated summary.',
-  parameters: {
-    type: 'object',
-    properties: {
-      conversationId: { type: 'string' },
-      messageIds: { type: 'array', items: { type: 'string' } },
-      agentId: { type: 'string' },
-      instruction: { type: 'string' },
-    },
-    required: ['conversationId', 'messageIds', 'agentId'],
-  } as JSONSchema,
-  async execute(args, context): Promise<ToolResult> {
-    const input = args as {
-      conversationId?: unknown;
-      messageIds?: unknown;
-      agentId?: unknown;
-      instruction?: unknown;
-    };
-    if (
-      typeof input.conversationId !== 'string' ||
-      !Array.isArray(input.messageIds) ||
-      input.messageIds.length === 0 ||
-      !input.messageIds.every((id) => typeof id === 'string') ||
-      typeof input.agentId !== 'string' ||
-      input.agentId.length === 0 ||
-      (input.instruction !== undefined && typeof input.instruction !== 'string')
-    ) {
-      return {
-        status: 'error',
-        error:
-          'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
-      };
-    }
-    const { conversationId, messageIds, agentId, instruction } = input as {
-      conversationId: string;
-      messageIds: string[];
-      agentId: string;
-      instruction?: string;
-    };
-    if (!context.conversationStore) {
-      return { status: 'error', error: 'conversationStore unavailable in context' };
-    }
-    if (!context.messageRouter) {
-      return { status: 'error', error: 'messageRouter unavailable in context' };
-    }
-    try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation) {
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      }
-      const observedHead = conversation.activeBranchHead;
-      const targetMessages = messageIds.map((id) => {
-        const message = conversation.messages[id];
-        if (!message) throw new Error(`Message not found: ${id}`);
-        return message;
-      });
-      const transcript = targetMessages
-        .map((message) => {
-          // Label summary nodes distinctly so the compacting agent knows it is
-          // working with an already-summarised block rather than a raw turn.
-          if (message.type === 'summary') {
-            return `[summary of earlier messages]: ${message.content}`;
-          }
-          return `${message.role}: ${message.content}`;
-        })
-        .join('\n');
-      const prompt = `${instruction ?? DEFAULT_SUMMARY_INSTRUCTION}\n\n${transcript}`;
-      const summary = await context.messageRouter.send({
-        senderId: context.participant.id,
-        recipientId: agentId,
-        message: prompt,
-        replyTo: undefined,
-        context,
-      });
-      if (summary.status === 'error') {
-        return { status: 'error', error: summary.error ?? 'Summary failed' };
-      }
-      if (!summary.response) {
-        return { status: 'error', error: 'Summary agent returned no response' };
-      }
-      const summaryContent = summary.response;
-      const mutation = await context.conversationStore.mutate(
-        conversationId,
-        (current) => compactRange(current, messageIds, summaryContent),
-        { expectedActiveBranchHead: observedHead },
-      );
-      const beforeIds = new Set(Object.keys(mutation.before.messages));
-      const summaryNode = Object.values(mutation.after.messages).find(
-        (message) => message.type === 'summary' && !beforeIds.has(message.id),
-      );
-      return {
-        status: 'success',
-        data: {
-          summaryMessageId: summaryNode?.id,
-          activeBranchHead: mutation.after.activeBranchHead,
-        },
-      };
-    } catch (err) {
-      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
-    }
-  },
-};
-
 export const generateTool: Tool = {
   name: 'generate',
   description: 'Trigger an agent response from the current active conversation branch.',
@@ -1136,7 +1023,6 @@ export const managementTools: Tool[] = [
   setParticipantMiddlewareTool,
   editMessageTool,
   pruneMessageTool,
-  compactConversationTool,
   generateTool,
   switchBranchTool,
   getConversationTool,

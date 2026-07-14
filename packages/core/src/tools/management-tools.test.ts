@@ -11,7 +11,6 @@ import {
   editMessageTool,
   switchBranchTool,
   pruneMessageTool,
-  compactConversationTool,
   generateTool,
   getConversationTool,
   setToolPolicyTool,
@@ -116,12 +115,12 @@ describe('management tools', () => {
       'modify_conversation',
       'edit_message',
       'prune_message',
-      'compact_conversation',
       'generate',
       'switch_branch',
     ];
 
     expect(names).toEqual(expect.arrayContaining(conversationEditingTools));
+    expect(names).not.toContain('compact_conversation');
     for (const name of conversationEditingTools) {
       expect(names.filter((toolName) => toolName === name)).toHaveLength(1);
     }
@@ -805,172 +804,6 @@ describe('management tools', () => {
     expect(result).toEqual({
       status: 'error',
       error: 'conversationId and messageId must be strings',
-    });
-  });
-
-  it('compact_conversation summarizes through messageRouter and compacts messages', async () => {
-    const { context, conversationStore } = await makeContext();
-    const send = vi.fn().mockResolvedValue({
-      conversationId: 'conv-summary',
-      status: 'success',
-      response: 'short summary',
-    });
-    const ctx = {
-      ...context,
-      messageRouter: { send, resume: vi.fn(), generate: vi.fn() },
-    } as unknown as ToolContext;
-    let conv = await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    conv = appendMessage(conv, {
-      id: 'm1',
-      senderId: 'operator',
-      recipientId: 'agent-x',
-      role: 'user',
-      content: 'hello',
-    });
-    conv = appendMessage(conv, {
-      id: 'm2',
-      senderId: 'agent-x',
-      recipientId: 'operator',
-      role: 'assistant',
-      content: 'hi',
-    });
-    conv = appendMessage(conv, {
-      id: 'old-summary',
-      senderId: 'operator',
-      recipientId: 'agent-x',
-      role: 'assistant',
-      content: 'stale summary',
-      type: 'summary',
-    });
-    conv = {
-      ...conv,
-      activeBranchHead: 'm2',
-      messages: {
-        ...conv.messages,
-        'old-summary': { ...conv.messages['old-summary'], compacts: ['m1', 'm2'] },
-      },
-    };
-    await conversationStore.replaceForTesting(conv);
-
-    const result = await compactConversationTool.execute(
-      { conversationId: conv.id, messageIds: ['m1', 'm2'], agentId: 'agent-x' },
-      ctx,
-    );
-
-    expect(result.status).toBe('success');
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        senderId: 'operator',
-        recipientId: 'agent-x',
-        replyTo: undefined,
-      }),
-    );
-    expect(send).toHaveBeenCalledWith(expect.not.objectContaining({ conversationId: conv.id }));
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining('Summarize the following conversation segment concisely.'),
-      }),
-    );
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('user: hello') }),
-    );
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('assistant: hi') }),
-    );
-    const saved = await conversationStore.load(conv.id);
-    const summary = Object.values(saved!.messages).find(
-      (m) => m.type === 'summary' && m.content === 'short summary',
-    );
-    expect(summary?.content).toBe('short summary');
-    expect(summary?.compacts).toEqual(['m1', 'm2']);
-    expect(result.data).toEqual({
-      summaryMessageId: summary?.id,
-      activeBranchHead: saved?.activeBranchHead,
-    });
-  });
-
-  it('compact_conversation identifies its summary after a concurrent same-head addition', async () => {
-    const { context, conversationStore } = await makeContext();
-    let conv = await conversationStore.create({
-      schemaVersion: '2.0',
-      activeBranchHead: '',
-      messages: {},
-    });
-    conv = appendMessage(conv, {
-      id: 'm1',
-      senderId: 'operator',
-      recipientId: 'agent-x',
-      role: 'user',
-      content: 'hello',
-    });
-    conv = appendMessage(conv, {
-      id: 'm2',
-      senderId: 'agent-x',
-      recipientId: 'operator',
-      role: 'assistant',
-      content: 'hi',
-    });
-    await conversationStore.replaceForTesting(conv);
-    const send = vi.fn().mockImplementation(async () => {
-      await conversationStore.mutate(conv.id, (current) => ({
-        ...current,
-        messages: {
-          ...current.messages,
-          'concurrent-summary': {
-            id: 'concurrent-summary',
-            parentId: null,
-            conversationId: conv.id,
-            senderId: 'other',
-            recipientId: 'operator',
-            role: 'assistant',
-            content: 'concurrent summary',
-            type: 'summary',
-            status: 'active',
-            timestamp: new Date().toISOString(),
-          },
-        },
-      }));
-      return {
-        conversationId: 'conv-summary',
-        status: 'success',
-        response: 'owned summary',
-      };
-    });
-    const ctx = {
-      ...context,
-      messageRouter: { send, resume: vi.fn(), generate: vi.fn() },
-    } as unknown as ToolContext;
-
-    const result = await compactConversationTool.execute(
-      { conversationId: conv.id, messageIds: ['m1', 'm2'], agentId: 'agent-x' },
-      ctx,
-    );
-    const saved = await conversationStore.load(conv.id);
-    const ownedSummary = Object.values(saved!.messages).find(
-      (message) => message.type === 'summary' && message.content === 'owned summary',
-    );
-
-    expect(result.status).toBe('success');
-    expect((result.data as { summaryMessageId: string }).summaryMessageId).toBe(ownedSummary?.id);
-    expect(ownedSummary?.id).not.toBe('concurrent-summary');
-  });
-
-  it('compact_conversation rejects invalid args', async () => {
-    const { context } = await makeContext();
-
-    const result = await compactConversationTool.execute(
-      { conversationId: 123, messageIds: [], agentId: '', instruction: 42 },
-      context,
-    );
-
-    expect(result).toEqual({
-      status: 'error',
-      error:
-        'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
     });
   });
 
