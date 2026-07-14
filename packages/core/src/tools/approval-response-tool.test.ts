@@ -245,6 +245,77 @@ describe('approval_response tool', () => {
     );
   });
 
+  it('dispatches automation compaction through durable resumeApproval instead of generic replay', async () => {
+    const reg = new PendingApprovalRegistry();
+    const helperCheckpoint = checkpoint();
+    helperCheckpoint.conversationId = 'helper';
+    const parentCheckpoint = checkpoint();
+    parentCheckpoint.conversationId = 'parent';
+    parentCheckpoint.instanceId = 'audit';
+    parentCheckpoint.middlewareType = 'builtin:auto-compaction';
+    parentCheckpoint.middlewareConfig = {};
+    parentCheckpoint.request = {
+      requestId: 'compact',
+      tool: 'compact_conversation',
+      arguments: {},
+    };
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'agent-b',
+        tool: 'file_write',
+        args: {},
+        continuation: { kind: 'middleware', checkpoint: helperCheckpoint },
+      },
+      {
+        parentConversationId: 'parent',
+        helperConversationId: 'helper',
+        participantId: 'agent-b',
+        middlewareInstanceId: 'audit',
+        middlewareRevision: 0,
+        middlewareType: 'builtin:auto-compaction',
+        middlewareConfig: {},
+        observedParentHead: 'message-1',
+        selectedMessages: [
+          {
+            id: 'message-1',
+            parentId: null,
+            conversationId: 'parent',
+            senderId: 'op',
+            recipientId: 'agent-b',
+            role: 'user',
+            content: 'old context',
+            status: 'active',
+            timestamp: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        parentMessageId: 'message-1',
+        parentCheckpoint,
+      },
+    );
+    const resumeApproval = vi.fn(async () => ({
+      conversationId: 'parent',
+      status: 'success' as const,
+    }));
+    const resume = vi.fn(async () => ({ conversationId: 'helper', status: 'success' as const }));
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume,
+        resumeApproval,
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect(resumeApproval).toHaveBeenCalledWith(approvalId, context);
+    expect(resume).not.toHaveBeenCalled();
+  });
+
   it('coalesces concurrent identical decisions into one generic resume', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({

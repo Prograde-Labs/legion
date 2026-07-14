@@ -11,6 +11,7 @@ import type { RuntimeResult } from '../runtime/Runtime.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { MessageRouterResult } from '../tools/Tool.js';
+import type { AutomationCompactionSeed } from '../auth/PendingApprovalRegistry.js';
 import type {
   AfterReceivePhaseResult,
   AfterSendPhaseResult,
@@ -49,6 +50,7 @@ export interface ReceiveLifecycleInput {
   signal?: AbortSignal;
   /** Final streaming delivery already ran response draft hooks. */
   skipDraftHooks?: boolean;
+  approvalContinuationSeed?: AutomationCompactionSeed;
 }
 
 export interface RespondLifecycleInput extends Omit<ReceiveLifecycleInput, 'mode'> {}
@@ -122,6 +124,7 @@ export class MiddlewareLifecycle {
           final: true,
           mode: input.mode,
           signal: input.signal,
+          approvalContinuationSeed: input.approvalContinuationSeed,
         });
         if (senderBefore.kind !== 'continue') return this.messageTerminal(senderBefore);
         draft = senderBefore.value;
@@ -137,6 +140,7 @@ export class MiddlewareLifecycle {
           final: true,
           mode: input.mode,
           signal: input.signal,
+          approvalContinuationSeed: input.approvalContinuationSeed,
         });
         if (recipientBefore.kind !== 'continue') return this.messageTerminal(recipientBefore);
         draft = recipientBefore.value;
@@ -172,6 +176,7 @@ export class MiddlewareLifecycle {
         actions: actionsCopy(actions),
         mode: input.mode,
         signal: input.signal,
+        approvalContinuationSeed: input.approvalContinuationSeed,
       });
       if (senderAfter.kind !== 'continue') return this.afterSendTerminal(senderAfter, stored.id);
 
@@ -184,6 +189,7 @@ export class MiddlewareLifecycle {
         mode: input.mode,
         actions: actionsCopy(senderAfter.actions),
         signal: input.signal,
+        approvalContinuationSeed: input.approvalContinuationSeed,
       });
       return this.afterReceiveTerminal(recipientAfter, stored);
     } catch (error) {

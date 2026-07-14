@@ -7,6 +7,7 @@ import type {
   LLMChunk,
   ConversationOrigin,
   MiddlewareInstanceConfig,
+  MiddlewareCheckpoint,
 } from '@legion/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
@@ -14,7 +15,11 @@ import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
-import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
+import type {
+  AutomationCompactionSeed,
+  PendingApproval,
+  PendingApprovalRegistry,
+} from '../auth/PendingApprovalRegistry.js';
 
 export interface MessageRouterResult {
   conversationId: string;
@@ -97,6 +102,11 @@ export interface ToolContext {
   callingParticipantId?: string;
   /** The LLM tool-call id currently being executed, for parent linking in delegation. */
   toolCallId?: string;
+  /** Durable parent checkpoint while a middleware-owned tool executes. */
+  middlewareCheckpoint?: MiddlewareCheckpoint;
+  /** JSON-safe continuation seed consumed atomically when helper middleware requests approval. */
+  approvalContinuationSeed?: AutomationCompactionSeed;
+  pendingApprovalRegistry?: PendingApprovalRegistry;
   credentialStore?: CredentialStore;
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;

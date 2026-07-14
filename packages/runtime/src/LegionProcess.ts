@@ -138,6 +138,7 @@ export class LegionProcess {
     const toolRegistry = new ToolRegistry();
     const authEngine = new AuthEngine();
     const pendingApprovalRegistry = await PendingApprovalRegistry.load(storage);
+    await pendingApprovalRegistry.reconcileAutomationHelpers(store);
 
     const middlewareRegistry = new MiddlewareRegistry();
     const middlewareDiagnostics = await loadWorkspaceMiddleware(

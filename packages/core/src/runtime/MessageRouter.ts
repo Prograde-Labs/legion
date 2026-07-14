@@ -1,10 +1,19 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
 import type { Collective } from '../collective/Collective.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../tools/Tool.js';
-import { snapshotMiddlewareActions } from '../auth/PendingApprovalRegistry.js';
-import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
+import {
+  archiveAutomationHelper,
+  snapshotMiddlewareActions,
+} from '../auth/PendingApprovalRegistry.js';
+import type {
+  ApprovalRecord,
+  AutomationCompactionContinuation,
+  AutomationCompactionSeed,
+  PendingApprovalRegistry,
+} from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
@@ -24,6 +33,7 @@ import {
   type ResponseStreamTransformer,
 } from '../middleware/MiddlewareLifecycle.js';
 import type { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
+import { compactRange, getActiveChain } from '../conversation/conversation-ops.js';
 
 export interface SendOptions {
   senderId: string;
@@ -36,6 +46,8 @@ export interface SendOptions {
 }
 
 const DEFAULT_DEPTH_LIMIT = 10;
+
+class RetryableAutomationError extends Error {}
 
 type ResponseOperation = {
   thread: ConversationThread;
@@ -224,6 +236,7 @@ export class MessageRouter implements MessageRouterPort {
             actionCursor: actions.length,
             actions,
           },
+          approvalContinuationSeed: toolContext.approvalContinuationSeed,
         });
         if (result.kind === 'continue') {
           return { kind: 'continue', prompt: result.value, actions: result.actions };
@@ -373,6 +386,7 @@ export class MessageRouter implements MessageRouterPort {
       draft,
       actions: state.actions,
       signal: state.context.signal,
+      approvalContinuationSeed: state.context.approvalContinuationSeed,
       ...(usage === undefined ? {} : { usage }),
     });
     if (result.status !== 'pending_approval' || !result.approvalId) return result;
@@ -526,6 +540,7 @@ export class MessageRouter implements MessageRouterPort {
         actions: [],
         mode: 'pre_runtime',
         signal: opts.context.signal,
+        approvalContinuationSeed: opts.context.approvalContinuationSeed,
       });
       if (inboundResult.kind === 'respond') {
         return this.respondWithLifecycle(thread, inboundResult.response, {
@@ -789,6 +804,7 @@ export class MessageRouter implements MessageRouterPort {
         actions: [],
         mode: 'pre_runtime',
         signal: opts.context.signal,
+        approvalContinuationSeed: opts.context.approvalContinuationSeed,
       });
       if (result.kind === 'respond') {
         return this.respondWithLifecycle(thread, result.response, {
@@ -938,15 +954,54 @@ export class MessageRouter implements MessageRouterPort {
     if (record.lifecycle === 'acknowledged') {
       return record.routerResult ?? { conversationId: record.conversationId, status: 'success' };
     }
+    const successorApprovalIds =
+      record.successorApprovalIds ??
+      (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
+    if (successorApprovalIds.length > 0) {
+      return this.resolveApprovalSuccessors(record, approvals);
+    }
     if (record.routerResult) {
-      try {
+      if (record.continuation?.kind === 'automation_compaction') {
+        await this.archiveAutomationHelper(record.continuation);
+        if (
+          record.automationCompaction?.lifecycle === 'parent_committed' ||
+          record.automationCompaction?.lifecycle === 'completed'
+        ) {
+          await approvals.terminalizeAutomationSuccess(approvalId, {
+            routerResult: record.routerResult,
+          });
+        } else {
+          await approvals.acknowledge(approvalId);
+        }
+      } else {
         await approvals.acknowledge(approvalId);
-      } catch {
-        // Cached terminal routing outcome is safe; retry only acknowledgement.
       }
       return record.routerResult;
     }
-    const checkpoint = record.continuation?.checkpoint;
+    if (
+      record.continuation?.kind === 'automation_compaction' &&
+      record.automationCompaction?.summary &&
+      (record.automationCompaction.lifecycle === 'summary_ready' ||
+        record.automationCompaction.lifecycle === 'parent_committed')
+    ) {
+      return this.finalizeAutomationCompaction(
+        approvalId,
+        record.continuation,
+        record.automationCompaction.summary,
+        context,
+      );
+    }
+    const checkpoint =
+      record.continuation?.kind === 'middleware'
+        ? record.continuation.checkpoint
+        : record.continuation?.helperContinuation.checkpoint;
+    const helperContext: ToolContext =
+      record.continuation?.kind === 'automation_compaction'
+        ? {
+            ...context,
+            approvalContinuationSeed: this.automationCompactionSeed(record.continuation),
+          }
+        : context;
     if (!checkpoint || !this.middlewareRunner) {
       return {
         conversationId: record.conversationId,
@@ -954,49 +1009,23 @@ export class MessageRouter implements MessageRouterPort {
         error: 'Approval continuation is unavailable',
       };
     }
-    const successorApprovalIds =
-      record.successorApprovalIds ??
-      (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
-    if (successorApprovalIds.length > 0) {
-      const successors = successorApprovalIds
-        .map((successorApprovalId) => approvals.getRecord(successorApprovalId))
-        .filter((successor): successor is NonNullable<typeof successor> => successor !== undefined);
-      const pendingSuccessors = successors.filter(
-        (successor) => successor.lifecycle !== 'acknowledged',
-      );
-      if (pendingSuccessors.length === 0) {
-        return (
-          successors[0]?.routerResult ?? {
-            conversationId: record.conversationId,
-            status: 'success',
-          }
-        );
-      }
-      try {
-        await approvals.acknowledge(approvalId);
-      } catch {
-        // Parent already has immutable successors; never replay runtime execution.
-      }
-      const first = pendingSuccessors[0];
-      const firstCheckpoint = first.continuation?.checkpoint;
-      return {
-        conversationId: first.conversationId,
-        status: 'pending_approval',
-        ...(pendingSuccessors.length === 1 ? { approvalId: first.approvalId } : {}),
-        ...(firstCheckpoint === undefined
-          ? {}
-          : {
-              checkpointId: firstCheckpoint.checkpointId,
-              pendingParticipantId: firstCheckpoint.participantId,
-            }),
-        approvalRequests: pendingSuccessors
-          .map((successor) => approvals.get(successor.approvalId))
-          .filter(
-            (successor): successor is NonNullable<typeof successor> => successor !== undefined,
-          ),
-      };
-    }
     return this.withLock(checkpoint.conversationId, async () => {
+      const current = approvals.getRecord(approvalId);
+      if (current?.routerResult) return current.routerResult;
+      if (current?.lifecycle === 'acknowledged') {
+        return { conversationId: current.conversationId, status: 'success' };
+      }
+      if (current?.continuation?.kind === 'automation_compaction') {
+        const helper = await this.store.load(current.continuation.helperConversationId);
+        if (!this.matchesAutomationHelper(helper, current.continuation)) {
+          return this.failAutomationCompaction(
+            approvalId,
+            current.continuation,
+            'Automation compaction helper provenance is stale',
+            approvals,
+          );
+        }
+      }
       let resumed: Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>;
       try {
         const stored = await this.store.load(checkpoint.conversationId);
@@ -1019,8 +1048,26 @@ export class MessageRouter implements MessageRouterPort {
         };
       }
       if (resumed.kind === 'resume_pending' || resumed.kind === 'pending_approval') {
+        if (resumed.kind === 'resume_pending') {
+          const authoritative = await approvals.getAuthoritativeRecord(approvalId);
+          if (authoritative?.routerResult) return authoritative.routerResult;
+          if (authoritative?.lifecycle === 'acknowledged') {
+            return { conversationId: authoritative.conversationId, status: 'success' };
+          }
+          const authoritativeSuccessors =
+            authoritative?.successorApprovalIds ??
+            (authoritative?.successorApprovalId === undefined
+              ? []
+              : [authoritative.successorApprovalId]);
+          if (authoritative && authoritativeSuccessors.length > 0)
+            return this.resolveApprovalSuccessors(authoritative, approvals);
+        }
         if (resumed.kind === 'pending_approval') {
-          await approvals.recordSuccessor(approvalId, resumed.approvalId);
+          if (record.continuation?.kind === 'automation_compaction') {
+            await approvals.transferAutomationCompaction(approvalId, [resumed.approvalId]);
+          } else {
+            await approvals.recordSuccessor(approvalId, resumed.approvalId);
+          }
           try {
             await approvals.acknowledge(approvalId);
           } catch {
@@ -1039,6 +1086,14 @@ export class MessageRouter implements MessageRouterPort {
         };
       }
       if (resumed.kind === 'abort') {
+        if (record.continuation?.kind === 'automation_compaction') {
+          return this.failAutomationCompaction(
+            approvalId,
+            record.continuation,
+            resumed.error,
+            approvals,
+          );
+        }
         const result: MessageRouterResult = {
           conversationId: checkpoint.conversationId,
           status: 'error',
@@ -1071,7 +1126,7 @@ export class MessageRouter implements MessageRouterPort {
         const result = await this.resumeNonPromptCheckpoint(
           checkpoint,
           resumed,
-          context,
+          helperContext,
           approvalId,
         );
         if (result.status === 'pending_approval') {
@@ -1082,7 +1137,11 @@ export class MessageRouter implements MessageRouterPort {
             ]),
           ];
           if (successorApprovalIds.length > 0) {
-            await approvals.recordSuccessors(approvalId, successorApprovalIds);
+            if (record.continuation?.kind === 'automation_compaction') {
+              await approvals.transferAutomationCompaction(approvalId, successorApprovalIds);
+            } else {
+              await approvals.recordSuccessors(approvalId, successorApprovalIds);
+            }
             try {
               await approvals.acknowledge(approvalId);
             } catch {
@@ -1091,6 +1150,25 @@ export class MessageRouter implements MessageRouterPort {
           }
         }
         if (result.status === 'success' || result.status === 'error') {
+          if (record.continuation?.kind === 'automation_compaction') {
+            const summary =
+              result.response ??
+              (await this.automationSummaryAfterResume(record.continuation, resumed.value));
+            if (result.status === 'success' && summary) {
+              return this.finalizeAutomationCompactionWithHelperLock(
+                approvalId,
+                record.continuation,
+                summary,
+                context,
+              );
+            }
+            return this.failAutomationCompaction(
+              approvalId,
+              record.continuation,
+              result.error ?? 'Summary failed',
+              approvals,
+            );
+          }
           await approvals.recordRouterResult(
             approvalId,
             result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
@@ -1137,8 +1215,8 @@ export class MessageRouter implements MessageRouterPort {
         const runtimeContext = this.buildRuntimeContext(
           thread,
           participant.id,
-          context,
-          context.communicationDepth ?? 0,
+          helperContext,
+          helperContext.communicationDepth ?? 0,
           {
             operationId: checkpoint.operationId,
             incomingMessageId: checkpoint.runtimeResume.incomingMessageId,
@@ -1164,22 +1242,25 @@ export class MessageRouter implements MessageRouterPort {
             lifecycleState: {
               operationId: checkpoint.operationId,
               actions: resumed.actions,
-              context,
+              context: helperContext,
               storedMessageId: checkpoint.runtimeResume.incomingMessageId,
             },
           },
           runtimeResult,
         );
-        if (
-          runtimeResult.kind === 'pending_approval' ||
-          runtimeResult.kind === 'middleware_pending'
-        ) {
-          const successorApprovalIds =
-            runtimeResult.kind === 'pending_approval'
-              ? runtimeResult.approvalRequests.map((request) => request.approvalId)
-              : [runtimeResult.approvalId];
+        if (result.status === 'pending_approval') {
+          const successorApprovalIds = [
+            ...new Set([
+              ...(result.approvalId === undefined ? [] : [result.approvalId]),
+              ...(result.approvalRequests?.map((request) => request.approvalId) ?? []),
+            ]),
+          ];
           if (successorApprovalIds.length > 0) {
-            await approvals.recordSuccessors(approvalId, successorApprovalIds);
+            if (record.continuation?.kind === 'automation_compaction') {
+              await approvals.transferAutomationCompaction(approvalId, successorApprovalIds);
+            } else {
+              await approvals.recordSuccessors(approvalId, successorApprovalIds);
+            }
             try {
               await approvals.acknowledge(approvalId);
             } catch {
@@ -1188,6 +1269,22 @@ export class MessageRouter implements MessageRouterPort {
           }
         }
         if (result.status === 'success' || result.status === 'error') {
+          if (record.continuation?.kind === 'automation_compaction') {
+            if (result.status === 'success' && result.response) {
+              return this.finalizeAutomationCompactionWithHelperLock(
+                approvalId,
+                record.continuation,
+                result.response,
+                context,
+              );
+            }
+            return this.failAutomationCompaction(
+              approvalId,
+              record.continuation,
+              result.error ?? 'Summary failed',
+              approvals,
+            );
+          }
           await approvals.recordRouterResult(
             approvalId,
             result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
@@ -1216,6 +1313,397 @@ export class MessageRouter implements MessageRouterPort {
         };
       }
     });
+  }
+
+  private async resolveApprovalSuccessors(
+    record: ApprovalRecord,
+    approvals: PendingApprovalRegistry,
+  ): Promise<MessageRouterResult> {
+    const successorApprovalIds =
+      record.successorApprovalIds ??
+      (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
+    const successors = successorApprovalIds
+      .map((successorApprovalId) => approvals.getRecord(successorApprovalId))
+      .filter((successor): successor is NonNullable<typeof successor> => successor !== undefined);
+    const pendingSuccessors = successors.filter(
+      (successor) => successor.lifecycle !== 'acknowledged',
+    );
+    if (
+      record.continuation?.kind === 'automation_compaction' &&
+      record.automationCompaction?.lifecycle === 'parent_committed'
+    ) {
+      await approvals.terminalizeAutomationSuccess(record.approvalId, { successorApprovalIds });
+    } else {
+      await approvals.acknowledge(record.approvalId);
+    }
+    if (pendingSuccessors.length === 0) {
+      return (
+        successors[0]?.routerResult ?? {
+          conversationId: record.conversationId,
+          status: 'success',
+        }
+      );
+    }
+    const first = pendingSuccessors[0];
+    const firstCheckpoint =
+      first.continuation?.kind === 'middleware'
+        ? first.continuation.checkpoint
+        : first.continuation?.helperContinuation.checkpoint;
+    return {
+      conversationId: first.conversationId,
+      status: 'pending_approval',
+      ...(pendingSuccessors.length === 1 ? { approvalId: first.approvalId } : {}),
+      ...(firstCheckpoint === undefined
+        ? {}
+        : {
+            checkpointId: firstCheckpoint.checkpointId,
+            pendingParticipantId: firstCheckpoint.participantId,
+          }),
+      approvalRequests: pendingSuccessors
+        .map((successor) => approvals.get(successor.approvalId))
+        .filter((successor): successor is NonNullable<typeof successor> => successor !== undefined),
+    };
+  }
+
+  private async finalizeAutomationCompaction(
+    approvalId: string,
+    continuation: AutomationCompactionContinuation,
+    summary: string,
+    context: ToolContext,
+  ): Promise<MessageRouterResult> {
+    return this.withLock(continuation.helperConversationId, () =>
+      this.finalizeAutomationCompactionWithHelperLock(approvalId, continuation, summary, context),
+    );
+  }
+
+  private async finalizeAutomationCompactionWithHelperLock(
+    approvalId: string,
+    continuation: AutomationCompactionContinuation,
+    summary: string,
+    context: ToolContext,
+  ): Promise<MessageRouterResult> {
+    return context.pendingApprovalRegistry!.withAutomationCompactionLock(approvalId, () =>
+      this.withLock(continuation.parentConversationId, () =>
+        this.finalizeAutomationCompactionUnlocked(approvalId, continuation, summary, context),
+      ),
+    );
+  }
+
+  private async finalizeAutomationCompactionUnlocked(
+    approvalId: string,
+    continuation: AutomationCompactionContinuation,
+    summary: string,
+    context: ToolContext,
+  ): Promise<MessageRouterResult> {
+    const approvals = context.pendingApprovalRegistry!;
+    const current = approvals.getRecord(approvalId);
+    if (current?.routerResult) return current.routerResult;
+    if (current?.lifecycle === 'acknowledged') {
+      return { conversationId: continuation.parentConversationId, status: 'success' };
+    }
+    if (current?.continuation?.kind !== 'automation_compaction') {
+      return {
+        conversationId: continuation.parentConversationId,
+        status: 'error',
+        error: 'Automation compaction continuation is unavailable',
+      };
+    }
+    continuation = current.continuation;
+    const authoritativeHelper = await this.store.load(continuation.helperConversationId);
+    const authoritativeParent = await this.store.load(continuation.parentConversationId);
+    if (!this.matchesAutomationHelper(authoritativeHelper, continuation) || !authoritativeParent) {
+      return this.failAutomationCompaction(
+        approvalId,
+        continuation,
+        'Automation compaction continuation is stale',
+        approvals,
+      );
+    }
+    if (summary.trim() === '') {
+      return this.failAutomationCompaction(
+        approvalId,
+        continuation,
+        'Summary agent returned no response',
+        approvals,
+      );
+    }
+    let parentClaimed = false;
+    try {
+      await approvals.recordAutomationSummary(approvalId, summary);
+      let state = approvals.getRecord(approvalId)?.automationCompaction;
+      let summaryMessageId = state?.summaryMessageId;
+      let parentHead = state?.parentHead;
+      if (!summaryMessageId) {
+        const participant = this.collective.get(continuation.participantId);
+        const instance = participant?.middleware?.find(
+          (candidate) => candidate.id === continuation.middlewareInstanceId,
+        );
+        if (
+          !participant ||
+          (participant.status ?? 'active') !== 'active' ||
+          (participant.middlewareRevision ?? 0) !== continuation.middlewareRevision ||
+          !instance ||
+          instance.type !== continuation.middlewareType ||
+          !isDeepStrictEqual(instance.config, continuation.middlewareConfig) ||
+          !this.matchesAutomationHelper(authoritativeHelper, continuation)
+        ) {
+          throw new Error('Automation compaction continuation is stale');
+        }
+        const selectedIds = continuation.selectedMessages.map((message) => message.id);
+        const storedParent = await this.store.load(continuation.parentConversationId);
+        const watermark =
+          storedParent?.middlewareState?.[continuation.participantId]?.[
+            continuation.middlewareInstanceId
+          ];
+        const committedSummaryId =
+          watermark && typeof watermark === 'object' && !Array.isArray(watermark)
+            ? watermark.summaryMessageId
+            : undefined;
+        const committedSummary =
+          typeof committedSummaryId === 'string'
+            ? storedParent?.messages[committedSummaryId]
+            : undefined;
+        const alreadyCommitted =
+          committedSummary?.type === 'summary' &&
+          committedSummary.content === summary &&
+          isDeepStrictEqual(committedSummary.compacts, selectedIds) &&
+          continuation.selectedMessages.every((message) =>
+            isDeepStrictEqual(storedParent?.messages[message.id], {
+              ...message,
+              status: 'compacted',
+            }),
+          );
+        if (alreadyCommitted) {
+          summaryMessageId = committedSummaryId as string;
+          parentHead =
+            continuation.observedParentHead === continuation.parentMessageId
+              ? summaryMessageId
+              : continuation.observedParentHead;
+          if (!getActiveChain(storedParent!).some((message) => message.id === parentHead)) {
+            throw new Error('Automation compaction parent checkpoint is stale');
+          }
+        } else {
+          const mutation = await this.store.mutate(
+            continuation.parentConversationId,
+            (parent) => {
+              const chain = getActiveChain(parent);
+              if (
+                !selectedIds.every((id, index) => chain[index]?.id === id) ||
+                !continuation.selectedMessages.every((message) =>
+                  isDeepStrictEqual(parent.messages[message.id], message),
+                )
+              ) {
+                throw new Error('Automation compaction selected messages are stale');
+              }
+              const compacted = compactRange(parent, selectedIds, summary);
+              summaryMessageId = Object.keys(compacted.messages).find(
+                (id) =>
+                  !Object.hasOwn(parent.messages, id) && compacted.messages[id].type === 'summary',
+              );
+              if (!summaryMessageId)
+                throw new Error('Automation compaction summary was not created');
+              const currentState =
+                compacted.middlewareState?.[continuation.participantId]?.[
+                  continuation.middlewareInstanceId
+                ];
+              const existing =
+                currentState && typeof currentState === 'object' && !Array.isArray(currentState)
+                  ? currentState
+                  : {};
+              return {
+                ...compacted,
+                middlewareState: {
+                  ...compacted.middlewareState,
+                  [continuation.participantId]: {
+                    ...compacted.middlewareState?.[continuation.participantId],
+                    [continuation.middlewareInstanceId]: { ...existing, summaryMessageId },
+                  },
+                },
+              };
+            },
+            { expectedActiveBranchHead: continuation.observedParentHead },
+          );
+          parentHead = mutation.after.activeBranchHead;
+        }
+        try {
+          await approvals.recordAutomationParentCommitted(
+            approvalId,
+            summaryMessageId!,
+            parentHead!,
+          );
+        } catch (error) {
+          throw new RetryableAutomationError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        state = approvals.getRecord(approvalId)?.automationCompaction;
+      }
+      const parent = await this.store.load(continuation.parentConversationId);
+      const committedParentHead = state?.parentHead ?? parentHead;
+      if (
+        !parent ||
+        !committedParentHead ||
+        !getActiveChain(parent).some((message) => message.id === committedParentHead)
+      ) {
+        throw new Error('Automation compaction parent checkpoint is stale');
+      }
+      const parentClaim = await approvals.claimAutomationParentExecution(approvalId);
+      if (parentClaim !== 'claimed') {
+        const cached = approvals.getRecord(approvalId)?.routerResult;
+        if (cached) return cached;
+        return {
+          conversationId: continuation.parentConversationId,
+          status: 'error',
+          error: 'Automation parent outcome unknown and was not retried',
+        };
+      }
+      parentClaimed = true;
+      try {
+        await this.archiveAutomationHelper(continuation);
+      } catch (error) {
+        throw new RetryableAutomationError(error instanceof Error ? error.message : String(error));
+      }
+      const checkpoint = continuation.parentCheckpoint;
+      const action = {
+        requestId: checkpoint.request.requestId,
+        participantId: continuation.participantId,
+        instanceId: continuation.middlewareInstanceId,
+        tool: checkpoint.request.tool,
+        status: 'success' as const,
+        result: { status: 'success' as const, data: { summaryMessageId } },
+      };
+      await approvals.recordMiddlewareActionResult(
+        {
+          operationId: checkpoint.operationId,
+          conversationId: checkpoint.conversationId,
+          participantId: continuation.participantId,
+          instanceId: continuation.middlewareInstanceId,
+          requestId: checkpoint.request.requestId,
+          tool: checkpoint.request.tool,
+          args: checkpoint.request.arguments,
+        },
+        action,
+      );
+      if (!this.middlewareRunner) throw new Error('Automation compaction parent unavailable');
+      const resumed = await this.middlewareRunner.resumeAutomationParent(
+        continuation,
+        new ConversationThread(parent, this.store),
+        action,
+        parent.activeBranchHead,
+      );
+      let result: MessageRouterResult;
+      if (resumed.kind === 'continue') {
+        result = await this.resumeNonPromptCheckpoint(
+          continuation.parentCheckpoint,
+          resumed,
+          context,
+          approvalId,
+        );
+      } else if (resumed.kind === 'pending_approval') {
+        result = {
+          conversationId: continuation.parentConversationId,
+          status: 'pending_approval',
+          approvalId: resumed.approvalId,
+          checkpointId: resumed.checkpointId,
+          pendingParticipantId: resumed.participantId,
+        };
+      } else {
+        throw new Error(
+          resumed.kind === 'abort' || resumed.kind === 'reject'
+            ? resumed.error
+            : 'Automation compaction parent could not continue',
+        );
+      }
+      if (result.status === 'pending_approval') {
+        const successors = [
+          ...new Set([
+            ...(result.approvalId ? [result.approvalId] : []),
+            ...(result.approvalRequests?.map((request) => request.approvalId) ?? []),
+          ]),
+        ];
+        if (successors.length > 0) {
+          await approvals.terminalizeAutomationSuccess(approvalId, {
+            successorApprovalIds: successors,
+          });
+        }
+        return result;
+      }
+      await approvals.terminalizeAutomationSuccess(approvalId, {
+        routerResult: result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
+      });
+      return result;
+    } catch (error) {
+      if (parentClaimed) {
+        const result = await approvals.markAutomationParentExecutionUnknown(approvalId);
+        try {
+          await approvals.acknowledge(approvalId);
+        } catch {
+          // Unknown parent outcome is terminal and must never replay.
+        }
+        return result;
+      }
+      if (error instanceof RetryableAutomationError) {
+        return {
+          conversationId: continuation.parentConversationId,
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+      return this.failAutomationCompaction(
+        approvalId,
+        continuation,
+        error instanceof Error ? error.message : String(error),
+        approvals,
+      );
+    }
+  }
+
+  private async failAutomationCompaction(
+    approvalId: string,
+    continuation: AutomationCompactionContinuation,
+    error: string,
+    approvals: PendingApprovalRegistry,
+  ): Promise<MessageRouterResult> {
+    const result = await approvals.terminalizeAutomationFailure(approvalId, error);
+    await this.archiveAutomationHelper(continuation);
+    await approvals.acknowledge(approvalId);
+    return result;
+  }
+
+  private async archiveAutomationHelper(
+    continuation: AutomationCompactionContinuation,
+  ): Promise<void> {
+    await archiveAutomationHelper(this.store, continuation);
+  }
+
+  private matchesAutomationHelper(
+    helper: Awaited<ReturnType<ConversationStore['load']>>,
+    continuation: AutomationCompactionContinuation,
+  ): boolean {
+    return (
+      helper?.origin?.kind === 'middleware' &&
+      helper.origin.participantId === continuation.participantId &&
+      helper.origin.middlewareInstanceId === continuation.middlewareInstanceId &&
+      helper.origin.parentConversationId === continuation.parentConversationId &&
+      helper.origin.parentMessageId === continuation.parentMessageId
+    );
+  }
+
+  private automationCompactionSeed(
+    continuation: AutomationCompactionContinuation,
+  ): AutomationCompactionSeed {
+    const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
+    return seed;
+  }
+
+  private async automationSummaryAfterResume(
+    continuation: AutomationCompactionContinuation,
+    value: MessageDraft | import('@legion/types').MessageData | string,
+  ): Promise<string | undefined> {
+    const helper = await this.store.load(continuation.helperConversationId);
+    const finalMessage = helper?.messages[helper.activeBranchHead];
+    if (finalMessage?.role === 'assistant') return finalMessage.content;
+    return typeof value === 'string' ? value : value.content;
   }
 
   private async resumeNonPromptCheckpoint(
@@ -1260,6 +1748,7 @@ export class MessageRouter implements MessageRouterPort {
         mode: checkpoint.mode ?? 'pre_runtime',
         signal: context.signal,
         skipDraftHooks: true,
+        approvalContinuationSeed: context.approvalContinuationSeed,
       });
       if (inbound.kind === 'error' || inbound.kind === 'pending_approval') {
         return this.mapLifecycleResult(inbound, thread.id, context);
@@ -1307,6 +1796,7 @@ export class MessageRouter implements MessageRouterPort {
         ...(checkpoint.iteration === undefined ? {} : { iteration: checkpoint.iteration }),
         ...(checkpoint.mode === undefined ? {} : { mode: checkpoint.mode }),
         signal: context.signal,
+        approvalContinuationSeed: context.approvalContinuationSeed,
       });
       if (beforeReceive.kind !== 'continue') {
         return this.mapLifecycleResult(
@@ -1339,6 +1829,7 @@ export class MessageRouter implements MessageRouterPort {
         mode: checkpoint.mode ?? 'pre_runtime',
         actions: resumed.actions,
         signal: context.signal,
+        approvalContinuationSeed: context.approvalContinuationSeed,
       });
       return this.finishAfterReceive(
         checkpoint.operationId,
@@ -1450,7 +1941,15 @@ export class MessageRouter implements MessageRouterPort {
           error: 'Approval continuation is unavailable',
         };
       }
-      const providerClaim = await approvals.claimProviderExecution(approvalId);
+      const approvalRecord = approvals.getRecord(approvalId);
+      const automationParent =
+        approvalRecord?.continuation?.kind === 'automation_compaction' &&
+        approvalRecord.automationCompaction?.lifecycle === 'parent_committed';
+      const providerClaim = automationParent
+        ? approvalRecord.automationCompaction?.parentExecution === 'executing'
+          ? 'claimed'
+          : await approvals.claimAutomationParentExecution(approvalId)
+        : await approvals.claimProviderExecution(approvalId);
       if (providerClaim !== 'claimed') {
         const cached = approvals.getRecord(approvalId)?.routerResult;
         if (cached) return cached;
@@ -1479,7 +1978,13 @@ export class MessageRouter implements MessageRouterPort {
         result,
       );
     } catch {
-      if (providerClaimed) return approvals!.markProviderExecutionUnknown(approvalId);
+      if (providerClaimed) {
+        const record = approvals!.getRecord(approvalId);
+        return record?.continuation?.kind === 'automation_compaction' &&
+          record.automationCompaction?.lifecycle === 'parent_committed'
+          ? approvals!.markAutomationParentExecutionUnknown(approvalId)
+          : approvals!.markProviderExecutionUnknown(approvalId);
+      }
       return {
         conversationId: thread.id,
         status: 'error',

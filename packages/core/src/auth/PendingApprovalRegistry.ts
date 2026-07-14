@@ -1,9 +1,18 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { MiddlewareActionResult, MiddlewareCheckpoint, ToolResult } from '@legion/types';
+import type {
+  ConversationData,
+  JSONValue,
+  MessageData,
+  MiddlewareActionResult,
+  MiddlewareCheckpoint,
+  ToolResult,
+} from '@legion/types';
 import { LegionError } from '../errors/LegionError.js';
 import { cloneJsonSafe } from '../middleware/json.js';
 import type { Storage } from '../storage/Storage.js';
 import { createId } from '../util/ids.js';
+import type { ConversationStore } from '../conversation/ConversationStore.js';
+import { ConversationNotFoundError } from '../errors/LegionError.js';
 
 export interface ApprovalDecision {
   approved: boolean;
@@ -12,10 +21,43 @@ export interface ApprovalDecision {
   decidedAt: string;
 }
 
-export type ApprovalContinuation = {
+export type MiddlewareApprovalContinuation = {
   kind: 'middleware';
   checkpoint: MiddlewareCheckpoint;
 };
+
+export interface AutomationCompactionContinuation {
+  kind: 'automation_compaction';
+  parentConversationId: string;
+  helperConversationId: string;
+  participantId: string;
+  middlewareInstanceId: string;
+  middlewareRevision: number;
+  middlewareType: string;
+  middlewareConfig: JSONValue;
+  observedParentHead: string;
+  selectedMessages: MessageData[];
+  parentMessageId: string;
+  helperContinuation: MiddlewareApprovalContinuation;
+  parentCheckpoint: MiddlewareCheckpoint;
+}
+
+export type AutomationCompactionSeed = Omit<
+  AutomationCompactionContinuation,
+  'kind' | 'helperContinuation'
+>;
+
+export type ApprovalContinuation =
+  | MiddlewareApprovalContinuation
+  | AutomationCompactionContinuation;
+
+export interface AutomationCompactionState {
+  lifecycle: 'waiting' | 'summary_ready' | 'parent_committed' | 'completed' | 'unknown';
+  summary?: string;
+  summaryMessageId?: string;
+  parentHead?: string;
+  parentExecution?: 'executing' | 'completed' | 'unknown';
+}
 
 export interface PendingApprovalInput {
   conversationId: string;
@@ -37,6 +79,7 @@ export interface ApprovalRecord extends PendingApprovalInput {
   successorApprovalId?: string;
   successorApprovalIds?: string[];
   providerExecution?: 'pending' | 'executing' | 'completed' | 'unknown';
+  automationCompaction?: AutomationCompactionState;
 }
 
 export interface ApprovalRouterResult {
@@ -70,7 +113,7 @@ export interface MiddlewareActionInput {
 }
 
 export interface MiddlewareActionRecord extends MiddlewareActionInput {
-  lifecycle: 'executing' | 'completed';
+  lifecycle: 'executing' | 'suspended' | 'completed';
   result?: MiddlewareActionResult;
   createdAt: string;
 }
@@ -542,15 +585,19 @@ function snapshotMiddlewareActionRecord(value: MiddlewareActionRecord): Middlewa
     tool: record.tool as string,
     args: record.args,
   });
-  if (record.lifecycle !== 'executing' && record.lifecycle !== 'completed') {
+  if (
+    record.lifecycle !== 'executing' &&
+    record.lifecycle !== 'suspended' &&
+    record.lifecycle !== 'completed'
+  ) {
     throw new TypeError('Middleware action lifecycle is invalid');
   }
   requiredIsoString(record.createdAt, '$.middlewareActionRecord.createdAt');
   if (record.lifecycle === 'completed' && record.result === undefined) {
     throw new TypeError('Completed middleware action requires result');
   }
-  if (record.lifecycle === 'executing' && record.result !== undefined) {
-    throw new TypeError('Executing middleware action may not have result');
+  if (record.lifecycle !== 'completed' && record.result !== undefined) {
+    throw new TypeError('Non-terminal middleware action may not have result');
   }
   const result =
     record.result === undefined
@@ -795,21 +842,99 @@ function snapshotContinuation(
   value: ApprovalContinuation | undefined,
 ): ApprovalContinuation | undefined {
   if (value === undefined) return undefined;
-  const continuation = exactObject(value, '$.continuation', ['kind', 'checkpoint']);
-  if (continuation.kind !== 'middleware') {
-    throw new TypeError('Approval continuation must be a middleware checkpoint');
+  if (value.kind === 'middleware') {
+    const continuation = exactObject(value, '$.continuation', ['kind', 'checkpoint']);
+    validateCheckpoint(continuation.checkpoint);
+    const cloned = cloneJsonSafe(continuation, '$.continuation') as MiddlewareApprovalContinuation;
+    requiredString(cloned.checkpoint.checkpointId, 'continuation.checkpoint.checkpointId');
+    requiredString(cloned.checkpoint.conversationId, 'continuation.checkpoint.conversationId');
+    return cloned;
   }
-  validateCheckpoint(continuation.checkpoint);
-  const cloned = cloneJsonSafe(continuation, '$.continuation') as ApprovalContinuation;
-  requiredString(cloned.checkpoint.checkpointId, 'continuation.checkpoint.checkpointId');
-  requiredString(cloned.checkpoint.conversationId, 'continuation.checkpoint.conversationId');
-  return cloned;
+  const continuation = exactObject(value, '$.continuation', [
+    'kind',
+    'parentConversationId',
+    'helperConversationId',
+    'participantId',
+    'middlewareInstanceId',
+    'middlewareRevision',
+    'middlewareType',
+    'middlewareConfig',
+    'observedParentHead',
+    'selectedMessages',
+    'parentMessageId',
+    'helperContinuation',
+    'parentCheckpoint',
+  ]);
+  if (continuation.kind !== 'automation_compaction') {
+    throw new TypeError('Approval continuation kind is invalid');
+  }
+  for (const field of [
+    'parentConversationId',
+    'helperConversationId',
+    'participantId',
+    'middlewareInstanceId',
+    'middlewareType',
+    'observedParentHead',
+    'parentMessageId',
+  ]) {
+    requiredString(continuation[field], `$.continuation.${field}`);
+  }
+  requiredInteger(continuation.middlewareRevision, '$.continuation.middlewareRevision');
+  cloneJsonSafe(continuation.middlewareConfig, '$.continuation.middlewareConfig');
+  if (!Array.isArray(continuation.selectedMessages) || continuation.selectedMessages.length === 0) {
+    throw new TypeError('Automation compaction selectedMessages must be a non-empty array');
+  }
+  const selected = continuation.selectedMessages.map((message, index) =>
+    validateMessage(
+      message,
+      `$.continuation.selectedMessages[${index}]`,
+      continuation.parentConversationId as string,
+    ),
+  );
+  if (selected.at(-1)?.id !== continuation.parentMessageId) {
+    throw new TypeError('Automation compaction parentMessageId must match selected prefix');
+  }
+  const helper = snapshotContinuation(
+    continuation.helperContinuation as MiddlewareApprovalContinuation,
+  );
+  if (helper?.kind !== 'middleware') {
+    throw new TypeError('Automation compaction helper continuation must be middleware');
+  }
+  validateCheckpoint(continuation.parentCheckpoint);
+  const parentCheckpoint = continuation.parentCheckpoint as MiddlewareCheckpoint;
+  if (
+    parentCheckpoint.conversationId !== continuation.parentConversationId ||
+    parentCheckpoint.participantId !== continuation.participantId ||
+    parentCheckpoint.instanceId !== continuation.middlewareInstanceId ||
+    parentCheckpoint.middlewareRevision !== continuation.middlewareRevision ||
+    parentCheckpoint.middlewareType !== continuation.middlewareType ||
+    !isDeepStrictEqual(parentCheckpoint.middlewareConfig, continuation.middlewareConfig)
+  ) {
+    throw new TypeError('Automation compaction parent checkpoint does not match snapshot');
+  }
+  return cloneJsonSafe(
+    continuation,
+    '$.continuation',
+  ) as unknown as AutomationCompactionContinuation;
 }
 
 function validateContinuationBinding(
   input: PendingApprovalInput,
   continuation: ApprovalContinuation,
 ): void {
+  if (continuation.kind === 'automation_compaction') {
+    const helper = continuation.helperContinuation.checkpoint;
+    if (
+      helper.conversationId !== input.conversationId ||
+      helper.participantId !== input.requesterId ||
+      helper.request.tool !== input.tool ||
+      !isDeepStrictEqual(helper.request.arguments, input.args) ||
+      continuation.helperConversationId !== input.conversationId
+    ) {
+      throw new TypeError('Automation helper continuation must match approval');
+    }
+    return;
+  }
   const checkpoint = continuation.checkpoint;
   if (checkpoint.conversationId !== input.conversationId) {
     throw new TypeError('Middleware checkpoint conversationId must match approval conversationId');
@@ -883,6 +1008,9 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.providerExecution === undefined
       ? {}
       : { providerExecution: cloned.providerExecution }),
+    ...(cloned.automationCompaction === undefined
+      ? {}
+      : { automationCompaction: snapshotAutomationState(cloned.automationCompaction) }),
   };
   if (
     record.providerExecution !== undefined &&
@@ -924,7 +1052,109 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
   ) {
     throw new TypeError('Approval resumeResult requires middleware continuation');
   }
+  const automationContinuation = record.continuation?.kind === 'automation_compaction';
+  if (
+    record.lifecycle !== 'acknowledged' &&
+    automationContinuation !== !!record.automationCompaction
+  ) {
+    throw new TypeError('Automation compaction continuation and state must coexist');
+  }
+  if (
+    record.lifecycle === 'pending' &&
+    record.automationCompaction?.lifecycle !== undefined &&
+    record.automationCompaction.lifecycle !== 'waiting'
+  ) {
+    throw new TypeError('Pending automation compaction must be waiting');
+  }
+  if (
+    record.automationCompaction?.lifecycle === 'completed' &&
+    record.routerResult === undefined &&
+    record.successorApprovalId === undefined &&
+    record.successorApprovalIds === undefined
+  ) {
+    throw new TypeError('Completed automation compaction requires terminal routing data');
+  }
+  if (
+    record.automationCompaction?.lifecycle === 'unknown' &&
+    (record.routerResult?.status !== 'error' || record.lifecycle === 'pending')
+  ) {
+    throw new TypeError('Unknown automation compaction requires terminal router error');
+  }
+  if (record.automationCompaction && record.routerResult && record.resumeResult === undefined) {
+    throw new TypeError('Automation compaction router result requires terminal resume result');
+  }
+  if (
+    record.lifecycle === 'acknowledged' &&
+    record.automationCompaction?.lifecycle === 'parent_committed'
+  ) {
+    throw new TypeError('Acknowledged automation compaction must be terminal');
+  }
+  if (
+    record.automationCompaction &&
+    (record.successorApprovalIds?.length === 0 ||
+      (record.successorApprovalId !== undefined &&
+        record.successorApprovalIds !== undefined &&
+        record.successorApprovalIds[0] !== record.successorApprovalId))
+  ) {
+    throw new TypeError('Automation compaction successor linkage is invalid');
+  }
   return record;
+}
+
+function snapshotAutomationState(value: AutomationCompactionState): AutomationCompactionState {
+  const state = exactObject(
+    value,
+    '$.automationCompaction',
+    ['lifecycle'],
+    ['summary', 'summaryMessageId', 'parentHead', 'parentExecution'],
+  );
+  if (
+    !['waiting', 'summary_ready', 'parent_committed', 'completed', 'unknown'].includes(
+      state.lifecycle as string,
+    )
+  ) {
+    throw new TypeError('Automation compaction lifecycle is invalid');
+  }
+  if (state.summary !== undefined) requiredString(state.summary, '$.automationCompaction.summary');
+  if (state.summaryMessageId !== undefined) {
+    requiredString(state.summaryMessageId, '$.automationCompaction.summaryMessageId');
+  }
+  if (state.parentHead !== undefined) {
+    requiredString(state.parentHead, '$.automationCompaction.parentHead');
+  }
+  if (
+    state.parentExecution !== undefined &&
+    !['executing', 'completed', 'unknown'].includes(state.parentExecution as string)
+  ) {
+    throw new TypeError('Automation parent execution lifecycle is invalid');
+  }
+  const hasSummary = state.summary !== undefined;
+  const hasCommit = state.summaryMessageId !== undefined && state.parentHead !== undefined;
+  const hasPartialCommit = state.summaryMessageId !== undefined || state.parentHead !== undefined;
+  const valid =
+    (state.lifecycle === 'waiting' &&
+      !hasSummary &&
+      !hasPartialCommit &&
+      state.parentExecution === undefined) ||
+    (state.lifecycle === 'summary_ready' &&
+      hasSummary &&
+      !hasPartialCommit &&
+      state.parentExecution === undefined) ||
+    (state.lifecycle === 'parent_committed' &&
+      hasSummary &&
+      hasCommit &&
+      state.parentExecution !== 'unknown') ||
+    (state.lifecycle === 'completed' &&
+      hasSummary &&
+      hasCommit &&
+      state.parentExecution === 'completed') ||
+    (state.lifecycle === 'unknown' &&
+      ((!hasSummary && !hasPartialCommit && state.parentExecution === undefined) ||
+        (hasSummary && hasCommit && state.parentExecution === 'unknown')));
+  if (!valid) {
+    throw new TypeError('Automation compaction lifecycle fields are inconsistent');
+  }
+  return cloneJsonSafe(state, '$.automationCompaction') as unknown as AutomationCompactionState;
 }
 
 function snapshotRouterResult(value: ApprovalRouterResult): ApprovalRouterResult {
@@ -993,13 +1223,23 @@ function normalizeData(value: unknown): RegistryData {
     ) {
       throw new TypeError('Pending approval registry genericResumes must be a valid plain object');
     }
+    const records = Object.fromEntries(
+      Object.entries(data.records).map(([approvalId, record]) => [
+        approvalId,
+        snapshotRecord(record),
+      ]),
+    );
+    for (const record of Object.values(records)) {
+      if (!record.automationCompaction) continue;
+      const successors =
+        record.successorApprovalIds ??
+        (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
+      if (successors.some((approvalId) => records[approvalId] === undefined)) {
+        throw new TypeError('Automation compaction successor linkage is invalid');
+      }
+    }
     return {
-      records: Object.fromEntries(
-        Object.entries(data.records).map(([approvalId, record]) => [
-          approvalId,
-          snapshotRecord(record),
-        ]),
-      ),
+      records,
       middlewareActions: Object.fromEntries(
         Object.entries(middlewareActions).map(([key, action]) => [
           key,
@@ -1041,6 +1281,15 @@ function recovery(data: RegistryData): boolean {
   for (const record of Object.values(data.records)) {
     if (
       record.lifecycle === 'resuming' &&
+      record.continuation?.kind === 'automation_compaction' &&
+      record.automationCompaction?.lifecycle === 'waiting' &&
+      record.providerExecution !== 'executing'
+    ) {
+      record.lifecycle = 'decided';
+      changed = true;
+    }
+    if (
+      record.lifecycle === 'resuming' &&
       record.continuation?.kind === 'middleware' &&
       record.resumeResult === undefined
     ) {
@@ -1050,10 +1299,30 @@ function recovery(data: RegistryData): boolean {
     }
     if (record.providerExecution === 'executing') {
       record.providerExecution = 'unknown';
+      if (record.automationCompaction) record.automationCompaction.lifecycle = 'unknown';
       record.routerResult = {
-        conversationId: record.conversationId,
+        conversationId:
+          record.continuation?.kind === 'automation_compaction'
+            ? record.continuation.parentConversationId
+            : record.conversationId,
         status: 'error',
-        error: 'Middleware provider outcome unknown and was not retried',
+        error:
+          record.continuation?.kind === 'automation_compaction'
+            ? 'Automation summary provider outcome unknown and was not retried'
+            : 'Middleware provider outcome unknown and was not retried',
+      };
+      changed = true;
+    }
+    if (record.automationCompaction?.parentExecution === 'executing') {
+      record.automationCompaction.parentExecution = 'unknown';
+      record.automationCompaction.lifecycle = 'unknown';
+      record.routerResult = {
+        conversationId:
+          record.continuation?.kind === 'automation_compaction'
+            ? record.continuation.parentConversationId
+            : record.conversationId,
+        status: 'error',
+        error: 'Automation parent provider outcome unknown and was not retried',
       };
       changed = true;
     }
@@ -1072,6 +1341,36 @@ function recovery(data: RegistryData): boolean {
     }
   }
   return changed;
+}
+
+function matchesAutomationHelper(
+  helper: ConversationData,
+  continuation: AutomationCompactionContinuation,
+): boolean {
+  return (
+    helper.origin?.kind === 'middleware' &&
+    helper.origin.participantId === continuation.participantId &&
+    helper.origin.middlewareInstanceId === continuation.middlewareInstanceId &&
+    helper.origin.parentConversationId === continuation.parentConversationId &&
+    helper.origin.parentMessageId === continuation.parentMessageId
+  );
+}
+
+export async function archiveAutomationHelper(
+  conversationStore: ConversationStore,
+  continuation: AutomationCompactionContinuation,
+): Promise<boolean> {
+  let archived = false;
+  try {
+    await conversationStore.mutate(continuation.helperConversationId, (helper) => {
+      if (!matchesAutomationHelper(helper, continuation)) return helper;
+      archived = true;
+      return helper.status === 'archived' ? helper : { ...helper, status: 'archived' };
+    });
+  } catch (error) {
+    if (!(error instanceof ConversationNotFoundError)) throw error;
+  }
+  return archived;
 }
 
 export class PendingApprovalRegistry {
@@ -1093,6 +1392,19 @@ export class PendingApprovalRegistry {
     if (upgradeRecordsOnly || recovery(registry.data))
       await storage.writeJson(STORAGE_KEY, registry.data);
     return registry;
+  }
+
+  async reconcileAutomationHelpers(conversationStore: ConversationStore): Promise<void> {
+    const continuations = Object.values(this.data.records)
+      .filter(
+        (record) =>
+          record.automationCompaction?.lifecycle === 'unknown' &&
+          record.continuation?.kind === 'automation_compaction',
+      )
+      .map((record) => record.continuation as AutomationCompactionContinuation);
+    for (const continuation of continuations) {
+      await archiveAutomationHelper(conversationStore, continuation);
+    }
   }
 
   private async mutate<T>(operation: (data: RegistryData) => T | Promise<T>): Promise<T> {
@@ -1119,8 +1431,37 @@ export class PendingApprovalRegistry {
     return task;
   }
 
-  async create(input: PendingApprovalInput): Promise<{ approvalId: string }> {
+  async withAutomationCompactionLock<T>(
+    approvalId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.storage) return operation();
+    return this.storage.withLock(`${STORAGE_KEY}:${approvalId}:automation`, async () => {
+      await this.mutate(() => undefined);
+      return operation();
+    });
+  }
+
+  async create(
+    input: PendingApprovalInput,
+    automationCompactionSeed?: AutomationCompactionSeed,
+  ): Promise<{ approvalId: string }> {
     const snapshot = snapshotInput(input);
+    if (automationCompactionSeed !== undefined) {
+      if (snapshot.continuation?.kind !== 'middleware') {
+        throw new TypeError('Automation compaction seed requires middleware continuation');
+      }
+      const continuation = snapshotContinuation({
+        ...automationCompactionSeed,
+        kind: 'automation_compaction',
+        helperContinuation: snapshot.continuation,
+      });
+      if (continuation?.kind !== 'automation_compaction') {
+        throw new TypeError('Automation compaction continuation is required');
+      }
+      validateContinuationBinding(snapshot, continuation);
+      snapshot.continuation = continuation;
+    }
     return this.mutate((data) => {
       const approvalId = createId('appr');
       data.records[approvalId] = {
@@ -1128,8 +1469,295 @@ export class PendingApprovalRegistry {
         approvalId,
         createdAt: new Date().toISOString(),
         lifecycle: 'pending',
+        ...(snapshot.continuation?.kind === 'automation_compaction'
+          ? { automationCompaction: { lifecycle: 'waiting' as const } }
+          : {}),
       };
+      if (snapshot.continuation?.kind === 'automation_compaction') {
+        const checkpoint = snapshot.continuation.parentCheckpoint;
+        const action =
+          data.middlewareActions[
+            middlewareActionKey({
+              operationId: checkpoint.operationId,
+              conversationId: checkpoint.conversationId,
+              participantId: checkpoint.participantId,
+              instanceId: checkpoint.instanceId,
+              requestId: checkpoint.request.requestId,
+              tool: checkpoint.request.tool,
+              args: checkpoint.request.arguments,
+            })
+          ];
+        if (action?.lifecycle === 'completed') {
+          throw new LegionError('Automation parent action already completed', 'APPROVAL_CONFLICT');
+        }
+        if (action) action.lifecycle = 'suspended';
+      }
       return { approvalId };
+    });
+  }
+
+  async transferAutomationCompaction(
+    approvalId: string,
+    successorApprovalIds: string[],
+  ): Promise<void> {
+    if (successorApprovalIds.length === 0) return;
+    await this.mutate((data) => {
+      const source = data.records[approvalId];
+      if (source?.continuation?.kind !== 'automation_compaction') {
+        throw new LegionError(
+          'Automation compaction continuation unavailable',
+          'APPROVAL_CONFLICT',
+        );
+      }
+      for (const successorApprovalId of successorApprovalIds) {
+        const successor = data.records[successorApprovalId];
+        if (!successor || successor.lifecycle !== 'pending' || !successor.continuation) {
+          throw new LegionError('Automation compaction successor is invalid', 'APPROVAL_CONFLICT');
+        }
+        if (successor.continuation.kind === 'automation_compaction') {
+          const { helperContinuation: _sourceHelper, ...sourceSeed } = source.continuation;
+          const { helperContinuation: _successorHelper, ...successorSeed } = successor.continuation;
+          if (
+            !isDeepStrictEqual(sourceSeed, successorSeed) ||
+            successor.automationCompaction?.lifecycle !== 'waiting'
+          ) {
+            throw new LegionError(
+              'Automation compaction successor is invalid',
+              'APPROVAL_CONFLICT',
+            );
+          }
+          continue;
+        }
+        const continuation = snapshotContinuation({
+          ...source.continuation,
+          helperContinuation: successor.continuation,
+        });
+        if (continuation?.kind !== 'automation_compaction') {
+          throw new LegionError('Automation compaction successor is invalid', 'APPROVAL_CONFLICT');
+        }
+        validateContinuationBinding(successor, continuation);
+        successor.continuation = continuation;
+        successor.automationCompaction = { lifecycle: 'waiting' };
+      }
+      const existing =
+        source.successorApprovalIds ??
+        (source.successorApprovalId === undefined ? [] : [source.successorApprovalId]);
+      const merged = [...existing, ...successorApprovalIds.filter((id) => !existing.includes(id))];
+      source.successorApprovalIds = merged;
+      source.successorApprovalId = merged[0];
+      if (source.providerExecution === 'executing') source.providerExecution = 'completed';
+      if (source.lifecycle === 'resuming') {
+        source.resumeResult = { status: 'success', data: { successorApprovalIds: merged } };
+        source.lifecycle = 'decided';
+      }
+      return undefined;
+    });
+  }
+
+  async recordAutomationSummary(approvalId: string, summary: string): Promise<void> {
+    const snapshot = requiredString(summary, 'automation summary');
+    await this.mutate((data) => {
+      const record = data.records[approvalId];
+      const state = record?.automationCompaction;
+      if (!record || record.continuation?.kind !== 'automation_compaction' || !state) {
+        throw new LegionError(
+          'Automation compaction continuation unavailable',
+          'APPROVAL_CONFLICT',
+        );
+      }
+      if (state.summary !== undefined && state.summary !== snapshot) {
+        throw new LegionError('Conflicting automation compaction summary', 'APPROVAL_CONFLICT');
+      }
+      state.summary = snapshot;
+      if (record.providerExecution === 'executing') record.providerExecution = 'completed';
+      if (state.lifecycle === 'waiting') state.lifecycle = 'summary_ready';
+      return undefined;
+    });
+  }
+
+  async recordAutomationParentCommitted(
+    approvalId: string,
+    summaryMessageId: string,
+    parentHead: string,
+  ): Promise<void> {
+    const snapshot = requiredString(summaryMessageId, 'automation summaryMessageId');
+    const headSnapshot = requiredString(parentHead, 'automation parentHead');
+    await this.mutate((data) => {
+      const state = data.records[approvalId]?.automationCompaction;
+      if (!state || state.summary === undefined) {
+        throw new LegionError('Automation compaction summary is unavailable', 'APPROVAL_CONFLICT');
+      }
+      if (state.summaryMessageId !== undefined && state.summaryMessageId !== snapshot) {
+        throw new LegionError('Conflicting automation compaction commit', 'APPROVAL_CONFLICT');
+      }
+      if (state.parentHead !== undefined && state.parentHead !== headSnapshot) {
+        throw new LegionError('Conflicting automation compaction parent head', 'APPROVAL_CONFLICT');
+      }
+      state.summaryMessageId = snapshot;
+      state.parentHead = headSnapshot;
+      if (state.lifecycle !== 'completed') state.lifecycle = 'parent_committed';
+      return undefined;
+    });
+  }
+
+  async completeAutomationCompaction(approvalId: string): Promise<void> {
+    await this.mutate((data) => {
+      const state = data.records[approvalId]?.automationCompaction;
+      if (
+        !state ||
+        state.lifecycle !== 'parent_committed' ||
+        !state.summaryMessageId ||
+        state.parentExecution !== 'completed'
+      ) {
+        throw new LegionError('Automation compaction parent is not committed', 'APPROVAL_CONFLICT');
+      }
+      state.lifecycle = 'completed';
+      return undefined;
+    });
+  }
+
+  async terminalizeAutomationSuccess(
+    approvalId: string,
+    options: {
+      routerResult?: ApprovalRouterResult;
+      successorApprovalIds?: string[];
+    },
+  ): Promise<void> {
+    const routerResult =
+      options.routerResult === undefined ? undefined : snapshotRouterResult(options.routerResult);
+    const successorApprovalIds = options.successorApprovalIds?.map((id, index) =>
+      requiredString(id, `successorApprovalIds[${index}]`),
+    );
+    if (successorApprovalIds && successorApprovalIds.length === 0) {
+      throw new LegionError('Automation terminal successors are empty', 'APPROVAL_CONFLICT');
+    }
+    await this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      if (record.lifecycle === 'acknowledged') return undefined;
+      const state = record.automationCompaction;
+      if (
+        record.lifecycle !== 'decided' ||
+        record.resumeResult === undefined ||
+        record.continuation?.kind !== 'automation_compaction' ||
+        !state ||
+        (state.lifecycle !== 'parent_committed' && state.lifecycle !== 'completed')
+      ) {
+        throw new LegionError('Automation success cannot be terminalized', 'APPROVAL_CONFLICT');
+      }
+      if (routerResult !== undefined) {
+        if (record.routerResult && !isDeepStrictEqual(record.routerResult, routerResult)) {
+          throw new LegionError('Conflicting approval router result', 'APPROVAL_CONFLICT');
+        }
+        record.routerResult = routerResult;
+      }
+      if (successorApprovalIds !== undefined) {
+        if (new Set(successorApprovalIds).size !== successorApprovalIds.length) {
+          throw new LegionError('Duplicate approval successors', 'APPROVAL_CONFLICT');
+        }
+        for (const successorApprovalId of successorApprovalIds) {
+          if (!data.records[successorApprovalId]) {
+            throw new LegionError(
+              `Unknown approval request: ${successorApprovalId}`,
+              'APPROVAL_NOT_FOUND',
+            );
+          }
+        }
+        record.successorApprovalIds = successorApprovalIds;
+        record.successorApprovalId = successorApprovalIds[0];
+      }
+      const linkedSuccessors =
+        record.successorApprovalIds ??
+        (record.successorApprovalId === undefined ? [] : [record.successorApprovalId]);
+      if (record.routerResult === undefined && linkedSuccessors.length === 0) {
+        throw new LegionError(
+          'Automation terminal routing data is unavailable',
+          'APPROVAL_CONFLICT',
+        );
+      }
+      if (state.parentExecution !== 'completed' && state.parentExecution !== 'executing') {
+        throw new LegionError('Automation parent execution is not terminal', 'APPROVAL_CONFLICT');
+      }
+      state.parentExecution = 'completed';
+      state.lifecycle = 'completed';
+      record.lifecycle = 'acknowledged';
+      delete record.continuation;
+      return undefined;
+    });
+  }
+
+  async claimAutomationParentExecution(
+    approvalId: string,
+  ): Promise<'claimed' | 'completed' | 'unknown'> {
+    return this.mutate((data) => {
+      const record = data.records[approvalId];
+      const state = record?.automationCompaction;
+      if (!state || state.lifecycle !== 'parent_committed') {
+        throw new LegionError('Automation parent continuation unavailable', 'APPROVAL_CONFLICT');
+      }
+      if (state.parentExecution === 'completed' || record.routerResult) return 'completed';
+      if (state.parentExecution === 'unknown') return 'unknown';
+      if (state.parentExecution === 'executing') {
+        state.parentExecution = 'unknown';
+        return 'unknown';
+      }
+      state.parentExecution = 'executing';
+      return 'claimed';
+    });
+  }
+
+  async markAutomationParentExecutionUnknown(approvalId: string): Promise<ApprovalRouterResult> {
+    return this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record?.automationCompaction) {
+        throw new LegionError('Automation parent continuation unavailable', 'APPROVAL_CONFLICT');
+      }
+      const result: ApprovalRouterResult = {
+        conversationId:
+          record.continuation?.kind === 'automation_compaction'
+            ? record.continuation.parentConversationId
+            : record.conversationId,
+        status: 'error',
+        error: 'Automation parent provider outcome unknown and was not retried',
+      };
+      record.automationCompaction.parentExecution = 'unknown';
+      record.automationCompaction.lifecycle = 'unknown';
+      record.routerResult = result;
+      return result;
+    });
+  }
+
+  async terminalizeAutomationFailure(
+    approvalId: string,
+    error: string,
+  ): Promise<ApprovalRouterResult> {
+    const errorSnapshot = requiredString(error, 'automation failure');
+    return this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      if (record.routerResult?.status === 'error') {
+        return record.routerResult;
+      }
+      if (
+        (record.lifecycle !== 'decided' && record.lifecycle !== 'resuming') ||
+        record.continuation?.kind !== 'automation_compaction' ||
+        !record.automationCompaction
+      ) {
+        throw new LegionError('Automation failure cannot be terminalized', 'APPROVAL_CONFLICT');
+      }
+      const result: ApprovalRouterResult = {
+        conversationId: record.continuation.parentConversationId,
+        status: 'error',
+        error: errorSnapshot,
+      };
+      record.resumeResult ??= { status: 'error', error: errorSnapshot };
+      record.routerResult = result;
+      if (record.providerExecution === 'executing') record.providerExecution = 'completed';
+      record.automationCompaction = { lifecycle: 'unknown' };
+      record.lifecycle = 'decided';
+      return result;
     });
   }
 
@@ -1162,7 +1790,7 @@ export class PendingApprovalRegistry {
       ) {
         throw new LegionError('Conflicting middleware action claim', 'APPROVAL_CONFLICT');
       }
-      if (existing.lifecycle === 'executing') {
+      if (existing.lifecycle === 'executing' || existing.lifecycle === 'suspended') {
         return { kind: 'in_progress' };
       }
       return { kind: 'completed', result: existing.result! };
@@ -1209,9 +1837,27 @@ export class PendingApprovalRegistry {
     });
   }
 
+  async suspendMiddlewareAction(input: MiddlewareActionInput): Promise<void> {
+    const snapshot = snapshotMiddlewareActionInput(input);
+    const key = middlewareActionKey(snapshot);
+    await this.mutate((data) => {
+      const existing = data.middlewareActions[key];
+      if (!existing) throw new LegionError('Unknown middleware action claim', 'APPROVAL_NOT_FOUND');
+      if (existing.lifecycle === 'completed') {
+        throw new LegionError('Completed middleware action cannot suspend', 'APPROVAL_CONFLICT');
+      }
+      existing.lifecycle = 'suspended';
+      return undefined;
+    });
+  }
+
   getRecord(approvalId: string): ApprovalRecord | undefined {
     const record = this.data.records[approvalId];
     return record === undefined ? undefined : snapshotRecord(record);
+  }
+
+  async getAuthoritativeRecord(approvalId: string): Promise<ApprovalRecord | undefined> {
+    return this.mutate((data) => data.records[approvalId]);
   }
 
   /** Returns only records still awaiting an approval decision. */
@@ -1367,6 +2013,9 @@ export class PendingApprovalRegistry {
       }
       record.routerResult = snapshot;
       if (record.providerExecution === 'executing') record.providerExecution = 'completed';
+      if (record.automationCompaction?.parentExecution === 'executing') {
+        record.automationCompaction.parentExecution = 'completed';
+      }
       return undefined;
     });
   }
@@ -1440,6 +2089,9 @@ export class PendingApprovalRegistry {
       record.successorApprovalIds = merged;
       record.successorApprovalId = merged[0];
       if (record.providerExecution === 'executing') record.providerExecution = 'completed';
+      if (record.automationCompaction?.parentExecution === 'executing') {
+        record.automationCompaction.parentExecution = 'completed';
+      }
       if (record.lifecycle === 'resuming') {
         record.resumeResult = { status: 'success', data: { successorApprovalIds: merged } };
         record.lifecycle = 'decided';

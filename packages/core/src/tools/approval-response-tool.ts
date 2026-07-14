@@ -120,7 +120,7 @@ export const approvalResponseTool: Tool = {
         continue;
       }
 
-      if (record.continuation?.kind === 'middleware') {
+      if (record.continuation) {
         if (!messageRouter) {
           results.push({ approvalId, outcome: 'resume_pending' });
           continue;

@@ -3,8 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
-import { PendingApprovalRegistry } from './PendingApprovalRegistry.js';
+import {
+  PendingApprovalRegistry,
+  type AutomationCompactionContinuation,
+} from './PendingApprovalRegistry.js';
 import type { MessageData, MiddlewareCheckpoint } from '@legion/types';
+import { FileConversationStore } from '../conversation/FileConversationStore.js';
 
 function checkpoint(argumentsValue: Record<string, unknown> = { path: 'x' }): MiddlewareCheckpoint {
   return {
@@ -70,6 +74,50 @@ function afterSendCheckpoint(message = fullMessage()): MiddlewareCheckpoint {
   value.message = message;
   value.persistedMessageId = message.id;
   return value;
+}
+
+function automationContinuation(): AutomationCompactionContinuation {
+  const parentCheckpoint = checkpoint({
+    conversationId: 'parent',
+    messageIds: ['message-1'],
+    middlewareInstanceId: 'audit',
+    parentMessageId: 'message-1',
+  });
+  parentCheckpoint.conversationId = 'parent';
+  parentCheckpoint.middlewareConfig = { summarizerParticipantId: 'summarizer' };
+  parentCheckpoint.middlewareType = 'builtin:auto-compaction';
+  parentCheckpoint.request.tool = 'compact_conversation';
+  parentCheckpoint.request.arguments = {
+    conversationId: 'parent',
+    messageIds: ['message-1'],
+    middlewareInstanceId: 'audit',
+    parentMessageId: 'message-1',
+  };
+  const helperCheckpoint = checkpoint({ query: 'summary' });
+  helperCheckpoint.conversationId = 'helper';
+  helperCheckpoint.participantId = 'summarizer';
+  helperCheckpoint.request.tool = 'lookup';
+  helperCheckpoint.middlewareConfig = {};
+  return {
+    kind: 'automation_compaction',
+    parentConversationId: 'parent',
+    helperConversationId: 'helper',
+    participantId: 'agent-b',
+    middlewareInstanceId: 'audit',
+    middlewareRevision: 2,
+    middlewareType: 'builtin:auto-compaction',
+    middlewareConfig: { summarizerParticipantId: 'summarizer' },
+    observedParentHead: 'message-1',
+    selectedMessages: [{ ...fullMessage(), conversationId: 'parent' }],
+    parentMessageId: 'message-1',
+    helperContinuation: { kind: 'middleware', checkpoint: helperCheckpoint },
+    parentCheckpoint,
+  };
+}
+
+function automationSeed(continuation: AutomationCompactionContinuation) {
+  const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
+  return seed;
 }
 
 describe('PendingApprovalRegistry (in-memory)', () => {
@@ -172,6 +220,612 @@ describe('PendingApprovalRegistry (durable)', () => {
 });
 
 describe('PendingApprovalRegistry continuations', () => {
+  it('durably creates immutable automation compaction state', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    continuation.selectedMessages[0].content = 'mutated after attach';
+
+    const reloaded = await PendingApprovalRegistry.load(storage);
+    expect(reloaded.getRecord(approvalId)).toMatchObject({
+      lifecycle: 'pending',
+      continuation: {
+        kind: 'automation_compaction',
+        parentConversationId: 'parent',
+        helperConversationId: 'helper',
+        selectedMessages: [{ content: 'hello' }],
+      },
+      automationCompaction: { lifecycle: 'waiting' },
+    });
+  });
+
+  it('advances automation compaction finalization idempotently and rejects conflicting summaries', async () => {
+    const reg = new PendingApprovalRegistry();
+    const continuation = automationContinuation();
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(approvalId);
+    await reg.recordResumeResult(approvalId, { status: 'success' });
+
+    await reg.recordAutomationSummary(approvalId, 'summary');
+    await reg.recordAutomationSummary(approvalId, 'summary');
+    await expect(reg.recordAutomationSummary(approvalId, 'different')).rejects.toThrow(/conflict/i);
+    await reg.recordAutomationParentCommitted(approvalId, 'summary-message', 'parent-head');
+    await reg.claimAutomationParentExecution(approvalId);
+    await reg.recordRouterResult(approvalId, { conversationId: 'parent', status: 'success' });
+    await reg.completeAutomationCompaction(approvalId);
+
+    expect(reg.getRecord(approvalId)?.automationCompaction).toEqual({
+      lifecycle: 'completed',
+      summary: 'summary',
+      summaryMessageId: 'summary-message',
+      parentHead: 'parent-head',
+      parentExecution: 'completed',
+    });
+  });
+
+  it('records a decided automation failure atomically for cleanup and acknowledgement', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await reg.terminalizeAutomationFailure(
+      approvalId,
+      'Automation compaction helper provenance is stale',
+    );
+    const reloaded = await PendingApprovalRegistry.load(storage);
+
+    expect(result).toEqual({
+      conversationId: 'parent',
+      status: 'error',
+      error: 'Automation compaction helper provenance is stale',
+    });
+    expect(reloaded.getRecord(approvalId)).toMatchObject({
+      lifecycle: 'decided',
+      resumeResult: { status: 'error' },
+      routerResult: { conversationId: 'parent', status: 'error' },
+      continuation: { kind: 'automation_compaction' },
+    });
+    await expect(
+      reloaded.terminalizeAutomationFailure(approvalId, 'different retry error'),
+    ).resolves.toEqual(result);
+    await reloaded.acknowledge(approvalId);
+    expect(reloaded.getRecord(approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
+    expect(reloaded.getRecord(approvalId)?.continuation).toBeUndefined();
+  });
+
+  it('reloads every valid automation lifecycle and retries interrupted waiting middleware', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    expect(
+      (await PendingApprovalRegistry.load(storage)).getRecord(approvalId)?.automationCompaction,
+    ).toEqual({ lifecycle: 'waiting' });
+
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(approvalId);
+    const waitingRecovery = await PendingApprovalRegistry.load(storage);
+    expect(waitingRecovery.getRecord(approvalId)?.lifecycle).toBe('decided');
+    expect((await waitingRecovery.beginResume(approvalId)).status).toBe('ready');
+    await waitingRecovery.recordResumeResult(approvalId, { status: 'success' });
+    await waitingRecovery.recordAutomationSummary(approvalId, 'summary');
+    expect(
+      (await PendingApprovalRegistry.load(storage)).getRecord(approvalId)?.automationCompaction,
+    ).toEqual({ lifecycle: 'summary_ready', summary: 'summary' });
+
+    await waitingRecovery.recordAutomationParentCommitted(
+      approvalId,
+      'summary-message',
+      'parent-head',
+    );
+    expect(
+      (await PendingApprovalRegistry.load(storage)).getRecord(approvalId)?.automationCompaction,
+    ).toEqual({
+      lifecycle: 'parent_committed',
+      summary: 'summary',
+      summaryMessageId: 'summary-message',
+      parentHead: 'parent-head',
+    });
+    expect(await waitingRecovery.claimAutomationParentExecution(approvalId)).toBe('claimed');
+    await waitingRecovery.recordRouterResult(approvalId, {
+      conversationId: 'parent',
+      status: 'success',
+    });
+    await waitingRecovery.completeAutomationCompaction(approvalId);
+    expect(
+      (await PendingApprovalRegistry.load(storage)).getRecord(approvalId)?.automationCompaction,
+    ).toEqual({
+      lifecycle: 'completed',
+      summary: 'summary',
+      summaryMessageId: 'summary-message',
+      parentHead: 'parent-head',
+      parentExecution: 'completed',
+    });
+
+    const unknownStorage = new MemoryStorage();
+    const unknownReg = new PendingApprovalRegistry(unknownStorage);
+    const unknown = await unknownReg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    await unknownReg.resolve(unknown.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await unknownReg.beginResume(unknown.approvalId);
+    await unknownReg.recordResumeResult(unknown.approvalId, { status: 'success' });
+    await unknownReg.claimProviderExecution(unknown.approvalId);
+    expect(
+      (await PendingApprovalRegistry.load(unknownStorage)).getRecord(unknown.approvalId)
+        ?.automationCompaction,
+    ).toEqual({ lifecycle: 'unknown' });
+  });
+
+  it('archives an unknown automation helper during restart recovery without resuming it', async () => {
+    const storage = new MemoryStorage();
+    const store = new FileConversationStore(storage);
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const helper = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      origin: {
+        kind: 'middleware',
+        participantId: 'agent-b',
+        middlewareInstanceId: 'audit',
+        parentConversationId: parent.id,
+        parentMessageId: 'message-1',
+      },
+    });
+    const continuation = automationContinuation();
+    continuation.parentConversationId = parent.id;
+    continuation.helperConversationId = helper.id;
+    continuation.parentCheckpoint.conversationId = parent.id;
+    continuation.selectedMessages = continuation.selectedMessages.map((message) => ({
+      ...message,
+      conversationId: parent.id,
+    }));
+    continuation.helperContinuation.checkpoint.conversationId = helper.id;
+    const registry = new PendingApprovalRegistry(storage);
+    const { approvalId } = await registry.create(
+      {
+        conversationId: helper.id,
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    await registry.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await registry.beginResume(approvalId);
+    await registry.recordResumeResult(approvalId, { status: 'success' });
+    await registry.claimProviderExecution(approvalId);
+
+    const recovered = await PendingApprovalRegistry.load(storage);
+    expect(recovered.getRecord(approvalId)?.routerResult).toMatchObject({
+      status: 'error',
+      error: 'Automation summary provider outcome unknown and was not retried',
+    });
+    expect((await store.load(helper.id))?.status).toBeUndefined();
+    await recovered.reconcileAutomationHelpers(store);
+
+    expect((await store.load(helper.id))?.status).toBe('archived');
+    expect(recovered.getRecord(approvalId)?.routerResult).toMatchObject({
+      status: 'error',
+      error: 'Automation summary provider outcome unknown and was not retried',
+    });
+  });
+
+  it('does not archive an unrelated conversation targeted by a corrupt helper id', async () => {
+    const storage = new MemoryStorage();
+    const store = new FileConversationStore(storage);
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const helper = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      origin: {
+        kind: 'middleware',
+        participantId: 'agent-b',
+        middlewareInstanceId: 'audit',
+        parentConversationId: parent.id,
+        parentMessageId: 'message-1',
+      },
+    });
+    const unrelated = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'active',
+    });
+    const continuation = automationContinuation();
+    continuation.parentConversationId = parent.id;
+    continuation.helperConversationId = helper.id;
+    continuation.parentCheckpoint.conversationId = parent.id;
+    continuation.selectedMessages = continuation.selectedMessages.map((message) => ({
+      ...message,
+      conversationId: parent.id,
+    }));
+    continuation.helperContinuation.checkpoint.conversationId = helper.id;
+    const registry = new PendingApprovalRegistry(storage);
+    const { approvalId } = await registry.create(
+      {
+        conversationId: helper.id,
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    await registry.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await registry.beginResume(approvalId);
+    await registry.recordResumeResult(approvalId, { status: 'success' });
+    await registry.claimProviderExecution(approvalId);
+    const stored = (await storage.readJson<{
+      records: Record<
+        string,
+        {
+          conversationId: string;
+          continuation: AutomationCompactionContinuation;
+        }
+      >;
+    }>('pending-approvals/registry.json'))!;
+    const corrupt = stored.records[approvalId];
+    corrupt.conversationId = unrelated.id;
+    corrupt.continuation.helperConversationId = unrelated.id;
+    corrupt.continuation.helperContinuation.checkpoint.conversationId = unrelated.id;
+    await storage.writeJson('pending-approvals/registry.json', stored);
+
+    const recovered = await PendingApprovalRegistry.load(storage);
+    await recovered.reconcileAutomationHelpers(store);
+
+    expect((await store.load(unrelated.id))?.status).toBe('active');
+    expect((await store.load(helper.id))?.status).toBeUndefined();
+    expect(recovered.getRecord(approvalId)?.routerResult).toMatchObject({
+      status: 'error',
+      error: 'Automation summary provider outcome unknown and was not retried',
+    });
+    await expect(recovered.claimProviderExecution(approvalId)).resolves.toBe('completed');
+  });
+
+  it.each([
+    ['waiting summary', { lifecycle: 'waiting', summary: 'summary' }],
+    ['summary-ready missing summary', { lifecycle: 'summary_ready' }],
+    [
+      'parent-committed missing parent head',
+      { lifecycle: 'parent_committed', summary: 'summary', summaryMessageId: 'summary-message' },
+    ],
+    [
+      'completed executing parent',
+      {
+        lifecycle: 'completed',
+        summary: 'summary',
+        summaryMessageId: 'summary-message',
+        parentHead: 'parent-head',
+        parentExecution: 'executing',
+      },
+    ],
+    ['unknown summary without parent commit', { lifecycle: 'unknown', summary: 'summary' }],
+  ])('rejects malformed automation lifecycle combination: %s', async (_name, state) => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    const stored = await storage.readJson<{
+      records: Record<string, { automationCompaction: unknown }>;
+    }>('pending-approvals/registry.json');
+    stored!.records[approvalId].automationCompaction = state;
+    await storage.writeJson('pending-approvals/registry.json', stored);
+
+    await expect(PendingApprovalRegistry.load(storage)).rejects.toThrow(/automation compaction/i);
+  });
+
+  it.each([
+    [
+      'automation state without automation continuation',
+      (record: Record<string, unknown>) => {
+        record.continuation = automationContinuation().helperContinuation;
+      },
+    ],
+    [
+      'automation continuation without state',
+      (record: Record<string, unknown>) => {
+        delete record.automationCompaction;
+      },
+    ],
+    [
+      'completed state without terminal router result',
+      (record: Record<string, unknown>) => {
+        record.automationCompaction = {
+          lifecycle: 'completed',
+          summary: 'summary',
+          summaryMessageId: 'summary-message',
+          parentHead: 'parent-head',
+          parentExecution: 'completed',
+        };
+      },
+    ],
+    [
+      'unknown state without observable terminal error',
+      (record: Record<string, unknown>) => {
+        record.automationCompaction = { lifecycle: 'unknown' };
+      },
+    ],
+    [
+      'pending automation with summary-ready state',
+      (record: Record<string, unknown>) => {
+        record.automationCompaction = { lifecycle: 'summary_ready', summary: 'summary' };
+      },
+    ],
+    [
+      'completed automation with router result but no resume result',
+      (record: Record<string, unknown>) => {
+        record.lifecycle = 'decided';
+        record.decision = {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        };
+        record.automationCompaction = {
+          lifecycle: 'completed',
+          summary: 'summary',
+          summaryMessageId: 'summary-message',
+          parentHead: 'parent-head',
+          parentExecution: 'completed',
+        };
+        record.routerResult = { conversationId: 'parent', status: 'success' };
+      },
+    ],
+    [
+      'unknown automation with router error but no resume result',
+      (record: Record<string, unknown>) => {
+        record.lifecycle = 'decided';
+        record.decision = {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        };
+        record.automationCompaction = { lifecycle: 'unknown' };
+        record.routerResult = {
+          conversationId: 'parent',
+          status: 'error',
+          error: 'outcome unknown',
+        };
+      },
+    ],
+    [
+      'completed automation with empty successor linkage',
+      (record: Record<string, unknown>) => {
+        record.lifecycle = 'decided';
+        record.decision = {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        };
+        record.automationCompaction = {
+          lifecycle: 'completed',
+          summary: 'summary',
+          summaryMessageId: 'summary-message',
+          parentHead: 'parent-head',
+          parentExecution: 'completed',
+        };
+        record.successorApprovalIds = [];
+      },
+    ],
+    [
+      'completed automation with nonexistent successor linkage',
+      (record: Record<string, unknown>) => {
+        record.lifecycle = 'decided';
+        record.decision = {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        };
+        record.automationCompaction = {
+          lifecycle: 'completed',
+          summary: 'summary',
+          summaryMessageId: 'summary-message',
+          parentHead: 'parent-head',
+          parentExecution: 'completed',
+        };
+        record.successorApprovalId = 'missing-approval';
+        record.successorApprovalIds = ['missing-approval'];
+      },
+    ],
+    [
+      'acknowledged automation with parent-committed state',
+      (record: Record<string, unknown>) => {
+        record.lifecycle = 'acknowledged';
+        record.decision = {
+          approved: true,
+          decidedByParticipantId: 'operator',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        };
+        record.resumeResult = { status: 'success' };
+        delete record.continuation;
+        record.automationCompaction = {
+          lifecycle: 'parent_committed',
+          summary: 'summary',
+          summaryMessageId: 'summary-message',
+          parentHead: 'parent-head',
+          parentExecution: 'completed',
+        };
+        record.routerResult = { conversationId: 'parent', status: 'success' };
+      },
+    ],
+  ])('rejects malformed cross-record lifecycle: %s', async (_name, mutate) => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const { approvalId } = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    const stored = await storage.readJson<{ records: Record<string, Record<string, unknown>> }>(
+      'pending-approvals/registry.json',
+    );
+    mutate(stored!.records[approvalId]);
+    await storage.writeJson('pending-approvals/registry.json', stored);
+
+    await expect(PendingApprovalRegistry.load(storage)).rejects.toThrow(/automation compaction/i);
+  });
+
+  it('moves immutable automation parent state to a nested helper approval', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const parent = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      automationSeed(continuation),
+    );
+    const nestedCheckpoint = structuredClone(continuation.helperContinuation.checkpoint);
+    nestedCheckpoint.checkpointId = 'nested-checkpoint';
+    nestedCheckpoint.request = { requestId: 'nested-request', tool: 'nested', arguments: {} };
+    const nested = await reg.create({
+      conversationId: 'helper',
+      requesterId: 'summarizer',
+      tool: 'nested',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: nestedCheckpoint },
+    });
+
+    await reg.transferAutomationCompaction(parent.approvalId, [nested.approvalId]);
+
+    expect(reg.getRecord(nested.approvalId)?.continuation).toMatchObject({
+      kind: 'automation_compaction',
+      parentConversationId: 'parent',
+      selectedMessages: [{ id: 'message-1', content: 'hello' }],
+      helperContinuation: { checkpoint: { checkpointId: 'nested-checkpoint' } },
+    });
+    expect(reg.getRecord(nested.approvalId)?.automationCompaction).toEqual({
+      lifecycle: 'waiting',
+    });
+    expect(reg.getRecord(parent.approvalId)).toMatchObject({
+      successorApprovalIds: [nested.approvalId],
+    });
+    await reg.resolve(parent.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(parent.approvalId);
+    await reg.recordResumeResult(parent.approvalId, { status: 'success' });
+    await reg.recordAutomationSummary(parent.approvalId, 'summary');
+    await reg.recordAutomationParentCommitted(parent.approvalId, 'summary-message', 'parent-head');
+    await reg.claimAutomationParentExecution(parent.approvalId);
+    await reg.recordSuccessors(parent.approvalId, [nested.approvalId]);
+    await reg.completeAutomationCompaction(parent.approvalId);
+    await reg.acknowledge(parent.approvalId);
+
+    expect(
+      (await PendingApprovalRegistry.load(storage)).getRecord(parent.approvalId),
+    ).toMatchObject({
+      lifecycle: 'acknowledged',
+      automationCompaction: { lifecycle: 'completed' },
+      successorApprovalIds: [nested.approvalId],
+    });
+  });
+
   it.each([
     ['conversation', (value: MiddlewareCheckpoint) => (value.conversationId = 'wrong')],
     ['participant', (value: MiddlewareCheckpoint) => (value.participantId = 'wrong')],

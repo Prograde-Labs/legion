@@ -26,6 +26,8 @@ import { MiddlewareRegistry } from '../middleware/MiddlewareRegistry.js';
 import { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
 import type { Provider, ProviderMessage } from '../providers/Provider.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
+import { createCompactConversationTool } from '../tools/automation-tools.js';
+import { appendMessage } from '../conversation/conversation-ops.js';
 
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
@@ -112,7 +114,10 @@ async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefiniti
     middleware: [{ id: 'mock-middleware', type: 'test:router-middleware', config: {} }],
   });
   const middlewareRegistry = new MiddlewareRegistry();
-  middlewareRegistry.register(definition, 'test');
+  middlewareRegistry.register(
+    definition,
+    definition.type.startsWith('builtin:') ? 'builtin:test' : 'test',
+  );
   const logger: MiddlewareLogger = {
     debug: () => undefined,
     info: () => undefined,
@@ -120,37 +125,52 @@ async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefiniti
     error: () => undefined,
   };
   const toolRegistry = base.baseContext.toolRegistry as ToolRegistry;
-  const runner = new MiddlewareRunner({
-    registry: middlewareRegistry,
-    authEngine: base.baseContext.authEngine as AuthEngine,
-    toolRegistry,
-    pendingApprovals: base.baseContext.pendingApprovalRegistry as PendingApprovalRegistry,
-    eventBus: base.eventBus,
-    logger,
-    conversationStore: base.store,
-    collective: base.collective,
-    buildToolContext: (participant, thread, signal) => ({
-      ...(base.baseContext as ToolContext),
-      participant,
-      conversationId: thread.id,
-      conversation: thread,
-      signal,
-    }),
-  });
   const runtimeRegistry = new RuntimeRegistry();
-  return {
-    ...base,
-    runtimeRegistry,
-    middlewareRegistry,
-    runner,
-    router: new MessageRouter(
+  const createRouter = (pendingApprovals: PendingApprovalRegistry) => {
+    let messageRouter!: MessageRouter;
+    const context = {
+      ...base.baseContext,
+      pendingApprovalRegistry: pendingApprovals,
+    } as ToolContext;
+    const runner = new MiddlewareRunner({
+      registry: middlewareRegistry,
+      authEngine: base.baseContext.authEngine as AuthEngine,
+      toolRegistry,
+      pendingApprovals,
+      eventBus: base.eventBus,
+      logger,
+      conversationStore: base.store,
+      collective: base.collective,
+      buildToolContext: (participant, thread, signal) => ({
+        ...context,
+        participant,
+        conversationId: thread.id,
+        conversation: thread,
+        conversationStore: base.store,
+        messageRouter,
+        signal,
+      }),
+    });
+    messageRouter = new MessageRouter(
       base.store,
       runtimeRegistry,
       base.collective,
       base.eventBus,
       new MiddlewareLifecycle(runner, base.eventBus),
       runner,
-    ),
+    );
+    return { context, router: messageRouter, runner };
+  };
+  const initial = createRouter(base.baseContext.pendingApprovalRegistry as PendingApprovalRegistry);
+  return {
+    ...base,
+    baseContext: initial.context,
+    runtimeRegistry,
+    middlewareRegistry,
+    runner: initial.runner,
+    router: initial.router,
+    reload: async () =>
+      createRouter(await PendingApprovalRegistry.load(base.baseContext.storage as FileStorage)),
   };
 }
 
@@ -1404,6 +1424,222 @@ describe('MessageRouter: middleware lifecycle', () => {
     });
   });
 
+  it('rechecks durable approval state after another router completes while resume is pending', async () => {
+    const { baseContext, collective, eventBus, store } = await setup(dir);
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const registry = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    const checkpoint = {
+      checkpointId: 'coordinated-checkpoint',
+      operationId: 'coordinated-operation',
+      conversationId: conversation.id,
+      phase: 'beforeSend' as const,
+      participantId: 'agent',
+      instanceId: 'gate',
+      middlewareType: 'test:gate',
+      middlewareRevision: 0,
+      middlewareConfig: {},
+      nextHookIndex: 1,
+      actionCursor: 0,
+      draft: { senderId: 'agent', recipientId: 'op', role: 'assistant' as const, content: 'reply' },
+      final: true,
+      request: { requestId: 'gate-request', tool: 'gate', arguments: {} },
+      actions: [],
+      observedHead: '',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const { approvalId } = await registry.create({
+      conversationId: conversation.id,
+      requesterId: 'agent',
+      tool: 'gate',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint },
+    });
+    await registry.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await registry.beginResume(approvalId);
+    await registry.recordResumeResult(approvalId, { status: 'error', error: 'terminal' });
+    const storage = baseContext.storage as FileStorage;
+    const staleRegistry = await PendingApprovalRegistry.load(storage);
+    const completingRegistry = await PendingApprovalRegistry.load(storage);
+    let releasePending!: () => void;
+    const pendingStarted = Promise.withResolvers<void>();
+    const pendingRunner = {
+      resumeApproval: vi.fn(async () => {
+        pendingStarted.resolve();
+        await new Promise<void>((resolve) => {
+          releasePending = resolve;
+        });
+        return { kind: 'resume_pending' as const, checkpointId: checkpoint.checkpointId };
+      }),
+    };
+    const completingRunner = {
+      resumeApproval: vi.fn(async () => ({ kind: 'abort' as const, error: 'terminal' })),
+    };
+    const runtimeRegistry = new RuntimeRegistry();
+    const staleRouter = new MessageRouter(
+      store,
+      runtimeRegistry,
+      collective,
+      eventBus,
+      undefined,
+      pendingRunner as unknown as MiddlewareRunner,
+    );
+    const completingRouter = new MessageRouter(
+      store,
+      runtimeRegistry,
+      collective,
+      eventBus,
+      undefined,
+      completingRunner as unknown as MiddlewareRunner,
+    );
+    const staleResult = staleRouter.resumeApproval(approvalId, {
+      ...baseContext,
+      pendingApprovalRegistry: staleRegistry,
+    });
+    await pendingStarted.promise;
+    const terminal = await completingRouter.resumeApproval(approvalId, {
+      ...baseContext,
+      pendingApprovalRegistry: completingRegistry,
+    });
+    releasePending();
+
+    expect(await staleResult).toEqual(terminal);
+    expect(terminal).toMatchObject({ status: 'error', error: 'terminal' });
+  });
+
+  it('returns a durable successor when another router hands off during resume pending', async () => {
+    const { baseContext, collective, eventBus, store } = await setup(dir);
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const registry = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    const checkpoint = {
+      checkpointId: 'source-checkpoint',
+      operationId: 'source-operation',
+      conversationId: conversation.id,
+      phase: 'beforeSend' as const,
+      participantId: 'agent',
+      instanceId: 'gate',
+      middlewareType: 'test:gate',
+      middlewareRevision: 0,
+      middlewareConfig: {},
+      nextHookIndex: 1,
+      actionCursor: 0,
+      draft: { senderId: 'agent', recipientId: 'op', role: 'assistant' as const, content: 'reply' },
+      final: true,
+      request: { requestId: 'source-request', tool: 'gate', arguments: {} },
+      actions: [],
+      observedHead: '',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const source = await registry.create({
+      conversationId: conversation.id,
+      requesterId: 'agent',
+      tool: 'gate',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint },
+    });
+    await registry.resolve(source.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await registry.beginResume(source.approvalId);
+    await registry.recordResumeResult(source.approvalId, { status: 'success' });
+    const storage = baseContext.storage as FileStorage;
+    const staleRegistry = await PendingApprovalRegistry.load(storage);
+    const handingOffRegistry = await PendingApprovalRegistry.load(storage);
+    const pendingStarted = Promise.withResolvers<void>();
+    const releasePending = Promise.withResolvers<void>();
+    const staleRunner = {
+      resumeApproval: vi.fn(async () => {
+        pendingStarted.resolve();
+        await releasePending.promise;
+        return { kind: 'resume_pending' as const, checkpointId: checkpoint.checkpointId };
+      }),
+    };
+    let successorApprovalId = '';
+    const handingOffRunner = {
+      resumeApproval: vi.fn(async () => ({
+        kind: 'pending_approval' as const,
+        approvalId: successorApprovalId,
+        checkpointId: 'successor-checkpoint',
+        participantId: 'agent',
+      })),
+    };
+    const runtimeRegistry = new RuntimeRegistry();
+    const staleRouter = new MessageRouter(
+      store,
+      runtimeRegistry,
+      collective,
+      eventBus,
+      undefined,
+      staleRunner as unknown as MiddlewareRunner,
+    );
+    const handingOffRouter = new MessageRouter(
+      store,
+      runtimeRegistry,
+      collective,
+      eventBus,
+      undefined,
+      handingOffRunner as unknown as MiddlewareRunner,
+    );
+    const staleResume = vi.spyOn(staleRouter, 'resumeApproval');
+    const staleResult = staleRouter.resumeApproval(source.approvalId, {
+      ...baseContext,
+      pendingApprovalRegistry: staleRegistry,
+    });
+    await pendingStarted.promise;
+    const successorCheckpoint = {
+      ...checkpoint,
+      checkpointId: 'successor-checkpoint',
+      request: { requestId: 'successor-request', tool: 'gate', arguments: {} },
+    };
+    ({ approvalId: successorApprovalId } = await handingOffRegistry.create({
+      conversationId: conversation.id,
+      requesterId: 'agent',
+      tool: 'gate',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: successorCheckpoint },
+    }));
+    vi.spyOn(handingOffRegistry, 'acknowledge').mockRejectedValueOnce(
+      new Error('simulated acknowledgement interruption'),
+    );
+    const handoff = await handingOffRouter.resumeApproval(source.approvalId, {
+      ...baseContext,
+      pendingApprovalRegistry: handingOffRegistry,
+    });
+    releasePending.resolve();
+    const boundedResult = await Promise.race([
+      staleResult,
+      new Promise<'deadlocked'>((resolve) => setTimeout(() => resolve('deadlocked'), 100)),
+    ]);
+
+    expect(boundedResult).not.toBe('deadlocked');
+    expect(staleResume).toHaveBeenCalledOnce();
+    expect(boundedResult).toMatchObject({
+      status: 'pending_approval',
+      approvalId: successorApprovalId,
+      checkpointId: 'successor-checkpoint',
+      pendingParticipantId: 'agent',
+    });
+    expect(handoff).toMatchObject({
+      status: 'pending_approval',
+      approvalId: successorApprovalId,
+      checkpointId: 'successor-checkpoint',
+      pendingParticipantId: 'agent',
+    });
+  });
+
   it.each([
     ['afterSend', 'op'],
     ['afterReceive', 'mock-1'],
@@ -1818,6 +2054,642 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(resumeFromMiddleware).toHaveBeenCalledOnce();
     expect(approvals.listPending(parent.conversationId)).toEqual([]);
   });
+
+  it.each([
+    ['approved', true],
+    ['summary-ready-restart', true, 'summary_ready'],
+    [
+      'summary-ready-restart-with-parent-append',
+      true,
+      'summary_ready',
+      false,
+      false,
+      false,
+      'parent-append-after-commit',
+    ],
+    ['parent-committed-restart', true, 'parent_committed'],
+    ['rejected', false],
+    ['stale-retired-participant', true, undefined, true],
+    ['stale-helper-origin', true, undefined, false, true],
+    ['archive-storage-error', true, undefined, false, true, false, 'archive-error'],
+    ['stale-missing-helper', true, undefined, false, false, false, 'missing-helper'],
+    ['parent-provider-unknown', true, undefined, false, false, true],
+    [
+      'cached-terminal-missing-helper',
+      true,
+      undefined,
+      false,
+      false,
+      true,
+      'cached-missing-helper',
+    ],
+    ['successor-link-crash', true, undefined, false, false, false, 'successor-crash'],
+    ['router-result-crash', true, undefined, false, false, false, 'router-result-crash'],
+    ['stale-parent-head', true, undefined, false, false, false, 'head'],
+    ['stale-selected-message', true, undefined, false, false, false, 'message'],
+    ['stale-middleware-config', true, undefined, false, false, false, 'config'],
+    ['stale-middleware-revision', true, undefined, false, false, false, 'revision'],
+    ['stale-middleware-type', true, undefined, false, false, false, 'type'],
+    ['whitespace-summary', true, undefined, false, false, false, 'whitespace'],
+    ['nested-helper-restart', true, undefined, false, false, false, undefined, true],
+    ['before-receive-transform', true, undefined, false, false, false, undefined, true, true],
+  ] as const)(
+    '%s automation compaction finalizes safely once',
+    async (
+      _label,
+      approved,
+      restartStage?: 'summary_ready' | 'parent_committed',
+      retireParticipant = false,
+      corruptHelperOrigin = false,
+      providerThrows = false,
+      staleKind?:
+        | 'head'
+        | 'message'
+        | 'config'
+        | 'revision'
+        | 'type'
+        | 'whitespace'
+        | 'missing-helper'
+        | 'archive-error'
+        | 'cached-missing-helper'
+        | 'successor-crash'
+        | 'router-result-crash'
+        | 'parent-append-after-commit',
+      nestedHelper = false,
+      transformWithoutRecipientApproval = false,
+    ) => {
+      const hookCalls: string[] = [];
+      const parentExecutionOrder: string[] = [];
+      let trackedParentConversationId: string | undefined;
+      const {
+        router,
+        baseContext,
+        collective,
+        eventBus,
+        middlewareRegistry,
+        reload,
+        runtimeRegistry,
+        runner,
+        store,
+      } = await setupMiddlewareRouter(dir, {
+        type: 'builtin:auto-compaction',
+        displayName: 'Test compaction',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          afterReceive: (context) => {
+            hookCalls.push(context.participant.id);
+            return context.participant.id === 'mock-1' && context.message.role === 'user'
+              ? {
+                  kind: 'tool',
+                  requestId: `compact:${context.conversationId}`,
+                  tool: 'compact_conversation',
+                  arguments: {
+                    conversationId: context.conversationId,
+                    messageIds: [context.message.id],
+                    middlewareInstanceId: context.instance.id,
+                    parentMessageId: context.message.id,
+                  },
+                }
+              : { kind: 'continue' };
+          },
+        },
+      });
+      middlewareRegistry.register(
+        {
+          type: 'test:helper-gate',
+          displayName: 'Helper gate',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object', additionalProperties: true },
+          hooks: {
+            buildSystemPrompt: (context) =>
+              !nestedHelper || context.instance.id === 'helper-gate-one'
+                ? {
+                    kind: 'tool',
+                    requestId: `helper-gate:${context.instance.id}`,
+                    tool: 'gate',
+                    arguments: {},
+                  }
+                : { kind: 'continue' },
+            beforeSend: (context) =>
+              nestedHelper && context.instance.id === 'helper-gate-two'
+                ? {
+                    kind: 'tool',
+                    requestId: `helper-gate:${context.instance.id}`,
+                    tool: 'gate',
+                    arguments: {},
+                  }
+                : nestedHelper && context.instance.id === 'helper-transform'
+                  ? {
+                      kind: 'continue',
+                      message: { ...context.message, content: 'sender transformed summary' },
+                    }
+                  : { kind: 'continue' },
+            beforeReceive: (context) =>
+              nestedHelper && context.instance.id === 'helper-recipient-transform'
+                ? {
+                    kind: 'continue',
+                    message: { ...context.message, content: 'final transformed summary' },
+                  }
+                : { kind: 'continue' },
+          },
+        },
+        'test',
+      );
+      middlewareRegistry.register(
+        {
+          type: 'test:parent-tail',
+          displayName: 'Parent tail',
+          defaultFailureMode: 'closed',
+          configSchema: { type: 'object', additionalProperties: true },
+          hooks: {
+            beforeReceive: (context) =>
+              nestedHelper &&
+              !transformWithoutRecipientApproval &&
+              trackedParentConversationId !== undefined &&
+              context.conversationId !== trackedParentConversationId
+                ? {
+                    kind: 'tool',
+                    requestId: 'helper-recipient-gate',
+                    tool: 'gate',
+                    arguments: {},
+                  }
+                : { kind: 'continue' },
+            afterReceive: (context) => {
+              if (context.conversationId === trackedParentConversationId) {
+                parentExecutionOrder.push('hook');
+                if (staleKind === 'successor-crash') {
+                  return {
+                    kind: 'tool',
+                    requestId: 'parent-successor-gate',
+                    tool: 'gate',
+                    arguments: {},
+                  };
+                }
+              }
+              return { kind: 'continue' };
+            },
+          },
+        },
+        'test',
+      );
+      await collective.update('op', { middleware: [] });
+      await collective.update('mock-1', {
+        tools: {
+          compact_conversation: 'auto',
+          ...(nestedHelper || staleKind === 'successor-crash'
+            ? { gate: 'requires_approval' as const }
+            : {}),
+        },
+        middleware: [
+          {
+            id: 'auto-compaction',
+            type: 'builtin:auto-compaction',
+            config: { summarizerParticipantId: 'agent' },
+          },
+          { id: 'parent-tail', type: 'test:parent-tail', config: {} },
+          ...(nestedHelper
+            ? [
+                {
+                  id: 'helper-recipient-transform',
+                  type: 'test:helper-gate',
+                  config: {},
+                },
+              ]
+            : []),
+        ],
+      });
+      await collective.update('agent', {
+        tools: { gate: 'requires_approval' },
+        middleware: nestedHelper
+          ? [
+              { id: 'helper-gate-one', type: 'test:helper-gate', config: {} },
+              { id: 'helper-gate-two', type: 'test:helper-gate', config: {} },
+              { id: 'helper-transform', type: 'test:helper-gate', config: {} },
+            ]
+          : [{ id: 'helper-gate', type: 'test:helper-gate', config: {} }],
+      });
+      const parentHandle = vi.fn(async () => {
+        if (providerThrows) throw new Error('simulated parent provider interruption');
+        return { kind: 'response' as const, content: 'parent reply' };
+      });
+      const helperResume = vi.fn(async () => ({
+        kind: 'response' as const,
+        content: staleKind === 'whitespace' ? '   \n' : 'durable summary',
+      }));
+      runtimeRegistry.registerFactory('mock', () => ({ handle: parentHandle }));
+      runtimeRegistry.registerFactory('agent', () => ({
+        async handle(incoming, context) {
+          const prompt = await context.buildSystemPrompt!({
+            basePrompt: 'summarize',
+            iteration: 0,
+            incomingMessageId: incoming.id,
+            actions: [],
+          });
+          if (prompt.kind !== 'pending') throw new Error('Expected helper approval');
+          return {
+            kind: 'middleware_pending' as const,
+            approvalId: prompt.approvalId,
+            checkpointId: prompt.checkpointId,
+          };
+        },
+        resumeFromMiddleware: helperResume,
+      }));
+      const compactTool = createCompactConversationTool();
+      let compactResult: unknown;
+      (baseContext.toolRegistry as ToolRegistry).register({
+        ...compactTool,
+        async execute(args, context) {
+          trackedParentConversationId = (args as { conversationId: string }).conversationId;
+          compactResult = await compactTool.execute(args, context);
+          return compactResult;
+        },
+      });
+      (baseContext.toolRegistry as ToolRegistry).register({
+        name: 'gate',
+        description: 'gate',
+        parameters: { type: 'object' },
+        async execute() {
+          return { status: 'success' as const };
+        },
+      });
+      const approvalContinuationsAtObservation: Array<string | undefined> = [];
+      let observedApprovals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+      baseContext.eventBus.on('approval:requested', ({ approvalId }) => {
+        approvalContinuationsAtObservation.push(
+          observedApprovals.getRecord(approvalId)?.continuation?.kind,
+        );
+      });
+
+      const pending = await router.send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'old context',
+        context: baseContext,
+      });
+      expect(hookCalls).toContain('mock-1');
+      expect(compactResult).toMatchObject({ status: 'pending_approval' });
+      expect(pending.status).toBe('pending_approval');
+      expect(approvalContinuationsAtObservation).toEqual(['automation_compaction']);
+      if (!pending.approvalId) throw new Error('Expected helper approval');
+      const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+      trackedParentConversationId = pending.conversationId;
+      parentExecutionOrder.length = 0;
+      const claimParentExecution = approvals.claimAutomationParentExecution.bind(approvals);
+      vi.spyOn(approvals, 'claimAutomationParentExecution').mockImplementation(
+        async (approvalId) => {
+          parentExecutionOrder.push('claim');
+          return claimParentExecution(approvalId);
+        },
+      );
+      expect(approvals.getRecord(pending.approvalId)?.continuation?.kind).toBe(
+        'automation_compaction',
+      );
+      if (corruptHelperOrigin) {
+        const continuation = approvals.getRecord(pending.approvalId)?.continuation;
+        if (continuation?.kind !== 'automation_compaction') throw new Error('Expected automation');
+        const helper = await store.load(continuation.helperConversationId);
+        if (!helper) throw new Error('Expected helper');
+        helper.origin = { ...helper.origin!, parentMessageId: 'wrong-parent-message' };
+        await store.replaceForTesting(helper);
+      }
+      if (staleKind === 'missing-helper') {
+        const continuation = approvals.getRecord(pending.approvalId)?.continuation;
+        if (continuation?.kind !== 'automation_compaction') throw new Error('Expected automation');
+        await baseContext.storage.delete(`conversations/${continuation.helperConversationId}.json`);
+      }
+      if (staleKind === 'head' || staleKind === 'message') {
+        const parent = await store.load(pending.conversationId);
+        if (!parent) throw new Error('Expected parent');
+        if (staleKind === 'head') parent.activeBranchHead = '';
+        else parent.messages[parent.activeBranchHead].content = 'changed after checkpoint';
+        await store.replaceForTesting(parent);
+      }
+      if (staleKind === 'config' || staleKind === 'revision' || staleKind === 'type') {
+        await collective.update('mock-1', {
+          middleware: [
+            {
+              id: 'auto-compaction',
+              type: staleKind === 'type' ? 'test:parent-tail' : 'builtin:auto-compaction',
+              config:
+                staleKind === 'config'
+                  ? { summarizerParticipantId: 'agent', changed: true }
+                  : { summarizerParticipantId: 'agent' },
+            },
+            { id: 'parent-tail', type: 'test:parent-tail', config: {} },
+          ],
+        });
+        if (staleKind === 'config' || staleKind === 'type') {
+          const registryData = await baseContext.storage.readJson<{
+            records: Record<
+              string,
+              {
+                continuation: {
+                  kind: string;
+                  middlewareRevision: number;
+                  parentCheckpoint: { middlewareRevision: number };
+                };
+              }
+            >;
+          }>('pending-approvals/registry.json');
+          const currentRevision = collective.get('mock-1')?.middlewareRevision;
+          if (!registryData || currentRevision === undefined) throw new Error('Expected registry');
+          const durableContinuation = registryData.records[pending.approvalId].continuation;
+          durableContinuation.middlewareRevision = currentRevision;
+          durableContinuation.parentCheckpoint.middlewareRevision = currentRevision;
+          await baseContext.storage.writeJson('pending-approvals/registry.json', registryData);
+        }
+      }
+      await approvals.resolve(pending.approvalId, {
+        approved,
+        decidedByParticipantId: 'op',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+      if (retireParticipant) await collective.retire('mock-1');
+
+      if (staleKind === 'archive-error') {
+        vi.spyOn(store, 'mutate').mockRejectedValueOnce(new Error('archive storage unavailable'));
+        await expect(router.resumeApproval(pending.approvalId, baseContext)).rejects.toThrow(
+          'archive storage unavailable',
+        );
+        const fresh = await reload();
+        expect(fresh.context.pendingApprovalRegistry!.getRecord(pending.approvalId)).toMatchObject({
+          lifecycle: 'decided',
+          routerResult: { status: 'error' },
+          continuation: { kind: 'automation_compaction' },
+        });
+        await expect(
+          fresh.router.resumeApproval(pending.approvalId, fresh.context),
+        ).resolves.toMatchObject({ status: 'error' });
+        expect(
+          (await reload()).context.pendingApprovalRegistry!.getRecord(pending.approvalId),
+        ).toMatchObject({ lifecycle: 'acknowledged' });
+        return;
+      }
+
+      if (staleKind === 'cached-missing-helper') {
+        vi.spyOn(approvals, 'acknowledge').mockRejectedValueOnce(
+          new Error('simulated acknowledgement interruption'),
+        );
+        const terminal = await router.resumeApproval(pending.approvalId, baseContext);
+        const continuation = approvals.getRecord(pending.approvalId)?.continuation;
+        if (continuation?.kind !== 'automation_compaction') throw new Error('Expected automation');
+        await baseContext.storage.delete(`conversations/${continuation.helperConversationId}.json`);
+        const freshOne = await reload();
+        const freshTwo = await reload();
+        const [duplicateOne, duplicateTwo] = await Promise.all([
+          freshOne.router.resumeApproval(pending.approvalId, freshOne.context),
+          freshTwo.router.resumeApproval(pending.approvalId, freshTwo.context),
+        ]);
+        expect(duplicateOne).toEqual(terminal);
+        expect(duplicateTwo).toEqual(terminal);
+        expect(
+          (await reload()).context.pendingApprovalRegistry!.getRecord(pending.approvalId),
+        ).toMatchObject({ lifecycle: 'acknowledged' });
+        return;
+      }
+
+      if (staleKind === 'successor-crash' || staleKind === 'router-result-crash') {
+        const continuation = approvals.getRecord(pending.approvalId)?.continuation;
+        if (continuation?.kind !== 'automation_compaction') throw new Error('Expected automation');
+        const completed = await router.resumeApproval(pending.approvalId, baseContext);
+        expect(completed).toMatchObject(
+          staleKind === 'successor-crash'
+            ? { status: 'pending_approval' }
+            : { status: 'success', response: 'parent reply' },
+        );
+        const storedRegistry = await baseContext.storage.readJson<{
+          records: Record<string, Record<string, unknown>>;
+        }>('pending-approvals/registry.json');
+        const source = storedRegistry!.records[pending.approvalId];
+        source.lifecycle = 'decided';
+        source.continuation = continuation;
+        source.automationCompaction = {
+          ...(source.automationCompaction as Record<string, unknown>),
+          lifecycle: 'parent_committed',
+        };
+        await baseContext.storage.writeJson('pending-approvals/registry.json', storedRegistry);
+
+        const fresh = await reload();
+        const recovered = await fresh.router.resumeApproval(pending.approvalId, fresh.context);
+        expect(recovered).toMatchObject(completed);
+        expect(parentExecutionOrder).toEqual(['claim', 'hook']);
+        expect(parentHandle).toHaveBeenCalledTimes(staleKind === 'successor-crash' ? 0 : 1);
+        expect(
+          (await reload()).context.pendingApprovalRegistry!.getRecord(pending.approvalId),
+        ).toMatchObject({
+          lifecycle: 'acknowledged',
+          automationCompaction: { lifecycle: 'completed' },
+        });
+        return;
+      }
+
+      if (nestedHelper) {
+        const handoff = await router.resumeApproval(pending.approvalId, baseContext);
+        expect(handoff).toMatchObject({ status: 'pending_approval' });
+        if (!handoff.approvalId) throw new Error('Expected nested helper approval');
+        expect(approvalContinuationsAtObservation).toEqual([
+          'automation_compaction',
+          'automation_compaction',
+        ]);
+        expect(approvals.getRecord(pending.approvalId)).toMatchObject({
+          lifecycle: 'acknowledged',
+          successorApprovalIds: [handoff.approvalId],
+        });
+        const fresh = await reload();
+        observedApprovals = fresh.context.pendingApprovalRegistry!;
+        await fresh.context.pendingApprovalRegistry!.resolve(handoff.approvalId, {
+          approved: true,
+          decidedByParticipantId: 'op',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        });
+        const nextHandoff = await fresh.router.resumeApproval(handoff.approvalId, fresh.context);
+        if (transformWithoutRecipientApproval) {
+          expect(nextHandoff.status, nextHandoff.error).toBe('success');
+          expect(nextHandoff.response).toBe('parent reply');
+          const parent = await store.load(pending.conversationId);
+          expect(
+            Object.values(parent!.messages).filter(
+              (message) =>
+                message.type === 'summary' && message.content === 'final transformed summary',
+            ),
+          ).toHaveLength(1);
+          expect(helperResume).toHaveBeenCalledOnce();
+          expect(parentHandle).toHaveBeenCalledOnce();
+          return;
+        }
+        expect(nextHandoff).toMatchObject({ status: 'pending_approval' });
+        if (!nextHandoff.approvalId) throw new Error('Expected recipient helper approval');
+        expect(approvalContinuationsAtObservation).toEqual([
+          'automation_compaction',
+          'automation_compaction',
+          'automation_compaction',
+        ]);
+        const finalFresh = await reload();
+        observedApprovals = finalFresh.context.pendingApprovalRegistry!;
+        await finalFresh.context.pendingApprovalRegistry!.resolve(nextHandoff.approvalId, {
+          approved: true,
+          decidedByParticipantId: 'op',
+          decidedAt: '2026-01-01T00:00:00.000Z',
+        });
+        const [completed, duplicate] = await Promise.all([
+          finalFresh.router.resumeApproval(nextHandoff.approvalId, finalFresh.context),
+          finalFresh.router.resumeApproval(nextHandoff.approvalId, finalFresh.context),
+        ]);
+        expect(completed.status, completed.error).toBe('success');
+        expect(completed.response).toBe('parent reply');
+        expect(duplicate).toEqual(completed);
+        expect(helperResume).toHaveBeenCalledOnce();
+        expect(parentHandle).toHaveBeenCalledOnce();
+        const parent = await store.load(pending.conversationId);
+        expect(
+          Object.values(parent!.messages).filter(
+            (message) =>
+              message.type === 'summary' && message.content === 'final transformed summary',
+          ),
+        ).toHaveLength(1);
+        const helper = (await store.list({ status: 'all' })).find(
+          (conversation) => conversation.origin?.parentConversationId === pending.conversationId,
+        );
+        expect(helper?.status).toBe('archived');
+        const finalRegistry = await PendingApprovalRegistry.load(
+          baseContext.storage as FileStorage,
+        );
+        expect(finalRegistry.getRecord(nextHandoff.approvalId)).toMatchObject({
+          lifecycle: 'acknowledged',
+          routerResult: { status: 'success' },
+        });
+        expect(finalRegistry.getRecord(nextHandoff.approvalId)?.continuation).toBeUndefined();
+        return;
+      }
+
+      if (restartStage === 'summary_ready') {
+        vi.spyOn(approvals, 'recordAutomationParentCommitted').mockRejectedValueOnce(
+          new Error('simulated restart after parent commit'),
+        );
+      } else if (restartStage === 'parent_committed') {
+        vi.spyOn(approvals, 'claimAutomationParentExecution').mockResolvedValueOnce('unknown');
+      }
+      let first: Awaited<ReturnType<typeof router.resumeApproval>>;
+      let second: Awaited<ReturnType<typeof router.resumeApproval>>;
+      let third: Awaited<ReturnType<typeof router.resumeApproval>> | undefined;
+      if (restartStage) {
+        first = await router.resumeApproval(pending.approvalId, baseContext);
+        if (staleKind === 'parent-append-after-commit') {
+          await store.mutate(pending.conversationId, (parent) =>
+            appendMessage(parent, {
+              senderId: 'op',
+              recipientId: 'mock-1',
+              role: 'user',
+              content: 'new context after compaction commit',
+            }),
+          );
+        }
+        const freshOne = await reload();
+        const freshTwo = await reload();
+        [second, third] = await Promise.all([
+          freshOne.router.resumeApproval(pending.approvalId, freshOne.context),
+          freshTwo.router.resumeApproval(pending.approvalId, freshTwo.context),
+        ]);
+      } else {
+        [first, second] = await Promise.all([
+          router.resumeApproval(pending.approvalId, baseContext),
+          router.resumeApproval(pending.approvalId, baseContext),
+        ]);
+      }
+
+      if (restartStage) {
+        expect(first).toMatchObject({ status: 'error' });
+        expect(second).toMatchObject({ status: 'success', response: 'parent reply' });
+        expect(third).toEqual(second);
+      } else {
+        expect(second).toEqual(first);
+      }
+      const parent = await store.load(pending.conversationId);
+      const summaries = Object.values(parent!.messages).filter(
+        (message) => message.type === 'summary' && message.content === 'durable summary',
+      );
+      if (providerThrows) {
+        expect(second).toEqual(first);
+        expect(first).toMatchObject({
+          status: 'error',
+          error: 'Automation parent provider outcome unknown and was not retried',
+        });
+        expect(helperResume).toHaveBeenCalledOnce();
+        expect(parentHandle).toHaveBeenCalledOnce();
+        expect(parentExecutionOrder).toEqual(['claim', 'hook']);
+        expect(summaries).toHaveLength(1);
+      } else if (
+        approved &&
+        !retireParticipant &&
+        !corruptHelperOrigin &&
+        (staleKind === undefined || staleKind === 'parent-append-after-commit')
+      ) {
+        const completed = restartStage ? second : first;
+        expect(completed.status, completed.error).toBe('success');
+        expect(completed.response).toBe('parent reply');
+        expect(helperResume).toHaveBeenCalledOnce();
+        expect(parentHandle).toHaveBeenCalledOnce();
+        expect(parentExecutionOrder).toEqual(restartStage ? ['hook'] : ['claim', 'hook']);
+        expect(summaries).toHaveLength(1);
+        expect(parent?.middlewareState?.['mock-1']?.['auto-compaction']).toEqual({
+          summaryMessageId: summaries[0].id,
+        });
+      } else {
+        expect(first.status).toBe('error');
+        expect(helperResume).toHaveBeenCalledTimes(
+          corruptHelperOrigin || staleKind === 'missing-helper' ? 0 : approved ? 1 : 0,
+        );
+        expect(parentHandle).not.toHaveBeenCalled();
+        expect(summaries).toHaveLength(0);
+        expect(parent?.middlewareState).toBeUndefined();
+      }
+      const helper = (await store.list({ status: 'all' })).find(
+        (conversation) => conversation.origin?.parentConversationId === pending.conversationId,
+      );
+      if (staleKind === 'missing-helper') expect(helper).toBeUndefined();
+      else if (corruptHelperOrigin) expect(helper?.status).toBe('active');
+      else expect(helper?.status).toBe('archived');
+      if (!corruptHelperOrigin) {
+        const terminal = restartStage ? second : first;
+        const freshOne = await reload();
+        const freshTwo = await reload();
+        const [duplicateOne, duplicateTwo] = await Promise.all([
+          freshOne.router.resumeApproval(pending.approvalId, freshOne.context),
+          freshTwo.router.resumeApproval(pending.approvalId, freshTwo.context),
+        ]);
+        expect(duplicateOne).toEqual(terminal);
+        expect(duplicateTwo).toEqual(terminal);
+        expect(
+          freshOne.context.pendingApprovalRegistry!.getRecord(pending.approvalId),
+        ).toMatchObject({
+          lifecycle: 'acknowledged',
+          routerResult: { status: terminal.status },
+        });
+        expect(
+          freshOne.context.pendingApprovalRegistry!.getRecord(pending.approvalId)?.continuation,
+        ).toBeUndefined();
+      } else {
+        const freshOne = await reload();
+        const freshTwo = await reload();
+        const [duplicateOne, duplicateTwo] = await Promise.all([
+          freshOne.router.resumeApproval(pending.approvalId, freshOne.context),
+          freshTwo.router.resumeApproval(pending.approvalId, freshTwo.context),
+        ]);
+        expect(duplicateOne).toEqual(first);
+        expect(duplicateTwo).toEqual(first);
+        expect(
+          freshOne.context.pendingApprovalRegistry!.getRecord(pending.approvalId),
+        ).toMatchObject({
+          lifecycle: 'acknowledged',
+          routerResult: { status: 'error', error: first.error },
+        });
+        expect(
+          freshOne.context.pendingApprovalRegistry!.getRecord(pending.approvalId)?.continuation,
+        ).toBeUndefined();
+      }
+    },
+  );
 
   it('passes inbound and prompt actions to every response lifecycle hook', async () => {
     const observed: string[][] = [];

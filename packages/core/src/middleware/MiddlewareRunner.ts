@@ -19,7 +19,11 @@ import type {
   ToolResult,
 } from '@legion/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
-import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
+import type {
+  AutomationCompactionContinuation,
+  AutomationCompactionSeed,
+  PendingApprovalRegistry,
+} from '../auth/PendingApprovalRegistry.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
 import type { Collective } from '../collective/Collective.js';
@@ -78,6 +82,7 @@ export interface MessagePhaseInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   mode?: 'pre_runtime' | 'post_response';
+  approvalContinuationSeed?: AutomationCompactionSeed;
 }
 
 export interface AfterReceiveInput {
@@ -91,6 +96,7 @@ export interface AfterReceiveInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
+  approvalContinuationSeed?: AutomationCompactionSeed;
 }
 
 export interface SystemPromptInput {
@@ -104,6 +110,7 @@ export interface SystemPromptInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
+  approvalContinuationSeed?: AutomationCompactionSeed;
 }
 
 export interface AfterSendInput {
@@ -117,6 +124,7 @@ export interface AfterSendInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
+  approvalContinuationSeed?: AutomationCompactionSeed;
 }
 
 export interface MiddlewareRunnerDependencies {
@@ -703,15 +711,22 @@ export class MiddlewareRunner {
       return { kind: 'resume_pending', approvalId, checkpointId: '' };
     }
     if (claim.status === 'in_progress') {
-      const checkpointId = claim.record.continuation?.checkpoint.checkpointId ?? '';
+      const continuation = claim.record.continuation;
+      const checkpointId =
+        continuation?.kind === 'middleware'
+          ? continuation.checkpoint.checkpointId
+          : (continuation?.helperContinuation.checkpoint.checkpointId ?? '');
       return { kind: 'resume_pending', approvalId, checkpointId };
     }
     const continuation = claim.record.continuation;
     const decision = claim.record.decision;
-    if (!continuation || !decision || continuation.kind !== 'middleware') {
+    if (!continuation || !decision) {
       return abortResult('Middleware approval checkpoint is unavailable');
     }
-    const checkpoint = continuation.checkpoint;
+    const checkpoint =
+      continuation.kind === 'middleware'
+        ? continuation.checkpoint
+        : continuation.helperContinuation.checkpoint;
     return serializeConversation(
       this.dependencies.conversationStore,
       checkpoint.conversationId,
@@ -768,6 +783,61 @@ export class MiddlewareRunner {
                   actionCursor: actions.length,
                 },
               };
+        return this.resumePhase(
+          resumedCheckpoint,
+          participant,
+          authoritative,
+          actions,
+          continuation.kind === 'automation_compaction' ? continuation : undefined,
+        );
+      },
+    );
+  }
+
+  async resumeAutomationParent(
+    continuation: AutomationCompactionContinuation,
+    thread: ConversationThread,
+    action: MiddlewareActionResult,
+    expectedParentHead: string,
+  ): Promise<MiddlewarePhaseResult<MessageDraft | MessageData | string>> {
+    const checkpoint = continuation.parentCheckpoint;
+    if (thread.id !== checkpoint.conversationId) {
+      return abortResult('Automation compaction parent checkpoint is stale');
+    }
+    return serializeConversation(
+      this.dependencies.conversationStore,
+      checkpoint.conversationId,
+      undefined,
+      async () => {
+        const authoritative = await this.loadAuthoritativeThread(checkpoint.conversationId);
+        const participant = this.dependencies.collective?.get(checkpoint.participantId);
+        const instance = participant?.middleware?.[checkpoint.nextHookIndex - 1];
+        if (
+          !participant ||
+          (participant.status ?? 'active') !== 'active' ||
+          !instance ||
+          (participant.middlewareRevision ?? 0) !== continuation.middlewareRevision ||
+          instance.id !== continuation.middlewareInstanceId ||
+          instance.type !== continuation.middlewareType ||
+          !isDeepStrictEqual(instance.config, continuation.middlewareConfig)
+        ) {
+          return abortResult('Automation compaction parent checkpoint is stale');
+        }
+        if (authoritative.data.activeBranchHead !== expectedParentHead) {
+          return abortResult('Automation compaction parent checkpoint is stale');
+        }
+        const actions = [...checkpoint.actions.slice(0, checkpoint.actionCursor), action];
+        const resumedCheckpoint =
+          checkpoint.message && checkpoint.persistedMessageId
+            ? {
+                ...checkpoint,
+                observedHead: authoritative.data.activeBranchHead,
+                message: authoritative.data.messages[checkpoint.persistedMessageId],
+              }
+            : checkpoint;
+        if (checkpoint.message && !resumedCheckpoint.message) {
+          return abortResult('Automation compaction parent checkpoint is stale');
+        }
         return this.resumePhase(resumedCheckpoint, participant, authoritative, actions);
       },
     );
@@ -822,7 +892,8 @@ export class MiddlewareRunner {
     approved: boolean,
     resumeRecorded: boolean,
   ): Promise<
-    MiddlewareActionResult | Extract<MiddlewarePhaseResult<never>, { kind: 'resume_pending' }>
+    | MiddlewareActionResult
+    | Extract<MiddlewarePhaseResult<never>, { kind: 'resume_pending' | 'pending_approval' }>
   > {
     const request: ToolRequest = { kind: 'tool', ...checkpoint.request };
     const actionInput = {
@@ -862,14 +933,27 @@ export class MiddlewareRunner {
       let result: ToolResult;
       try {
         result = this.safeToolResult(
-          await this.dependencies.toolRegistry.execute(
-            request.tool,
-            actionInput.args,
-            this.dependencies.buildToolContext(participant, thread, new AbortController().signal),
-          ),
+          await this.dependencies.toolRegistry.execute(request.tool, actionInput.args, {
+            ...this.dependencies.buildToolContext(
+              participant,
+              thread,
+              new AbortController().signal,
+            ),
+            middlewareCheckpoint: checkpoint,
+          }),
         );
       } catch {
         result = this.safeToolFailure('error');
+      }
+      if (result.status === 'pending_approval') {
+        await this.dependencies.pendingApprovals.suspendMiddlewareAction(actionInput);
+        const data = result.data as { checkpointId: string; pendingParticipantId: string };
+        return {
+          kind: 'pending_approval',
+          approvalId: result.approvalId!,
+          checkpointId: data.checkpointId,
+          participantId: data.pendingParticipantId,
+        };
       }
       const status: MiddlewareActionResult['status'] =
         result.status === 'success'
@@ -914,6 +998,7 @@ export class MiddlewareRunner {
     participant: ParticipantConfig,
     thread: ConversationThread,
     actions: MiddlewareActionResult[],
+    automationContinuation?: AutomationCompactionContinuation,
   ): Promise<MiddlewarePhaseResult<MessageDraft | MessageData | string>> {
     const common = {
       operationId: checkpoint.operationId,
@@ -922,6 +1007,23 @@ export class MiddlewareRunner {
       actions,
       startIndex: checkpoint.nextHookIndex,
       runtimeResume: checkpoint.runtimeResume,
+      ...(automationContinuation === undefined
+        ? {}
+        : {
+            approvalContinuationSeed: {
+              parentConversationId: automationContinuation.parentConversationId,
+              helperConversationId: automationContinuation.helperConversationId,
+              participantId: automationContinuation.participantId,
+              middlewareInstanceId: automationContinuation.middlewareInstanceId,
+              middlewareRevision: automationContinuation.middlewareRevision,
+              middlewareType: automationContinuation.middlewareType,
+              middlewareConfig: automationContinuation.middlewareConfig,
+              observedParentHead: automationContinuation.observedParentHead,
+              selectedMessages: automationContinuation.selectedMessages,
+              parentMessageId: automationContinuation.parentMessageId,
+              parentCheckpoint: automationContinuation.parentCheckpoint,
+            },
+          }),
     };
     if (checkpoint.phase === 'beforeSend' || checkpoint.phase === 'beforeReceive') {
       return this.runMessagePhaseUnlocked({
@@ -1368,6 +1470,16 @@ export class MiddlewareRunner {
             : { data: cloneJsonSafe(result.data, '$.toolResult.data') }),
         };
       }
+      if (
+        result.status === 'pending_approval' &&
+        typeof result.approvalId === 'string' &&
+        result.approvalId.length > 0 &&
+        isPlainRecord(result.data) &&
+        typeof result.data.checkpointId === 'string' &&
+        typeof result.data.pendingParticipantId === 'string'
+      ) {
+        return result;
+      }
       return this.safeToolFailure(result.status === 'rejected' ? 'rejected' : 'error');
     } catch {
       return this.safeToolFailure('error');
@@ -1536,13 +1648,16 @@ export class MiddlewareRunner {
           snapshots.actions,
           persistedMessageId,
         );
-        const { approvalId } = await this.dependencies.pendingApprovals.create({
-          conversationId: input.thread.id,
-          requesterId: input.participant.id,
-          tool: request.tool,
-          args: request.arguments,
-          continuation: { kind: 'middleware', checkpoint },
-        });
+        const { approvalId } = await this.dependencies.pendingApprovals.create(
+          {
+            conversationId: input.thread.id,
+            requesterId: input.participant.id,
+            tool: request.tool,
+            args: request.arguments,
+            continuation: { kind: 'middleware', checkpoint },
+          },
+          input.approvalContinuationSeed,
+        );
         this.recordSuccess(instance, phase, input, {
           status: 'success',
           result: request,
@@ -1585,6 +1700,16 @@ export class MiddlewareRunner {
         tool: request.tool,
         args: cloneJsonSafe(request.arguments, '$.request.arguments'),
       };
+      const middlewareCheckpoint = this.checkpoint(
+        instance,
+        phase,
+        input,
+        index,
+        request,
+        value,
+        snapshots.actions,
+        persistedMessageId,
+      );
       const claim = await this.dependencies.pendingApprovals.claimMiddlewareAction(actionInput);
       let action: MiddlewareActionResult;
       if (claim.kind === 'completed') {
@@ -1608,12 +1733,25 @@ export class MiddlewareRunner {
             const rawResult = await this.dependencies.toolRegistry.execute(
               request.tool,
               actionInput.args,
-              this.dependencies.buildToolContext(input.participant, input.thread, signal),
+              {
+                ...this.dependencies.buildToolContext(input.participant, input.thread, signal),
+                middlewareCheckpoint,
+              },
             );
             result = this.safeToolResult(rawResult);
           } catch {
             result = this.safeToolFailure('error');
           }
+        }
+        if (result.status === 'pending_approval') {
+          await this.dependencies.pendingApprovals.suspendMiddlewareAction(actionInput);
+          const data = result.data as { checkpointId: string; pendingParticipantId: string };
+          return {
+            kind: 'pending_approval',
+            approvalId: result.approvalId!,
+            checkpointId: data.checkpointId,
+            participantId: data.pendingParticipantId,
+          };
         }
         const status: MiddlewareActionResult['status'] =
           result.status === 'success'

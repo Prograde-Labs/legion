@@ -2,6 +2,8 @@ import { Collective } from '../collective/Collective.js';
 import { appendMessage, compactRange } from '../conversation/conversation-ops.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
+import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
+import type { MiddlewareCheckpoint } from '@legion/types';
 import type { ToolContext } from './Tool.js';
 import { createCompactConversationTool } from './automation-tools.js';
 
@@ -51,7 +53,8 @@ async function setup() {
     conversationId: parent.id,
     conversationStore,
   } as ToolContext;
-  return { context, conversationStore, parent };
+  const pendingApprovalRegistry = new PendingApprovalRegistry(storage);
+  return { context, conversationStore, parent, pendingApprovalRegistry, storage };
 }
 
 const args = (conversationId: string, messageIds = ['m1', 'm2']) => ({
@@ -131,7 +134,7 @@ describe('compact_conversation automation tool', () => {
     );
   });
 
-  it('keeps helper active and propagates pending summary approval without compacting parent', async () => {
+  it('fails closed when pending summary lacks a durable continuation', async () => {
     const { context, conversationStore, parent } = await setup();
     const approvalRequests = [{ approvalId: 'appr-summary', tool: 'lookup' }];
     const send = vi.fn().mockResolvedValue({
@@ -150,17 +153,112 @@ describe('compact_conversation automation tool', () => {
 
     const helperId = send.mock.calls[0][0].conversationId;
     expect(result).toEqual({
-      status: 'pending_approval',
-      approvalId: 'appr-summary',
-      data: {
-        conversationId: helperId,
-        checkpointId: 'checkpoint-summary',
-        pendingParticipantId: 'summarizer',
-        approvalRequests,
-      },
+      status: 'error',
+      error: 'Durable middleware continuation unavailable',
     });
-    expect((await conversationStore.load(helperId))?.status).toBeUndefined();
+    expect((await conversationStore.load(helperId))?.status).toBe('archived');
     expect((await conversationStore.load(parent.id))?.messages['m1'].status).toBe('active');
+  });
+
+  it('persists automation continuation before returning helper approval', async () => {
+    const { context, conversationStore, parent, pendingApprovalRegistry, storage } = await setup();
+    const parentCheckpoint = {
+      checkpointId: 'parent-checkpoint',
+      operationId: 'parent-operation',
+      conversationId: parent.id,
+      phase: 'beforeSend',
+      participantId: 'agent',
+      instanceId: 'auto-compaction',
+      middlewareType: 'builtin:auto-compaction',
+      middlewareRevision: context.participant.middlewareRevision ?? 0,
+      middlewareConfig: { summarizerParticipantId: 'summarizer' },
+      nextHookIndex: 1,
+      actionCursor: 0,
+      draft: { senderId: 'agent', recipientId: 'operator', role: 'assistant', content: 'reply' },
+      final: true,
+      request: {
+        requestId: 'compact-request',
+        tool: 'compact_conversation',
+        arguments: args(parent.id),
+      },
+      actions: [],
+      observedHead: parent.activeBranchHead,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    } satisfies MiddlewareCheckpoint;
+    const send = vi.fn(
+      async ({
+        conversationId,
+        context: sendContext,
+      }: {
+        conversationId: string;
+        context: ToolContext;
+      }) => {
+        const helperCheckpoint = {
+          ...parentCheckpoint,
+          checkpointId: 'helper-checkpoint',
+          conversationId,
+          participantId: 'summarizer',
+          instanceId: 'helper-gate',
+          middlewareType: 'test:gate',
+          middlewareConfig: {},
+          request: { requestId: 'helper-request', tool: 'lookup', arguments: {} },
+          observedHead: '',
+        };
+        const pending = await pendingApprovalRegistry.create(
+          {
+            conversationId,
+            requesterId: 'summarizer',
+            tool: 'lookup',
+            args: {},
+            continuation: { kind: 'middleware', checkpoint: helperCheckpoint },
+          },
+          sendContext.approvalContinuationSeed,
+        );
+        return {
+          conversationId,
+          status: 'pending_approval' as const,
+          approvalId: pending.approvalId,
+          checkpointId: helperCheckpoint.checkpointId,
+          pendingParticipantId: 'summarizer',
+        };
+      },
+    );
+    const parentAction = {
+      operationId: parentCheckpoint.operationId,
+      conversationId: parentCheckpoint.conversationId,
+      participantId: parentCheckpoint.participantId,
+      instanceId: parentCheckpoint.instanceId,
+      requestId: parentCheckpoint.request.requestId,
+      tool: parentCheckpoint.request.tool,
+      args: parentCheckpoint.request.arguments,
+    };
+    await pendingApprovalRegistry.claimMiddlewareAction(parentAction);
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+      pendingApprovalRegistry,
+      middlewareCheckpoint: parentCheckpoint,
+    } as ToolContext);
+
+    expect(result.status).toBe('pending_approval');
+    const record = pendingApprovalRegistry.getRecord(result.approvalId!);
+    expect(record?.continuation).toMatchObject({
+      kind: 'automation_compaction',
+      parentConversationId: parent.id,
+      helperConversationId: send.mock.calls[0][0].conversationId,
+      participantId: 'agent',
+      middlewareInstanceId: 'auto-compaction',
+      observedParentHead: parent.activeBranchHead,
+      selectedMessages: [{ id: 'm1' }, { id: 'm2' }],
+      parentMessageId: 'm2',
+      parentCheckpoint: { checkpointId: 'parent-checkpoint' },
+      helperContinuation: { checkpoint: { checkpointId: 'helper-checkpoint' } },
+    });
+    const reloaded = await PendingApprovalRegistry.load(storage);
+    await expect(reloaded.claimMiddlewareAction(parentAction)).resolves.toEqual({
+      kind: 'in_progress',
+    });
   });
 
   it('archives helper when summary router throws a terminal error', async () => {

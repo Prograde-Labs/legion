@@ -95,15 +95,47 @@ export function createCompactConversationTool(): Tool {
 
         let archiveHelper = false;
         try {
+          const approvalContinuationSeed =
+            context.pendingApprovalRegistry && context.middlewareCheckpoint
+              ? {
+                  parentConversationId: parent.id,
+                  helperConversationId: helper.id,
+                  participantId: context.participant.id,
+                  middlewareInstanceId: instance.id,
+                  middlewareRevision: context.participant.middlewareRevision ?? 0,
+                  middlewareType: instance.type,
+                  middlewareConfig: structuredClone(instance.config),
+                  observedParentHead: observedHead,
+                  selectedMessages,
+                  parentMessageId: input.parentMessageId,
+                  parentCheckpoint: context.middlewareCheckpoint,
+                }
+              : undefined;
           const summary = await context.messageRouter.send({
             senderId: context.participant.id,
             recipientId: summarizerParticipantId,
             conversationId: helper.id,
             message: `${SUMMARY_INSTRUCTION}\n\n${transcript(parent, input.messageIds)}`,
             replyTo: undefined,
-            context,
+            context: {
+              ...context,
+              ...(approvalContinuationSeed === undefined ? {} : { approvalContinuationSeed }),
+            },
           });
           if (summary.status === 'pending_approval') {
+            if (!context.pendingApprovalRegistry || !context.middlewareCheckpoint) {
+              archiveHelper = true;
+              return { status: 'error', error: 'Durable middleware continuation unavailable' };
+            }
+            if (!summary.approvalId) {
+              archiveHelper = true;
+              return { status: 'error', error: 'Summary approval continuation unavailable' };
+            }
+            const helperApproval = context.pendingApprovalRegistry.getRecord(summary.approvalId);
+            if (helperApproval?.continuation?.kind !== 'automation_compaction') {
+              archiveHelper = true;
+              return { status: 'error', error: 'Summary approval continuation unavailable' };
+            }
             return {
               status: 'pending_approval',
               approvalId: summary.approvalId,
