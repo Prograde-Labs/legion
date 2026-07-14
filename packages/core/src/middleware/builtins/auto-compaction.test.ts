@@ -86,6 +86,11 @@ describe('auto compaction selection', () => {
     expect(selectCompactionPrefix(chain, 0, 0).map((entry) => entry.id)).toEqual(['m1', 'm2']);
   });
 
+  it('retains empty final message when requested retention is zero', () => {
+    const chain = [message('m1', 'a'.repeat(40)), message('m2', '', 'assistant')];
+    expect(selectCompactionPrefix(chain, 0, -1).map((entry) => entry.id)).toEqual(['m1']);
+  });
+
   it('uses model percentage and falls back to absolute threshold', async () => {
     const middleware = definition(conversation(), 100);
     const base = {

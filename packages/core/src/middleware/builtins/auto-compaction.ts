@@ -52,8 +52,8 @@ export function selectCompactionPrefix(
   const perMessage = chain.map((message) => estimateProviderContextTokens('', [message]));
   let retained = 0;
   let boundary = chain.length;
-  const minimumRetained = Math.max(retainTokens, perMessage.at(-1) ?? 0);
-  while (boundary > 0 && retained < minimumRetained) retained += perMessage[--boundary];
+  if (boundary > 0) retained += perMessage[--boundary];
+  while (boundary > 0 && retained < retainTokens) retained += perMessage[--boundary];
   let total = perMessage.reduce((sum, count) => sum + count, 0);
   let end = 0;
   while (end < boundary && total > targetTokens) total -= perMessage[end++];
