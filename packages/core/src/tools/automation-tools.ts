@@ -275,6 +275,9 @@ export function createGenerateConversationTitleTool(): Tool {
         if (!context.messageRouter) {
           return { status: 'error', error: 'messageRouter unavailable in context' };
         }
+        if (context.conversationId !== input.conversationId) {
+          return { status: 'error', error: 'Parent conversation does not match tool context' };
+        }
 
         const parent = await context.conversationStore.load(input.conversationId);
         if (!parent) {

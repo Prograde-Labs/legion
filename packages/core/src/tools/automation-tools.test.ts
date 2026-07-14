@@ -449,6 +449,29 @@ const titleArgs = (
 });
 
 describe('generate_conversation_title automation tool', () => {
+  it('rejects a different conversation before loading or mutating either conversation', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const load = vi.spyOn(conversationStore, 'load');
+    const create = vi.spyOn(conversationStore, 'create');
+    const mutate = vi.spyOn(conversationStore, 'mutate');
+    const send = vi.fn();
+
+    const result = await createAutomationTools().generateConversationTitle.execute(
+      titleArgs('other-conversation'),
+      { ...context, messageRouter: { send } } as ToolContext,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'Parent conversation does not match tool context',
+    });
+    expect(load).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(parent.title).toBeUndefined();
+  });
+
   it('assembles automation tools and archives title helper after writing shared title', async () => {
     const { context, conversationStore, parent } = await setup();
     const send = vi.fn().mockResolvedValue({
