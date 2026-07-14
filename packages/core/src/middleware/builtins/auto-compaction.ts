@@ -95,6 +95,7 @@ export function createAutoCompactionMiddleware(dependencies: {
         if (
           context.actions.some(
             (action) =>
+              action.participantId === context.participant.id &&
               action.instanceId === context.instance.id &&
               action.tool === 'compact_conversation' &&
               action.status === 'success',

@@ -197,6 +197,37 @@ describe('auto compaction selection', () => {
     ).resolves.toEqual({ kind: 'continue' });
   });
 
+  it('does not skip compaction for another participant with same instance ID', async () => {
+    const middleware = definition(conversation(), 20);
+    await expect(
+      middleware.hooks.afterReceive!({
+        participant: { id: 'agent', type: 'agent', model: { model: 'm' }, systemPrompt: '' },
+        instance: { id: 'compact-1' },
+        config: {
+          triggerPercentage: 10,
+          targetPercentage: 5,
+          fallbackTokenThreshold: 10,
+          summarizerParticipantId: 'summary',
+          minimumRecentTokens: 1,
+          excludedTags: [],
+        },
+        conversationId: 'c',
+        activeChain: [message('m1', 'x'.repeat(40)), message('m2', 'y'.repeat(40))],
+        actions: [
+          {
+            requestId: 'compact:c:m1',
+            participantId: 'other-agent',
+            instanceId: 'compact-1',
+            tool: 'compact_conversation',
+            status: 'success',
+            result: { status: 'success' },
+          },
+        ],
+        getState: () => undefined,
+      } as never),
+    ).resolves.toEqual(expect.objectContaining({ kind: 'tool', tool: 'compact_conversation' }));
+  });
+
   it('skips non-agent participants before model metadata lookup', async () => {
     const getModelMetadata = vi.fn(async () => undefined);
     const conversationStore = { load: vi.fn() } as unknown as ConversationStore;
