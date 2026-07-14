@@ -190,6 +190,33 @@ describe('compact_conversation automation tool', () => {
     );
   });
 
+  it('does not compact when selected message changes under unchanged active prefix', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockImplementation(async () => {
+      await conversationStore.mutate(parent.id, (current) => ({
+        ...current,
+        messages: { ...current.messages, m1: { ...current.messages['m1'], content: 'changed' } },
+      }));
+      return { conversationId: 'ignored', status: 'success', response: 'stale summary' };
+    });
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    expect(result.status).toBe('error');
+    const saved = await conversationStore.load(parent.id);
+    expect(saved?.messages['m1'].content).toBe('changed');
+    expect(
+      Object.values(saved!.messages).filter((message) => message.type === 'summary'),
+    ).toHaveLength(0);
+    expect(saved?.middlewareState).toBeUndefined();
+    expect((await conversationStore.load(send.mock.calls[0][0].conversationId))?.status).toBe(
+      'archived',
+    );
+  });
+
   it('includes provider-visible tool calls and results but not reasoning in transcript', async () => {
     const { context, conversationStore, parent } = await setup();
     const withToolTurn = {
@@ -199,9 +226,13 @@ describe('compact_conversation automation tool', () => {
         m2: {
           ...parent.messages['m2'],
           reasoning: 'private chain of thought',
-          toolCalls: [{ id: 'call-1', name: 'lookup', arguments: { query: 'weather' } }],
+          toolCalls: [
+            { id: 'call-1', name: 'lookup', arguments: { query: 'weather' } },
+            { id: 'call-2', name: 'lookup', arguments: { query: 'traffic' } },
+          ],
           toolResults: [
             { id: 'call-1', name: 'lookup', result: { status: 'success', data: { temp: 72 } } },
+            { id: 'call-2', name: 'lookup', result: { status: 'success', data: { eta: 12 } } },
           ],
         },
       },
@@ -220,8 +251,14 @@ describe('compact_conversation automation tool', () => {
 
     const prompt = send.mock.calls[0][0].message;
     expect(prompt).toContain('assistant: second');
-    expect(prompt).toContain('tool_call lookup: {"query":"weather"}');
-    expect(prompt).toContain('tool_result lookup: {"status":"success","data":{"temp":72}}');
+    expect(prompt).toContain('tool_call id=call-1 name=lookup arguments={"query":"weather"}');
+    expect(prompt).toContain(
+      'tool_result id=call-1 name=lookup result={"status":"success","data":{"temp":72}}',
+    );
+    expect(prompt).toContain('tool_call id=call-2 name=lookup arguments={"query":"traffic"}');
+    expect(prompt).toContain(
+      'tool_result id=call-2 name=lookup result={"status":"success","data":{"eta":12}}',
+    );
     expect(prompt).not.toContain('private chain of thought');
   });
 });

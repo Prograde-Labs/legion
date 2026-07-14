@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { JSONSchema, JSONValue, ToolResult } from '@legion/types';
 import { compactRange, getActiveChain } from '../conversation/conversation-ops.js';
 import type { ConversationData } from '@legion/types';
@@ -72,6 +73,9 @@ export function createCompactConversationTool(): Tool {
           };
         }
         const observedHead = parent.activeBranchHead;
+        const selectedMessages = structuredClone(
+          input.messageIds.map((messageId) => parent.messages[messageId]),
+        );
         const helper = await context.conversationStore.create({
           schemaVersion: '2.0',
           activeBranchHead: '',
@@ -105,7 +109,12 @@ export function createCompactConversationTool(): Tool {
           await context.conversationStore.mutate(
             parent.id,
             (current) => {
-              if (!isActivePrefix(current, input.messageIds)) {
+              if (
+                !isActivePrefix(current, input.messageIds) ||
+                !selectedMessages.every((message, index) =>
+                  isDeepStrictEqual(current.messages[input.messageIds[index]], message),
+                )
+              ) {
                 throw new Error('Messages are no longer oldest contiguous active chain prefix');
               }
               const compacted = compactRange(current, input.messageIds, summary.response!);
@@ -171,10 +180,14 @@ function transcript(conversation: ConversationData, messageIds: string[]): strin
       if (message.type === 'summary') return `[summary of earlier messages]: ${message.content}`;
       const lines = [`${message.role}: ${message.content}`];
       for (const call of message.toolCalls ?? []) {
-        lines.push(`tool_call ${call.name}: ${JSON.stringify(call.arguments)}`);
+        lines.push(
+          `tool_call id=${call.id} name=${call.name} arguments=${JSON.stringify(call.arguments)}`,
+        );
       }
       for (const result of message.toolResults ?? []) {
-        lines.push(`tool_result ${result.name}: ${JSON.stringify(result.result)}`);
+        lines.push(
+          `tool_result id=${result.id} name=${result.name} result=${JSON.stringify(result.result)}`,
+        );
       }
       return lines;
     })
