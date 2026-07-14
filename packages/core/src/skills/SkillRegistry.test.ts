@@ -115,4 +115,21 @@ describe('SkillRegistry', () => {
 
     expect(registry.list().map(({ name }) => name)).toEqual(['Beta', 'alpha']);
   });
+
+  it('uses code-unit directory order to resolve same-scope duplicates', async () => {
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'alpha',
+      '---\nname: deploy\ndescription: Alpha deployment\n---\nAlpha instructions',
+    );
+    await skill(
+      join(workspaceRoot, '.agents', 'skills'),
+      'Beta',
+      '---\nname: deploy\ndescription: Beta deployment\n---\nBeta instructions',
+    );
+
+    const registry = await SkillRegistry.discover(workspaceRoot, homeRoot);
+
+    expect(registry.get('deploy')?.description).toBe('Alpha deployment');
+  });
 });

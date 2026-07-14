@@ -81,7 +81,7 @@ async function findSkillFiles(root: string): Promise<string[]> {
       return;
     }
 
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await walk(path);
       else if (entry.isFile() && entry.name === 'SKILL.md') found.push(resolve(path));
