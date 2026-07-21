@@ -67,3 +67,7 @@ export * from './middleware/loadWorkspaceMiddleware.js';
 export * from './middleware/json.js';
 export * from './middleware/MiddlewareRunner.js';
 export * from './middleware/MiddlewareLifecycle.js';
+export * from './skills/SkillRegistry.js';
+export * from './tools/skill-tools.js';
+export * from './tools/automation-tools.js';
+export * from './middleware/builtins/index.js';
