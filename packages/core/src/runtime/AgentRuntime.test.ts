@@ -1028,6 +1028,11 @@ describe('AgentRuntime: middleware prompts', () => {
     [
       'abort',
       { kind: 'abort' as const, error: 'internal middleware detail' },
+      { kind: 'middleware_abort', error: 'internal middleware detail' },
+    ],
+    [
+      'abort without error falls back to generic message',
+      { kind: 'abort' as const, error: undefined as unknown as string },
       { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
     ],
     [

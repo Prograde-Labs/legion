@@ -318,7 +318,10 @@ export class AgentRuntime implements Runtime {
           }
           if (promptResult.kind === 'abort') {
             return this.withActions(
-              { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
+              {
+                kind: 'middleware_abort',
+                error: promptResult.error ?? 'Middleware prompt aborted',
+              },
               actions,
             );
           }
