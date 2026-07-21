@@ -73,6 +73,42 @@ describe('LegionProcess config and runtime tools', () => {
     expect(process_.collective.getOrThrow('operator').tools.list_middleware).toBe('auto');
   });
 
+  it('discovers project skills and registers built-in middleware tools', async () => {
+    await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.json'),
+      JSON.stringify({ version: '2', server: { port: 0, host: '127.0.0.1' } }),
+    );
+    const skillDirectory = join(workspaceRoot, '.agents', 'skills', 'workspace-review');
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(
+      join(skillDirectory, 'SKILL.md'),
+      '---\nname: workspace-review\ndescription: Review this workspace\n---\nInspect diffs.',
+    );
+
+    process_ = await LegionProcess.start(workspaceRoot);
+
+    expect(process_.middlewareRegistry.get('builtin:skills')?.type).toBe('builtin:skills');
+    expect(process_.middlewareRegistry.get('builtin:auto-compaction')?.type).toBe(
+      'builtin:auto-compaction',
+    );
+    expect(process_.middlewareRegistry.get('builtin:conversation-naming')?.type).toBe(
+      'builtin:conversation-naming',
+    );
+    expect(process_.toolRegistry.listAll()).toEqual(
+      expect.arrayContaining([
+        'list_skills',
+        'load_skills',
+        'compact_conversation',
+        'generate_conversation_title',
+      ]),
+    );
+    expect(process_.skillRegistry.get('workspace-review')?.scope).toBe('project');
+    expect(
+      process_.collective.list().find((participant) => participant.operator)?.tools['list_skills'],
+    ).toBe('auto');
+  });
+
   it('rejects enabled middleware with an unavailable type', async () => {
     await writeMiddlewareWorkspace();
     await restartWithMiddleware([{ id: 'missing-1', type: 'missing', config: {} }]);

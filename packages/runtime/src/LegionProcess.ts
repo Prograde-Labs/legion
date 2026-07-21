@@ -30,6 +30,8 @@ import {
   MiddlewareRunner,
   MiddlewareLifecycle,
   loadWorkspaceMiddleware,
+  registerBuiltinMiddleware,
+  SkillRegistry,
   // Global tools
   communicateTool,
   approvalResponseTool,
@@ -79,6 +81,8 @@ export class LegionProcess {
     readonly services: ServiceManager,
     readonly connectors: ConnectorRegistry,
     readonly eventBus: EventBus,
+    readonly skillRegistry: SkillRegistry,
+    readonly toolRegistry: ToolRegistry,
     readonly middlewareRegistry: MiddlewareRegistry,
     readonly middlewareDiagnostics: readonly MiddlewareDiagnostic[],
     private readonly mcpSources: ToolSource[],
@@ -141,6 +145,14 @@ export class LegionProcess {
     await pendingApprovalRegistry.reconcileAutomationHelpers(store);
 
     const middlewareRegistry = new MiddlewareRegistry();
+    const skillRegistry = await SkillRegistry.discover(workspaceRoot, homedir());
+    let modelRouter!: ModelRouter;
+    const builtins = registerBuiltinMiddleware({
+      middlewareRegistry,
+      skillRegistry,
+      conversationStore: store,
+      getModelMetadata: (modelId) => modelRouter.getModelMetadata(modelId),
+    });
     const middlewareDiagnostics = await loadWorkspaceMiddleware(
       workspaceRoot,
       mergedConfig.middlewareModules ?? [],
@@ -191,7 +203,7 @@ export class LegionProcess {
     const systemStore = new SystemProviderStore(systemStorage);
     const systemRouting = deepMerge({}, systemConfig.routing ?? {}) as RoutingConfig;
     const workspaceRouting = deepMerge({}, localConfig.routing ?? {}) as RoutingConfig;
-    const modelRouter = new ModelRouter(systemStore, systemRouting, workspaceRouting);
+    modelRouter = new ModelRouter(systemStore, systemRouting, workspaceRouting);
     const saveSystemRouting = async (routing: RoutingConfig): Promise<void> => {
       const current = await loadSystemConfig();
       await writeJsonFile(join(systemConfigDir, 'config.json'), deepMerge(current, { routing }));
@@ -207,6 +219,9 @@ export class LegionProcess {
 
     // ── Step 6: Register global tools ────────────────────────────────────────
     toolRegistry.register(communicateTool);
+    for (const tool of builtins.tools) {
+      toolRegistry.register(tool);
+    }
     toolRegistry.register(approvalResponseTool);
     for (const tool of managementTools) {
       toolRegistry.register(tool);
@@ -342,6 +357,8 @@ export class LegionProcess {
       serviceManager,
       connectorRegistry,
       eventBus,
+      skillRegistry,
+      toolRegistry,
       middlewareRegistry,
       middlewareDiagnostics,
       mcpSources,
@@ -390,6 +407,7 @@ const RUNTIME_TOOL_NAMES = [
   'get_routing',
   'save_routing',
   'list_middleware',
+  'list_skills',
 ] as const;
 
 const SUBSCRIPTION_TOOL_NAMES = [
