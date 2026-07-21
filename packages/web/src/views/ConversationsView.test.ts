@@ -65,4 +65,52 @@ describe('ConversationsView filters', () => {
     expect(conversationWatch.cancel).toHaveBeenCalledTimes(2);
     expect(conversationWatch.start).toHaveBeenCalledTimes(3);
   });
+
+  it('serializes filter restarts so the latest request wins', async () => {
+    const staleConv = {
+      id: 'stale',
+      title: 'Stale list',
+      createdAt: '',
+      updatedAt: '',
+      messageCount: 0,
+      participants: ['operator'],
+      status: 'archived' as const,
+      tags: [],
+    };
+    const latestConv = { ...staleConv, id: 'latest', title: 'Latest list' };
+    const deferreds: Array<(value: { conversations: unknown[] }) => void> = [];
+    execute.mockImplementation((tool: string) => {
+      if (tool !== 'list_conversations') return Promise.resolve([]);
+      return new Promise((resolve) => deferreds.push(resolve));
+    });
+    const wrapper = mount(ConversationsView, {
+      global: {
+        stubs: { AppLayout: { template: '<main><slot /></main>' }, ConversationThread: true },
+      },
+    });
+    await flushPromises();
+    deferreds[0]!({ conversations: [] });
+    await flushPromises();
+
+    // Rapid successive filter changes.
+    await wrapper.get('[data-status="archived"]').trigger('click');
+    await wrapper.get('[data-status="all"]').trigger('click');
+    await flushPromises();
+
+    // Serialized: second request not issued until first completes.
+    expect(deferreds.length).toBe(2);
+    deferreds[1]!({ conversations: [staleConv] });
+    await flushPromises();
+    expect(deferreds.length).toBe(3);
+    deferreds[2]!({ conversations: [latestConv] });
+    await flushPromises();
+
+    expect(execute).toHaveBeenLastCalledWith('list_conversations', {
+      participantId: 'operator',
+      status: 'all',
+      tags: [],
+    });
+    const titles = wrapper.findAll('[data-conversation-title]').map((node) => node.text());
+    expect(titles).toEqual(['Latest list']);
+  });
 });

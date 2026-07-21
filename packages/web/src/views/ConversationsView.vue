@@ -123,14 +123,20 @@ function cancelDelete() {
   pendingDeleteId.value = null;
 }
 
+// Serialize filter restarts: each invocation fully completes (load + cancel +
+// start) before the next begins, so the final state always reflects the latest
+// filter even when loads resolve out of order.
+let filterChain: Promise<void> = Promise.resolve();
 watch(
   [listMode, statusFilter, tagFilter],
-  async (newVal, oldVal) => {
+  (newVal, oldVal) => {
     if (JSON.stringify(newVal) === JSON.stringify(oldVal)) return;
-    await loadConversations();
-    if (!ws.getConnectionId()) return;
-    await convStream.cancel();
-    await convStream.start();
+    filterChain = filterChain.then(async () => {
+      await loadConversations();
+      if (!ws.getConnectionId()) return;
+      await convStream.cancel();
+      await convStream.start();
+    });
   },
   { deep: true },
 );

@@ -46,4 +46,23 @@ describe('ConversationList', () => {
     expect(wrapper.emitted('update:status')?.[0]).toEqual(['archived']);
     expect(wrapper.emitted('update:tags')?.[0]).toEqual([['alpha', 'beta']]);
   });
+
+  it('preserves in-progress tag typing across re-renders', async () => {
+    const wrapper = mount(ConversationList, {
+      props: {
+        conversations: [],
+        activeId: null,
+        myParticipantId: 'operator',
+        mode: 'mine',
+        status: 'active',
+        tags: [],
+      },
+    });
+    const input = wrapper.get('[data-tag-filter]');
+    await input.setValue('helper, com');
+    await wrapper.setProps({ conversations: [conversation] });
+    expect((wrapper.get('[data-tag-filter]').element as HTMLInputElement).value).toBe(
+      'helper, com',
+    );
+  });
 });

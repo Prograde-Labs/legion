@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import type { ConversationMeta } from '@legion/types';
 
@@ -30,6 +31,16 @@ function updateTags(value: string) {
     ),
   ]);
 }
+
+// Local input state so in-progress typing survives re-renders; syncs from prop
+// when tags change externally.
+const tagInput = ref(props.tags.join(', '));
+watch(
+  () => props.tags,
+  (tags) => {
+    tagInput.value = tags.join(', ');
+  },
+);
 
 const router = useRouter();
 </script>
@@ -90,11 +101,11 @@ const router = useRouter();
         </button>
       </div>
       <input
+        v-model="tagInput"
         data-tag-filter
-        :value="tags.join(', ')"
         placeholder="Tags: alpha, beta"
         class="mt-2 w-full rounded border border-navy-700 bg-navy-950 px-2 py-1 text-[10px] text-slate-300"
-        @change="updateTags(($event.target as HTMLInputElement).value)"
+        @change="updateTags(tagInput)"
       />
     </div>
 
