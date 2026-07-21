@@ -591,6 +591,105 @@ describe('MiddlewareRunner', () => {
     expect(checkpoint).toMatchObject({ checkpointId: pending.checkpointId });
   });
 
+  it('keeps automation seed on a resumed helper phase before nested approval event', async () => {
+    const f = await fixture([instance('first'), instance('second')]);
+    f.participant.tools = { gate: 'requires_approval' };
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => ({
+          kind: 'tool',
+          requestId: `gate-${context.instance.id}`,
+          tool: 'gate',
+          arguments: { instanceId: context.instance.id },
+        }),
+      }),
+      'test:runner',
+    );
+    f.toolRegistry.register({
+      name: 'gate',
+      description: 'gate',
+      parameters: schema,
+      execute: async () => ({ status: 'success' as const }),
+    });
+    const parentCheckpoint: MiddlewareCheckpoint = {
+      checkpointId: 'parent-checkpoint',
+      operationId: 'parent-operation',
+      conversationId: 'parent-conversation',
+      phase: 'beforeSend',
+      participantId: 'parent-participant',
+      instanceId: 'auto-compaction',
+      middlewareType: 'builtin:auto-compaction',
+      middlewareRevision: 1,
+      middlewareConfig: { summarizerParticipantId: f.participant.id },
+      nextHookIndex: 1,
+      actionCursor: 0,
+      request: {
+        requestId: 'compact-request',
+        tool: 'compact_conversation',
+        arguments: {},
+      },
+      actions: [],
+      observedHead: 'parent-message',
+      draft: draft(),
+      final: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const seed: AutomationCompactionSeed = {
+      parentConversationId: 'parent-conversation',
+      helperConversationId: f.thread.id,
+      participantId: 'parent-participant',
+      middlewareInstanceId: 'auto-compaction',
+      middlewareRevision: 1,
+      middlewareType: 'builtin:auto-compaction',
+      middlewareConfig: { summarizerParticipantId: f.participant.id },
+      observedParentHead: 'parent-message',
+      selectedMessages: [
+        {
+          id: 'parent-message',
+          parentId: null,
+          conversationId: 'parent-conversation',
+          senderId: 'sender',
+          recipientId: 'parent-participant',
+          role: 'user',
+          content: 'old context',
+          status: 'active',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      parentMessageId: 'parent-message',
+      parentCheckpoint,
+    };
+    const first = await f.runner.runMessagePhase({
+      operationId: 'helper-operation',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+      approvalContinuationSeed: seed,
+    });
+    if (first.kind !== 'pending_approval') throw new Error('Expected first approval');
+    await f.pendingApprovals.resolve(first.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const observedKinds: Array<string | undefined> = [];
+    f.eventBus.on('approval:requested', ({ approvalId }) => {
+      observedKinds.push(f.pendingApprovals.getRecord(approvalId)?.continuation?.kind);
+    });
+
+    const nested = await f.runner.resumeApproval(first.approvalId, f.thread);
+
+    expect(nested).toMatchObject({ kind: 'pending_approval' });
+    if (nested.kind !== 'pending_approval') throw new Error('Expected nested approval');
+    expect(observedKinds).toEqual(['automation_compaction']);
+    expect(f.pendingApprovals.getRecord(nested.approvalId)?.continuation?.kind).toBe(
+      'automation_compaction',
+    );
+  });
+
   it('does not pass helper automation seed into resumed parent pipeline', async () => {
     const f = await fixture([instance('auto-compaction'), instance('parent-tail')]);
     f.participant.tools = { gate: 'requires_approval' };
@@ -794,39 +893,6 @@ describe('MiddlewareRunner', () => {
       },
     });
     expect(events).toEqual(['tool:call', 'tool:result', 'approval:requested']);
-  });
-
-  it('rejects title helper middleware approvals without pending events', async () => {
-    const f = await fixture([instance('request')]);
-    f.participant.tools = { risky: 'requires_approval' };
-    const approvals = vi.fn();
-    f.eventBus.on('approval:requested', approvals);
-    f.registry.register(
-      middlewareDefinition({
-        beforeSend: () => ({
-          kind: 'tool',
-          requestId: 'risky-1',
-          tool: 'risky',
-          arguments: { path: 'x' },
-        }),
-      }),
-      'test:runner',
-    );
-
-    const result = await f.runner.runMessagePhase({
-      operationId: 'title-helper-approval',
-      phase: 'beforeSend',
-      participant: f.participant,
-      thread: f.thread,
-      draft: draft(),
-      actions: [],
-      final: true,
-      titleApprovalRejectionMessage: 'Title generation requires approval',
-    });
-
-    expect(result).not.toMatchObject({ kind: 'pending_approval' });
-    expect(approvals).not.toHaveBeenCalled();
-    expect(f.pendingApprovals.listPending()).toEqual([]);
   });
 
   it('records rejected tool actions and applies open versus closed failure modes without replaying request hook', async () => {

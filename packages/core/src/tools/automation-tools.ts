@@ -316,10 +316,7 @@ export function createGenerateConversationTitleTool(): Tool {
               getActiveChain(parent).map((message) => message.id),
             )}`,
             replyTo: undefined,
-            context: {
-              ...context,
-              titleApprovalRejectionMessage: 'Title generation requires approval',
-            },
+            context,
           });
           if (titleResponse.status === 'pending_approval') {
             archiveHelper = true;

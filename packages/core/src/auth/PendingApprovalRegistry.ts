@@ -1224,33 +1224,10 @@ function normalizeData(value: unknown): RegistryData {
       throw new TypeError('Pending approval registry genericResumes must be a valid plain object');
     }
     const records = Object.fromEntries(
-      Object.entries(data.records).map(([approvalId, record]) => {
-        const legacy = record as { continuation?: { kind?: unknown } };
-        if (legacy.continuation?.kind === 'automation_title') {
-          const {
-            continuation: _continuation,
-            titleParentExecution: _titleParentExecution,
-            successorApprovalId: _successorApprovalId,
-            successorApprovalIds: _successorApprovalIds,
-            ...retired
-          } = record as unknown as Record<string, unknown>;
-          return [
-            approvalId,
-            snapshotRecord({
-              ...retired,
-              lifecycle: 'acknowledged',
-              decision: {
-                approved: false,
-                decidedByParticipantId: 'system',
-                message: 'Title generation requires approval',
-                decidedAt: new Date().toISOString(),
-              },
-              resumeResult: { status: 'rejected', message: 'Title generation requires approval' },
-            } as ApprovalRecord),
-          ];
-        }
-        return [approvalId, snapshotRecord(record)];
-      }),
+      Object.entries(data.records).map(([approvalId, record]) => [
+        approvalId,
+        snapshotRecord(record),
+      ]),
     );
     for (const record of Object.values(records)) {
       if (!record.automationCompaction) continue;
@@ -1405,18 +1382,6 @@ export class PendingApprovalRegistry {
   static async load(storage: Storage): Promise<PendingApprovalRegistry> {
     const registry = new PendingApprovalRegistry(storage);
     const stored = await storage.readJson<unknown>(STORAGE_KEY);
-    const retireLegacyTitle =
-      stored !== null &&
-      typeof stored === 'object' &&
-      !Array.isArray(stored) &&
-      Object.hasOwn(stored, 'records') &&
-      Object.values((stored as { records?: Record<string, unknown> }).records ?? {}).some(
-        (record) =>
-          record !== null &&
-          typeof record === 'object' &&
-          (record as { continuation?: { kind?: unknown } }).continuation?.kind ===
-            'automation_title',
-      );
     const upgradeRecordsOnly =
       stored !== null &&
       typeof stored === 'object' &&
@@ -1424,7 +1389,7 @@ export class PendingApprovalRegistry {
       Object.hasOwn(stored, 'records') &&
       !Object.hasOwn(stored, 'middlewareActions');
     if (stored !== null) registry.data = normalizeData(stored);
-    if (upgradeRecordsOnly || retireLegacyTitle || recovery(registry.data))
+    if (upgradeRecordsOnly || recovery(registry.data))
       await storage.writeJson(STORAGE_KEY, registry.data);
     return registry;
   }
@@ -1479,25 +1444,20 @@ export class PendingApprovalRegistry {
 
   async create(
     input: PendingApprovalInput,
-    automationSeed?: AutomationCompactionSeed,
-    terminalRejectionMessage?: string,
+    automationCompactionSeed?: AutomationCompactionSeed,
   ): Promise<{ approvalId: string }> {
     const snapshot = snapshotInput(input);
-    const rejectionMessage =
-      terminalRejectionMessage === undefined
-        ? undefined
-        : requiredString(terminalRejectionMessage, 'approval terminal rejection message');
-    if (automationSeed !== undefined && rejectionMessage === undefined) {
+    if (automationCompactionSeed !== undefined) {
       if (snapshot.continuation?.kind !== 'middleware') {
-        throw new TypeError('Automation seed requires middleware continuation');
+        throw new TypeError('Automation compaction seed requires middleware continuation');
       }
       const continuation = snapshotContinuation({
-        ...automationSeed,
-        kind: 'automation_compaction' as const,
+        ...automationCompactionSeed,
+        kind: 'automation_compaction',
         helperContinuation: snapshot.continuation,
       });
       if (continuation?.kind !== 'automation_compaction') {
-        throw new TypeError('Automation continuation is required');
+        throw new TypeError('Automation compaction continuation is required');
       }
       validateContinuationBinding(snapshot, continuation);
       snapshot.continuation = continuation;
@@ -1508,28 +1468,12 @@ export class PendingApprovalRegistry {
         ...snapshot,
         approvalId,
         createdAt: new Date().toISOString(),
-        lifecycle: rejectionMessage === undefined ? 'pending' : 'acknowledged',
-        ...(rejectionMessage === undefined
-          ? {}
-          : {
-              decision: {
-                approved: false,
-                decidedByParticipantId: 'system',
-                message: rejectionMessage,
-                decidedAt: new Date().toISOString(),
-              },
-              resumeResult: { status: 'rejected' as const, message: rejectionMessage },
-            }),
-        ...(rejectionMessage === undefined &&
-        snapshot.continuation?.kind === 'automation_compaction'
+        lifecycle: 'pending',
+        ...(snapshot.continuation?.kind === 'automation_compaction'
           ? { automationCompaction: { lifecycle: 'waiting' as const } }
           : {}),
       };
-      if (rejectionMessage !== undefined) delete data.records[approvalId].continuation;
-      if (
-        rejectionMessage === undefined &&
-        snapshot.continuation?.kind === 'automation_compaction'
-      ) {
+      if (snapshot.continuation?.kind === 'automation_compaction') {
         const checkpoint = snapshot.continuation.parentCheckpoint;
         const action =
           data.middlewareActions[
@@ -1586,7 +1530,7 @@ export class PendingApprovalRegistry {
         }
         const continuation = snapshotContinuation({
           ...source.continuation,
-          helperContinuation: successor.continuation as MiddlewareApprovalContinuation,
+          helperContinuation: successor.continuation,
         });
         if (continuation?.kind !== 'automation_compaction') {
           throw new LegionError('Automation compaction successor is invalid', 'APPROVAL_CONFLICT');
@@ -2168,32 +2112,6 @@ export class PendingApprovalRegistry {
           'APPROVAL_CONFLICT',
         );
       }
-      record.lifecycle = 'acknowledged';
-      delete record.continuation;
-      return undefined;
-    });
-  }
-
-  async cancelPending(approvalId: string, message: string): Promise<void> {
-    const error = requiredString(message, 'approval cancellation message');
-    await this.mutate((data) => {
-      const record = data.records[approvalId];
-      if (!record)
-        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
-      if (record.lifecycle === 'acknowledged') return undefined;
-      if (record.lifecycle !== 'pending') {
-        throw new LegionError(
-          `Approval request is not pending: ${approvalId}`,
-          'APPROVAL_CONFLICT',
-        );
-      }
-      record.decision = {
-        approved: false,
-        decidedByParticipantId: 'system',
-        message: error,
-        decidedAt: new Date().toISOString(),
-      };
-      record.resumeResult = { status: 'rejected', message: error };
       record.lifecycle = 'acknowledged';
       delete record.continuation;
       return undefined;

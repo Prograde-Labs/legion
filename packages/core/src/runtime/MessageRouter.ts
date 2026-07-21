@@ -237,7 +237,6 @@ export class MessageRouter implements MessageRouterPort {
             actions,
           },
           approvalContinuationSeed: toolContext.approvalContinuationSeed,
-          titleApprovalRejectionMessage: toolContext.titleApprovalRejectionMessage,
         });
         if (result.kind === 'continue') {
           return { kind: 'continue', prompt: result.value, actions: result.actions };
@@ -388,7 +387,6 @@ export class MessageRouter implements MessageRouterPort {
       actions: state.actions,
       signal: state.context.signal,
       approvalContinuationSeed: state.context.approvalContinuationSeed,
-      titleApprovalRejectionMessage: state.context.titleApprovalRejectionMessage,
       ...(usage === undefined ? {} : { usage }),
     });
     if (result.status !== 'pending_approval' || !result.approvalId) return result;
@@ -543,7 +541,6 @@ export class MessageRouter implements MessageRouterPort {
         mode: 'pre_runtime',
         signal: opts.context.signal,
         approvalContinuationSeed: opts.context.approvalContinuationSeed,
-        titleApprovalRejectionMessage: opts.context.titleApprovalRejectionMessage,
       });
       if (inboundResult.kind === 'respond') {
         return this.respondWithLifecycle(thread, inboundResult.response, {
@@ -808,7 +805,6 @@ export class MessageRouter implements MessageRouterPort {
         mode: 'pre_runtime',
         signal: opts.context.signal,
         approvalContinuationSeed: opts.context.approvalContinuationSeed,
-        titleApprovalRejectionMessage: opts.context.titleApprovalRejectionMessage,
       });
       if (result.kind === 'respond') {
         return this.respondWithLifecycle(thread, result.response, {
@@ -1753,7 +1749,6 @@ export class MessageRouter implements MessageRouterPort {
         signal: context.signal,
         skipDraftHooks: true,
         approvalContinuationSeed: context.approvalContinuationSeed,
-        titleApprovalRejectionMessage: context.titleApprovalRejectionMessage,
       });
       if (inbound.kind === 'error' || inbound.kind === 'pending_approval') {
         return this.mapLifecycleResult(inbound, thread.id, context);
@@ -1802,7 +1797,6 @@ export class MessageRouter implements MessageRouterPort {
         ...(checkpoint.mode === undefined ? {} : { mode: checkpoint.mode }),
         signal: context.signal,
         approvalContinuationSeed: context.approvalContinuationSeed,
-        titleApprovalRejectionMessage: context.titleApprovalRejectionMessage,
       });
       if (beforeReceive.kind !== 'continue') {
         return this.mapLifecycleResult(
@@ -1836,7 +1830,6 @@ export class MessageRouter implements MessageRouterPort {
         actions: resumed.actions,
         signal: context.signal,
         approvalContinuationSeed: context.approvalContinuationSeed,
-        titleApprovalRejectionMessage: context.titleApprovalRejectionMessage,
       });
       return this.finishAfterReceive(
         checkpoint.operationId,

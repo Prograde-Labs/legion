@@ -83,7 +83,6 @@ export interface MessagePhaseInput {
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   mode?: 'pre_runtime' | 'post_response';
   approvalContinuationSeed?: AutomationCompactionSeed;
-  titleApprovalRejectionMessage?: string;
 }
 
 export interface AfterReceiveInput {
@@ -98,7 +97,6 @@ export interface AfterReceiveInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   approvalContinuationSeed?: AutomationCompactionSeed;
-  titleApprovalRejectionMessage?: string;
 }
 
 export interface SystemPromptInput {
@@ -113,7 +111,6 @@ export interface SystemPromptInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   approvalContinuationSeed?: AutomationCompactionSeed;
-  titleApprovalRejectionMessage?: string;
 }
 
 export interface AfterSendInput {
@@ -128,7 +125,6 @@ export interface AfterSendInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   approvalContinuationSeed?: AutomationCompactionSeed;
-  titleApprovalRejectionMessage?: string;
 }
 
 export interface MiddlewareRunnerDependencies {
@@ -792,7 +788,7 @@ export class MiddlewareRunner {
           participant,
           authoritative,
           actions,
-          continuation.kind === 'middleware' ? undefined : continuation,
+          continuation.kind === 'automation_compaction' ? continuation : undefined,
         );
       },
     );
@@ -1661,25 +1657,7 @@ export class MiddlewareRunner {
             continuation: { kind: 'middleware', checkpoint },
           },
           input.approvalContinuationSeed,
-          input.titleApprovalRejectionMessage,
         );
-        if (input.titleApprovalRejectionMessage !== undefined) {
-          return {
-            kind: 'failure',
-            snapshots: this.appendAction(
-              snapshots,
-              this.toolAction(instance, input, request, 'rejected', {
-                status: 'rejected',
-                message: input.titleApprovalRejectionMessage,
-              }),
-            ),
-            failure: {
-              status: 'failure',
-              failureMode: 'closed',
-              error: input.titleApprovalRejectionMessage,
-            },
-          };
-        }
         this.recordSuccess(instance, phase, input, {
           status: 'success',
           result: request,

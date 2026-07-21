@@ -794,26 +794,6 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     expect(toolTurn?.toolResults?.[0].result.approvalId).toMatch(/^appr-/);
   });
 
-  it('returns rejected title helper tool results without pending approval events', async () => {
-    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
-      await setupApprovalScenario(dir);
-    context.titleApprovalRejectionMessage = 'Title generation requires approval';
-    const approvals = vi.fn();
-    context.eventBus.on('approval:requested', approvals);
-
-    const result = await runtime.handle(incoming, context);
-
-    expect(result).toEqual({
-      kind: 'middleware_abort',
-      error: 'Title generation requires approval',
-    });
-    expect(approvals).not.toHaveBeenCalled();
-    expect(pendingApprovalRegistry.listPending()).toEqual([]);
-    expect(
-      thread.activeChain.some((message) => message.toolResults?.[0]?.result.status === 'rejected'),
-    ).toBe(true);
-  });
-
   it('resumes and completes after approval is granted', async () => {
     const { runtime, incoming, context, thread, pendingApprovalRegistry } =
       await setupApprovalScenario(dir);
@@ -1028,11 +1008,6 @@ describe('AgentRuntime: middleware prompts', () => {
     [
       'abort',
       { kind: 'abort' as const, error: 'internal middleware detail' },
-      { kind: 'middleware_abort', error: 'internal middleware detail' },
-    ],
-    [
-      'abort without error falls back to generic message',
-      { kind: 'abort' as const, error: undefined as unknown as string },
       { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
     ],
     [
