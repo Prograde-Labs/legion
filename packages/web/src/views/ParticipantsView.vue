@@ -3,6 +3,11 @@ import { onMounted, ref, watch } from 'vue';
 import type { BaseParticipant } from '@legion/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
+import type {
+  MiddlewareDefinitionInfo,
+  MiddlewareDiagnosticInfo,
+  SkillInfo,
+} from '../components/participants/middleware-ui-types.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { useExecute } from '../composables/useExecute.js';
@@ -17,6 +22,12 @@ const participantStream = useToolStream('watch_participants', () => ({}), {
 const participants = ref<BaseParticipant[]>([]);
 const allTools = ref<string[]>([]);
 const availableModels = ref<Array<{ id: string; name?: string; provider: string }>>([]);
+const middlewareDefinitions = ref<MiddlewareDefinitionInfo[]>([]);
+const middlewareDiagnostics = ref<MiddlewareDiagnosticInfo[]>([]);
+const skills = ref<SkillInfo[]>([]);
+// Current runtime has no named-credential listing API. Existing configured references remain
+// selectable because MiddlewareSchemaForm merges its current value into these options.
+const credentialKeys: string[] = [];
 const slideOpen = ref(false);
 const editingId = ref<string | null>(null);
 const loadError = ref<string | null>(null);
@@ -49,6 +60,16 @@ async function load() {
       name: r.model.name,
       provider: r.provider,
     }));
+    const [middlewareResult, skillResult] = await Promise.all([
+      execute<{
+        definitions: MiddlewareDefinitionInfo[];
+        diagnostics: MiddlewareDiagnosticInfo[];
+      }>('list_middleware', {}),
+      execute<{ skills: SkillInfo[]; diagnostics: unknown[] }>('list_skills', {}),
+    ]);
+    middlewareDefinitions.value = middlewareResult.definitions;
+    middlewareDiagnostics.value = middlewareResult.diagnostics;
+    skills.value = skillResult.skills;
     loadError.value = null;
   } catch (err) {
     loadError.value = err instanceof Error ? err.message : String(err);
@@ -147,6 +168,10 @@ function openEdit(id: string) {
       :participant-id="editingId"
       :available-tools="allTools"
       :available-models="availableModels"
+      :middleware-definitions="middlewareDefinitions"
+      :middleware-diagnostics="middlewareDiagnostics"
+      :skills="skills"
+      :credential-keys="credentialKeys"
       @close="slideOpen = false"
       @saved="load"
     />
