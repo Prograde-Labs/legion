@@ -17,6 +17,15 @@ const { execute } = useExecute();
 const { participantId: myParticipantId } = useAuth();
 
 const listMode = ref<'mine' | 'all'>('mine');
+const statusFilter = ref<'active' | 'archived' | 'all'>('active');
+const tagFilter = ref<string[]>([]);
+const conversationFilter = computed(() => ({
+  ...(listMode.value === 'mine' && myParticipantId.value
+    ? { participantId: myParticipantId.value }
+    : {}),
+  status: statusFilter.value,
+  tags: tagFilter.value,
+}));
 const conversations = ref<ConversationMeta[]>([]);
 const participants = ref<BaseParticipant[]>([]);
 const pendingApprovalIds = ref<Set<string>>(new Set());
@@ -63,11 +72,10 @@ const pendingDeleteId = ref<string | null>(null);
 const deleting = ref(false);
 
 async function loadConversations() {
-  const filter =
-    listMode.value === 'mine' && myParticipantId.value
-      ? { participantId: myParticipantId.value }
-      : {};
-  const result = await execute<{ conversations: ConversationMeta[] }>('list_conversations', filter);
+  const result = await execute<{ conversations: ConversationMeta[] }>(
+    'list_conversations',
+    conversationFilter.value,
+  );
   conversations.value = result.conversations;
 }
 
@@ -115,11 +123,21 @@ function cancelDelete() {
   pendingDeleteId.value = null;
 }
 
-watch(listMode, loadConversations);
+watch(
+  [listMode, statusFilter, tagFilter],
+  async (newVal, oldVal) => {
+    if (JSON.stringify(newVal) === JSON.stringify(oldVal)) return;
+    await loadConversations();
+    if (!ws.getConnectionId()) return;
+    await convStream.cancel();
+    await convStream.start();
+  },
+  { deep: true },
+);
 
 const ws = useWebSocket();
 
-const convStream = useToolStream('watch_conversations', () => ({}), {
+const convStream = useToolStream('watch_conversations', () => conversationFilter.value, {
   onChunk: () => void loadConversations(),
 });
 
@@ -161,9 +179,13 @@ onMounted(async () => {
           :active-id="activeId"
           :my-participant-id="myParticipantId ?? ''"
           :mode="listMode"
+          :status="statusFilter"
+          :tags="tagFilter"
           :pending-approval-ids="pendingApprovalIds"
           @select="selectConversation"
           @update:mode="listMode = $event"
+          @update:status="statusFilter = $event"
+          @update:tags="tagFilter = $event"
           @delete="requestDelete"
         />
       </div>
