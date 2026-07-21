@@ -187,4 +187,46 @@ describe('MiddlewareSchemaForm', () => {
     });
     expect(wrapper.emitted('validation')?.at(-1)?.[0]).toEqual([]);
   });
+
+  it('emits an object without the key when a numeric field is cleared', async () => {
+    const wrapper = mount(MiddlewareSchemaForm, {
+      props: {
+        schema,
+        modelValue: { endpoint: 'https://example.test', retries: 3 },
+        credentialKeys: [],
+      },
+    });
+
+    await wrapper.get('[data-field="retries"]').setValue('');
+
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({
+      endpoint: 'https://example.test',
+    });
+  });
+
+  it('renders each nested validation error exactly once', () => {
+    const wrapper = mount(MiddlewareSchemaForm, {
+      props: {
+        schema: {
+          type: 'object',
+          required: ['connection'],
+          properties: {
+            connection: {
+              type: 'object',
+              title: 'Connection',
+              required: ['endpoint'],
+              properties: { endpoint: { type: 'string', title: 'Endpoint' } },
+            },
+          },
+        },
+        modelValue: { connection: {} },
+        credentialKeys: [],
+      },
+    });
+
+    const occurrences = wrapper
+      .findAll('p')
+      .filter((paragraph) => paragraph.text() === 'Connection.Endpoint is required');
+    expect(occurrences).toHaveLength(1);
+  });
 });

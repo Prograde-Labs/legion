@@ -94,6 +94,12 @@ const errors = computed(() =>
 watch(errors, (value) => emit('validation', value), { immediate: true });
 
 function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
+  if ((node.type === 'integer' || node.type === 'number') && raw === '') {
+    const next = { ...objectValue.value };
+    delete next[name];
+    emit('update:modelValue', next);
+    return;
+  }
   let value: JSONValue;
   if (node.type === 'boolean') value = Boolean(raw);
   else if (node.type === 'integer' || node.type === 'number') value = Number(raw);
@@ -178,6 +184,8 @@ function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
       </p>
       <p v-if="node.description" class="mt-1 text-[10px] text-navy-500">{{ node.description }}</p>
     </div>
-    <p v-for="error in errors" :key="error" class="text-[10px] text-red-400">{{ error }}</p>
+    <template v-if="!path">
+      <p v-for="error in errors" :key="error" class="text-[10px] text-red-400">{{ error }}</p>
+    </template>
   </div>
 </template>
