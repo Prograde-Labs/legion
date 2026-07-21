@@ -1002,7 +1002,9 @@ export class MessageRouter implements MessageRouterPort {
             ...context,
             approvalContinuationSeed: this.automationCompactionSeed(record.continuation),
           }
-        : context;
+        : record.continuation?.kind === 'automation_title'
+          ? { ...context, approvalContinuationSeed: this.automationTitleSeed(record.continuation) }
+          : context;
     if (!checkpoint || !this.middlewareRunner) {
       return {
         conversationId: record.conversationId,
@@ -1066,6 +1068,8 @@ export class MessageRouter implements MessageRouterPort {
         if (resumed.kind === 'pending_approval') {
           if (record.continuation?.kind === 'automation_compaction') {
             await approvals.transferAutomationCompaction(approvalId, [resumed.approvalId]);
+          } else if (record.continuation?.kind === 'automation_title') {
+            await approvals.transferAutomationTitle(approvalId, [resumed.approvalId]);
           } else {
             await approvals.recordSuccessor(approvalId, resumed.approvalId);
           }
@@ -1877,6 +1881,13 @@ export class MessageRouter implements MessageRouterPort {
   private automationCompactionSeed(
     continuation: AutomationCompactionContinuation,
   ): AutomationCompactionSeed {
+    const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
+    return seed;
+  }
+
+  private automationTitleSeed(
+    continuation: AutomationTitleContinuation,
+  ): import('../auth/PendingApprovalRegistry.js').AutomationTitleSeed {
     const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
     return seed;
   }

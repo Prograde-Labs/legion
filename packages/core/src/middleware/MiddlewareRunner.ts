@@ -789,7 +789,7 @@ export class MiddlewareRunner {
           participant,
           authoritative,
           actions,
-          continuation.kind === 'automation_compaction' ? continuation : undefined,
+          continuation.kind === 'middleware' ? undefined : continuation,
         );
       },
     );
@@ -999,7 +999,7 @@ export class MiddlewareRunner {
     participant: ParticipantConfig,
     thread: ConversationThread,
     actions: MiddlewareActionResult[],
-    automationContinuation?: AutomationCompactionContinuation,
+    automationContinuation?: AutomationCompactionContinuation | AutomationTitleContinuation,
   ): Promise<MiddlewarePhaseResult<MessageDraft | MessageData | string>> {
     const common = {
       operationId: checkpoint.operationId,
@@ -1011,19 +1011,36 @@ export class MiddlewareRunner {
       ...(automationContinuation === undefined
         ? {}
         : {
-            approvalContinuationSeed: {
-              parentConversationId: automationContinuation.parentConversationId,
-              helperConversationId: automationContinuation.helperConversationId,
-              participantId: automationContinuation.participantId,
-              middlewareInstanceId: automationContinuation.middlewareInstanceId,
-              middlewareRevision: automationContinuation.middlewareRevision,
-              middlewareType: automationContinuation.middlewareType,
-              middlewareConfig: automationContinuation.middlewareConfig,
-              observedParentHead: automationContinuation.observedParentHead,
-              selectedMessages: automationContinuation.selectedMessages,
-              parentMessageId: automationContinuation.parentMessageId,
-              parentCheckpoint: automationContinuation.parentCheckpoint,
-            },
+            approvalContinuationSeed:
+              automationContinuation.kind === 'automation_compaction'
+                ? {
+                    parentConversationId: automationContinuation.parentConversationId,
+                    helperConversationId: automationContinuation.helperConversationId,
+                    participantId: automationContinuation.participantId,
+                    middlewareInstanceId: automationContinuation.middlewareInstanceId,
+                    middlewareRevision: automationContinuation.middlewareRevision,
+                    middlewareType: automationContinuation.middlewareType,
+                    middlewareConfig: automationContinuation.middlewareConfig,
+                    observedParentHead: automationContinuation.observedParentHead,
+                    selectedMessages: automationContinuation.selectedMessages,
+                    parentMessageId: automationContinuation.parentMessageId,
+                    parentCheckpoint: automationContinuation.parentCheckpoint,
+                  }
+                : {
+                    parentConversationId: automationContinuation.parentConversationId,
+                    helperConversationId: automationContinuation.helperConversationId,
+                    participantId: automationContinuation.participantId,
+                    middlewareInstanceId: automationContinuation.middlewareInstanceId,
+                    middlewareRevision: automationContinuation.middlewareRevision,
+                    middlewareType: automationContinuation.middlewareType,
+                    middlewareConfig: automationContinuation.middlewareConfig,
+                    parentMessageId: automationContinuation.parentMessageId,
+                    scope: automationContinuation.scope,
+                    attachedParticipantId: automationContinuation.attachedParticipantId,
+                    maximumLength: automationContinuation.maximumLength,
+                    guidance: automationContinuation.guidance,
+                    parentCheckpoint: automationContinuation.parentCheckpoint,
+                  },
           }),
     };
     if (checkpoint.phase === 'beforeSend' || checkpoint.phase === 'beforeReceive') {

@@ -6,6 +6,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import {
   PendingApprovalRegistry,
   type AutomationCompactionContinuation,
+  type AutomationTitleContinuation,
 } from './PendingApprovalRegistry.js';
 import type { MessageData, MiddlewareCheckpoint } from '@legion/types';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
@@ -116,6 +117,49 @@ function automationContinuation(): AutomationCompactionContinuation {
 }
 
 function automationSeed(continuation: AutomationCompactionContinuation) {
+  const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
+  return seed;
+}
+
+function titleContinuation(): AutomationTitleContinuation {
+  const compaction = automationContinuation();
+  const parentCheckpoint = structuredClone(compaction.parentCheckpoint);
+  parentCheckpoint.middlewareType = 'builtin:conversation-title';
+  parentCheckpoint.middlewareConfig = { namingParticipantId: 'namer' };
+  parentCheckpoint.request = {
+    requestId: 'title-request',
+    tool: 'generate_conversation_title',
+    arguments: {
+      conversationId: 'parent',
+      namingParticipantId: 'namer',
+      middlewareInstanceId: 'audit',
+      parentMessageId: 'message-1',
+      scope: 'shared',
+      attachedParticipantId: 'agent-b',
+      maximumLength: 80,
+      guidance: 'concise',
+    },
+  };
+  return {
+    kind: 'automation_title',
+    parentConversationId: 'parent',
+    helperConversationId: 'helper',
+    participantId: 'agent-b',
+    middlewareInstanceId: 'audit',
+    middlewareRevision: 2,
+    middlewareType: 'builtin:conversation-title',
+    middlewareConfig: { namingParticipantId: 'namer' },
+    parentMessageId: 'message-1',
+    scope: 'shared',
+    attachedParticipantId: 'agent-b',
+    maximumLength: 80,
+    guidance: 'concise',
+    helperContinuation: compaction.helperContinuation,
+    parentCheckpoint,
+  };
+}
+
+function titleSeed(continuation: AutomationTitleContinuation) {
   const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
   return seed;
 }
@@ -823,6 +867,79 @@ describe('PendingApprovalRegistry continuations', () => {
       lifecycle: 'acknowledged',
       automationCompaction: { lifecycle: 'completed' },
       successorApprovalIds: [nested.approvalId],
+    });
+  });
+
+  it('moves immutable title parent state to nested helper approval across reload', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = titleContinuation();
+    const parent = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      titleSeed(continuation),
+    );
+    const nestedCheckpoint = structuredClone(continuation.helperContinuation.checkpoint);
+    nestedCheckpoint.checkpointId = 'title-nested-checkpoint';
+    nestedCheckpoint.request = { requestId: 'title-nested-request', tool: 'nested', arguments: {} };
+    const nested = await reg.create({
+      conversationId: 'helper',
+      requesterId: 'summarizer',
+      tool: 'nested',
+      args: {},
+      continuation: { kind: 'middleware', checkpoint: nestedCheckpoint },
+    });
+
+    await reg.transferAutomationTitle(parent.approvalId, [nested.approvalId]);
+
+    const loaded = await PendingApprovalRegistry.load(storage);
+    expect(loaded.getRecord(nested.approvalId)?.continuation).toMatchObject({
+      kind: 'automation_title',
+      parentConversationId: 'parent',
+      scope: 'shared',
+      maximumLength: 80,
+      guidance: 'concise',
+      helperContinuation: { checkpoint: { checkpointId: 'title-nested-checkpoint' } },
+    });
+    expect(loaded.getRecord(parent.approvalId)).toMatchObject({
+      successorApprovalIds: [nested.approvalId],
+    });
+  });
+
+  it('marks interrupted title helper execution unknown on reload without retrying it', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = titleContinuation();
+    const pending = await reg.create(
+      {
+        conversationId: 'helper',
+        requesterId: 'summarizer',
+        tool: 'lookup',
+        args: { query: 'summary' },
+        continuation: continuation.helperContinuation,
+      },
+      titleSeed(continuation),
+    );
+    await reg.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(pending.approvalId);
+
+    const loaded = await PendingApprovalRegistry.load(storage);
+    expect(loaded.getRecord(pending.approvalId)).toMatchObject({
+      lifecycle: 'decided',
+      continuation: { kind: 'automation_title' },
+      resumeResult: {
+        status: 'error',
+        error: 'Automation title helper outcome unknown and was not retried',
+      },
     });
   });
 

@@ -15,6 +15,7 @@ import {
   PendingApprovalRegistry,
   type AutomationCompactionContinuation,
   type AutomationCompactionSeed,
+  type AutomationTitleSeed,
 } from '../auth/PendingApprovalRegistry.js';
 import { Collective } from '../collective/Collective.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
@@ -591,7 +592,7 @@ describe('MiddlewareRunner', () => {
     expect(checkpoint).toMatchObject({ checkpointId: pending.checkpointId });
   });
 
-  it('keeps automation seed on a resumed helper phase before nested approval event', async () => {
+  it('keeps title seed on a resumed helper phase before nested approval event', async () => {
     const f = await fixture([instance('first'), instance('second')]);
     f.participant.tools = { gate: 'requires_approval' };
     f.registry.register(
@@ -617,15 +618,15 @@ describe('MiddlewareRunner', () => {
       conversationId: 'parent-conversation',
       phase: 'beforeSend',
       participantId: 'parent-participant',
-      instanceId: 'auto-compaction',
-      middlewareType: 'builtin:auto-compaction',
+      instanceId: 'conversation-title',
+      middlewareType: 'builtin:conversation-title',
       middlewareRevision: 1,
-      middlewareConfig: { summarizerParticipantId: f.participant.id },
+      middlewareConfig: { namingParticipantId: f.participant.id },
       nextHookIndex: 1,
       actionCursor: 0,
       request: {
-        requestId: 'compact-request',
-        tool: 'compact_conversation',
+        requestId: 'title-request',
+        tool: 'generate_conversation_title',
         arguments: {},
       },
       actions: [],
@@ -634,29 +635,19 @@ describe('MiddlewareRunner', () => {
       final: true,
       createdAt: '2026-01-01T00:00:00.000Z',
     };
-    const seed: AutomationCompactionSeed = {
+    const seed: AutomationTitleSeed = {
       parentConversationId: 'parent-conversation',
       helperConversationId: f.thread.id,
       participantId: 'parent-participant',
-      middlewareInstanceId: 'auto-compaction',
+      middlewareInstanceId: 'conversation-title',
       middlewareRevision: 1,
-      middlewareType: 'builtin:auto-compaction',
-      middlewareConfig: { summarizerParticipantId: f.participant.id },
-      observedParentHead: 'parent-message',
-      selectedMessages: [
-        {
-          id: 'parent-message',
-          parentId: null,
-          conversationId: 'parent-conversation',
-          senderId: 'sender',
-          recipientId: 'parent-participant',
-          role: 'user',
-          content: 'old context',
-          status: 'active',
-          timestamp: '2026-01-01T00:00:00.000Z',
-        },
-      ],
+      middlewareType: 'builtin:conversation-title',
+      middlewareConfig: { namingParticipantId: f.participant.id },
       parentMessageId: 'parent-message',
+      scope: 'shared',
+      attachedParticipantId: 'parent-participant',
+      maximumLength: 80,
+      guidance: 'concise',
       parentCheckpoint,
     };
     const first = await f.runner.runMessagePhase({
@@ -684,9 +675,9 @@ describe('MiddlewareRunner', () => {
 
     expect(nested).toMatchObject({ kind: 'pending_approval' });
     if (nested.kind !== 'pending_approval') throw new Error('Expected nested approval');
-    expect(observedKinds).toEqual(['automation_compaction']);
+    expect(observedKinds).toEqual(['automation_title']);
     expect(f.pendingApprovals.getRecord(nested.approvalId)?.continuation?.kind).toBe(
-      'automation_compaction',
+      'automation_title',
     );
   });
 

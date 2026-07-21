@@ -1373,6 +1373,18 @@ function recovery(data: RegistryData): boolean {
       record.lifecycle = 'decided';
       changed = true;
     }
+    if (
+      record.lifecycle === 'resuming' &&
+      record.continuation?.kind === 'automation_title' &&
+      record.resumeResult === undefined
+    ) {
+      record.resumeResult = {
+        status: 'error',
+        error: 'Automation title helper outcome unknown and was not retried',
+      };
+      record.lifecycle = 'decided';
+      changed = true;
+    }
     if (record.providerExecution === 'executing') {
       record.providerExecution = 'unknown';
       if (record.automationCompaction) record.automationCompaction.lifecycle = 'unknown';
@@ -1632,6 +1644,51 @@ export class PendingApprovalRegistry {
       const existing =
         source.successorApprovalIds ??
         (source.successorApprovalId === undefined ? [] : [source.successorApprovalId]);
+      const merged = [...existing, ...successorApprovalIds.filter((id) => !existing.includes(id))];
+      source.successorApprovalIds = merged;
+      source.successorApprovalId = merged[0];
+      if (source.providerExecution === 'executing') source.providerExecution = 'completed';
+      if (source.lifecycle === 'resuming') {
+        source.resumeResult = { status: 'success', data: { successorApprovalIds: merged } };
+        source.lifecycle = 'decided';
+      }
+      return undefined;
+    });
+  }
+
+  async transferAutomationTitle(approvalId: string, successorApprovalIds: string[]): Promise<void> {
+    if (successorApprovalIds.length === 0) return;
+    await this.mutate((data) => {
+      const source = data.records[approvalId];
+      if (source?.continuation?.kind !== 'automation_title') {
+        throw new LegionError('Automation title continuation unavailable', 'APPROVAL_CONFLICT');
+      }
+      for (const successorApprovalId of successorApprovalIds) {
+        const successor = data.records[successorApprovalId];
+        if (!successor || successor.lifecycle !== 'pending' || !successor.continuation) {
+          throw new LegionError('Automation title successor is invalid', 'APPROVAL_CONFLICT');
+        }
+        if (successor.continuation.kind === 'automation_title') {
+          const { helperContinuation: _sourceHelper, ...sourceSeed } = source.continuation;
+          const { helperContinuation: _successorHelper, ...successorSeed } = successor.continuation;
+          if (!isDeepStrictEqual(sourceSeed, successorSeed)) {
+            throw new LegionError('Automation title successor is invalid', 'APPROVAL_CONFLICT');
+          }
+          continue;
+        }
+        const continuation = snapshotContinuation({
+          ...source.continuation,
+          helperContinuation: successor.continuation as MiddlewareApprovalContinuation,
+        });
+        if (continuation?.kind !== 'automation_title') {
+          throw new LegionError('Automation title successor is invalid', 'APPROVAL_CONFLICT');
+        }
+        validateContinuationBinding(successor, continuation);
+        successor.continuation = continuation;
+      }
+      const existing =
+        source.successorApprovalIds ??
+        (source.successorApprovalId ? [source.successorApprovalId] : []);
       const merged = [...existing, ...successorApprovalIds.filter((id) => !existing.includes(id))];
       source.successorApprovalIds = merged;
       source.successorApprovalId = merged[0];
