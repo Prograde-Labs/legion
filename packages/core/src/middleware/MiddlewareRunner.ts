@@ -21,7 +21,8 @@ import type {
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type {
   AutomationCompactionContinuation,
-  AutomationCompactionSeed,
+  AutomationTitleContinuation,
+  AutomationApprovalSeed,
   PendingApprovalRegistry,
 } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
@@ -82,7 +83,7 @@ export interface MessagePhaseInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   mode?: 'pre_runtime' | 'post_response';
-  approvalContinuationSeed?: AutomationCompactionSeed;
+  approvalContinuationSeed?: AutomationApprovalSeed;
 }
 
 export interface AfterReceiveInput {
@@ -96,7 +97,7 @@ export interface AfterReceiveInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
-  approvalContinuationSeed?: AutomationCompactionSeed;
+  approvalContinuationSeed?: AutomationApprovalSeed;
 }
 
 export interface SystemPromptInput {
@@ -110,7 +111,7 @@ export interface SystemPromptInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
-  approvalContinuationSeed?: AutomationCompactionSeed;
+  approvalContinuationSeed?: AutomationApprovalSeed;
 }
 
 export interface AfterSendInput {
@@ -124,7 +125,7 @@ export interface AfterSendInput {
   signal?: AbortSignal;
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
-  approvalContinuationSeed?: AutomationCompactionSeed;
+  approvalContinuationSeed?: AutomationApprovalSeed;
 }
 
 export interface MiddlewareRunnerDependencies {
@@ -795,7 +796,7 @@ export class MiddlewareRunner {
   }
 
   async resumeAutomationParent(
-    continuation: AutomationCompactionContinuation,
+    continuation: AutomationCompactionContinuation | AutomationTitleContinuation,
     thread: ConversationThread,
     action: MiddlewareActionResult,
     expectedParentHead: string,

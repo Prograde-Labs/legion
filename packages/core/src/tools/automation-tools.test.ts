@@ -25,6 +25,7 @@ async function setup() {
         type: 'builtin:auto-compaction',
         config: { summarizerParticipantId: 'summarizer' },
       },
+      { id: 'conversation-title', type: 'builtin:conversation-title', config: {} },
     ],
   });
   const conversationStore = new FileConversationStore(storage);
@@ -449,6 +450,109 @@ const titleArgs = (
 });
 
 describe('generate_conversation_title automation tool', () => {
+  it('keeps title helper pending after durably seeding its approval continuation', async () => {
+    const { context, conversationStore, parent, pendingApprovalRegistry } = await setup();
+    const parentCheckpoint = {
+      checkpointId: 'title-parent-checkpoint',
+      operationId: 'title-parent-operation',
+      conversationId: parent.id,
+      phase: 'beforeSend' as const,
+      participantId: 'agent',
+      instanceId: 'conversation-title',
+      middlewareType: 'builtin:conversation-title',
+      middlewareRevision: context.participant.middlewareRevision ?? 0,
+      middlewareConfig: {},
+      nextHookIndex: 1,
+      actionCursor: 0,
+      draft: {
+        senderId: 'agent',
+        recipientId: 'operator',
+        role: 'assistant' as const,
+        content: 'reply',
+      },
+      final: true,
+      request: {
+        requestId: 'title-request',
+        tool: 'generate_conversation_title',
+        arguments: titleArgs(parent.id),
+      },
+      actions: [],
+      observedHead: parent.activeBranchHead,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    } satisfies MiddlewareCheckpoint;
+    const send = vi.fn(
+      async ({
+        conversationId,
+        context: sendContext,
+      }: {
+        conversationId: string;
+        context: ToolContext;
+      }) => {
+        const helperCheckpoint = {
+          ...parentCheckpoint,
+          checkpointId: 'title-helper-checkpoint',
+          conversationId,
+          participantId: 'namer',
+          instanceId: 'helper-gate',
+          middlewareType: 'test:gate',
+          middlewareConfig: {},
+          request: { requestId: 'helper-request', tool: 'lookup', arguments: {} },
+          observedHead: '',
+        };
+        const pending = await pendingApprovalRegistry.create(
+          {
+            conversationId,
+            requesterId: 'namer',
+            tool: 'lookup',
+            args: {},
+            continuation: { kind: 'middleware', checkpoint: helperCheckpoint },
+          },
+          sendContext.approvalContinuationSeed,
+        );
+        return {
+          conversationId,
+          status: 'pending_approval' as const,
+          approvalId: pending.approvalId,
+          checkpointId: helperCheckpoint.checkpointId,
+          pendingParticipantId: 'namer',
+        };
+      },
+    );
+    await pendingApprovalRegistry.claimMiddlewareAction({
+      operationId: parentCheckpoint.operationId,
+      conversationId: parent.id,
+      participantId: 'agent',
+      instanceId: 'conversation-title',
+      requestId: 'title-request',
+      tool: 'generate_conversation_title',
+      args: parentCheckpoint.request.arguments,
+    });
+
+    const result = await createAutomationTools().generateConversationTitle.execute(
+      titleArgs(parent.id),
+      {
+        ...context,
+        messageRouter: { send },
+        pendingApprovalRegistry,
+        middlewareCheckpoint: parentCheckpoint,
+      } as ToolContext,
+    );
+
+    expect(result.status).toBe('pending_approval');
+    const helperId = send.mock.calls[0][0].conversationId;
+    expect((await conversationStore.load(helperId))?.status).not.toBe('archived');
+    expect(pendingApprovalRegistry.getRecord(result.approvalId!)?.continuation).toMatchObject({
+      kind: 'automation_title',
+      parentConversationId: parent.id,
+      helperConversationId: helperId,
+      parentMessageId: 'm3',
+      scope: 'shared',
+      attachedParticipantId: 'agent',
+      maximumLength: 80,
+      helperContinuation: { checkpoint: { checkpointId: 'title-helper-checkpoint' } },
+    });
+  });
+
   it('rejects a different conversation before loading or mutating either conversation', async () => {
     const { context, conversationStore, parent } = await setup();
     const load = vi.spyOn(conversationStore, 'load');

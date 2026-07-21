@@ -47,9 +47,31 @@ export type AutomationCompactionSeed = Omit<
   'kind' | 'helperContinuation'
 >;
 
+export interface AutomationTitleContinuation {
+  kind: 'automation_title';
+  parentConversationId: string;
+  helperConversationId: string;
+  participantId: string;
+  middlewareInstanceId: string;
+  middlewareRevision: number;
+  middlewareType: string;
+  middlewareConfig: JSONValue;
+  parentMessageId: string;
+  scope: 'participant' | 'shared';
+  attachedParticipantId: string;
+  maximumLength: number;
+  guidance: string;
+  helperContinuation: MiddlewareApprovalContinuation;
+  parentCheckpoint: MiddlewareCheckpoint;
+}
+
+export type AutomationTitleSeed = Omit<AutomationTitleContinuation, 'kind' | 'helperContinuation'>;
+export type AutomationApprovalSeed = AutomationCompactionSeed | AutomationTitleSeed;
+
 export type ApprovalContinuation =
   | MiddlewareApprovalContinuation
-  | AutomationCompactionContinuation;
+  | AutomationCompactionContinuation
+  | AutomationTitleContinuation;
 
 export interface AutomationCompactionState {
   lifecycle: 'waiting' | 'summary_ready' | 'parent_committed' | 'completed' | 'unknown';
@@ -850,6 +872,60 @@ function snapshotContinuation(
     requiredString(cloned.checkpoint.conversationId, 'continuation.checkpoint.conversationId');
     return cloned;
   }
+  if (value.kind === 'automation_title') {
+    const continuation = exactObject(value, '$.continuation', [
+      'kind',
+      'parentConversationId',
+      'helperConversationId',
+      'participantId',
+      'middlewareInstanceId',
+      'middlewareRevision',
+      'middlewareType',
+      'middlewareConfig',
+      'parentMessageId',
+      'scope',
+      'attachedParticipantId',
+      'maximumLength',
+      'guidance',
+      'helperContinuation',
+      'parentCheckpoint',
+    ]);
+    for (const field of [
+      'parentConversationId',
+      'helperConversationId',
+      'participantId',
+      'middlewareInstanceId',
+      'middlewareType',
+      'parentMessageId',
+      'attachedParticipantId',
+      'guidance',
+    ]) {
+      requiredString(continuation[field], `$.continuation.${field}`);
+    }
+    requiredInteger(continuation.middlewareRevision, '$.continuation.middlewareRevision');
+    if (!Number.isInteger(continuation.maximumLength) || (continuation.maximumLength as number) < 1)
+      throw new TypeError('Automation title maximumLength is invalid');
+    if (continuation.scope !== 'participant' && continuation.scope !== 'shared')
+      throw new TypeError('Automation title scope is invalid');
+    cloneJsonSafe(continuation.middlewareConfig, '$.continuation.middlewareConfig');
+    const helper = snapshotContinuation(
+      continuation.helperContinuation as MiddlewareApprovalContinuation,
+    );
+    if (helper?.kind !== 'middleware')
+      throw new TypeError('Automation title helper continuation must be middleware');
+    validateCheckpoint(continuation.parentCheckpoint);
+    const parent = continuation.parentCheckpoint as MiddlewareCheckpoint;
+    if (
+      parent.conversationId !== continuation.parentConversationId ||
+      parent.participantId !== continuation.participantId ||
+      parent.instanceId !== continuation.middlewareInstanceId ||
+      parent.middlewareRevision !== continuation.middlewareRevision ||
+      parent.middlewareType !== continuation.middlewareType ||
+      !isDeepStrictEqual(parent.middlewareConfig, continuation.middlewareConfig)
+    )
+      throw new TypeError('Automation title parent checkpoint does not match snapshot');
+    return cloneJsonSafe(continuation, '$.continuation') as unknown as AutomationTitleContinuation;
+  }
   const continuation = exactObject(value, '$.continuation', [
     'kind',
     'parentConversationId',
@@ -922,7 +998,7 @@ function validateContinuationBinding(
   input: PendingApprovalInput,
   continuation: ApprovalContinuation,
 ): void {
-  if (continuation.kind === 'automation_compaction') {
+  if (continuation.kind === 'automation_compaction' || continuation.kind === 'automation_title') {
     const helper = continuation.helperContinuation.checkpoint;
     if (
       helper.conversationId !== input.conversationId ||
@@ -1444,20 +1520,31 @@ export class PendingApprovalRegistry {
 
   async create(
     input: PendingApprovalInput,
-    automationCompactionSeed?: AutomationCompactionSeed,
+    automationSeed?: AutomationApprovalSeed,
   ): Promise<{ approvalId: string }> {
     const snapshot = snapshotInput(input);
-    if (automationCompactionSeed !== undefined) {
+    if (automationSeed !== undefined) {
       if (snapshot.continuation?.kind !== 'middleware') {
-        throw new TypeError('Automation compaction seed requires middleware continuation');
+        throw new TypeError('Automation seed requires middleware continuation');
       }
-      const continuation = snapshotContinuation({
-        ...automationCompactionSeed,
-        kind: 'automation_compaction',
-        helperContinuation: snapshot.continuation,
-      });
-      if (continuation?.kind !== 'automation_compaction') {
-        throw new TypeError('Automation compaction continuation is required');
+      const continuation = snapshotContinuation(
+        'selectedMessages' in automationSeed
+          ? {
+              ...automationSeed,
+              kind: 'automation_compaction' as const,
+              helperContinuation: snapshot.continuation,
+            }
+          : {
+              ...automationSeed,
+              kind: 'automation_title' as const,
+              helperContinuation: snapshot.continuation,
+            },
+      );
+      if (
+        continuation?.kind !== 'automation_compaction' &&
+        continuation?.kind !== 'automation_title'
+      ) {
+        throw new TypeError('Automation continuation is required');
       }
       validateContinuationBinding(snapshot, continuation);
       snapshot.continuation = continuation;
@@ -1473,7 +1560,10 @@ export class PendingApprovalRegistry {
           ? { automationCompaction: { lifecycle: 'waiting' as const } }
           : {}),
       };
-      if (snapshot.continuation?.kind === 'automation_compaction') {
+      if (
+        snapshot.continuation?.kind === 'automation_compaction' ||
+        snapshot.continuation?.kind === 'automation_title'
+      ) {
         const checkpoint = snapshot.continuation.parentCheckpoint;
         const action =
           data.middlewareActions[
@@ -1530,7 +1620,7 @@ export class PendingApprovalRegistry {
         }
         const continuation = snapshotContinuation({
           ...source.continuation,
-          helperContinuation: successor.continuation,
+          helperContinuation: successor.continuation as MiddlewareApprovalContinuation,
         });
         if (continuation?.kind !== 'automation_compaction') {
           throw new LegionError('Automation compaction successor is invalid', 'APPROVAL_CONFLICT');
