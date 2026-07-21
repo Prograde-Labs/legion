@@ -1483,6 +1483,14 @@ export class MessageRouter implements MessageRouterPort {
           approvals,
         );
       }
+      if (parent.activeBranchHead !== continuation.parentCheckpoint.observedHead) {
+        return this.failAutomationTitle(
+          approvalId,
+          continuation,
+          'Automation title parent checkpoint is stale',
+          approvals,
+        );
+      }
       const mutation = await this.store.mutate(continuation.parentConversationId, (stored) => {
         const existing =
           continuation.scope === 'shared'
@@ -1531,6 +1539,16 @@ export class MessageRouter implements MessageRouterPort {
           'Automation title parent unavailable',
           approvals,
         );
+      const parentClaim = await approvals.claimAutomationTitleParentExecution(approvalId);
+      if (parentClaim !== 'claimed') {
+        const cached = approvals.getRecord(approvalId)?.routerResult;
+        if (cached) return cached;
+        return {
+          conversationId: continuation.parentConversationId,
+          status: 'error',
+          error: 'Automation title parent outcome unknown and was not retried',
+        };
+      }
       const resumed = await this.middlewareRunner.resumeAutomationParent(
         continuation,
         new ConversationThread(mutation.after, this.store),

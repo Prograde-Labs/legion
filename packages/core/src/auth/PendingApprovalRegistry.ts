@@ -102,6 +102,7 @@ export interface ApprovalRecord extends PendingApprovalInput {
   successorApprovalIds?: string[];
   providerExecution?: 'pending' | 'executing' | 'completed' | 'unknown';
   automationCompaction?: AutomationCompactionState;
+  titleParentExecution?: 'executing' | 'completed' | 'unknown';
 }
 
 export interface ApprovalRouterResult {
@@ -1087,6 +1088,9 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.automationCompaction === undefined
       ? {}
       : { automationCompaction: snapshotAutomationState(cloned.automationCompaction) }),
+    ...(cloned.titleParentExecution === undefined
+      ? {}
+      : { titleParentExecution: cloned.titleParentExecution }),
   };
   if (
     record.providerExecution !== undefined &&
@@ -1094,6 +1098,11 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
   ) {
     throw new TypeError('Approval provider execution lifecycle is invalid');
   }
+  if (
+    record.titleParentExecution !== undefined &&
+    !['executing', 'completed', 'unknown'].includes(record.titleParentExecution)
+  )
+    throw new TypeError('Automation title parent execution lifecycle is invalid');
   if (
     record.lifecycle === 'pending' &&
     (record.decision !== undefined || record.resumeResult !== undefined)
@@ -1411,6 +1420,18 @@ function recovery(data: RegistryData): boolean {
             : record.conversationId,
         status: 'error',
         error: 'Automation parent provider outcome unknown and was not retried',
+      };
+      changed = true;
+    }
+    if (record.titleParentExecution === 'executing') {
+      record.titleParentExecution = 'unknown';
+      record.routerResult = {
+        conversationId:
+          record.continuation?.kind === 'automation_title'
+            ? record.continuation.parentConversationId
+            : record.conversationId,
+        status: 'error',
+        error: 'Automation title parent outcome unknown and was not retried',
       };
       changed = true;
     }
@@ -1854,6 +1875,25 @@ export class PendingApprovalRegistry {
     });
   }
 
+  async claimAutomationTitleParentExecution(
+    approvalId: string,
+  ): Promise<'claimed' | 'completed' | 'unknown'> {
+    return this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (record?.continuation?.kind !== 'automation_title') {
+        throw new LegionError('Automation title continuation unavailable', 'APPROVAL_CONFLICT');
+      }
+      if (record.titleParentExecution === 'completed' || record.routerResult) return 'completed';
+      if (record.titleParentExecution === 'unknown') return 'unknown';
+      if (record.titleParentExecution === 'executing') {
+        record.titleParentExecution = 'unknown';
+        return 'unknown';
+      }
+      record.titleParentExecution = 'executing';
+      return 'claimed';
+    });
+  }
+
   async markAutomationParentExecutionUnknown(approvalId: string): Promise<ApprovalRouterResult> {
     return this.mutate((data) => {
       const record = data.records[approvalId];
@@ -2163,6 +2203,7 @@ export class PendingApprovalRegistry {
       if (record.automationCompaction?.parentExecution === 'executing') {
         record.automationCompaction.parentExecution = 'completed';
       }
+      if (record.titleParentExecution === 'executing') record.titleParentExecution = 'completed';
       return undefined;
     });
   }
