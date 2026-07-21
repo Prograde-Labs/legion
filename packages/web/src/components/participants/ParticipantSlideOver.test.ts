@@ -16,6 +16,20 @@ const definitions: MiddlewareDefinitionInfo[] = [
   },
 ];
 
+const schemaDefinitions: MiddlewareDefinitionInfo[] = [
+  {
+    type: 'builtin:webhook',
+    displayName: 'Webhook',
+    defaultFailureMode: 'closed' as const,
+    configSchema: {
+      type: 'object',
+      properties: { endpoint: { type: 'string' } },
+      required: ['endpoint'],
+    },
+    source: 'builtin',
+  },
+];
+
 describe('ParticipantSlideOver middleware', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -83,5 +97,43 @@ describe('ParticipantSlideOver middleware', () => {
         middleware: [{ id: 'builtin-skills-1', type: 'builtin:skills', config: {} }],
       }),
     );
+  });
+
+  it('clears stale middleware validation errors when switching participants', async () => {
+    execute.mockResolvedValueOnce({
+      name: 'Agent A',
+      model: { model: 'm' },
+      tools: {},
+      middleware: [{ id: 'hook-1', type: 'builtin:webhook', config: {} }],
+    });
+    const wrapper = mount(ParticipantSlideOver, {
+      global: { stubs: { teleport: true } },
+      props: {
+        open: false,
+        participantId: 'agent-a',
+        availableTools: [],
+        availableModels: [],
+        middlewareDefinitions: schemaDefinitions,
+        middlewareDiagnostics: [],
+        skills: [],
+        credentialKeys: [],
+      },
+    });
+    await wrapper.setProps({ open: true });
+    await flushPromises();
+    await wrapper.get('[data-tab="middleware"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[data-save-participant]').attributes('disabled')).toBeDefined();
+
+    execute.mockResolvedValueOnce({
+      name: 'Agent B',
+      model: { model: 'm' },
+      tools: {},
+      middleware: [{ id: 'hook-2', type: 'builtin:webhook', config: { endpoint: 'https://x' } }],
+    });
+    await wrapper.setProps({ open: false, participantId: 'agent-b' });
+    await wrapper.setProps({ open: true });
+    await flushPromises();
+    expect(wrapper.get('[data-save-participant]').attributes('disabled')).toBeUndefined();
   });
 });

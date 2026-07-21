@@ -72,6 +72,7 @@ watch(
           requireApproval: policy === 'requires_approval',
         }));
         middleware.value = (p.middleware as MiddlewareInstanceConfig[] | undefined) ?? [];
+        middlewareErrors.value = [];
       } catch {
         // Fallback: empty form
       }
@@ -105,6 +106,9 @@ async function save() {
         maxIterations: maxIterations.value,
         tools,
       });
+      // Two-phase save is intentionally non-atomic: if this call fails, modify_agent above has
+      // already persisted. save() has no catch — the rejection propagates and the slide-over
+      // stays open (saving is reset via finally), leaving both phases retryable on next Save.
       await execute('set_participant_middleware', {
         participantId: props.participantId,
         middleware: middleware.value,
