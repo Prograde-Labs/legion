@@ -115,4 +115,95 @@ describe('conversation naming middleware', () => {
       definition().hooks.afterReceive!({ ...base, mode: 'pre_runtime' } as never),
     ).resolves.toEqual({ kind: 'continue' });
   });
+
+  it('skips when same instance already requested a title action', async () => {
+    const result = await definition().hooks.afterSend!({
+      participant: { id: 'agent' },
+      instance: { id: 'naming-1' },
+      config,
+      conversationId: 'c',
+      activeChain: [message('m1', 'user'), message('m2', 'assistant')],
+      message: message('m2', 'assistant'),
+      actions: [
+        {
+          requestId: 'title:c:agent:participant',
+          tool: 'generate_conversation_title',
+          instanceId: 'naming-1',
+          participantId: 'agent',
+          status: 'pending',
+        },
+      ],
+    } as never);
+    expect(result).toEqual({ kind: 'continue' });
+  });
+
+  it('still requests title when a different instance already did', async () => {
+    const result = await definition().hooks.afterSend!({
+      participant: { id: 'agent' },
+      instance: { id: 'naming-2' },
+      config,
+      conversationId: 'c',
+      activeChain: [message('m1', 'user'), message('m2', 'assistant')],
+      message: message('m2', 'assistant'),
+      actions: [
+        {
+          requestId: 'title:c:agent:participant',
+          tool: 'generate_conversation_title',
+          instanceId: 'naming-1',
+          participantId: 'agent',
+          status: 'success',
+        },
+      ],
+    } as never);
+    expect(result).toEqual(
+      expect.objectContaining({
+        kind: 'tool',
+        requestId: 'title:c:agent:participant',
+      }),
+    );
+  });
+
+  it('skips when conversation has an excluded tag', async () => {
+    const result = await definition({ tags: ['custom-exclude'] }).hooks.afterSend!({
+      participant: { id: 'agent' },
+      instance: { id: 'naming-1' },
+      config: { ...config, excludedTags: ['custom-exclude'] },
+      conversationId: 'c',
+      activeChain: [message('m1', 'user'), message('m2', 'assistant')],
+      message: message('m2', 'assistant'),
+      actions: [],
+    } as never);
+    expect(result).toEqual({ kind: 'continue' });
+  });
+
+  it('skips when shared title already exists in shared scope', async () => {
+    const result = await definition({ title: 'Shared Title' }).hooks.afterSend!({
+      participant: { id: 'user' },
+      instance: { id: 'naming-shared' },
+      config: { ...config, scope: 'shared' },
+      conversationId: 'c',
+      activeChain: [message('m1', 'user'), message('m2', 'assistant')],
+      message: message('m2', 'assistant'),
+      actions: [],
+    } as never);
+    expect(result).toEqual({ kind: 'continue' });
+  });
+
+  it('throws when conversation is missing', async () => {
+    const conversationStore = {
+      load: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ConversationStore;
+    const middleware = createConversationNamingMiddleware(conversationStore);
+    await expect(
+      middleware.hooks.afterSend!({
+        participant: { id: 'agent' },
+        instance: { id: 'naming-1' },
+        config,
+        conversationId: 'missing',
+        activeChain: [message('m1', 'user'), message('m2', 'assistant')],
+        message: message('m2', 'assistant'),
+        actions: [],
+      } as never),
+    ).rejects.toThrow('Conversation not found: missing');
+  });
 });
