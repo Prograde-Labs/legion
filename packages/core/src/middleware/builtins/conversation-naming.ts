@@ -25,9 +25,8 @@ export function createConversationNamingMiddleware(
     const conversation = await conversationStore.load(context.conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${context.conversationId}`);
     const tags = new Set(conversation.tags ?? []);
-    if ([...HELPER_TAGS, ...context.config.excludedTags].some((tag) => tags.has(tag))) {
+    if ([...HELPER_TAGS, ...context.config.excludedTags].some((tag) => tags.has(tag)))
       return { kind: 'continue' };
-    }
     const existing =
       context.config.scope === 'shared'
         ? conversation.title
@@ -39,13 +38,11 @@ export function createConversationNamingMiddleware(
           action.tool === 'generate_conversation_title' &&
           action.instanceId === context.instance.id,
       )
-    ) {
+    )
       return { kind: 'continue' };
-    }
     const responses = context.activeChain.filter((message) => message.role === 'assistant');
-    if (responses.length !== 1 || responses[0].id !== context.message.id) {
+    if (responses.length !== 1 || responses[0].id !== context.message.id)
       return { kind: 'continue' };
-    }
     return {
       kind: 'tool',
       requestId: `title:${context.conversationId}:${context.participant.id}:${context.config.scope}`,
