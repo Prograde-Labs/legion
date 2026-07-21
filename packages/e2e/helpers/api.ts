@@ -50,7 +50,7 @@ export class ApiClient {
     tool: string,
     args: Record<string, unknown> = {},
   ): Promise<ExecuteResult<T>> {
-    const res = await this.request.post(`${this.baseUrl}/api/execute`, {
+    const res = await this.request.post(`${this.baseUrl}/api/execute?stream=false`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { tool, args },
     });
