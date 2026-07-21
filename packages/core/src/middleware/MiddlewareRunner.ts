@@ -83,6 +83,7 @@ export interface MessagePhaseInput {
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   mode?: 'pre_runtime' | 'post_response';
   approvalContinuationSeed?: AutomationCompactionSeed;
+  titleApprovalRejectionMessage?: string;
 }
 
 export interface AfterReceiveInput {
@@ -97,6 +98,7 @@ export interface AfterReceiveInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   approvalContinuationSeed?: AutomationCompactionSeed;
+  titleApprovalRejectionMessage?: string;
 }
 
 export interface SystemPromptInput {
@@ -111,6 +113,7 @@ export interface SystemPromptInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   approvalContinuationSeed?: AutomationCompactionSeed;
+  titleApprovalRejectionMessage?: string;
 }
 
 export interface AfterSendInput {
@@ -125,6 +128,7 @@ export interface AfterSendInput {
   startIndex?: number;
   runtimeResume?: MiddlewareCheckpoint['runtimeResume'];
   approvalContinuationSeed?: AutomationCompactionSeed;
+  titleApprovalRejectionMessage?: string;
 }
 
 export interface MiddlewareRunnerDependencies {
@@ -1657,6 +1661,7 @@ export class MiddlewareRunner {
             continuation: { kind: 'middleware', checkpoint },
           },
           input.approvalContinuationSeed,
+          input.titleApprovalRejectionMessage,
         );
         this.recordSuccess(instance, phase, input, {
           status: 'success',

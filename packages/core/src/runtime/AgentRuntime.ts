@@ -411,13 +411,19 @@ export class AgentRuntime implements Runtime {
           }
 
           if (authResult.reason === 'requires_approval') {
-            const { approvalId } = await context.pendingApprovalRegistry.create({
-              conversationId: context.conversationId,
-              requesterId: this.participantId,
-              tool: tc.name,
-              args: tc.arguments,
-            });
-            const pending = context.pendingApprovalRegistry.get(approvalId)!;
+            const { approvalId } = await context.pendingApprovalRegistry.create(
+              {
+                conversationId: context.conversationId,
+                requesterId: this.participantId,
+                tool: tc.name,
+                args: tc.arguments,
+              },
+              undefined,
+              context.titleApprovalRejectionMessage,
+            );
+            const pending =
+              context.pendingApprovalRegistry.get(approvalId) ??
+              (context.pendingApprovalRegistry.getRecord(approvalId)! as PendingApproval);
             pendingApprovals.push(pending);
             toolResults.push({
               id: tc.id,

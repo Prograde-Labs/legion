@@ -1480,8 +1480,13 @@ export class PendingApprovalRegistry {
   async create(
     input: PendingApprovalInput,
     automationSeed?: AutomationCompactionSeed,
+    terminalRejectionMessage?: string,
   ): Promise<{ approvalId: string }> {
     const snapshot = snapshotInput(input);
+    const rejectionMessage =
+      terminalRejectionMessage === undefined
+        ? undefined
+        : requiredString(terminalRejectionMessage, 'approval terminal rejection message');
     if (automationSeed !== undefined) {
       if (snapshot.continuation?.kind !== 'middleware') {
         throw new TypeError('Automation seed requires middleware continuation');
@@ -1503,11 +1508,23 @@ export class PendingApprovalRegistry {
         ...snapshot,
         approvalId,
         createdAt: new Date().toISOString(),
-        lifecycle: 'pending',
+        lifecycle: rejectionMessage === undefined ? 'pending' : 'acknowledged',
+        ...(rejectionMessage === undefined
+          ? {}
+          : {
+              decision: {
+                approved: false,
+                decidedByParticipantId: 'system',
+                message: rejectionMessage,
+                decidedAt: new Date().toISOString(),
+              },
+              resumeResult: { status: 'rejected' as const, message: rejectionMessage },
+            }),
         ...(snapshot.continuation?.kind === 'automation_compaction'
           ? { automationCompaction: { lifecycle: 'waiting' as const } }
           : {}),
       };
+      if (rejectionMessage !== undefined) delete data.records[approvalId].continuation;
       if (snapshot.continuation?.kind === 'automation_compaction') {
         const checkpoint = snapshot.continuation.parentCheckpoint;
         const action =

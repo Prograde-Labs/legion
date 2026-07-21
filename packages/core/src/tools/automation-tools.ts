@@ -316,16 +316,13 @@ export function createGenerateConversationTitleTool(): Tool {
               getActiveChain(parent).map((message) => message.id),
             )}`,
             replyTo: undefined,
-            context,
+            context: {
+              ...context,
+              titleApprovalRejectionMessage: 'Title generation requires approval',
+            },
           });
           if (titleResponse.status === 'pending_approval') {
             archiveHelper = true;
-            if (context.pendingApprovalRegistry && titleResponse.approvalId) {
-              await context.pendingApprovalRegistry.cancelPending(
-                titleResponse.approvalId,
-                'Title generation requires approval',
-              );
-            }
             return { status: 'error', error: 'Title generation requires approval' };
           }
           if (titleResponse.status === 'error') {

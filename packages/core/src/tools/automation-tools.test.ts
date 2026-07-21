@@ -481,6 +481,11 @@ describe('generate_conversation_title automation tool', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
     } satisfies MiddlewareCheckpoint;
     let approvalId: string | undefined;
+    let recordDuringSend: ReturnType<typeof pendingApprovalRegistry.getRecord>;
+    const resumeApproval = vi.fn(async (id: string) => {
+      const record = pendingApprovalRegistry.getRecord(id);
+      if (record?.continuation) throw new Error('Synchronous resume reached helper continuation');
+    });
     const send = vi.fn(
       async ({
         conversationId,
@@ -509,8 +514,11 @@ describe('generate_conversation_title automation tool', () => {
             continuation: { kind: 'middleware', checkpoint: helperCheckpoint },
           },
           sendContext.approvalContinuationSeed,
+          sendContext.titleApprovalRejectionMessage,
         );
         approvalId = pending.approvalId;
+        recordDuringSend = pendingApprovalRegistry.getRecord(pending.approvalId);
+        await resumeApproval(pending.approvalId);
         return {
           conversationId,
           status: 'pending_approval' as const,
@@ -544,6 +552,13 @@ describe('generate_conversation_title automation tool', () => {
     const helperId = send.mock.calls[0][0].conversationId;
     expect((await conversationStore.load(helperId))?.status).toBe('archived');
     expect(approvalId).toBeDefined();
+    expect(recordDuringSend).toMatchObject({
+      lifecycle: 'acknowledged',
+      decision: { approved: false, message: 'Title generation requires approval' },
+      resumeResult: { status: 'rejected', message: 'Title generation requires approval' },
+    });
+    expect(recordDuringSend?.continuation).toBeUndefined();
+    expect(resumeApproval).toHaveBeenCalledWith(approvalId);
     expect(pendingApprovalRegistry.getRecord(approvalId!)).toMatchObject({
       lifecycle: 'acknowledged',
       decision: { approved: false, message: 'Title generation requires approval' },

@@ -51,6 +51,7 @@ export interface ReceiveLifecycleInput {
   /** Final streaming delivery already ran response draft hooks. */
   skipDraftHooks?: boolean;
   approvalContinuationSeed?: AutomationCompactionSeed;
+  titleApprovalRejectionMessage?: string;
 }
 
 export interface RespondLifecycleInput extends Omit<ReceiveLifecycleInput, 'mode'> {}
@@ -125,6 +126,7 @@ export class MiddlewareLifecycle {
           mode: input.mode,
           signal: input.signal,
           approvalContinuationSeed: input.approvalContinuationSeed,
+          titleApprovalRejectionMessage: input.titleApprovalRejectionMessage,
         });
         if (senderBefore.kind !== 'continue') return this.messageTerminal(senderBefore);
         draft = senderBefore.value;
@@ -141,6 +143,7 @@ export class MiddlewareLifecycle {
           mode: input.mode,
           signal: input.signal,
           approvalContinuationSeed: input.approvalContinuationSeed,
+          titleApprovalRejectionMessage: input.titleApprovalRejectionMessage,
         });
         if (recipientBefore.kind !== 'continue') return this.messageTerminal(recipientBefore);
         draft = recipientBefore.value;
@@ -177,6 +180,7 @@ export class MiddlewareLifecycle {
         mode: input.mode,
         signal: input.signal,
         approvalContinuationSeed: input.approvalContinuationSeed,
+        titleApprovalRejectionMessage: input.titleApprovalRejectionMessage,
       });
       if (senderAfter.kind !== 'continue') return this.afterSendTerminal(senderAfter, stored.id);
 
@@ -190,6 +194,7 @@ export class MiddlewareLifecycle {
         actions: actionsCopy(senderAfter.actions),
         signal: input.signal,
         approvalContinuationSeed: input.approvalContinuationSeed,
+        titleApprovalRejectionMessage: input.titleApprovalRejectionMessage,
       });
       return this.afterReceiveTerminal(recipientAfter, stored);
     } catch (error) {

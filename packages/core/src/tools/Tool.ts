@@ -106,6 +106,8 @@ export interface ToolContext {
   middlewareCheckpoint?: MiddlewareCheckpoint;
   /** JSON-safe continuation seed consumed atomically when helper middleware requests approval. */
   approvalContinuationSeed?: AutomationCompactionSeed;
+  /** Title helpers terminalize nested approvals before they can be observed or resumed. */
+  titleApprovalRejectionMessage?: string;
   pendingApprovalRegistry?: PendingApprovalRegistry;
   credentialStore?: CredentialStore;
   conversation?: ConversationThread;
