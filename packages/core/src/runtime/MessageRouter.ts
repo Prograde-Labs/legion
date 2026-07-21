@@ -1118,7 +1118,7 @@ export class MessageRouter implements MessageRouterPort {
           }
           return helperResult;
         }
-        if (helperResult.status !== 'success' || helperResult.response === undefined) {
+        if (helperResult.status !== 'success') {
           return this.failAutomationTitle(
             approvalId,
             record.continuation,
@@ -1126,12 +1126,18 @@ export class MessageRouter implements MessageRouterPort {
             approvals,
           );
         }
-        return this.finalizeAutomationTitle(
-          approvalId,
-          record.continuation,
-          helperResult.response,
-          context,
-        );
+        const helper = await this.store.load(record.continuation.helperConversationId);
+        const persistedTitle = helper?.messages[helper.activeBranchHead]?.content;
+        const title = helperResult.response ?? persistedTitle;
+        if (title === undefined) {
+          return this.failAutomationTitle(
+            approvalId,
+            record.continuation,
+            'Title helper did not complete',
+            approvals,
+          );
+        }
+        return this.finalizeAutomationTitle(approvalId, record.continuation, title, context);
       }
       if (resumed.kind === 'abort') {
         if (record.continuation?.kind === 'automation_compaction') {
