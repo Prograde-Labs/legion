@@ -1099,10 +1099,37 @@ export class MessageRouter implements MessageRouterPort {
             approvals,
           );
         }
+        const helperResult = await this.resumeNonPromptCheckpoint(
+          checkpoint,
+          resumed,
+          helperContext,
+          approvalId,
+        );
+        if (helperResult.status === 'pending_approval') {
+          const successors = [
+            ...new Set([
+              ...(helperResult.approvalId ? [helperResult.approvalId] : []),
+              ...(helperResult.approvalRequests?.map((request) => request.approvalId) ?? []),
+            ]),
+          ];
+          if (successors.length > 0) {
+            await approvals.transferAutomationTitle(approvalId, successors);
+            await approvals.acknowledge(approvalId);
+          }
+          return helperResult;
+        }
+        if (helperResult.status !== 'success' || helperResult.response === undefined) {
+          return this.failAutomationTitle(
+            approvalId,
+            record.continuation,
+            helperResult.error ?? 'Title helper did not complete',
+            approvals,
+          );
+        }
         return this.finalizeAutomationTitle(
           approvalId,
           record.continuation,
-          resumed.value,
+          helperResult.response,
           context,
         );
       }
@@ -1504,6 +1531,18 @@ export class MessageRouter implements MessageRouterPort {
         action,
         mutation.after.activeBranchHead,
       );
+      if (resumed.kind === 'pending_approval') {
+        await approvals.transferAutomationTitle(approvalId, [resumed.approvalId]);
+        await approvals.acknowledge(approvalId);
+        await this.archiveAutomationTitleHelper(continuation);
+        return {
+          conversationId: continuation.parentConversationId,
+          status: 'pending_approval',
+          approvalId: resumed.approvalId,
+          checkpointId: resumed.checkpointId,
+          pendingParticipantId: resumed.participantId,
+        };
+      }
       if (resumed.kind !== 'continue')
         return this.failAutomationTitle(
           approvalId,
@@ -1512,12 +1551,12 @@ export class MessageRouter implements MessageRouterPort {
           approvals,
         );
       const result = await this.resumeNonPromptCheckpoint(checkpoint, resumed, context, approvalId);
-      await this.archiveAutomationTitleHelper(continuation);
       await approvals.recordRouterResult(
         approvalId,
         result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
       );
       await approvals.acknowledge(approvalId);
+      await this.archiveAutomationTitleHelper(continuation);
       return result;
     });
   }
@@ -1537,8 +1576,8 @@ export class MessageRouter implements MessageRouterPort {
     if (record?.resumeResult === undefined)
       await approvals.recordResumeResult(approvalId, { status: 'error', error });
     await approvals.recordRouterResult(approvalId, result);
-    await this.archiveAutomationTitleHelper(continuation);
     await approvals.acknowledge(approvalId);
+    await this.archiveAutomationTitleHelper(continuation);
     return result;
   }
 
