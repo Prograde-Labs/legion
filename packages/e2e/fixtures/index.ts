@@ -10,6 +10,7 @@ export interface ConnInfo {
   serverUrl: string;
   mockProviderUrl: string;
   password: string;
+  workspaceDir: string;
 }
 
 export interface AuthPageResult {

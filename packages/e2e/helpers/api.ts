@@ -58,6 +58,21 @@ export class ApiClient {
     return res.json() as ExecuteResult<T>;
   }
 
+  async executeBuffered<T = unknown>(
+    token: string,
+    tool: string,
+    args: Record<string, unknown> = {},
+  ): Promise<ExecuteResult<T>> {
+    const res = await this.request.post(`${this.baseUrl}/api/execute?stream=false`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { tool, args },
+    });
+    if (!res.ok()) {
+      throw new Error(`executeBuffered(${tool}) failed: ${res.status()} ${await res.text()}`);
+    }
+    return res.json() as Promise<ExecuteResult<T>>;
+  }
+
   async health(): Promise<HealthResult> {
     const res = await this.request.get(`${this.baseUrl}/api/health`);
     if (!res.ok()) throw new Error(`health failed: ${res.status()} ${await res.text()}`);

@@ -89,6 +89,7 @@ When loaded, preserve this exact marker: E2E_SKILL_INSTRUCTION_LOADED
       serverUrl: `http://127.0.0.1:${SERVER_PORT}`,
       mockProviderUrl: `http://127.0.0.1:4001`,
       password: BOOTSTRAP_PASSWORD,
+      workspaceDir,
     };
     await writeFile(CONN_INFO_FILE, JSON.stringify(connInfo, null, 2));
 
