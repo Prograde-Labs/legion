@@ -58,19 +58,13 @@ export class ApiClient {
     return res.json() as ExecuteResult<T>;
   }
 
+  /** Alias of {@link execute} kept for middleware E2E readability. */
   async executeBuffered<T = unknown>(
     token: string,
     tool: string,
     args: Record<string, unknown> = {},
   ): Promise<ExecuteResult<T>> {
-    const res = await this.request.post(`${this.baseUrl}/api/execute?stream=false`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { tool, args },
-    });
-    if (!res.ok()) {
-      throw new Error(`executeBuffered(${tool}) failed: ${res.status()} ${await res.text()}`);
-    }
-    return res.json() as Promise<ExecuteResult<T>>;
+    return this.execute<T>(token, tool, args);
   }
 
   async health(): Promise<HealthResult> {
