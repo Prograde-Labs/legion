@@ -11,7 +11,7 @@ import type { RuntimeResult } from '../runtime/Runtime.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { MessageRouterResult } from '../tools/Tool.js';
-import type { AutomationApprovalSeed } from '../auth/PendingApprovalRegistry.js';
+import type { AutomationCompactionSeed } from '../auth/PendingApprovalRegistry.js';
 import type {
   AfterReceivePhaseResult,
   AfterSendPhaseResult,
@@ -50,7 +50,7 @@ export interface ReceiveLifecycleInput {
   signal?: AbortSignal;
   /** Final streaming delivery already ran response draft hooks. */
   skipDraftHooks?: boolean;
-  approvalContinuationSeed?: AutomationApprovalSeed;
+  approvalContinuationSeed?: AutomationCompactionSeed;
 }
 
 export interface RespondLifecycleInput extends Omit<ReceiveLifecycleInput, 'mode'> {}

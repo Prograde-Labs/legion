@@ -16,7 +16,7 @@ import type { Storage } from '../storage/Storage.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import type {
-  AutomationApprovalSeed,
+  AutomationCompactionSeed,
   PendingApproval,
   PendingApprovalRegistry,
 } from '../auth/PendingApprovalRegistry.js';
@@ -105,7 +105,7 @@ export interface ToolContext {
   /** Durable parent checkpoint while a middleware-owned tool executes. */
   middlewareCheckpoint?: MiddlewareCheckpoint;
   /** JSON-safe continuation seed consumed atomically when helper middleware requests approval. */
-  approvalContinuationSeed?: AutomationApprovalSeed;
+  approvalContinuationSeed?: AutomationCompactionSeed;
   pendingApprovalRegistry?: PendingApprovalRegistry;
   credentialStore?: CredentialStore;
   conversation?: ConversationThread;

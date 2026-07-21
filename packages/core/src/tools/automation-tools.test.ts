@@ -450,7 +450,7 @@ const titleArgs = (
 });
 
 describe('generate_conversation_title automation tool', () => {
-  it('keeps title helper pending after durably seeding its approval continuation', async () => {
+  it('fails closed and archives helper when nested title approval is required', async () => {
     const { context, conversationStore, parent, pendingApprovalRegistry } = await setup();
     const parentCheckpoint = {
       checkpointId: 'title-parent-checkpoint',
@@ -480,6 +480,7 @@ describe('generate_conversation_title automation tool', () => {
       observedHead: parent.activeBranchHead,
       createdAt: '2026-01-01T00:00:00.000Z',
     } satisfies MiddlewareCheckpoint;
+    let approvalId: string | undefined;
     const send = vi.fn(
       async ({
         conversationId,
@@ -509,6 +510,7 @@ describe('generate_conversation_title automation tool', () => {
           },
           sendContext.approvalContinuationSeed,
         );
+        approvalId = pending.approvalId;
         return {
           conversationId,
           status: 'pending_approval' as const,
@@ -538,19 +540,18 @@ describe('generate_conversation_title automation tool', () => {
       } as ToolContext,
     );
 
-    expect(result.status).toBe('pending_approval');
+    expect(result).toEqual({ status: 'error', error: 'Title generation requires approval' });
     const helperId = send.mock.calls[0][0].conversationId;
-    expect((await conversationStore.load(helperId))?.status).not.toBe('archived');
-    expect(pendingApprovalRegistry.getRecord(result.approvalId!)?.continuation).toMatchObject({
-      kind: 'automation_title',
-      parentConversationId: parent.id,
-      helperConversationId: helperId,
-      parentMessageId: 'm3',
-      scope: 'shared',
-      attachedParticipantId: 'agent',
-      maximumLength: 80,
-      helperContinuation: { checkpoint: { checkpointId: 'title-helper-checkpoint' } },
+    expect((await conversationStore.load(helperId))?.status).toBe('archived');
+    expect(approvalId).toBeDefined();
+    expect(pendingApprovalRegistry.getRecord(approvalId!)).toMatchObject({
+      lifecycle: 'acknowledged',
+      decision: { approved: false, message: 'Title generation requires approval' },
+      resumeResult: { status: 'rejected', message: 'Title generation requires approval' },
     });
+    expect(pendingApprovalRegistry.getRecord(approvalId!)?.continuation).toBeUndefined();
+    expect(pendingApprovalRegistry.listPending()).toEqual([]);
+    expect((await conversationStore.load(parent.id))?.title).toBeUndefined();
   });
 
   it('rejects a different conversation before loading or mutating either conversation', async () => {

@@ -12,7 +12,6 @@ import type {
   ApprovalRecord,
   AutomationCompactionContinuation,
   AutomationCompactionSeed,
-  AutomationTitleContinuation,
   PendingApprovalRegistry,
 } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
@@ -1002,9 +1001,7 @@ export class MessageRouter implements MessageRouterPort {
             ...context,
             approvalContinuationSeed: this.automationCompactionSeed(record.continuation),
           }
-        : record.continuation?.kind === 'automation_title'
-          ? { ...context, approvalContinuationSeed: this.automationTitleSeed(record.continuation) }
-          : context;
+        : context;
     if (!checkpoint || !this.middlewareRunner) {
       return {
         conversationId: record.conversationId,
@@ -1068,8 +1065,6 @@ export class MessageRouter implements MessageRouterPort {
         if (resumed.kind === 'pending_approval') {
           if (record.continuation?.kind === 'automation_compaction') {
             await approvals.transferAutomationCompaction(approvalId, [resumed.approvalId]);
-          } else if (record.continuation?.kind === 'automation_title') {
-            await approvals.transferAutomationTitle(approvalId, [resumed.approvalId]);
           } else {
             await approvals.recordSuccessor(approvalId, resumed.approvalId);
           }
@@ -1089,55 +1084,6 @@ export class MessageRouter implements MessageRouterPort {
             ? { pendingParticipantId: resumed.participantId }
             : {}),
         };
-      }
-      if (record.continuation?.kind === 'automation_title') {
-        if (resumed.kind !== 'continue') {
-          return this.failAutomationTitle(
-            approvalId,
-            record.continuation,
-            resumed.kind === 'abort' ? resumed.error : 'Title helper did not complete',
-            approvals,
-          );
-        }
-        const helperResult = await this.resumeNonPromptCheckpoint(
-          checkpoint,
-          resumed,
-          helperContext,
-          approvalId,
-        );
-        if (helperResult.status === 'pending_approval') {
-          const successors = [
-            ...new Set([
-              ...(helperResult.approvalId ? [helperResult.approvalId] : []),
-              ...(helperResult.approvalRequests?.map((request) => request.approvalId) ?? []),
-            ]),
-          ];
-          if (successors.length > 0) {
-            await approvals.transferAutomationTitle(approvalId, successors);
-            await approvals.acknowledge(approvalId);
-          }
-          return helperResult;
-        }
-        if (helperResult.status !== 'success') {
-          return this.failAutomationTitle(
-            approvalId,
-            record.continuation,
-            helperResult.error ?? 'Title helper did not complete',
-            approvals,
-          );
-        }
-        const helper = await this.store.load(record.continuation.helperConversationId);
-        const persistedTitle = helper?.messages[helper.activeBranchHead]?.content;
-        const title = helperResult.response ?? persistedTitle;
-        if (title === undefined) {
-          return this.failAutomationTitle(
-            approvalId,
-            record.continuation,
-            'Title helper did not complete',
-            approvals,
-          );
-        }
-        return this.finalizeAutomationTitle(approvalId, record.continuation, title, context);
       }
       if (resumed.kind === 'abort') {
         if (record.continuation?.kind === 'automation_compaction') {
@@ -1427,204 +1373,6 @@ export class MessageRouter implements MessageRouterPort {
   ): Promise<MessageRouterResult> {
     return this.withLock(continuation.helperConversationId, () =>
       this.finalizeAutomationCompactionWithHelperLock(approvalId, continuation, summary, context),
-    );
-  }
-
-  private async finalizeAutomationTitle(
-    approvalId: string,
-    continuation: AutomationTitleContinuation,
-    value: MessageDraft | import('@legion/types').MessageData | string,
-    context: ToolContext,
-  ): Promise<MessageRouterResult> {
-    return this.withLock(continuation.parentConversationId, async () => {
-      const approvals = context.pendingApprovalRegistry!;
-      const current = approvals.getRecord(approvalId);
-      if (current?.routerResult) return current.routerResult;
-      if (current?.continuation?.kind !== 'automation_title') {
-        return {
-          conversationId: continuation.parentConversationId,
-          status: 'error',
-          error: 'Automation title continuation is unavailable',
-        };
-      }
-      continuation = current.continuation;
-      const helper = await this.store.load(continuation.helperConversationId);
-      const parent = await this.store.load(continuation.parentConversationId);
-      const participant = this.collective.get(continuation.participantId);
-      const instance = participant?.middleware?.find(
-        (candidate) => candidate.id === continuation.middlewareInstanceId,
-      );
-      if (
-        !this.matchesAutomationTitleHelper(helper, continuation) ||
-        !parent ||
-        !participant ||
-        (participant.status ?? 'active') !== 'active' ||
-        (participant.middlewareRevision ?? 0) !== continuation.middlewareRevision ||
-        !instance ||
-        instance.type !== continuation.middlewareType ||
-        !isDeepStrictEqual(instance.config, continuation.middlewareConfig)
-      ) {
-        return this.failAutomationTitle(
-          approvalId,
-          continuation,
-          'Automation title continuation is stale',
-          approvals,
-        );
-      }
-      const helperMessage = helper!.messages[helper!.activeBranchHead];
-      const title = (
-        helperMessage?.content ?? (typeof value === 'string' ? value : value.content)
-      ).trim();
-      if (!title || /[\r\n]/.test(title) || title.length > continuation.maximumLength) {
-        return this.failAutomationTitle(
-          approvalId,
-          continuation,
-          'Generated title is invalid',
-          approvals,
-        );
-      }
-      if (parent.activeBranchHead !== continuation.parentCheckpoint.observedHead) {
-        return this.failAutomationTitle(
-          approvalId,
-          continuation,
-          'Automation title parent checkpoint is stale',
-          approvals,
-        );
-      }
-      const mutation = await this.store.mutate(continuation.parentConversationId, (stored) => {
-        const existing =
-          continuation.scope === 'shared'
-            ? stored.title
-            : stored.titles?.[continuation.attachedParticipantId];
-        if (existing !== undefined) return stored;
-        return continuation.scope === 'shared'
-          ? { ...stored, title }
-          : {
-              ...stored,
-              titles: { ...stored.titles, [continuation.attachedParticipantId]: title },
-            };
-      });
-      const effectiveTitle =
-        continuation.scope === 'shared'
-          ? mutation.after.title
-          : mutation.after.titles?.[continuation.attachedParticipantId];
-      const checkpoint = continuation.parentCheckpoint;
-      const action = {
-        requestId: checkpoint.request.requestId,
-        participantId: continuation.participantId,
-        instanceId: continuation.middlewareInstanceId,
-        tool: checkpoint.request.tool,
-        status: 'success' as const,
-        result: {
-          status: 'success' as const,
-          data: { title: effectiveTitle, written: mutation.changed },
-        },
-      };
-      await approvals.recordMiddlewareActionResult(
-        {
-          operationId: checkpoint.operationId,
-          conversationId: checkpoint.conversationId,
-          participantId: continuation.participantId,
-          instanceId: continuation.middlewareInstanceId,
-          requestId: checkpoint.request.requestId,
-          tool: checkpoint.request.tool,
-          args: checkpoint.request.arguments,
-        },
-        action,
-      );
-      if (!this.middlewareRunner)
-        return this.failAutomationTitle(
-          approvalId,
-          continuation,
-          'Automation title parent unavailable',
-          approvals,
-        );
-      const parentClaim = await approvals.claimAutomationTitleParentExecution(approvalId);
-      if (parentClaim !== 'claimed') {
-        const cached = approvals.getRecord(approvalId)?.routerResult;
-        if (cached) return cached;
-        return {
-          conversationId: continuation.parentConversationId,
-          status: 'error',
-          error: 'Automation title parent outcome unknown and was not retried',
-        };
-      }
-      const resumed = await this.middlewareRunner.resumeAutomationParent(
-        continuation,
-        new ConversationThread(mutation.after, this.store),
-        action,
-        mutation.after.activeBranchHead,
-      );
-      if (resumed.kind === 'pending_approval') {
-        await approvals.transferAutomationTitle(approvalId, [resumed.approvalId]);
-        await approvals.acknowledge(approvalId);
-        await this.archiveAutomationTitleHelper(continuation);
-        return {
-          conversationId: continuation.parentConversationId,
-          status: 'pending_approval',
-          approvalId: resumed.approvalId,
-          checkpointId: resumed.checkpointId,
-          pendingParticipantId: resumed.participantId,
-        };
-      }
-      if (resumed.kind !== 'continue')
-        return this.failAutomationTitle(
-          approvalId,
-          continuation,
-          'Automation title parent could not continue',
-          approvals,
-        );
-      const result = await this.resumeNonPromptCheckpoint(checkpoint, resumed, context, approvalId);
-      await approvals.recordRouterResult(
-        approvalId,
-        result as import('../auth/PendingApprovalRegistry.js').ApprovalRouterResult,
-      );
-      await approvals.acknowledge(approvalId);
-      await this.archiveAutomationTitleHelper(continuation);
-      return result;
-    });
-  }
-
-  private async failAutomationTitle(
-    approvalId: string,
-    continuation: AutomationTitleContinuation,
-    error: string,
-    approvals: PendingApprovalRegistry,
-  ): Promise<MessageRouterResult> {
-    const result = {
-      conversationId: continuation.parentConversationId,
-      status: 'error' as const,
-      error,
-    };
-    const record = approvals.getRecord(approvalId);
-    if (record?.resumeResult === undefined)
-      await approvals.recordResumeResult(approvalId, { status: 'error', error });
-    await approvals.recordRouterResult(approvalId, result);
-    await approvals.acknowledge(approvalId);
-    await this.archiveAutomationTitleHelper(continuation);
-    return result;
-  }
-
-  private matchesAutomationTitleHelper(
-    helper: Awaited<ReturnType<ConversationStore['load']>>,
-    continuation: AutomationTitleContinuation,
-  ): boolean {
-    return (
-      helper?.origin?.kind === 'middleware' &&
-      helper.origin.participantId === continuation.participantId &&
-      helper.origin.middlewareInstanceId === continuation.middlewareInstanceId &&
-      helper.origin.parentConversationId === continuation.parentConversationId &&
-      helper.origin.parentMessageId === continuation.parentMessageId
-    );
-  }
-
-  private async archiveAutomationTitleHelper(
-    continuation: AutomationTitleContinuation,
-  ): Promise<void> {
-    await this.store.mutate(continuation.helperConversationId, (helper) =>
-      this.matchesAutomationTitleHelper(helper, continuation) && helper.status !== 'archived'
-        ? { ...helper, status: 'archived' }
-        : helper,
     );
   }
 
@@ -1944,13 +1692,6 @@ export class MessageRouter implements MessageRouterPort {
   private automationCompactionSeed(
     continuation: AutomationCompactionContinuation,
   ): AutomationCompactionSeed {
-    const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
-    return seed;
-  }
-
-  private automationTitleSeed(
-    continuation: AutomationTitleContinuation,
-  ): import('../auth/PendingApprovalRegistry.js').AutomationTitleSeed {
     const { kind: _kind, helperContinuation: _helperContinuation, ...seed } = continuation;
     return seed;
   }

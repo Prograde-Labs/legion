@@ -307,27 +307,6 @@ export function createGenerateConversationTitleTool(): Tool {
 
         let archiveHelper = false;
         try {
-          const instance = context.participant.middleware?.find(
-            (candidate) => candidate.id === input.middlewareInstanceId,
-          );
-          const approvalContinuationSeed =
-            context.pendingApprovalRegistry && context.middlewareCheckpoint && instance
-              ? {
-                  parentConversationId: parent.id,
-                  helperConversationId: helper.id,
-                  participantId: context.participant.id,
-                  middlewareInstanceId: instance.id,
-                  middlewareRevision: context.participant.middlewareRevision ?? 0,
-                  middlewareType: instance.type,
-                  middlewareConfig: structuredClone(instance.config),
-                  parentMessageId: input.parentMessageId,
-                  scope: input.scope,
-                  attachedParticipantId: input.attachedParticipantId,
-                  maximumLength: input.maximumLength,
-                  guidance: input.guidance,
-                  parentCheckpoint: context.middlewareCheckpoint,
-                }
-              : undefined;
           const titleResponse = await context.messageRouter.send({
             senderId: context.participant.id,
             recipientId: input.namingParticipantId,
@@ -337,32 +316,17 @@ export function createGenerateConversationTitleTool(): Tool {
               getActiveChain(parent).map((message) => message.id),
             )}`,
             replyTo: undefined,
-            context: {
-              ...context,
-              ...(approvalContinuationSeed === undefined ? {} : { approvalContinuationSeed }),
-            },
+            context,
           });
           if (titleResponse.status === 'pending_approval') {
-            if (
-              !context.pendingApprovalRegistry ||
-              !context.middlewareCheckpoint ||
-              !titleResponse.approvalId ||
-              context.pendingApprovalRegistry.getRecord(titleResponse.approvalId)?.continuation
-                ?.kind !== 'automation_title'
-            ) {
-              archiveHelper = true;
-              return { status: 'error', error: 'Title approval continuation unavailable' };
+            archiveHelper = true;
+            if (context.pendingApprovalRegistry && titleResponse.approvalId) {
+              await context.pendingApprovalRegistry.cancelPending(
+                titleResponse.approvalId,
+                'Title generation requires approval',
+              );
             }
-            return {
-              status: 'pending_approval',
-              approvalId: titleResponse.approvalId,
-              data: {
-                conversationId: helper.id,
-                checkpointId: titleResponse.checkpointId,
-                pendingParticipantId: titleResponse.pendingParticipantId,
-                approvalRequests: titleResponse.approvalRequests,
-              },
-            };
+            return { status: 'error', error: 'Title generation requires approval' };
           }
           if (titleResponse.status === 'error') {
             archiveHelper = true;

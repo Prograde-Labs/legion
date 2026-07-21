@@ -47,31 +47,9 @@ export type AutomationCompactionSeed = Omit<
   'kind' | 'helperContinuation'
 >;
 
-export interface AutomationTitleContinuation {
-  kind: 'automation_title';
-  parentConversationId: string;
-  helperConversationId: string;
-  participantId: string;
-  middlewareInstanceId: string;
-  middlewareRevision: number;
-  middlewareType: string;
-  middlewareConfig: JSONValue;
-  parentMessageId: string;
-  scope: 'participant' | 'shared';
-  attachedParticipantId: string;
-  maximumLength: number;
-  guidance: string;
-  helperContinuation: MiddlewareApprovalContinuation;
-  parentCheckpoint: MiddlewareCheckpoint;
-}
-
-export type AutomationTitleSeed = Omit<AutomationTitleContinuation, 'kind' | 'helperContinuation'>;
-export type AutomationApprovalSeed = AutomationCompactionSeed | AutomationTitleSeed;
-
 export type ApprovalContinuation =
   | MiddlewareApprovalContinuation
-  | AutomationCompactionContinuation
-  | AutomationTitleContinuation;
+  | AutomationCompactionContinuation;
 
 export interface AutomationCompactionState {
   lifecycle: 'waiting' | 'summary_ready' | 'parent_committed' | 'completed' | 'unknown';
@@ -102,7 +80,6 @@ export interface ApprovalRecord extends PendingApprovalInput {
   successorApprovalIds?: string[];
   providerExecution?: 'pending' | 'executing' | 'completed' | 'unknown';
   automationCompaction?: AutomationCompactionState;
-  titleParentExecution?: 'executing' | 'completed' | 'unknown';
 }
 
 export interface ApprovalRouterResult {
@@ -873,60 +850,6 @@ function snapshotContinuation(
     requiredString(cloned.checkpoint.conversationId, 'continuation.checkpoint.conversationId');
     return cloned;
   }
-  if (value.kind === 'automation_title') {
-    const continuation = exactObject(value, '$.continuation', [
-      'kind',
-      'parentConversationId',
-      'helperConversationId',
-      'participantId',
-      'middlewareInstanceId',
-      'middlewareRevision',
-      'middlewareType',
-      'middlewareConfig',
-      'parentMessageId',
-      'scope',
-      'attachedParticipantId',
-      'maximumLength',
-      'guidance',
-      'helperContinuation',
-      'parentCheckpoint',
-    ]);
-    for (const field of [
-      'parentConversationId',
-      'helperConversationId',
-      'participantId',
-      'middlewareInstanceId',
-      'middlewareType',
-      'parentMessageId',
-      'attachedParticipantId',
-      'guidance',
-    ]) {
-      requiredString(continuation[field], `$.continuation.${field}`);
-    }
-    requiredInteger(continuation.middlewareRevision, '$.continuation.middlewareRevision');
-    if (!Number.isInteger(continuation.maximumLength) || (continuation.maximumLength as number) < 1)
-      throw new TypeError('Automation title maximumLength is invalid');
-    if (continuation.scope !== 'participant' && continuation.scope !== 'shared')
-      throw new TypeError('Automation title scope is invalid');
-    cloneJsonSafe(continuation.middlewareConfig, '$.continuation.middlewareConfig');
-    const helper = snapshotContinuation(
-      continuation.helperContinuation as MiddlewareApprovalContinuation,
-    );
-    if (helper?.kind !== 'middleware')
-      throw new TypeError('Automation title helper continuation must be middleware');
-    validateCheckpoint(continuation.parentCheckpoint);
-    const parent = continuation.parentCheckpoint as MiddlewareCheckpoint;
-    if (
-      parent.conversationId !== continuation.parentConversationId ||
-      parent.participantId !== continuation.participantId ||
-      parent.instanceId !== continuation.middlewareInstanceId ||
-      parent.middlewareRevision !== continuation.middlewareRevision ||
-      parent.middlewareType !== continuation.middlewareType ||
-      !isDeepStrictEqual(parent.middlewareConfig, continuation.middlewareConfig)
-    )
-      throw new TypeError('Automation title parent checkpoint does not match snapshot');
-    return cloneJsonSafe(continuation, '$.continuation') as unknown as AutomationTitleContinuation;
-  }
   const continuation = exactObject(value, '$.continuation', [
     'kind',
     'parentConversationId',
@@ -999,7 +922,7 @@ function validateContinuationBinding(
   input: PendingApprovalInput,
   continuation: ApprovalContinuation,
 ): void {
-  if (continuation.kind === 'automation_compaction' || continuation.kind === 'automation_title') {
+  if (continuation.kind === 'automation_compaction') {
     const helper = continuation.helperContinuation.checkpoint;
     if (
       helper.conversationId !== input.conversationId ||
@@ -1088,9 +1011,6 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
     ...(cloned.automationCompaction === undefined
       ? {}
       : { automationCompaction: snapshotAutomationState(cloned.automationCompaction) }),
-    ...(cloned.titleParentExecution === undefined
-      ? {}
-      : { titleParentExecution: cloned.titleParentExecution }),
   };
   if (
     record.providerExecution !== undefined &&
@@ -1098,11 +1018,6 @@ function snapshotRecord(value: ApprovalRecord): ApprovalRecord {
   ) {
     throw new TypeError('Approval provider execution lifecycle is invalid');
   }
-  if (
-    record.titleParentExecution !== undefined &&
-    !['executing', 'completed', 'unknown'].includes(record.titleParentExecution)
-  )
-    throw new TypeError('Automation title parent execution lifecycle is invalid');
   if (
     record.lifecycle === 'pending' &&
     (record.decision !== undefined || record.resumeResult !== undefined)
@@ -1309,10 +1224,33 @@ function normalizeData(value: unknown): RegistryData {
       throw new TypeError('Pending approval registry genericResumes must be a valid plain object');
     }
     const records = Object.fromEntries(
-      Object.entries(data.records).map(([approvalId, record]) => [
-        approvalId,
-        snapshotRecord(record),
-      ]),
+      Object.entries(data.records).map(([approvalId, record]) => {
+        const legacy = record as { continuation?: { kind?: unknown } };
+        if (legacy.continuation?.kind === 'automation_title') {
+          const {
+            continuation: _continuation,
+            titleParentExecution: _titleParentExecution,
+            successorApprovalId: _successorApprovalId,
+            successorApprovalIds: _successorApprovalIds,
+            ...retired
+          } = record as unknown as Record<string, unknown>;
+          return [
+            approvalId,
+            snapshotRecord({
+              ...retired,
+              lifecycle: 'acknowledged',
+              decision: {
+                approved: false,
+                decidedByParticipantId: 'system',
+                message: 'Title generation requires approval',
+                decidedAt: new Date().toISOString(),
+              },
+              resumeResult: { status: 'rejected', message: 'Title generation requires approval' },
+            } as ApprovalRecord),
+          ];
+        }
+        return [approvalId, snapshotRecord(record)];
+      }),
     );
     for (const record of Object.values(records)) {
       if (!record.automationCompaction) continue;
@@ -1382,18 +1320,6 @@ function recovery(data: RegistryData): boolean {
       record.lifecycle = 'decided';
       changed = true;
     }
-    if (
-      record.lifecycle === 'resuming' &&
-      record.continuation?.kind === 'automation_title' &&
-      record.resumeResult === undefined
-    ) {
-      record.resumeResult = {
-        status: 'error',
-        error: 'Automation title helper outcome unknown and was not retried',
-      };
-      record.lifecycle = 'decided';
-      changed = true;
-    }
     if (record.providerExecution === 'executing') {
       record.providerExecution = 'unknown';
       if (record.automationCompaction) record.automationCompaction.lifecycle = 'unknown';
@@ -1420,18 +1346,6 @@ function recovery(data: RegistryData): boolean {
             : record.conversationId,
         status: 'error',
         error: 'Automation parent provider outcome unknown and was not retried',
-      };
-      changed = true;
-    }
-    if (record.titleParentExecution === 'executing') {
-      record.titleParentExecution = 'unknown';
-      record.routerResult = {
-        conversationId:
-          record.continuation?.kind === 'automation_title'
-            ? record.continuation.parentConversationId
-            : record.conversationId,
-        status: 'error',
-        error: 'Automation title parent outcome unknown and was not retried',
       };
       changed = true;
     }
@@ -1491,6 +1405,18 @@ export class PendingApprovalRegistry {
   static async load(storage: Storage): Promise<PendingApprovalRegistry> {
     const registry = new PendingApprovalRegistry(storage);
     const stored = await storage.readJson<unknown>(STORAGE_KEY);
+    const retireLegacyTitle =
+      stored !== null &&
+      typeof stored === 'object' &&
+      !Array.isArray(stored) &&
+      Object.hasOwn(stored, 'records') &&
+      Object.values((stored as { records?: Record<string, unknown> }).records ?? {}).some(
+        (record) =>
+          record !== null &&
+          typeof record === 'object' &&
+          (record as { continuation?: { kind?: unknown } }).continuation?.kind ===
+            'automation_title',
+      );
     const upgradeRecordsOnly =
       stored !== null &&
       typeof stored === 'object' &&
@@ -1498,7 +1424,7 @@ export class PendingApprovalRegistry {
       Object.hasOwn(stored, 'records') &&
       !Object.hasOwn(stored, 'middlewareActions');
     if (stored !== null) registry.data = normalizeData(stored);
-    if (upgradeRecordsOnly || recovery(registry.data))
+    if (upgradeRecordsOnly || retireLegacyTitle || recovery(registry.data))
       await storage.writeJson(STORAGE_KEY, registry.data);
     return registry;
   }
@@ -1553,30 +1479,19 @@ export class PendingApprovalRegistry {
 
   async create(
     input: PendingApprovalInput,
-    automationSeed?: AutomationApprovalSeed,
+    automationSeed?: AutomationCompactionSeed,
   ): Promise<{ approvalId: string }> {
     const snapshot = snapshotInput(input);
     if (automationSeed !== undefined) {
       if (snapshot.continuation?.kind !== 'middleware') {
         throw new TypeError('Automation seed requires middleware continuation');
       }
-      const continuation = snapshotContinuation(
-        'selectedMessages' in automationSeed
-          ? {
-              ...automationSeed,
-              kind: 'automation_compaction' as const,
-              helperContinuation: snapshot.continuation,
-            }
-          : {
-              ...automationSeed,
-              kind: 'automation_title' as const,
-              helperContinuation: snapshot.continuation,
-            },
-      );
-      if (
-        continuation?.kind !== 'automation_compaction' &&
-        continuation?.kind !== 'automation_title'
-      ) {
+      const continuation = snapshotContinuation({
+        ...automationSeed,
+        kind: 'automation_compaction' as const,
+        helperContinuation: snapshot.continuation,
+      });
+      if (continuation?.kind !== 'automation_compaction') {
         throw new TypeError('Automation continuation is required');
       }
       validateContinuationBinding(snapshot, continuation);
@@ -1593,10 +1508,7 @@ export class PendingApprovalRegistry {
           ? { automationCompaction: { lifecycle: 'waiting' as const } }
           : {}),
       };
-      if (
-        snapshot.continuation?.kind === 'automation_compaction' ||
-        snapshot.continuation?.kind === 'automation_title'
-      ) {
+      if (snapshot.continuation?.kind === 'automation_compaction') {
         const checkpoint = snapshot.continuation.parentCheckpoint;
         const action =
           data.middlewareActions[
@@ -1665,51 +1577,6 @@ export class PendingApprovalRegistry {
       const existing =
         source.successorApprovalIds ??
         (source.successorApprovalId === undefined ? [] : [source.successorApprovalId]);
-      const merged = [...existing, ...successorApprovalIds.filter((id) => !existing.includes(id))];
-      source.successorApprovalIds = merged;
-      source.successorApprovalId = merged[0];
-      if (source.providerExecution === 'executing') source.providerExecution = 'completed';
-      if (source.lifecycle === 'resuming') {
-        source.resumeResult = { status: 'success', data: { successorApprovalIds: merged } };
-        source.lifecycle = 'decided';
-      }
-      return undefined;
-    });
-  }
-
-  async transferAutomationTitle(approvalId: string, successorApprovalIds: string[]): Promise<void> {
-    if (successorApprovalIds.length === 0) return;
-    await this.mutate((data) => {
-      const source = data.records[approvalId];
-      if (source?.continuation?.kind !== 'automation_title') {
-        throw new LegionError('Automation title continuation unavailable', 'APPROVAL_CONFLICT');
-      }
-      for (const successorApprovalId of successorApprovalIds) {
-        const successor = data.records[successorApprovalId];
-        if (!successor || successor.lifecycle !== 'pending' || !successor.continuation) {
-          throw new LegionError('Automation title successor is invalid', 'APPROVAL_CONFLICT');
-        }
-        if (successor.continuation.kind === 'automation_title') {
-          const { helperContinuation: _sourceHelper, ...sourceSeed } = source.continuation;
-          const { helperContinuation: _successorHelper, ...successorSeed } = successor.continuation;
-          if (!isDeepStrictEqual(sourceSeed, successorSeed)) {
-            throw new LegionError('Automation title successor is invalid', 'APPROVAL_CONFLICT');
-          }
-          continue;
-        }
-        const continuation = snapshotContinuation({
-          ...source.continuation,
-          helperContinuation: successor.continuation as MiddlewareApprovalContinuation,
-        });
-        if (continuation?.kind !== 'automation_title') {
-          throw new LegionError('Automation title successor is invalid', 'APPROVAL_CONFLICT');
-        }
-        validateContinuationBinding(successor, continuation);
-        successor.continuation = continuation;
-      }
-      const existing =
-        source.successorApprovalIds ??
-        (source.successorApprovalId ? [source.successorApprovalId] : []);
       const merged = [...existing, ...successorApprovalIds.filter((id) => !existing.includes(id))];
       source.successorApprovalIds = merged;
       source.successorApprovalId = merged[0];
@@ -1871,25 +1738,6 @@ export class PendingApprovalRegistry {
         return 'unknown';
       }
       state.parentExecution = 'executing';
-      return 'claimed';
-    });
-  }
-
-  async claimAutomationTitleParentExecution(
-    approvalId: string,
-  ): Promise<'claimed' | 'completed' | 'unknown'> {
-    return this.mutate((data) => {
-      const record = data.records[approvalId];
-      if (record?.continuation?.kind !== 'automation_title') {
-        throw new LegionError('Automation title continuation unavailable', 'APPROVAL_CONFLICT');
-      }
-      if (record.titleParentExecution === 'completed' || record.routerResult) return 'completed';
-      if (record.titleParentExecution === 'unknown') return 'unknown';
-      if (record.titleParentExecution === 'executing') {
-        record.titleParentExecution = 'unknown';
-        return 'unknown';
-      }
-      record.titleParentExecution = 'executing';
       return 'claimed';
     });
   }
@@ -2203,7 +2051,6 @@ export class PendingApprovalRegistry {
       if (record.automationCompaction?.parentExecution === 'executing') {
         record.automationCompaction.parentExecution = 'completed';
       }
-      if (record.titleParentExecution === 'executing') record.titleParentExecution = 'completed';
       return undefined;
     });
   }
@@ -2300,6 +2147,32 @@ export class PendingApprovalRegistry {
           'APPROVAL_CONFLICT',
         );
       }
+      record.lifecycle = 'acknowledged';
+      delete record.continuation;
+      return undefined;
+    });
+  }
+
+  async cancelPending(approvalId: string, message: string): Promise<void> {
+    const error = requiredString(message, 'approval cancellation message');
+    await this.mutate((data) => {
+      const record = data.records[approvalId];
+      if (!record)
+        throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');
+      if (record.lifecycle === 'acknowledged') return undefined;
+      if (record.lifecycle !== 'pending') {
+        throw new LegionError(
+          `Approval request is not pending: ${approvalId}`,
+          'APPROVAL_CONFLICT',
+        );
+      }
+      record.decision = {
+        approved: false,
+        decidedByParticipantId: 'system',
+        message: error,
+        decidedAt: new Date().toISOString(),
+      };
+      record.resumeResult = { status: 'rejected', message: error };
       record.lifecycle = 'acknowledged';
       delete record.continuation;
       return undefined;
