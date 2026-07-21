@@ -15,21 +15,26 @@ export function registerBuiltinMiddleware(input: {
   conversationStore: ConversationStore;
   getModelMetadata(modelId: string): Promise<Pick<ProviderModel, 'contextWindow'> | undefined>;
 }): { tools: Tool[] } {
-  input.middlewareRegistry.register(
-    createSkillsMiddleware(input.skillRegistry) as MiddlewareDefinition,
-    'builtin:core',
-  );
-  input.middlewareRegistry.register(
-    createAutoCompactionMiddleware({
-      conversationStore: input.conversationStore,
-      getModelMetadata: input.getModelMetadata,
-    }) as MiddlewareDefinition,
-    'builtin:core',
-  );
-  input.middlewareRegistry.register(
-    createConversationNamingMiddleware(input.conversationStore) as MiddlewareDefinition,
-    'builtin:core',
-  );
+  const definitions: Array<{ definition: MiddlewareDefinition; source: string }> = [
+    {
+      definition: createSkillsMiddleware(input.skillRegistry) as MiddlewareDefinition,
+      source: 'builtin:core',
+    },
+    {
+      definition: createAutoCompactionMiddleware({
+        conversationStore: input.conversationStore,
+        getModelMetadata: input.getModelMetadata,
+      }) as MiddlewareDefinition,
+      source: 'builtin:core',
+    },
+    {
+      definition: createConversationNamingMiddleware(
+        input.conversationStore,
+      ) as MiddlewareDefinition,
+      source: 'builtin:core',
+    },
+  ];
+  input.middlewareRegistry.registerBatch(definitions);
   const skills = createSkillTools(input.skillRegistry);
   const automation = createAutomationTools();
   return {
