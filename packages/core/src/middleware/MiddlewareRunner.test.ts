@@ -796,6 +796,39 @@ describe('MiddlewareRunner', () => {
     expect(events).toEqual(['tool:call', 'tool:result', 'approval:requested']);
   });
 
+  it('rejects title helper middleware approvals without pending events', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = { risky: 'requires_approval' };
+    const approvals = vi.fn();
+    f.eventBus.on('approval:requested', approvals);
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'risky-1',
+          tool: 'risky',
+          arguments: { path: 'x' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'title-helper-approval',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+      titleApprovalRejectionMessage: 'Title generation requires approval',
+    });
+
+    expect(result).not.toMatchObject({ kind: 'pending_approval' });
+    expect(approvals).not.toHaveBeenCalled();
+    expect(f.pendingApprovals.listPending()).toEqual([]);
+  });
+
   it('records rejected tool actions and applies open versus closed failure modes without replaying request hook', async () => {
     const f = await fixture([
       instance('open', { failureMode: 'open' }),

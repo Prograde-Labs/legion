@@ -866,6 +866,45 @@ describe('PendingApprovalRegistry continuations', () => {
     });
   });
 
+  it('terminalizes seeded title helper approvals without compaction state or parent suspension', async () => {
+    const storage = new MemoryStorage();
+    const reg = new PendingApprovalRegistry(storage);
+    const continuation = automationContinuation();
+    const seed = automationSeed(continuation);
+    await reg.claimMiddlewareAction({
+      operationId: continuation.parentCheckpoint.operationId,
+      conversationId: continuation.parentCheckpoint.conversationId,
+      participantId: continuation.parentCheckpoint.participantId,
+      instanceId: continuation.parentCheckpoint.instanceId,
+      requestId: continuation.parentCheckpoint.request.requestId,
+      tool: continuation.parentCheckpoint.request.tool,
+      args: continuation.parentCheckpoint.request.arguments,
+    });
+
+    const { approvalId } = await reg.create(
+      {
+        conversationId: continuation.helperConversationId,
+        requesterId: continuation.helperContinuation.checkpoint.participantId,
+        tool: continuation.helperContinuation.checkpoint.request.tool,
+        args: continuation.helperContinuation.checkpoint.request.arguments,
+        continuation: continuation.helperContinuation,
+      },
+      seed,
+      'Title generation requires approval',
+    );
+
+    expect(reg.getRecord(approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
+    expect(reg.getRecord(approvalId)?.continuation).toBeUndefined();
+    expect(reg.getRecord(approvalId)?.automationCompaction).toBeUndefined();
+    expect(reg.listPending()).toEqual([]);
+    const stored = await storage.readJson<{
+      middlewareActions: Record<string, { lifecycle: string }>;
+    }>('pending-approvals/registry.json');
+    expect(Object.values(stored!.middlewareActions)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ lifecycle: 'executing' })]),
+    );
+  });
+
   it.each([
     ['conversation', (value: MiddlewareCheckpoint) => (value.conversationId = 'wrong')],
     ['participant', (value: MiddlewareCheckpoint) => (value.participantId = 'wrong')],

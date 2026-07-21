@@ -1487,7 +1487,7 @@ export class PendingApprovalRegistry {
       terminalRejectionMessage === undefined
         ? undefined
         : requiredString(terminalRejectionMessage, 'approval terminal rejection message');
-    if (automationSeed !== undefined) {
+    if (automationSeed !== undefined && rejectionMessage === undefined) {
       if (snapshot.continuation?.kind !== 'middleware') {
         throw new TypeError('Automation seed requires middleware continuation');
       }
@@ -1520,12 +1520,16 @@ export class PendingApprovalRegistry {
               },
               resumeResult: { status: 'rejected' as const, message: rejectionMessage },
             }),
-        ...(snapshot.continuation?.kind === 'automation_compaction'
+        ...(rejectionMessage === undefined &&
+        snapshot.continuation?.kind === 'automation_compaction'
           ? { automationCompaction: { lifecycle: 'waiting' as const } }
           : {}),
       };
       if (rejectionMessage !== undefined) delete data.records[approvalId].continuation;
-      if (snapshot.continuation?.kind === 'automation_compaction') {
+      if (
+        rejectionMessage === undefined &&
+        snapshot.continuation?.kind === 'automation_compaction'
+      ) {
         const checkpoint = snapshot.continuation.parentCheckpoint;
         const action =
           data.middlewareActions[

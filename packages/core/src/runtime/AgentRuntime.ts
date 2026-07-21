@@ -384,6 +384,7 @@ export class AgentRuntime implements Runtime {
 
         const toolResults: ToolCallResult[] = [];
         const pendingApprovals: PendingApproval[] = [];
+        let terminalApprovalError: string | undefined;
 
         for (const tc of response.toolCalls) {
           if (context.signal?.aborted) {
@@ -421,9 +422,19 @@ export class AgentRuntime implements Runtime {
               undefined,
               context.titleApprovalRejectionMessage,
             );
-            const pending =
-              context.pendingApprovalRegistry.get(approvalId) ??
-              (context.pendingApprovalRegistry.getRecord(approvalId)! as PendingApproval);
+            if (context.titleApprovalRejectionMessage !== undefined) {
+              toolResults.push({
+                id: tc.id,
+                name: tc.name,
+                result: {
+                  status: 'rejected',
+                  message: context.titleApprovalRejectionMessage,
+                },
+              });
+              terminalApprovalError = context.titleApprovalRejectionMessage;
+              break;
+            }
+            const pending = context.pendingApprovalRegistry.get(approvalId)!;
             pendingApprovals.push(pending);
             toolResults.push({
               id: tc.id,
@@ -479,6 +490,13 @@ export class AgentRuntime implements Runtime {
           toolResults,
           usage,
         });
+
+        if (terminalApprovalError !== undefined) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: terminalApprovalError },
+            actions,
+          );
+        }
 
         // If any approvals are pending, return early.
         if (pendingApprovals.length > 0) {

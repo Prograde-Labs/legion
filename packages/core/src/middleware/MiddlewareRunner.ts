@@ -1663,6 +1663,23 @@ export class MiddlewareRunner {
           input.approvalContinuationSeed,
           input.titleApprovalRejectionMessage,
         );
+        if (input.titleApprovalRejectionMessage !== undefined) {
+          return {
+            kind: 'failure',
+            snapshots: this.appendAction(
+              snapshots,
+              this.toolAction(instance, input, request, 'rejected', {
+                status: 'rejected',
+                message: input.titleApprovalRejectionMessage,
+              }),
+            ),
+            failure: {
+              status: 'failure',
+              failureMode: 'closed',
+              error: input.titleApprovalRejectionMessage,
+            },
+          };
+        }
         this.recordSuccess(instance, phase, input, {
           status: 'success',
           result: request,
