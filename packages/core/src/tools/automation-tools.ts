@@ -12,8 +12,10 @@ const TITLE_INSTRUCTION =
 interface CompactConversationArgs {
   conversationId: string;
   messageIds: string[];
-  middlewareInstanceId: string;
-  parentMessageId: string;
+  middlewareInstanceId?: string;
+  parentMessageId?: string;
+  agentId?: string;
+  instruction?: string;
 }
 
 interface GenerateConversationTitleArgs {
@@ -42,16 +44,34 @@ export function createAutomationTools(): AutomationTools {
 export function createCompactConversationTool(): Tool {
   return {
     name: 'compact_conversation',
-    description: 'Compact an automatic conversation prefix through a helper conversation.',
+    description:
+      'Compact the oldest contiguous active prefix through a helper conversation. ' +
+      'Pass middlewareInstanceId for automatic compaction or agentId (and optional instruction) for manual compaction.',
     parameters: {
       type: 'object',
       properties: {
         conversationId: { type: 'string' },
         messageIds: { type: 'array', items: { type: 'string' }, minItems: 1 },
-        middlewareInstanceId: { type: 'string' },
-        parentMessageId: { type: 'string' },
+        middlewareInstanceId: {
+          type: 'string',
+          description:
+            'Enabled auto-compaction instance invoking this tool. Omit for manual compaction.',
+        },
+        parentMessageId: {
+          type: 'string',
+          description: 'Newest compacted message. Defaults to the last id in messageIds.',
+        },
+        agentId: {
+          type: 'string',
+          description:
+            'Summarizer participant for manual compaction. Ignored when middlewareInstanceId is set — the instance config wins.',
+        },
+        instruction: {
+          type: 'string',
+          description: 'Manual override for the summarization instruction.',
+        },
       },
-      required: ['conversationId', 'messageIds', 'middlewareInstanceId', 'parentMessageId'],
+      required: ['conversationId', 'messageIds'],
       additionalProperties: false,
     } as JSONSchema,
     async execute(args, context): Promise<ToolResult> {
@@ -64,33 +84,42 @@ export function createCompactConversationTool(): Tool {
         if (!context.messageRouter) {
           return { status: 'error', error: 'messageRouter unavailable in context' };
         }
-        if (context.conversationId !== input.conversationId) {
+        if (
+          input.middlewareInstanceId !== undefined &&
+          context.conversationId !== input.conversationId
+        ) {
           return { status: 'error', error: 'Parent conversation does not match tool context' };
         }
-        const instance = context.participant.middleware?.find(
-          (candidate) =>
-            candidate.id === input.middlewareInstanceId &&
-            candidate.type === 'builtin:auto-compaction' &&
-            candidate.enabled !== false,
-        );
+        const instance = input.middlewareInstanceId
+          ? context.participant.middleware?.find(
+              (candidate) =>
+                candidate.id === input.middlewareInstanceId &&
+                candidate.type === 'builtin:auto-compaction' &&
+                candidate.enabled !== false,
+            )
+          : undefined;
         if (
-          !instance ||
-          typeof instance.config.summarizerParticipantId !== 'string' ||
-          instance.config.summarizerParticipantId.length === 0
+          input.middlewareInstanceId &&
+          (!instance ||
+            typeof instance.config.summarizerParticipantId !== 'string' ||
+            instance.config.summarizerParticipantId.length === 0)
         ) {
           return {
             status: 'error',
             error: 'Enabled auto-compaction middleware instance not found',
           };
         }
-        const summarizerParticipantId = instance.config.summarizerParticipantId;
+        const summarizerParticipantId = instance
+          ? (instance.config.summarizerParticipantId as string)
+          : input.agentId!;
+        const parentMessageId = input.parentMessageId ?? input.messageIds.at(-1)!;
 
         const parent = await context.conversationStore.load(input.conversationId);
         if (!parent)
           return { status: 'error', error: `Conversation not found: ${input.conversationId}` };
         if (
           !isActivePrefix(parent, input.messageIds) ||
-          input.parentMessageId !== input.messageIds.at(-1)
+          parentMessageId !== input.messageIds.at(-1)
         ) {
           return {
             status: 'error',
@@ -110,9 +139,9 @@ export function createCompactConversationTool(): Tool {
             origin: {
               kind: 'middleware',
               participantId: context.participant.id,
-              middlewareInstanceId: instance.id,
+              ...(instance ? { middlewareInstanceId: instance.id } : {}),
               parentConversationId: parent.id,
-              parentMessageId: input.parentMessageId,
+              parentMessageId,
             },
           },
           { signal: context.signal },
@@ -121,7 +150,7 @@ export function createCompactConversationTool(): Tool {
         let archiveHelper = false;
         try {
           const approvalContinuationSeed =
-            context.pendingApprovalRegistry && context.middlewareCheckpoint
+            instance && context.pendingApprovalRegistry && context.middlewareCheckpoint
               ? {
                   parentConversationId: parent.id,
                   helperConversationId: helper.id,
@@ -132,7 +161,7 @@ export function createCompactConversationTool(): Tool {
                   middlewareConfig: structuredClone(instance.config),
                   observedParentHead: observedHead,
                   selectedMessages,
-                  parentMessageId: input.parentMessageId,
+                  parentMessageId,
                   parentCheckpoint: context.middlewareCheckpoint,
                 }
               : undefined;
@@ -140,7 +169,7 @@ export function createCompactConversationTool(): Tool {
             senderId: context.participant.id,
             recipientId: summarizerParticipantId,
             conversationId: helper.id,
-            message: `${SUMMARY_INSTRUCTION}\n\n${transcript(parent, input.messageIds)}`,
+            message: `${input.instruction ?? SUMMARY_INSTRUCTION}\n\n${transcript(parent, input.messageIds)}`,
             replyTo: undefined,
             context: {
               ...context,
@@ -200,6 +229,7 @@ export function createCompactConversationTool(): Tool {
                 (id) =>
                   !Object.hasOwn(current.messages, id) && compacted.messages[id].type === 'summary',
               )!;
+              if (!instance) return compacted;
               const existing = stateObject(
                 compacted.middlewareState?.[context.participant.id]?.[instance.id],
               );
@@ -385,11 +415,15 @@ function validateArgs(args: unknown): CompactConversationArgs | undefined {
     !Array.isArray(input.messageIds) ||
     input.messageIds.length === 0 ||
     !input.messageIds.every((id) => typeof id === 'string') ||
-    typeof input.middlewareInstanceId !== 'string' ||
-    typeof input.parentMessageId !== 'string'
+    (input.middlewareInstanceId !== undefined && typeof input.middlewareInstanceId !== 'string') ||
+    (input.parentMessageId !== undefined && typeof input.parentMessageId !== 'string') ||
+    (input.agentId !== undefined &&
+      (typeof input.agentId !== 'string' || input.agentId.length === 0)) ||
+    (input.instruction !== undefined && typeof input.instruction !== 'string')
   ) {
     return undefined;
   }
+  if (input.middlewareInstanceId === undefined && input.agentId === undefined) return undefined;
   return input as CompactConversationArgs;
 }
 

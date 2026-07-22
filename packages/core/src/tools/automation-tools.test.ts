@@ -424,6 +424,111 @@ describe('compact_conversation automation tool', () => {
     );
     expect(prompt).not.toContain('private chain of thought');
   });
+
+  it('compacts manually with agentId and default parent message', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'manual summary',
+    });
+
+    const result = await createCompactConversationTool().execute(
+      { conversationId: parent.id, messageIds: ['m1', 'm2'], agentId: 'summarizer' },
+      { ...context, messageRouter: { send } } as ToolContext,
+    );
+
+    expect(result.status).toBe('success');
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ recipientId: 'summarizer' }));
+    const helper = await conversationStore.load(send.mock.calls[0][0].conversationId);
+    expect(helper?.origin).toEqual(
+      expect.objectContaining({ kind: 'middleware', parentMessageId: 'm2' }),
+    );
+    const saved = await conversationStore.load(parent.id);
+    expect(
+      Object.values(saved!.messages).some(
+        (message) => message.type === 'summary' && message.content === 'manual summary',
+      ),
+    ).toBe(true);
+    expect(saved?.middlewareState?.agent?.['auto-compaction']).toBeUndefined();
+  });
+
+  it('uses the provided instruction instead of the default in manual mode', async () => {
+    const { context, parent } = await setup();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'manual summary',
+    });
+
+    await createCompactConversationTool().execute(
+      {
+        conversationId: parent.id,
+        messageIds: ['m1', 'm2'],
+        agentId: 'summarizer',
+        instruction: 'Keep only decisions.',
+      },
+      { ...context, messageRouter: { send } } as ToolContext,
+    );
+
+    expect(send.mock.calls[0][0].message).toContain('Keep only decisions.');
+    expect(send.mock.calls[0][0].message).not.toContain(
+      'Summarize this conversation segment concisely.',
+    );
+  });
+
+  it('rejects manual calls without middlewareInstanceId or agentId', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn();
+
+    const result = await createCompactConversationTool().execute(
+      { conversationId: parent.id, messageIds: ['m1', 'm2'] },
+      { ...context, messageRouter: { send } } as ToolContext,
+    );
+
+    expect(result).toEqual({ status: 'error', error: 'Invalid compact_conversation arguments' });
+    expect(send).not.toHaveBeenCalled();
+    expect(await conversationStore.load(parent.id)).toEqual(parent);
+  });
+
+  it('allows manual compaction outside the target conversation context', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'manual summary',
+    });
+
+    const result = await createCompactConversationTool().execute(
+      { conversationId: parent.id, messageIds: ['m1', 'm2'], agentId: 'summarizer' },
+      { ...context, conversationId: '', messageRouter: { send } } as ToolContext,
+    );
+
+    expect(result.status).toBe('success');
+    expect(
+      Object.values((await conversationStore.load(parent.id))!.messages).some(
+        (message) => message.type === 'summary' && message.content === 'manual summary',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects middleware compaction outside the target conversation context', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const send = vi.fn();
+
+    const result = await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      conversationId: 'other-conversation',
+      messageRouter: { send },
+    } as ToolContext);
+
+    expect(result).toEqual({
+      status: 'error',
+      error: 'Parent conversation does not match tool context',
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(await conversationStore.load(parent.id)).toEqual(parent);
+  });
 });
 
 const titleArgs = (
