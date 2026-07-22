@@ -35,7 +35,14 @@ export function createSkillsMiddleware(
     configSchema: {
       type: 'object',
       properties: {
-        skills: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+        skills: {
+          type: 'array',
+          items: { type: 'string' },
+          uniqueItems: true,
+          title: 'Skills',
+          description:
+            'Names of discovered skills this participant may load on demand with the load_skills tool.',
+        },
       },
       required: ['skills'],
       additionalProperties: false,

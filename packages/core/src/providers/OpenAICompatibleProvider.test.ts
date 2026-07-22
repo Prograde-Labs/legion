@@ -238,6 +238,38 @@ describe('OpenAICompatibleProvider', () => {
     expect(body['tool_choice']).toBe('auto');
   });
 
+  it('adds empty properties to object tool schemas missing them', async () => {
+    fetchMock.mockResolvedValue(
+      makeSseOkResponse({ role: 'assistant', content: 'ok', tool_calls: null }),
+    );
+
+    const provider = new OpenAICompatibleProvider();
+    await drainStream(
+      provider,
+      [],
+      [
+        {
+          name: 'no_args',
+          description: 'takes nothing',
+          parameters: { type: 'object', additionalProperties: false },
+        },
+      ],
+      MODEL,
+    );
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>;
+    const parameters = (
+      (body['tools'] as Record<string, unknown>[])[0]['function'] as Record<string, unknown>
+    )['parameters'] as Record<string, unknown>;
+    expect(parameters).toEqual({
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    });
+  });
+
   it('throws ProviderError on a non-ok HTTP response', async () => {
     fetchMock.mockResolvedValue(makeErrResponse(401, 'Unauthorized'));
     const provider = new OpenAICompatibleProvider();

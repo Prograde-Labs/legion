@@ -68,11 +68,40 @@ export function createConversationNamingMiddleware(
     configSchema: {
       type: 'object',
       properties: {
-        namingParticipantId: { type: 'string', minLength: 1 },
-        maximumLength: { type: 'number', minimum: 1 },
-        guidance: { type: 'string' },
-        scope: { type: 'string', enum: ['participant', 'shared'] },
-        excludedTags: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+        namingParticipantId: {
+          type: 'string',
+          minLength: 1,
+          title: 'Naming Participant',
+          description:
+            'ID of the participant asked to write the title. Runs in a separate helper conversation, so a cheap/fast model works well.',
+        },
+        maximumLength: {
+          type: 'number',
+          minimum: 1,
+          title: 'Maximum Length',
+          description: 'Maximum number of characters allowed in the generated title.',
+        },
+        guidance: {
+          type: 'string',
+          title: 'Guidance',
+          description:
+            'Extra instructions for the naming participant, e.g. style, tone, or language. Use an empty string for no extra guidance.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['participant', 'shared'],
+          title: 'Scope',
+          description:
+            'shared writes one title visible to everyone; participant writes a separate title only this participant sees.',
+        },
+        excludedTags: {
+          type: 'array',
+          items: { type: 'string' },
+          uniqueItems: true,
+          title: 'Excluded Tags',
+          description:
+            'Conversations carrying any of these tags are never auto-titled. Helper tags (compaction, conversation-title) are always excluded.',
+        },
       },
       required: ['namingParticipantId', 'maximumLength', 'guidance', 'scope', 'excludedTags'],
       additionalProperties: false,

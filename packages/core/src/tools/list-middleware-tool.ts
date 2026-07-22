@@ -29,7 +29,7 @@ export function createListMiddlewareTool(deps: ListMiddlewareToolDependencies): 
   return {
     name: 'list_middleware',
     description: 'List available middleware definitions and safe startup diagnostics.',
-    parameters: { type: 'object', additionalProperties: false },
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
     async execute(): Promise<ToolResult> {
       return { status: 'success', data: structuredClone({ definitions, diagnostics }) };
     },

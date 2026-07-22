@@ -22,7 +22,7 @@ export function createSkillTools(registry: SkillRegistry): SkillTools {
     listSkills: {
       name: 'list_skills',
       description: 'List effective skills and discovery diagnostics.',
-      parameters: { type: 'object', additionalProperties: false },
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
       async execute(): Promise<ToolResult> {
         return {
           status: 'success',

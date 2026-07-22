@@ -10,6 +10,14 @@ import type {
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
+/** Strict providers (e.g. LM Studio) reject object schemas without a properties object. */
+function normalizeParameters(parameters: ProviderTool['parameters']): ProviderTool['parameters'] {
+  if (parameters.type === 'object' && parameters.properties === undefined) {
+    return { ...parameters, properties: {} };
+  }
+  return parameters;
+}
+
 interface OAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
@@ -152,7 +160,11 @@ export class OpenAICompatibleProvider implements Provider {
     if (tools.length > 0) {
       body['tools'] = tools.map((t) => ({
         type: 'function',
-        function: { name: t.name, description: t.description, parameters: t.parameters },
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: normalizeParameters(t.parameters),
+        },
       }));
       body['tool_choice'] = 'auto';
     }

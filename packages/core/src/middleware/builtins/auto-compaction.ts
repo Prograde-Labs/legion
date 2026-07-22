@@ -72,12 +72,51 @@ export function createAutoCompactionMiddleware(dependencies: {
     configSchema: {
       type: 'object',
       properties: {
-        triggerPercentage: { type: 'number', minimum: 1, maximum: 100 },
-        targetPercentage: { type: 'number', minimum: 1, maximum: 100 },
-        fallbackTokenThreshold: { type: 'number', minimum: 1 },
-        summarizerParticipantId: { type: 'string', minLength: 1 },
-        minimumRecentTokens: { type: 'number', minimum: 1 },
-        excludedTags: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+        triggerPercentage: {
+          type: 'number',
+          minimum: 1,
+          maximum: 100,
+          title: 'Trigger Percentage',
+          description:
+            'Start compacting when estimated context use reaches this percentage of the model context window.',
+        },
+        targetPercentage: {
+          type: 'number',
+          minimum: 1,
+          maximum: 100,
+          title: 'Target Percentage',
+          description:
+            'Compact oldest messages until estimated context use drops to this percentage.',
+        },
+        fallbackTokenThreshold: {
+          type: 'number',
+          minimum: 1,
+          title: 'Fallback Token Threshold',
+          description:
+            'Token count that triggers compaction when the model context window is unknown (used instead of Trigger Percentage).',
+        },
+        summarizerParticipantId: {
+          type: 'string',
+          minLength: 1,
+          title: 'Summarizer Participant',
+          description:
+            'ID of the participant asked to summarize. Runs in a separate helper conversation, so a cheap/fast model works well.',
+        },
+        minimumRecentTokens: {
+          type: 'number',
+          minimum: 1,
+          title: 'Minimum Recent Tokens',
+          description:
+            'Always keep at least this many tokens of the most recent messages uncompacted.',
+        },
+        excludedTags: {
+          type: 'array',
+          items: { type: 'string' },
+          uniqueItems: true,
+          title: 'Excluded Tags',
+          description:
+            'Conversations carrying any of these tags are never auto-compacted. Helper tags (compaction, conversation-title) are always excluded.',
+        },
       },
       required: [
         'triggerPercentage',
