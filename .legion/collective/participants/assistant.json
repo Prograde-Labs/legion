@@ -24,12 +24,56 @@
     "file_read": "auto",
     "file_write": "auto",
     "file_list": "auto",
-    "query_usage": "auto"
+    "query_usage": "auto",
+    "load_skills": "auto",
+    "generate_conversation_title": "auto",
+    "save_provider": "auto",
+    "switch_branch": "auto",
+    "modify_conversation": "auto",
+    "list_middleware": "auto",
+    "set_participant_middleware": "auto",
+    "remove_tool_policy": "auto"
   },
   "systemPrompt": "You are a helpful assistant that does whatever the user asks to the best of your abilities",
   "model": {
     "model": "qwen/qwen3.6-35b-a3b"
   },
   "maxIterations": 20,
-  "providerId": "LM Studio"
+  "providerId": "LM Studio",
+  "middleware": [
+    {
+      "id": "builtin-skills-1",
+      "type": "builtin:skills",
+      "config": {
+        "skills": ["cavecrew", "caveman", "caveman-commit", "caveman-compress"]
+      },
+      "enabled": true
+    },
+    {
+      "id": "auto-compaction-1",
+      "type": "builtin:auto-compaction",
+      "config": {
+        "triggerPercentage": 80,
+        "targetPercentage": 50,
+        "fallbackTokenThreshold": 50000,
+        "summarizerParticipantId": "compaction-agent",
+        "minimumRecentTokens": 10000,
+        "excludedTags": []
+      },
+      "enabled": true
+    },
+    {
+      "id": "auto-naming-1",
+      "type": "builtin:conversation-naming",
+      "config": {
+        "namingParticipantId": "title-agent",
+        "maximumLength": 80,
+        "guidance": "Be concise. Capture the main topic or outcome of the conversation in no more than 3 words.",
+        "scope": "shared",
+        "excludedTags": []
+      },
+      "enabled": true
+    }
+  ],
+  "middlewareRevision": 5
 }
