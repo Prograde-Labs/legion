@@ -80,6 +80,7 @@ async function setup() {
       resolve: vi.fn(),
       getAll: vi.fn(),
     } as any,
+    middlewareConfigurationValidator: { validate: vi.fn() },
     messageRouter: mockRouter,
     stopped: abortController.signal,
     serviceManager: undefined,
@@ -125,6 +126,26 @@ describe('ServiceContextImpl', () => {
   });
 
   describe('callTool', () => {
+    it('forwards middleware validator into tool context', async () => {
+      const { dir: d, deps } = await setup();
+      dir = d;
+      const execute = vi.fn().mockResolvedValue({ status: 'success' });
+      const validator = { validate: vi.fn() };
+      const ctx = new ServiceContextImpl({
+        ...deps,
+        toolRegistry: { ...deps.toolRegistry, execute },
+        middlewareConfigurationValidator: validator,
+      });
+
+      await ctx.callTool('file_read', {});
+
+      expect(execute).toHaveBeenCalledWith(
+        'file_read',
+        {},
+        expect.objectContaining({ middlewareValidator: validator }),
+      );
+    });
+
     it('executes an authorized tool and returns the result', async () => {
       const { dir: d, deps } = await setup();
       dir = d;

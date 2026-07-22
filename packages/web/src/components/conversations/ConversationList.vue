@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import type { ConversationMeta } from '@legion/types';
 
@@ -7,14 +8,39 @@ const props = defineProps<{
   activeId: string | null;
   myParticipantId: string;
   mode: 'mine' | 'all';
+  status: 'active' | 'archived' | 'all';
+  tags: string[];
   pendingApprovalIds?: Set<string>;
 }>();
 
 const emit = defineEmits<{
   select: [id: string];
   'update:mode': [mode: 'mine' | 'all'];
+  'update:status': [status: 'active' | 'archived' | 'all'];
+  'update:tags': [tags: string[]];
   delete: [id: string];
 }>();
+
+function updateTags(value: string) {
+  emit('update:tags', [
+    ...new Set(
+      value
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ]);
+}
+
+// Local input state so in-progress typing survives re-renders; syncs from prop
+// when tags change externally.
+const tagInput = ref(props.tags.join(', '));
+watch(
+  () => props.tags,
+  (tags) => {
+    tagInput.value = tags.join(', ');
+  },
+);
 
 const router = useRouter();
 </script>
@@ -60,6 +86,29 @@ const router = useRouter();
       </button>
     </div>
 
+    <!-- Status / tag filters -->
+    <div class="border-b border-navy-800 px-3 py-2">
+      <div class="flex gap-1">
+        <button
+          v-for="value in ['active', 'archived', 'all'] as const"
+          :key="value"
+          :data-status="value"
+          class="rounded px-2 py-0.5 text-[10px] capitalize"
+          :class="status === value ? 'bg-cyan-800 text-cyan-200' : 'text-slate-500'"
+          @click="emit('update:status', value)"
+        >
+          {{ value }}
+        </button>
+      </div>
+      <input
+        v-model="tagInput"
+        data-tag-filter
+        placeholder="Tags: alpha, beta"
+        class="mt-2 w-full rounded border border-navy-700 bg-navy-950 px-2 py-1 text-[10px] text-slate-300"
+        @change="updateTags(tagInput)"
+      />
+    </div>
+
     <!-- Conversation list -->
     <div class="flex-1 overflow-y-auto">
       <div
@@ -99,8 +148,11 @@ const router = useRouter();
           </svg>
         </button>
 
-        <div class="text-sm text-slate-200 truncate pr-8">
-          {{ conv.participants.filter((p) => p !== myParticipantId).join(', ') || conv.id }}
+        <div data-conversation-title class="text-sm text-slate-200 truncate pr-8">
+          {{
+            conv.title ??
+            (conv.participants.filter((p) => p !== myParticipantId).join(', ') || conv.id)
+          }}
         </div>
         <div class="text-xs text-slate-600 mt-0.5 font-mono truncate">
           {{ conv.id }}

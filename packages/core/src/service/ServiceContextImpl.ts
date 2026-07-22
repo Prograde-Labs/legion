@@ -5,7 +5,12 @@ import type { ConversationStore } from '../conversation/ConversationStore.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import type { Storage } from '../storage/Storage.js';
-import type { MessageRouterPort, ToolContext, ToolRegistryLike } from '../tools/Tool.js';
+import type {
+  MessageRouterPort,
+  MiddlewareConfigurationValidator,
+  ToolContext,
+  ToolRegistryLike,
+} from '../tools/Tool.js';
 import type { ServiceManager } from './ServiceManager.js';
 import type { CommunicateResult, ServiceContext } from './LegionService.js';
 
@@ -25,6 +30,7 @@ export interface ServiceContextDeps {
   workspaceRoot: string;
   authEngine: AuthEngine;
   pendingApprovalRegistry: PendingApprovalRegistry;
+  middlewareConfigurationValidator: MiddlewareConfigurationValidator;
   messageRouter: MessageRouterPort;
   stopped: AbortSignal;
   serviceManager: ServiceManager | undefined;
@@ -130,6 +136,7 @@ export class ServiceContextImpl implements ServiceContext {
       workspaceRoot,
       authEngine,
       pendingApprovalRegistry,
+      middlewareConfigurationValidator,
       messageRouter,
       serviceManager,
       toolRegistry,
@@ -148,6 +155,7 @@ export class ServiceContextImpl implements ServiceContext {
       messageRouter,
       authEngine,
       pendingApprovalRegistry,
+      middlewareValidator: middlewareConfigurationValidator,
       serviceManager,
     };
   }

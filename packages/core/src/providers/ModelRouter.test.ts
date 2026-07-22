@@ -211,4 +211,25 @@ describe('ModelRouter', () => {
 
     expect(result).toBeNull();
   });
+
+  it('returns metadata for the model from the selected provider', async () => {
+    const selectedProvider = provider([{ id: 'model-a', contextWindow: 32000 }]);
+    const result = await router(
+      new StubStore([config('primary')], new Map([['primary', selectedProvider]])),
+      {},
+      { models: { 'model-a': ['primary'] } },
+    ).getModelMetadata('model-a');
+
+    expect(result).toEqual({ id: 'model-a', contextWindow: 32000 });
+  });
+
+  it('returns undefined when selected provider has no matching metadata', async () => {
+    const result = await router(
+      new StubStore([config('primary')], new Map([['primary', provider([])]])),
+      {},
+      { models: { missing: ['primary'] } },
+    ).getModelMetadata('missing');
+
+    expect(result).toBeUndefined();
+  });
 });

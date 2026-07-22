@@ -5,6 +5,9 @@ import type {
   WorkspaceConfig,
   StreamChunk,
   LLMChunk,
+  ConversationOrigin,
+  MiddlewareInstanceConfig,
+  MiddlewareCheckpoint,
 } from '@legion/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
@@ -12,13 +15,22 @@ import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
-import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
+import type {
+  AutomationCompactionSeed,
+  PendingApproval,
+  PendingApprovalRegistry,
+} from '../auth/PendingApprovalRegistry.js';
 
 export interface MessageRouterResult {
   conversationId: string;
   response?: string;
   status: 'success' | 'error' | 'dispatched' | 'pending_approval';
   error?: string;
+  partial?: boolean;
+  storedMessageId?: string;
+  approvalId?: string;
+  checkpointId?: string;
+  pendingParticipantId?: string;
   approvalRequests?: PendingApproval[];
 }
 
@@ -30,6 +42,7 @@ export interface MessageRouterPort {
     message: string;
     conversationId?: string;
     replyTo?: string;
+    origin?: ConversationOrigin;
     context: ToolContext;
   }): Promise<MessageRouterResult>;
 
@@ -42,6 +55,9 @@ export interface MessageRouterPort {
     participantId: string,
     context: ToolContext,
   ): Promise<MessageRouterResult>;
+
+  /** Resume durable middleware approval continuation without replaying runtime input. */
+  resumeApproval(approvalId: string, context: ToolContext): Promise<MessageRouterResult>;
 
   /**
    * Trigger a participant response from the current active branch without
@@ -59,8 +75,13 @@ export interface MessageRouterPort {
     message: string;
     conversationId?: string;
     replyTo?: string;
+    origin?: ConversationOrigin;
     context: ToolContext;
   }): AsyncGenerator<LLMChunk, MessageRouterResult>;
+}
+
+export interface MiddlewareConfigurationValidator {
+  validate(instances: readonly MiddlewareInstanceConfig[]): Promise<void>;
 }
 
 /**
@@ -81,10 +102,16 @@ export interface ToolContext {
   callingParticipantId?: string;
   /** The LLM tool-call id currently being executed, for parent linking in delegation. */
   toolCallId?: string;
+  /** Durable parent checkpoint while a middleware-owned tool executes. */
+  middlewareCheckpoint?: MiddlewareCheckpoint;
+  /** JSON-safe continuation seed consumed atomically when helper middleware requests approval. */
+  approvalContinuationSeed?: AutomationCompactionSeed;
+  pendingApprovalRegistry?: PendingApprovalRegistry;
   credentialStore?: CredentialStore;
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;
   conversationStore?: ConversationStore;
+  middlewareValidator?: MiddlewareConfigurationValidator;
   /** AbortSignal set by transport when a streaming call is cancelled. */
   signal?: AbortSignal;
   /** Narrow cancellation capability — only for the cancel_stream tool. */

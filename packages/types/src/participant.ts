@@ -1,5 +1,6 @@
 import type { ToolPolicy, ApprovalAuthority } from './tool.js';
 import type { ModelConfig } from './config.js';
+import type { MiddlewareInstanceConfig } from './middleware.js';
 
 export type ParticipantType = 'agent' | 'service' | 'user' | 'mock';
 export type ParticipantStatus = 'active' | 'retired';
@@ -19,6 +20,8 @@ export interface BaseParticipant {
   identities?: ConnectorIdentity[];
   operator?: boolean;
   protected?: boolean;
+  middleware?: MiddlewareInstanceConfig[];
+  middlewareRevision?: number;
 }
 
 export interface AgentConfig extends BaseParticipant {

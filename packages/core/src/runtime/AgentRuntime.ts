@@ -3,10 +3,11 @@ import type {
   LLMChunk,
   MessageData,
   MessageUsage,
+  MiddlewareActionResult,
   ToolCallData,
   ToolCallResult,
 } from '@legion/types';
-import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
+import type { AgentProviderResume, Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type {
   Provider,
@@ -19,6 +20,7 @@ import type {
 import type { UsageCalculator } from '../providers/UsageCalculator.js';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
+import { snapshotMiddlewareActions } from '../auth/PendingApprovalRegistry.js';
 
 const DEFAULT_MAX_ITERATIONS = 20;
 
@@ -148,6 +150,47 @@ export class AgentRuntime implements Runtime {
     return next.value;
   }
 
+  async resumeFromMiddleware(
+    resume: AgentProviderResume,
+    context: RuntimeContext,
+  ): Promise<RuntimeResult> {
+    try {
+      await context.conversation.reload();
+      if (
+        resume.kind !== 'agent_provider' ||
+        resume.participantId !== this.participantId ||
+        context.participant.id !== this.participantId ||
+        !Number.isInteger(resume.iteration) ||
+        resume.iteration < 0 ||
+        typeof resume.preparedPrompt !== 'string' ||
+        !Number.isInteger(resume.actionCursor) ||
+        resume.actionCursor < 0 ||
+        !Array.isArray(resume.actions) ||
+        resume.actionCursor > resume.actions.length
+      ) {
+        return { kind: 'middleware_abort', error: 'Invalid middleware provider resume' };
+      }
+      const incoming = context.conversation.data.messages[resume.incomingMessageId];
+      if (!incoming || incoming.recipientId !== this.participantId) {
+        return { kind: 'middleware_abort', error: 'Invalid middleware provider resume' };
+      }
+      const actions = snapshotMiddlewareActions(resume.actions, '$.runtimeResume.actions').slice(
+        0,
+        resume.actionCursor,
+      );
+      const gen = this.runLoop(incoming, context, {
+        iteration: resume.iteration,
+        preparedPrompt: resume.preparedPrompt,
+        actions,
+      });
+      let next = await gen.next();
+      while (!next.done) next = await gen.next();
+      return next.value;
+    } catch {
+      return { kind: 'middleware_abort', error: 'Invalid middleware provider resume' };
+    }
+  }
+
   async *handleStream(
     _incoming: MessageData,
     context: RuntimeContext,
@@ -158,7 +201,20 @@ export class AgentRuntime implements Runtime {
   private async *runLoop(
     _incoming: MessageData,
     context: RuntimeContext,
+    start: {
+      iteration?: number;
+      preparedPrompt?: string;
+      actions?: MiddlewareActionResult[];
+    } = {},
   ): AsyncGenerator<LLMChunk, RuntimeResult> {
+    let actions: MiddlewareActionResult[];
+    try {
+      actions = snapshotMiddlewareActions(
+        start.actions === undefined ? (context.middlewareActions ?? []) : start.actions,
+      );
+    } catch {
+      return { kind: 'middleware_abort', error: 'Invalid middleware action ledger' };
+    }
     const participant = context.collective.getOrThrow(this.participantId);
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
@@ -171,16 +227,22 @@ export class AgentRuntime implements Runtime {
       providerId = resolved?.providerId;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return {
-        kind: 'response',
-        content: `[AgentRuntime error: ${msg}]`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[AgentRuntime error: ${msg}]`,
+        },
+        actions,
+      );
     }
     if (!provider) {
-      return {
-        kind: 'response',
-        content: `[AgentRuntime error: no provider available for model '${agent.model.model}']`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[AgentRuntime error: no provider available for model '${agent.model.model}']`,
+        },
+        actions,
+      );
     }
 
     // -------------------------------------------------------------------------
@@ -188,6 +250,7 @@ export class AgentRuntime implements Runtime {
     // pending_approval tool results, this is a re-trigger from approval_response.
     // Process resolved decisions; return pending_approval if any remain outstanding.
     // -------------------------------------------------------------------------
+    await context.conversation.reload();
     const chain = context.conversation.activeChain;
     const lastAssistantMsg = [...chain]
       .reverse()
@@ -200,7 +263,10 @@ export class AgentRuntime implements Runtime {
     if (lastAssistantMsg) {
       const stillPending = await this.processResumedApprovals(lastAssistantMsg, context);
       if (stillPending !== null) {
-        return { kind: 'pending_approval', approvalRequests: stillPending };
+        return this.withActions(
+          { kind: 'pending_approval', approvalRequests: stillPending },
+          actions,
+        );
       }
       // All resolved — fall through; buildProviderMessages will read the updated chain.
     }
@@ -209,11 +275,6 @@ export class AgentRuntime implements Runtime {
     // LLM agentic loop
     // -------------------------------------------------------------------------
     const maxIterations = (agent.runtimeConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS) as number;
-
-    const messages: ProviderMessage[] = buildProviderMessages(
-      context.conversation.activeChain,
-      agent.systemPrompt,
-    );
 
     // Present only tools in the participant's tools map to the LLM. Auth check runs at execution time.
     const providerTools: ProviderTool[] = context.toolRegistry
@@ -226,7 +287,46 @@ export class AgentRuntime implements Runtime {
       }));
 
     try {
-      for (let i = 0; i < maxIterations; i++) {
+      const firstIteration = start.iteration ?? 0;
+      for (let i = firstIteration; i < maxIterations; i++) {
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
+        await context.conversation.reload();
+        let prompt = agent.systemPrompt;
+        if (i === firstIteration && start.preparedPrompt !== undefined) {
+          prompt = start.preparedPrompt;
+        } else if (context.buildSystemPrompt) {
+          const promptResult = await context.buildSystemPrompt({
+            basePrompt: agent.systemPrompt,
+            iteration: i,
+            incomingMessageId: _incoming.id,
+            actions,
+          });
+          if (promptResult.kind === 'pending') {
+            return this.withActions(
+              {
+                kind: 'middleware_pending',
+                approvalId: promptResult.approvalId,
+                checkpointId: promptResult.checkpointId,
+              },
+              actions,
+            );
+          }
+          if (promptResult.kind === 'abort') {
+            return this.withActions(
+              { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
+              actions,
+            );
+          }
+          prompt = promptResult.prompt;
+          actions = snapshotMiddlewareActions(promptResult.actions, '$.buildSystemPrompt.actions');
+        }
+
+        const messages = buildProviderMessages(context.conversation.activeChain, prompt);
         context.eventBus.emit('iteration', {
           conversationId: context.conversationId,
           participantId: this.participantId,
@@ -234,23 +334,46 @@ export class AgentRuntime implements Runtime {
         });
 
         yield { type: 'iteration_start', iteration: i };
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
         const acc = freshAccumulator();
-        for await (const chunk of provider.stream(messages, providerTools, agent.model)) {
+        for await (const chunk of provider.stream(messages, providerTools, agent.model, {
+          signal: context.signal,
+        })) {
+          if (context.signal?.aborted) {
+            return this.withActions(
+              { kind: 'middleware_abort', error: 'Runtime cancelled' },
+              actions,
+            );
+          }
           accumulateChunk(acc, chunk);
           if (chunk.type !== 'done') {
             yield chunk;
           }
         }
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
         const response = accumulatorToResponse(acc);
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
           const usage = await this.computeUsage(providerId, agent, response);
-          return {
-            kind: 'response',
-            content: response.content ?? '',
-            ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-            ...(usage ? { usage } : {}),
-          };
+          return this.withActions(
+            {
+              kind: 'response',
+              content: response.content ?? '',
+              ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+              ...(usage ? { usage } : {}),
+            },
+            actions,
+          );
         }
 
         const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
@@ -263,6 +386,12 @@ export class AgentRuntime implements Runtime {
         const pendingApprovals: PendingApproval[] = [];
 
         for (const tc of response.toolCalls) {
+          if (context.signal?.aborted) {
+            return this.withActions(
+              { kind: 'middleware_abort', error: 'Runtime cancelled' },
+              actions,
+            );
+          }
           const authResult = context.authEngine.authorize(
             this.participantId,
             tc.name,
@@ -327,6 +456,12 @@ export class AgentRuntime implements Runtime {
         }
 
         const usage = await this.computeUsage(providerId, agent, response);
+        if (context.signal?.aborted) {
+          return this.withActions(
+            { kind: 'middleware_abort', error: 'Runtime cancelled' },
+            actions,
+          );
+        }
         // Persist the tool-call turn to the conversation.
         await context.conversation.append({
           senderId: this.participantId,
@@ -341,36 +476,39 @@ export class AgentRuntime implements Runtime {
 
         // If any approvals are pending, return early.
         if (pendingApprovals.length > 0) {
-          return { kind: 'pending_approval', approvalRequests: pendingApprovals };
-        }
-
-        // All tools executed — advance the local message history.
-        messages.push({
-          role: 'assistant',
-          content: response.content ?? null,
-          toolCalls: response.toolCalls,
-        });
-        for (const tr of toolResults) {
-          messages.push({
-            role: 'tool',
-            content: JSON.stringify(tr.result),
-            toolCallId: tr.id,
-            name: tr.name,
-          });
+          return this.withActions(
+            { kind: 'pending_approval', approvalRequests: pendingApprovals },
+            actions,
+          );
         }
       }
 
-      return {
-        kind: 'response',
-        content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[Agent reached maximum iteration limit of ${maxIterations}]`,
+        },
+        actions,
+      );
     } catch (err) {
+      if (context.signal?.aborted) {
+        return this.withActions({ kind: 'middleware_abort', error: 'Runtime cancelled' }, actions);
+      }
       const msg = err instanceof Error ? err.message : String(err);
-      return {
-        kind: 'response',
-        content: `[AgentRuntime error: ${msg}]`,
-      };
+      return this.withActions(
+        {
+          kind: 'response',
+          content: `[AgentRuntime error: ${msg}]`,
+        },
+        actions,
+      );
     }
+  }
+
+  private withActions(result: RuntimeResult, actions: MiddlewareActionResult[]): RuntimeResult {
+    return actions.length === 0
+      ? result
+      : { ...result, actions: snapshotMiddlewareActions(actions, '$.runtimeActions') };
   }
 
   /**
@@ -439,6 +577,7 @@ export class AgentRuntime implements Runtime {
         ...context,
         toolCallId: tr.id,
       });
+      if (context.signal?.aborted) return stillPending;
       updatedResults[i] = { ...tr, result };
       context.eventBus.emit('approval:resolved', {
         conversationId: context.conversationId,
@@ -451,6 +590,8 @@ export class AgentRuntime implements Runtime {
     if (stillPending.length > 0) {
       return stillPending;
     }
+
+    if (context.signal?.aborted) return stillPending;
 
     // All resolved — update the conversation message in place.
     await (context.conversation as ConversationThread).updateToolResults(

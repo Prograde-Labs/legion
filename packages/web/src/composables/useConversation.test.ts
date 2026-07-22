@@ -237,4 +237,44 @@ describe('useConversation', () => {
     expect(streamingReasoning.value).toBe('');
     expect(streamingText.value).toBe('');
   });
+
+  it('replaces provisional text and reasoning with an authoritative snapshot', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { streamingText, streamingReasoning } = useConversation(null);
+
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'old reasoning' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'old answer' });
+    communicateOnChunk?.({
+      type: 'message_snapshot',
+      content: 'rewritten answer',
+      reasoning: 'rewritten reasoning',
+    });
+
+    expect(streamingText.value).toBe('rewritten answer');
+    expect(streamingReasoning.value).toBe('rewritten reasoning');
+  });
+
+  it('uses an omitted snapshot reasoning field to retract provisional reasoning', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { streamingText, streamingReasoning } = useConversation(null);
+
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'remove me' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'remove me too' });
+    communicateOnChunk?.({ type: 'message_snapshot', content: '' });
+
+    expect(streamingText.value).toBe('');
+    expect(streamingReasoning.value).toBe('');
+  });
+
+  it('appends deltas to the latest authoritative snapshot', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { streamingText, streamingReasoning } = useConversation(null);
+
+    communicateOnChunk?.({ type: 'message_snapshot', content: 'base', reasoning: 'why' });
+    communicateOnChunk?.({ type: 'text_delta', delta: ' plus' });
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: ' now' });
+
+    expect(streamingText.value).toBe('base plus');
+    expect(streamingReasoning.value).toBe('why now');
+  });
 });

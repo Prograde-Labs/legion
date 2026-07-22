@@ -128,6 +128,9 @@ export function useConversation(conversationId: string | null) {
       if (chunk.type === 'iteration_start') {
         streamingText.value = '';
         streamingReasoning.value = '';
+      } else if (chunk.type === 'message_snapshot') {
+        streamingText.value = chunk.content;
+        streamingReasoning.value = chunk.reasoning ?? '';
       } else if (chunk.type === 'reasoning_delta') {
         streamingReasoning.value += chunk.delta;
       } else if (chunk.type === 'text_delta') {

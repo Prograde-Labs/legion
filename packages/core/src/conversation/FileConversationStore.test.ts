@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { FileStorage } from '../storage/FileStorage.js';
+import { EventBus } from '../events/EventBus.js';
 import { FileConversationStore } from './FileConversationStore.js';
 
 describe('FileConversationStore', () => {
@@ -128,6 +129,194 @@ describe('FileConversationStore', () => {
     expect(loaded?.messages['m1'].prunedBy).toBe('op');
   });
 
+  it('serializes mutations across stores sharing storage', async () => {
+    const storage = new MemoryStorage();
+    const first = new FileConversationStore(storage);
+    const second = new FileConversationStore(storage);
+    const conversation = await first.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    await Promise.all([
+      first.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'first'],
+      })),
+      second.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'second'],
+      })),
+    ]);
+
+    expect((await first.load(conversation.id))?.tags).toEqual(['first', 'second']);
+  });
+
+  it('serializes mutations across MemoryStorage scope aliases', async () => {
+    const storage = new MemoryStorage();
+    const first = new FileConversationStore(storage.scope('workspace'));
+    const second = new FileConversationStore(storage.scope('workspace'));
+    const conversation = await first.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    await Promise.all([
+      first.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'first'],
+      })),
+      second.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'second'],
+      })),
+    ]);
+
+    expect((await first.load(conversation.id))?.tags).toEqual(['first', 'second']);
+  });
+
+  it('serializes mutations across FileStorage instances sharing a root', async () => {
+    const first = new FileConversationStore(new FileStorage(dir));
+    const second = new FileConversationStore(new FileStorage(dir));
+    const conversation = await first.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    await Promise.all([
+      first.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'first'],
+      })),
+      second.mutate(conversation.id, (current) => ({
+        ...current,
+        tags: [...(current.tags ?? []), 'second'],
+      })),
+    ]);
+
+    expect((await first.load(conversation.id))?.tags).toEqual(['first', 'second']);
+  });
+
+  it('rejects a stale active branch guard before writing', async () => {
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: 'new-head',
+      messages: {},
+      title: 'unchanged',
+    });
+
+    await expect(
+      store.mutate(conversation.id, (current) => ({ ...current, title: 'changed' }), {
+        expectedActiveBranchHead: 'old-head',
+      }),
+    ).rejects.toThrow();
+    expect((await store.load(conversation.id))?.title).toBe('unchanged');
+  });
+
+  it('checks mutation abort after callback and before persistence', async () => {
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'unchanged',
+    });
+    const controller = new AbortController();
+
+    await expect(
+      store.mutate(
+        conversation.id,
+        (current) => {
+          controller.abort();
+          return { ...current, title: 'must-not-commit' };
+        },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow(/abort/i);
+    expect((await store.load(conversation.id))?.title).toBe('unchanged');
+  });
+
+  it('rejects origin mutations', async () => {
+    const conversation = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      origin: { kind: 'participant', participantId: 'operator' },
+    });
+
+    await expect(
+      store.mutate(conversation.id, (current) => ({
+        ...current,
+        origin: { kind: 'participant', participantId: 'other' },
+      })),
+    ).rejects.toThrow('Conversation origin is immutable');
+  });
+
+  it('rejects id mutations without writing another conversation key', async () => {
+    const eventBus = new EventBus();
+    const invariantStore = new FileConversationStore(new MemoryStorage(), eventBus);
+    const updatedEvents: unknown[] = [];
+    eventBus.on('conversation:updated', (event) => updatedEvents.push(event));
+    const conversation = await invariantStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    await expect(
+      invariantStore.mutate(conversation.id, (current) => ({ ...current, id: 'conv-other' })),
+    ).rejects.toThrow('Conversation id is immutable');
+    expect(await invariantStore.exists(conversation.id)).toBe(true);
+    expect(await invariantStore.exists('conv-other')).toBe(false);
+    expect(updatedEvents).toEqual([]);
+  });
+
+  it('emits normalized metadata for creation and metadata updates', async () => {
+    const eventBus = new EventBus();
+    const eventStore = new FileConversationStore(new MemoryStorage(), eventBus);
+    const createdEvents: unknown[] = [];
+    const updatedEvents: unknown[] = [];
+    eventBus.on('conversation:created', (event) => createdEvents.push(event));
+    eventBus.on('conversation:updated', (event) => updatedEvents.push(event));
+
+    const conversation = await eventStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      title: 'Original',
+    });
+    await eventStore.mutate(conversation.id, (current) => ({
+      ...current,
+      title: 'Updated',
+      tags: ['important'],
+    }));
+    const beforeNoop = await eventStore.load(conversation.id);
+    const noop = await eventStore.mutate(conversation.id, (current) => current);
+
+    expect(createdEvents).toEqual([
+      {
+        conversation: expect.objectContaining({
+          id: conversation.id,
+          title: 'Original',
+          status: 'active',
+          tags: [],
+          participants: [],
+        }),
+      },
+    ]);
+    expect(updatedEvents).toEqual([
+      {
+        conversationId: conversation.id,
+        before: expect.objectContaining({ title: 'Original', status: 'active', tags: [] }),
+        after: expect.objectContaining({ title: 'Updated', status: 'active', tags: ['important'] }),
+      },
+    ]);
+    expect(noop.changed).toBe(false);
+    expect((await eventStore.load(conversation.id))?.updatedAt).toBe(beforeNoop?.updatedAt);
+  });
+
   it('lists conversation metadata', async () => {
     const a = await store.create({
       schemaVersion: '2.0',
@@ -139,6 +328,52 @@ describe('FileConversationStore', () => {
     const metas = await store.list();
     expect(metas.length).toBe(2);
     expect(metas.find((m) => m.id === a.id)?.title).toBe('A');
+  });
+
+  it('normalizes legacy conversation metadata when listing', async () => {
+    const storage = new MemoryStorage();
+    const legacyStore = new FileConversationStore(storage);
+    await storage.writeJson('conversations/conv-legacy.json', {
+      id: 'conv-legacy',
+      schemaVersion: '2.0',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      title: 'Legacy',
+      activeBranchHead: '',
+      messages: {},
+    });
+
+    expect(await legacyStore.list()).toEqual([
+      expect.objectContaining({
+        title: 'Legacy',
+        sharedTitle: 'Legacy',
+        status: 'active',
+        tags: [],
+      }),
+    ]);
+  });
+
+  it('lists active conversations by default and supports status and every-tag filters', async () => {
+    const active = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      tags: ['one', 'two'],
+    });
+    const archived = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      status: 'archived',
+      tags: ['one'],
+    });
+
+    expect((await store.list()).map(({ id }) => id)).toEqual([active.id]);
+    expect((await store.list({ status: 'archived' })).map(({ id }) => id)).toEqual([archived.id]);
+    expect((await store.list({ status: 'all' })).map(({ id }) => id).sort()).toEqual(
+      [active.id, archived.id].sort(),
+    );
+    expect((await store.list({ tags: ['one', 'two'] })).map(({ id }) => id)).toEqual([active.id]);
   });
 
   it('list() includes participants from both senderId and recipientId', async () => {
@@ -166,18 +401,23 @@ describe('FileConversationStore', () => {
   });
 
   it('create persists parentConversationId and parentToolCallId', async () => {
+    const parent = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
     const conv = await store.create({
       schemaVersion: '2.0',
       activeBranchHead: '',
       messages: {},
-      parentConversationId: 'parent-conv',
+      parentConversationId: parent.id,
       parentToolCallId: 'tc-1',
     });
-    expect(conv.parentConversationId).toBe('parent-conv');
+    expect(conv.parentConversationId).toBe(parent.id);
     expect(conv.parentToolCallId).toBe('tc-1');
 
     const loaded = await store.load(conv.id);
-    expect(loaded?.parentConversationId).toBe('parent-conv');
+    expect(loaded?.parentConversationId).toBe(parent.id);
     expect(loaded?.parentToolCallId).toBe('tc-1');
   });
 
@@ -294,5 +534,49 @@ describe('FileConversationStore', () => {
     const b = await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
     await store.delete(a.id);
     expect(await store.exists(b.id)).toBe(true);
+  });
+
+  it('does not leave an orphan when child creation races parent deletion', async () => {
+    const storage = new MemoryStorage();
+    const raceStore = new FileConversationStore(storage);
+    const parent = await raceStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    const originalDelete = storage.delete.bind(storage);
+    let deletionReached!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      deletionReached = resolve;
+    });
+    let releaseDelete!: () => void;
+    const deleteGate = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    storage.delete = async (key) => {
+      if (key === `conversations/${parent.id}.json`) {
+        deletionReached();
+        await deleteGate;
+      }
+      await originalDelete(key);
+    };
+
+    const deletion = raceStore.delete(parent.id);
+    await reached;
+    const childCreation = raceStore.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+      parentConversationId: parent.id,
+      parentToolCallId: 'tc-race',
+    });
+    await Promise.resolve();
+    releaseDelete();
+    const [childResult, deletionResult] = await Promise.allSettled([childCreation, deletion]);
+
+    expect(deletionResult.status).toBe('fulfilled');
+    expect(childResult.status).toBe('rejected');
+    expect(await raceStore.exists(parent.id)).toBe(false);
+    expect(await raceStore.listByParent(parent.id)).toEqual([]);
   });
 });

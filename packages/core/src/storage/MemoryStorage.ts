@@ -1,4 +1,7 @@
 import type { Storage } from './Storage.js';
+import { withKeyedLock } from './keyed-lock.js';
+
+const backingLocks = new WeakMap<Map<string, string>, Map<string, Promise<void>>>();
 
 function joinKey(prefix: string, key: string): string {
   if (!prefix) return key;
@@ -54,6 +57,19 @@ export class MemoryStorage implements Storage {
 
   async writeJson(key: string, value: unknown): Promise<void> {
     await this.write(key, JSON.stringify(value, null, 2));
+  }
+
+  async withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    let locks = backingLocks.get(this.map);
+    if (!locks) {
+      locks = new Map();
+      backingLocks.set(this.map, locks);
+    }
+    try {
+      return await withKeyedLock(locks, this.full(key), operation);
+    } finally {
+      if (locks.size === 0) backingLocks.delete(this.map);
+    }
   }
 
   scope(prefix: string): Storage {

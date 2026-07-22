@@ -28,6 +28,8 @@ describe('createDefaultParticipants', () => {
     }
     expect(operator.tools['set_tool_policy']).toBe('auto');
     expect(operator.tools['remove_tool_policy']).toBe('auto');
+    expect(operator.tools['modify_conversation']).toBe('auto');
+    expect(operator.tools['set_participant_middleware']).toBe('auto');
     expect(operator.tools['save_provider']).toBe('auto');
     expect(operator.tools['delete_provider']).toBe('auto');
     expect(operator.tools['list_models']).toBe('auto');

@@ -32,6 +32,124 @@ describe('LegionProcess config and runtime tools', () => {
     await rm(homeRoot, { recursive: true, force: true });
   });
 
+  async function writeMiddlewareWorkspace(): Promise<void> {
+    await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, 'audit.mjs'),
+      `export default {
+  type: 'audit',
+  displayName: 'Audit',
+  defaultFailureMode: 'open',
+  configSchema: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } },
+  hooks: {},
+};`,
+    );
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.json'),
+      JSON.stringify({
+        version: '2',
+        server: { port: 0, host: '127.0.0.1' },
+        middlewareModules: [{ id: 'audit', module: 'audit.mjs' }],
+      }),
+    );
+  }
+
+  async function restartWithMiddleware(middleware: unknown): Promise<void> {
+    process_ = await LegionProcess.start(workspaceRoot);
+    await process_.collective.update('operator', { middleware: middleware as never });
+    await process_.stop();
+    process_ = undefined;
+  }
+
+  it('loads workspace middleware modules and exposes safe diagnostics', async () => {
+    await writeMiddlewareWorkspace();
+
+    process_ = await LegionProcess.start(workspaceRoot);
+
+    expect(process_.middlewareRegistry.get('audit')).toMatchObject({ type: 'audit' });
+    expect(process_.middlewareDiagnostics).toEqual([
+      expect.objectContaining({ type: 'audit', status: 'loaded', configurationErrors: [] }),
+    ]);
+    expect(process_.collective.getOrThrow('operator').tools.list_middleware).toBe('auto');
+  });
+
+  it('discovers project skills and registers built-in middleware tools', async () => {
+    await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.json'),
+      JSON.stringify({ version: '2', server: { port: 0, host: '127.0.0.1' } }),
+    );
+    const skillDirectory = join(workspaceRoot, '.agents', 'skills', 'workspace-review');
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(
+      join(skillDirectory, 'SKILL.md'),
+      '---\nname: workspace-review\ndescription: Review this workspace\n---\nInspect diffs.',
+    );
+
+    process_ = await LegionProcess.start(workspaceRoot);
+
+    expect(process_.middlewareRegistry.get('builtin:skills')?.type).toBe('builtin:skills');
+    expect(process_.middlewareRegistry.get('builtin:auto-compaction')?.type).toBe(
+      'builtin:auto-compaction',
+    );
+    expect(process_.middlewareRegistry.get('builtin:conversation-naming')?.type).toBe(
+      'builtin:conversation-naming',
+    );
+    expect(process_.toolRegistry.listAll()).toEqual(
+      expect.arrayContaining([
+        'list_skills',
+        'load_skills',
+        'compact_conversation',
+        'generate_conversation_title',
+      ]),
+    );
+    expect(process_.skillRegistry.get('workspace-review')?.scope).toBe('project');
+    expect(
+      process_.collective.list().find((participant) => participant.operator)?.tools['list_skills'],
+    ).toBe('auto');
+  });
+
+  it('rejects enabled middleware with an unavailable type', async () => {
+    await writeMiddlewareWorkspace();
+    await restartWithMiddleware([{ id: 'missing-1', type: 'missing', config: {} }]);
+
+    await expect(LegionProcess.start(workspaceRoot)).rejects.toThrow(
+      "Invalid middleware 'missing-1' on 'operator': Middleware type unavailable: missing",
+    );
+  });
+
+  it('starts with diagnostics for disabled invalid middleware configuration', async () => {
+    await writeMiddlewareWorkspace();
+    await restartWithMiddleware([{ id: 'audit-1', type: 'audit', enabled: false, config: {} }]);
+
+    process_ = await LegionProcess.start(workspaceRoot);
+
+    expect(process_.middlewareDiagnostics[0].configurationErrors).toEqual([
+      expect.objectContaining({ participantId: 'operator', instanceId: 'audit-1' }),
+    ]);
+  });
+
+  it('rejects enabled middleware with invalid configuration', async () => {
+    await writeMiddlewareWorkspace();
+    await restartWithMiddleware([{ id: 'audit-1', type: 'audit', config: {} }]);
+
+    await expect(LegionProcess.start(workspaceRoot)).rejects.toThrow(
+      "Invalid middleware 'audit-1' on 'operator': / must have required property 'enabled'",
+    );
+  });
+
+  it('rejects duplicate middleware instance ids at startup', async () => {
+    await writeMiddlewareWorkspace();
+    await restartWithMiddleware([
+      { id: 'audit-1', type: 'audit', config: { enabled: true } },
+      { id: 'audit-1', type: 'audit', config: { enabled: true } },
+    ]);
+
+    await expect(LegionProcess.start(workspaceRoot)).rejects.toThrow(
+      "Invalid middleware 'audit-1' on 'operator': duplicate middleware instance id",
+    );
+  });
+
   it('loads system/local routing, gitignores local config, and saves routing through runtime tools', async () => {
     await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
     await mkdir(join(homeRoot, '.config', 'legion'), { recursive: true });

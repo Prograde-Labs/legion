@@ -1,0 +1,14 @@
+{
+  "status": "active",
+  "id": "compaction-agent",
+  "name": "Compaction Agent",
+  "type": "agent",
+  "tools": {},
+  "systemPrompt": "You summarize conversation segments concisely. Preserve key facts, decisions, current work state, and any open questions so the conversation can continue seamlessly without the original messages. Return only the summary text, no preamble.",
+  "model": {
+    "model": "qwen/qwen3.6-35b-a3b"
+  },
+  "maxIterations": 5,
+  "middleware": [],
+  "middlewareRevision": 1
+}

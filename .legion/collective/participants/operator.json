@@ -40,7 +40,11 @@
     "watch_participants": "auto",
     "watch_activity": "auto",
     "watch_conversation": "auto",
-    "watch_process": "auto"
+    "watch_process": "auto",
+    "list_middleware": "auto",
+    "list_skills": "auto",
+    "set_participant_middleware": "auto",
+    "modify_conversation": "auto"
   },
   "operator": true,
   "protected": true,

@@ -13,6 +13,8 @@ export interface Storage {
   readJson<T>(key: string): Promise<T | null>;
   /** JSON.stringify (pretty) and write. */
   writeJson(key: string, value: unknown): Promise<void>;
+  /** Serialize operations addressing the same logical backing key. */
+  withLock<T>(key: string, operation: () => Promise<T>): Promise<T>;
   /** Return a Storage scoped under the given prefix. */
   scope(prefix: string): Storage;
 }

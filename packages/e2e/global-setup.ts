@@ -1,6 +1,6 @@
 import type { FullConfig } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,21 @@ export default async function globalSetup(_config: FullConfig): Promise<() => Pr
   let mockProvider: MockProvider | undefined;
 
   try {
+    // Provision deterministic skill fixture for middleware E2E coverage
+    const skillDir = join(workspaceDir, '.agents', 'skills', 'e2e-proof-skill');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: e2e-proof-skill
+description: Deterministic skill used by middleware end-to-end coverage.
+---
+
+When loaded, preserve this exact marker: E2E_SKILL_INSTRUCTION_LOADED
+`,
+      'utf8',
+    );
+
     // 2. Start mock LLM provider in-process (port 4001)
     mockProvider = await startMockProvider(4001);
     console.log('[e2e setup] Mock LLM provider listening on :4001');
@@ -74,6 +89,7 @@ export default async function globalSetup(_config: FullConfig): Promise<() => Pr
       serverUrl: `http://127.0.0.1:${SERVER_PORT}`,
       mockProviderUrl: `http://127.0.0.1:4001`,
       password: BOOTSTRAP_PASSWORD,
+      workspaceDir,
     };
     await writeFile(CONN_INFO_FILE, JSON.stringify(connInfo, null, 2));
 

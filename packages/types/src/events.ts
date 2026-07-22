@@ -1,6 +1,23 @@
+import type { ConversationEventMetadata } from './conversation.js';
+import type { FailureMode, MiddlewarePhase } from './middleware.js';
+
 export interface LegionEventMap {
   'process:ready': { workspaceRoot: string };
-  'conversation:created': { conversationId: string };
+  'conversation:created': { conversation: ConversationEventMetadata };
+  'conversation:updated': {
+    conversationId: string;
+    before: ConversationEventMetadata;
+    after: ConversationEventMetadata;
+  };
+  'middleware:error': {
+    conversationId: string;
+    participantId: string;
+    instanceId: string;
+    middlewareType: string;
+    phase: MiddlewarePhase;
+    failureMode: FailureMode;
+    error: { name: string; message: string };
+  };
   'message:sent': {
     conversationId: string;
     senderId: string;

@@ -46,6 +46,7 @@ export const approvalResponseTool: Tool = {
     const authEngine = context.authEngine as AuthEngine | undefined;
     const pendingRegistry = context.pendingApprovalRegistry as PendingApprovalRegistry | undefined;
     const approvalLog = context.approvalLog as ApprovalLog | undefined;
+    const messageRouter = context.messageRouter;
 
     if (!authEngine || !pendingRegistry) {
       return {
@@ -55,20 +56,30 @@ export const approvalResponseTool: Tool = {
     }
 
     const results: Array<{ approvalId: string; outcome: string }> = [];
-    const toResume = new Map<string, string>(); // conversationId → requesterId
+    const toResume = new Map<string, { conversationId: string; requesterId: string }>();
+    const seen = new Set<string>();
 
     for (const { approvalId, decision, message } of decisions) {
-      const pending = pendingRegistry.get(approvalId);
-      if (!pending) {
+      if (seen.has(approvalId)) {
+        results.push({ approvalId, outcome: 'duplicate' });
+        continue;
+      }
+      seen.add(approvalId);
+      let record = pendingRegistry.getRecord(approvalId);
+      if (!record) {
         results.push({ approvalId, outcome: 'not_found' });
+        continue;
+      }
+      if (record.lifecycle === 'acknowledged') {
+        results.push({ approvalId, outcome: 'already_acknowledged' });
         continue;
       }
 
       const canApprove = authEngine.hasAuthority(
         context.participant.approvalAuthority,
-        pending.requesterId,
-        pending.tool,
-        pending.args,
+        record.requesterId,
+        record.tool,
+        record.args,
       );
       if (!canApprove) {
         results.push({ approvalId, outcome: 'unauthorized' });
@@ -82,34 +93,84 @@ export const approvalResponseTool: Tool = {
         decidedAt: new Date().toISOString(),
       };
 
-      await pendingRegistry.resolve(approvalId, approvalDecision);
+      if (record.decision === undefined) {
+        await pendingRegistry.resolve(approvalId, approvalDecision);
+        approvalLog?.record({
+          requestId: approvalId,
+          conversationId: record.conversationId,
+          requesterId: record.requesterId,
+          tool: record.tool,
+          args: record.args,
+          approved: approvalDecision.approved,
+          decidedByParticipantId: context.participant.id,
+          decidedAt: approvalDecision.decidedAt,
+        });
+        context.eventBus.emit('approval:resolved', {
+          conversationId: record.conversationId,
+          approvalId,
+          approved: approvalDecision.approved,
+          decidedByParticipantId: context.participant.id,
+        });
+        record = pendingRegistry.getRecord(approvalId)!;
+      } else if (
+        record.decision.approved !== (decision === 'approve') ||
+        record.decision.message !== message
+      ) {
+        results.push({ approvalId, outcome: 'conflict' });
+        continue;
+      }
 
-      approvalLog?.record({
-        requestId: approvalId,
-        conversationId: pending.conversationId,
-        requesterId: pending.requesterId,
-        tool: pending.tool,
-        args: pending.args,
-        approved: approvalDecision.approved,
-        decidedByParticipantId: context.participant.id,
-        decidedAt: approvalDecision.decidedAt,
-      });
+      if (record.continuation) {
+        if (!messageRouter) {
+          results.push({ approvalId, outcome: 'resume_pending' });
+          continue;
+        }
+        try {
+          await messageRouter.resumeApproval(approvalId, context);
+        } catch {
+          // Durable continuation stays retryable; approval response stays idempotent.
+        }
+        results.push({
+          approvalId,
+          outcome:
+            pendingRegistry.getRecord(approvalId)?.lifecycle === 'acknowledged'
+              ? 'acknowledged'
+              : 'resume_pending',
+        });
+        continue;
+      }
 
-      context.eventBus.emit('approval:resolved', {
-        conversationId: pending.conversationId,
-        approvalId,
-        approved: approvalDecision.approved,
-        decidedByParticipantId: context.participant.id,
-      });
-
+      if (!messageRouter) {
+        results.push({ approvalId, outcome: 'resume_deferred' });
+        continue;
+      }
       results.push({ approvalId, outcome: decision });
-
-      toResume.set(pending.conversationId, pending.requesterId);
+      if (
+        (await pendingRegistry.claimGenericResume(record.conversationId, record.requesterId)) ===
+        'claimed'
+      ) {
+        toResume.set(JSON.stringify([record.conversationId, record.requesterId]), {
+          conversationId: record.conversationId,
+          requesterId: record.requesterId,
+        });
+      }
     }
 
-    if (context.messageRouter) {
-      for (const [conversationId, requesterId] of toResume) {
-        await context.messageRouter.resume(conversationId, requesterId, context);
+    if (!messageRouter) return { status: 'success', data: { results } };
+
+    for (const pending of toResume.values()) {
+      let resumed = false;
+      try {
+        const result = await messageRouter.resume(
+          pending.conversationId,
+          pending.requesterId,
+          context,
+        );
+        resumed = result.status !== 'error';
+      } finally {
+        await (resumed
+          ? pendingRegistry.completeGenericResume(pending.conversationId, pending.requesterId)
+          : pendingRegistry.releaseGenericResume(pending.conversationId, pending.requesterId));
       }
     }
 

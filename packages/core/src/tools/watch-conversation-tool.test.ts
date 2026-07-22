@@ -47,6 +47,8 @@ describe('watch_conversation tool', () => {
       recipientId: 'u1',
       messageId: 'm1',
     });
+    // Delivery is microtask-scheduled so same-turn abort can deterministically win.
+    await new Promise((r) => setTimeout(r, 0));
     controller.abort();
 
     await consumer;

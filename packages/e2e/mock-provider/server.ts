@@ -1,7 +1,15 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 
-type ChatMessage = { role?: string; content?: string | null };
-type ChatRequest = { messages?: ChatMessage[] };
+type ChatMessage = {
+  role?: string;
+  content?: string | null;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id: string; function?: { name?: string; arguments?: string } }>;
+};
+type ChatRequest = {
+  messages?: ChatMessage[];
+  tools?: Array<{ function?: { name?: string } }>;
+};
 
 function isChatRequest(value: unknown): value is ChatRequest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
@@ -17,7 +25,9 @@ function isChatRequest(value: unknown): value is ChatRequest {
     const content = record['content'];
     return (
       (role === undefined || typeof role === 'string') &&
-      (content === undefined || content === null || typeof content === 'string')
+      (content === undefined || content === null || typeof content === 'string') &&
+      (record['tool_call_id'] === undefined || typeof record['tool_call_id'] === 'string') &&
+      (record['tool_calls'] === undefined || Array.isArray(record['tool_calls']))
     );
   });
 }
@@ -96,6 +106,43 @@ const finalReasoningChunks = [
   },
 ];
 
+function textChunks(content: string, promptTokens = 20): unknown[] {
+  return [
+    { choices: [{ delta: { content }, finish_reason: 'stop' }] },
+    { choices: [], usage: { prompt_tokens: promptTokens, completion_tokens: 5 } },
+  ];
+}
+
+function toolChunks(id: string, name: string, args: Record<string, unknown>): unknown[] {
+  return [
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id,
+                type: 'function',
+                function: { name, arguments: JSON.stringify(args) },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+    },
+  ];
+}
+
+function includesText(messages: ChatMessage[], marker: string): boolean {
+  return messages.some((message) => message.content?.includes(marker));
+}
+
+function containsToolResultForCall(messages: ChatMessage[], callId: string): boolean {
+  return messages.some((message) => message.role === 'tool' && message.tool_call_id === callId);
+}
+
 export interface MockProvider {
   server: Server;
   stop: () => Promise<void>;
@@ -157,6 +204,58 @@ export function startMockProvider(port: number): Promise<MockProvider> {
               await writeSse(res, finalReasoningChunks, 300);
               return;
             }
+
+            if (includesText(messages, 'E2E_SKILL_SCENARIO')) {
+              if (!containsToolResultForCall(messages, 'skill-load')) {
+                const systemCatalogPresent = messages.some(
+                  (message) =>
+                    message.role === 'system' && message.content?.includes('e2e-proof-skill'),
+                );
+                await writeSse(
+                  res,
+                  systemCatalogPresent
+                    ? toolChunks('skill-load', 'load_skills', { names: ['e2e-proof-skill'] })
+                    : textChunks('SKILL_CATALOG_MISSING'),
+                );
+              } else {
+                const instructionsPresent = messages.some((message) =>
+                  message.content?.includes('E2E_SKILL_INSTRUCTION_LOADED'),
+                );
+                await writeSse(
+                  res,
+                  textChunks(instructionsPresent ? 'SKILL_LOADED_OK' : 'SKILL_LOAD_MISSING'),
+                );
+              }
+              return;
+            }
+
+            if (includesText(messages, 'E2E_COMPACTION_SUMMARY')) {
+              await writeSse(res, textChunks('E2E_COMPACTED_SUMMARY'));
+              return;
+            }
+            if (includesText(messages, 'E2E_AUTO_COMPACT')) {
+              await writeSse(res, textChunks('AUTO_COMPACTION_RESPONSE', 500));
+              return;
+            }
+
+            if (includesText(messages, 'E2E_SHARED_TITLE')) {
+              await writeSse(res, textChunks('Shared Middleware Title'));
+              return;
+            }
+            if (includesText(messages, 'E2E_PARTICIPANT_TITLE')) {
+              await writeSse(res, textChunks('Participant Middleware Title'));
+              return;
+            }
+            if (includesText(messages, 'E2E_NAMING_PARENT')) {
+              await writeSse(res, textChunks('NAMING_PARENT_RESPONSE'));
+              return;
+            }
+
+            if (includesText(messages, 'E2E_APPROVAL_SCENARIO')) {
+              await writeSse(res, textChunks('APPROVAL_RESUMED_OK'));
+              return;
+            }
+
             await writeSse(res, defaultChunks());
             return;
           }

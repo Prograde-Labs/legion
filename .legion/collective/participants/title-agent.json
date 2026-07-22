@@ -1,0 +1,14 @@
+{
+  "status": "active",
+  "id": "title-agent",
+  "name": "Title Agent",
+  "type": "agent",
+  "tools": {},
+  "systemPrompt": "You generate concise conversation titles. Given a conversation transcript, return only a single-line title (no quotes, no explanation). Keep it under 80 characters. Capture the main topic or outcome.",
+  "model": {
+    "model": "qwen/qwen3.6-35b-a3b"
+  },
+  "maxIterations": 5,
+  "middleware": [],
+  "middlewareRevision": 1
+}

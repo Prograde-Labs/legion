@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { Storage } from '../storage/Storage.js';
 import type {
   ConversationData,
@@ -6,11 +7,24 @@ import type {
   MessageData,
 } from '@legion/types';
 import { ConversationNotFoundError } from '../errors/LegionError.js';
+import type { EventBus } from '../events/EventBus.js';
 import { createConversationId, nowIso } from '../util/ids.js';
-import type { ConversationStore } from './ConversationStore.js';
+import {
+  conversationMatchesFilter,
+  getConversationEventMetadata,
+  resolveConversationTitle,
+} from './conversation-metadata.js';
+import type {
+  ConversationMutationGuard,
+  ConversationMutationResult,
+  ConversationStore,
+} from './ConversationStore.js';
 
 export class FileConversationStore implements ConversationStore {
-  constructor(private storage: Storage) {}
+  constructor(
+    private storage: Storage,
+    private eventBus?: EventBus,
+  ) {}
 
   private key(conversationId: string): string {
     return `conversations/${conversationId}.json`;
@@ -18,7 +32,10 @@ export class FileConversationStore implements ConversationStore {
 
   async create(
     data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>,
+    guard?: ConversationMutationGuard,
   ): Promise<ConversationData> {
+    if (guard?.signal?.aborted) throw new Error('Conversation creation aborted before persistence');
+    const parentConversationId = data?.parentConversationId;
     const now = nowIso();
     const conversation: ConversationData = {
       ...data,
@@ -27,18 +44,41 @@ export class FileConversationStore implements ConversationStore {
       createdAt: now,
       updatedAt: now,
     };
-    await this.save(conversation);
-    return conversation;
+    const persist = async () => {
+      if (guard?.signal?.aborted)
+        throw new Error('Conversation creation aborted before persistence');
+      return this.persist(conversation);
+    };
+    const persisted = parentConversationId
+      ? await this.storage.withLock(this.key(parentConversationId), async () => {
+          if (!(await this.load(parentConversationId))) {
+            throw new ConversationNotFoundError(parentConversationId);
+          }
+          return persist();
+        })
+      : await persist();
+    this.eventBus?.emit('conversation:created', {
+      conversation: getConversationEventMetadata(persisted),
+    });
+    return structuredClone(persisted);
   }
 
   async load(conversationId: string): Promise<ConversationData | null> {
     return this.storage.readJson<ConversationData>(this.key(conversationId));
   }
 
-  async save(data: ConversationData): Promise<void> {
+  private async persist(data: ConversationData): Promise<ConversationData> {
     const now = nowIso();
-    await this.storage.writeJson(this.key(data.id), { ...data, updatedAt: now });
-    data.updatedAt = now;
+    const persisted = { ...data, updatedAt: now };
+    await this.storage.writeJson(this.key(data.id), persisted);
+    return persisted;
+  }
+
+  /** Fixture-only whole-record replacement. Production code must use mutate(). */
+  async replaceForTesting(data: ConversationData): Promise<void> {
+    await this.storage.withLock(this.key(data.id), async () => {
+      await this.persist(structuredClone(data));
+    });
   }
 
   private async loadOrThrow(conversationId: string): Promise<ConversationData> {
@@ -47,10 +87,56 @@ export class FileConversationStore implements ConversationStore {
     return conversation;
   }
 
+  async mutate(
+    conversationId: string,
+    callback: (conversation: ConversationData) => ConversationData | Promise<ConversationData>,
+    guard?: ConversationMutationGuard,
+  ): Promise<ConversationMutationResult> {
+    return this.storage.withLock(this.key(conversationId), async () => {
+      const current = await this.loadOrThrow(conversationId);
+      if (
+        guard?.expectedActiveBranchHead !== undefined &&
+        current.activeBranchHead !== guard.expectedActiveBranchHead
+      ) {
+        throw new Error(
+          `Conversation active branch head changed: expected ${guard.expectedActiveBranchHead}, got ${current.activeBranchHead}`,
+        );
+      }
+
+      const before = structuredClone(current);
+      const candidate = await callback(structuredClone(current));
+      if (candidate.id !== current.id) {
+        throw new Error('Conversation id is immutable');
+      }
+      if (!isDeepStrictEqual(candidate.origin, current.origin)) {
+        throw new Error('Conversation origin is immutable');
+      }
+      if (isDeepStrictEqual(candidate, current)) {
+        return { before, after: structuredClone(current), changed: false };
+      }
+
+      const beforeMetadata = getConversationEventMetadata(current);
+      if (guard?.signal?.aborted) {
+        throw new Error('Conversation mutation aborted before persistence');
+      }
+      const persisted = await this.persist(structuredClone(candidate));
+      const afterMetadata = getConversationEventMetadata(persisted);
+      if (!isDeepStrictEqual(beforeMetadata, afterMetadata)) {
+        this.eventBus?.emit('conversation:updated', {
+          conversationId,
+          before: beforeMetadata,
+          after: afterMetadata,
+        });
+      }
+      return { before, after: structuredClone(persisted), changed: true };
+    });
+  }
+
   async appendMessage(conversationId: string, message: MessageData): Promise<void> {
-    const conversation = await this.loadOrThrow(conversationId);
-    conversation.messages[message.id] = message;
-    await this.save(conversation);
+    await this.mutate(conversationId, (conversation) => ({
+      ...conversation,
+      messages: { ...conversation.messages, [message.id]: message },
+    }));
   }
 
   async updateMessage(
@@ -58,17 +144,21 @@ export class FileConversationStore implements ConversationStore {
     messageId: string,
     patch: Partial<MessageData>,
   ): Promise<void> {
-    const conversation = await this.loadOrThrow(conversationId);
-    const existing = conversation.messages[messageId];
-    if (!existing) throw new ConversationNotFoundError(`${conversationId}#${messageId}`);
-    conversation.messages[messageId] = { ...existing, ...patch };
-    await this.save(conversation);
+    await this.mutate(conversationId, (conversation) => {
+      const existing = conversation.messages[messageId];
+      if (!existing) throw new ConversationNotFoundError(`${conversationId}#${messageId}`);
+      return {
+        ...conversation,
+        messages: { ...conversation.messages, [messageId]: { ...existing, ...patch } },
+      };
+    });
   }
 
   async updateHead(conversationId: string, newHeadId: string): Promise<void> {
-    const conversation = await this.loadOrThrow(conversationId);
-    conversation.activeBranchHead = newHeadId;
-    await this.save(conversation);
+    await this.mutate(conversationId, (conversation) => ({
+      ...conversation,
+      activeBranchHead: newHeadId,
+    }));
   }
 
   async list(filter?: ConversationFilter): Promise<ConversationMeta[]> {
@@ -79,28 +169,18 @@ export class FileConversationStore implements ConversationStore {
       const id = file.slice(0, -'.json'.length);
       const conversation = await this.load(id);
       if (!conversation) continue;
-      if (!filter?.includeSubThreads && conversation.parentConversationId) continue;
+      if (!conversationMatchesFilter(conversation, filter ?? {})) continue;
 
-      const messages = Object.values(conversation.messages);
-      const participantSet = new Set<string>();
-      for (const msg of messages) {
-        if (msg.senderId) participantSet.add(msg.senderId);
-        if (msg.recipientId) participantSet.add(msg.recipientId);
-      }
+      const metadata = getConversationEventMetadata(conversation);
+      const resolvedTitle = resolveConversationTitle(conversation, filter?.viewerParticipantId);
 
       const meta: ConversationMeta = {
-        id,
-        title: conversation.title,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        messageCount: messages.length,
-        participants: [...participantSet],
-        parentConversationId: conversation.parentConversationId,
-        parentToolCallId: conversation.parentToolCallId,
+        ...metadata,
+        title: resolvedTitle,
+        resolvedTitle,
+        sharedTitle: conversation.title,
+        messageCount: Object.keys(conversation.messages).length,
       };
-
-      if (filter?.since && meta.updatedAt < filter.since) continue;
-      if (filter?.participantId && !participantSet.has(filter.participantId)) continue;
 
       metas.push(meta);
     }
@@ -126,12 +206,14 @@ export class FileConversationStore implements ConversationStore {
   }
 
   async delete(conversationId: string): Promise<void> {
-    const conversation = await this.load(conversationId);
-    if (!conversation) return;
-    const children = await this.listByParent(conversationId);
-    for (const child of children) {
-      await this.delete(child.id);
-    }
-    await this.storage.delete(this.key(conversationId));
+    await this.storage.withLock(this.key(conversationId), async () => {
+      const conversation = await this.load(conversationId);
+      if (!conversation) return;
+      const children = await this.listByParent(conversationId);
+      for (const child of children) {
+        await this.delete(child.id);
+      }
+      await this.storage.delete(this.key(conversationId));
+    });
   }
 }

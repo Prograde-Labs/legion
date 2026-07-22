@@ -23,7 +23,13 @@ import type { LLMChunk } from '@legion/types';
 import type { ModelPricing, PricingSource } from '../providers/PricingSource.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
-import type { AgentConfig, JSONSchema, Tool, MessageData } from '@legion/types';
+import type {
+  AgentConfig,
+  JSONSchema,
+  Tool,
+  MessageData,
+  MiddlewareActionResult,
+} from '@legion/types';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 
@@ -897,5 +903,229 @@ describe('AgentRuntime.handleStream()', () => {
     }
     expect(chunks.some((c) => c.type === 'text_delta' && c.delta === 'Hello!')).toBe(true);
     expect(next.value.kind).toBe('response');
+  });
+
+  it('returns a non-persisting terminal when cancelled before provider streaming', async () => {
+    const { context, inbound, router, providerRequests, thread } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const controller = new AbortController();
+    context.signal = controller.signal;
+    const agent = new AgentRuntime('agent-1', router);
+    const stream = agent.handleStream!(inbound, context);
+
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'iteration_start', iteration: 0 },
+    });
+    controller.abort();
+    await expect(stream.next()).resolves.toMatchObject({
+      done: true,
+      value: { kind: 'middleware_abort', error: expect.stringMatching(/cancelled/i) },
+    });
+    expect(providerRequests).toEqual([]);
+    expect(thread.activeChain).toHaveLength(1);
+  });
+});
+
+describe('AgentRuntime: middleware prompts', () => {
+  function action(requestId: string): MiddlewareActionResult {
+    return {
+      requestId,
+      participantId: 'agent-1',
+      instanceId: 'middleware-1',
+      tool: 'echo',
+      status: 'success',
+      result: { status: 'success', data: requestId },
+    };
+  }
+
+  it('reloads and transforms the prompt before every provider iteration', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const promptAction = action('prompt-action');
+    const buildSystemPrompt = vi.fn(async (input) => ({
+      kind: 'continue' as const,
+      prompt: `prepared ${input.iteration}`,
+      actions: input.iteration === 0 ? [promptAction] : input.actions,
+    }));
+    context.buildSystemPrompt = buildSystemPrompt;
+
+    await new AgentRuntime('agent-1', router).handle(inbound, context);
+
+    expect(buildSystemPrompt).toHaveBeenCalledTimes(2);
+    expect(buildSystemPrompt.mock.calls.map(([input]) => input.actions)).toEqual([
+      [],
+      [promptAction],
+    ]);
+    expect(providerRequests.map(([message]) => message.content)).toEqual([
+      'prepared 0',
+      'prepared 1',
+    ]);
+  });
+
+  it('carries inbound and prompt action ledgers through provider iterations and response', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const inboundAction = action('inbound');
+    const firstPromptAction = action('prompt-1');
+    const secondPromptAction = action('prompt-2');
+    context.middlewareActions = [inboundAction];
+    context.buildSystemPrompt = vi.fn(async (input) => ({
+      kind: 'continue' as const,
+      prompt: `prepared ${input.iteration}`,
+      actions:
+        input.iteration === 0
+          ? [...input.actions, firstPromptAction]
+          : [...input.actions, secondPromptAction],
+    }));
+
+    const result = await new AgentRuntime('agent-1', router).handle(inbound, context);
+    expect(result).toEqual({
+      kind: 'response',
+      content: 'done',
+      actions: [inboundAction, firstPromptAction, secondPromptAction],
+    });
+    if (result.kind !== 'response') throw new Error('expected response');
+    expect(result.actions).not.toBe(context.middlewareActions);
+    expect(result.actions?.[0]).not.toBe(inboundAction);
+    expect(result.actions?.[0].result).not.toBe(inboundAction.result);
+  });
+
+  it.each([
+    [
+      'abort',
+      { kind: 'abort' as const, error: 'internal middleware detail' },
+      { kind: 'middleware_abort', error: 'Middleware prompt aborted' },
+    ],
+    [
+      'pending approval',
+      {
+        kind: 'pending' as const,
+        approvalId: 'appr-prompt',
+        checkpointId: 'mwcp-prompt',
+        preparedPrompt: 'prepared',
+        actionCursor: 0,
+      },
+      { kind: 'middleware_pending', approvalId: 'appr-prompt', checkpointId: 'mwcp-prompt' },
+    ],
+  ])('does not call provider when prompt hook returns %s', async (_name, hookResult, expected) => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    context.buildSystemPrompt = vi.fn(async () => hookResult);
+
+    await expect(new AgentRuntime('agent-1', router).handle(inbound, context)).resolves.toEqual(
+      expected,
+    );
+    expect(providerRequests).toHaveLength(0);
+  });
+
+  it('resumes at saved provider boundary without replaying prompt hook', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const buildSystemPrompt = vi.fn(async (input) => ({
+      kind: 'continue' as const,
+      prompt: `prepared ${input.iteration}`,
+      actions: input.actions,
+    }));
+    context.buildSystemPrompt = buildSystemPrompt;
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await expect(
+      runtime.resumeFromMiddleware!(
+        {
+          kind: 'agent_provider',
+          participantId: 'agent-1',
+          incomingMessageId: inbound.id,
+          iteration: 4,
+          preparedPrompt: 'saved prompt',
+          actionCursor: 0,
+          actions: [],
+        },
+        context,
+      ),
+    ).resolves.toEqual({ kind: 'response', content: 'done' });
+
+    expect(buildSystemPrompt.mock.calls.map(([input]) => input.iteration)).toEqual([5]);
+    expect(providerRequests.map(([message]) => message.content)).toEqual([
+      'saved prompt',
+      'prepared 5',
+    ]);
+  });
+
+  it('rejects invalid provider-boundary resume data before calling provider', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await expect(
+      runtime.resumeFromMiddleware!(
+        {
+          kind: 'agent_provider',
+          participantId: 'agent-1',
+          incomingMessageId: inbound.id,
+          iteration: 0,
+          preparedPrompt: 'saved prompt',
+          actionCursor: 1,
+          actions: [],
+        },
+        context,
+      ),
+    ).resolves.toEqual({ kind: 'middleware_abort', error: 'Invalid middleware provider resume' });
+    expect(providerRequests).toHaveLength(0);
+  });
+
+  it.each([
+    ['string', 'not actions'],
+    ['array-like', { length: 0 }],
+    [
+      'accessor array',
+      Object.defineProperty([], '0', {
+        enumerable: true,
+        get: () => action('accessor'),
+      }),
+    ],
+    ['corrupt action', [{ requestId: 'missing-required-fields' }]],
+  ])('rejects %s resume actions before calling provider', async (_name, actions) => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      { content: 'must not run', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await expect(
+      runtime.resumeFromMiddleware!(
+        {
+          kind: 'agent_provider',
+          participantId: 'agent-1',
+          incomingMessageId: inbound.id,
+          iteration: 0,
+          preparedPrompt: 'saved prompt',
+          actionCursor: 0,
+          actions: actions as MiddlewareActionResult[],
+        },
+        context,
+      ),
+    ).resolves.toEqual({ kind: 'middleware_abort', error: 'Invalid middleware provider resume' });
+    expect(providerRequests).toHaveLength(0);
   });
 });

@@ -4,20 +4,23 @@ import type {
   ToolResult,
   AgentConfig,
   ConversationData,
+  ConversationMutation,
   ModelConfig,
   MessageData,
+  JSONValue,
+  MiddlewareInstanceConfig,
 } from '@legion/types';
-import {
-  compactRange,
-  editMessage,
-  getActiveChain,
-  pruneMessage,
-} from '../conversation/conversation-ops.js';
+import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
+import {
+  applyConversationMutation,
+  getConversationStatus,
+  resolveConversationTitle,
+} from '../conversation/conversation-metadata.js';
 import { UsageQuery } from '../usage/UsageQuery.js';
 import type { GroupBy, UsageFilter } from '../usage/usage-types.js';
 
@@ -32,6 +35,146 @@ function sanitizeModelConfig(model: ModelConfig): ModelConfig {
   if (model.maxTokens !== undefined) sanitized.maxTokens = model.maxTokens;
   return sanitized;
 }
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function snapshotDenseArray(value: unknown[]): unknown[] | undefined {
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1) return undefined;
+  for (const key of keys) {
+    if (key === 'length') continue;
+    if (typeof key !== 'string') return undefined;
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+      return undefined;
+    }
+  }
+  const snapshot: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !('value' in descriptor)) return undefined;
+    snapshot.push(descriptor.value);
+  }
+  return snapshot;
+}
+
+export function isJSONValue(value: unknown, ancestors = new WeakSet<object>()): value is JSONValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object') return false;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const snapshot = snapshotDenseArray(value);
+      return snapshot !== undefined && snapshot.every((item) => isJSONValue(item, ancestors));
+    }
+    if (!isPlainObject(value)) return false;
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string') return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !('value' in descriptor) || !isJSONValue(descriptor.value, ancestors)) {
+        return false;
+      }
+    }
+    return true;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function validateMiddleware(value: unknown): MiddlewareInstanceConfig[] {
+  if (!Array.isArray(value)) throw new Error('middleware must be an array');
+  const entries = snapshotDenseArray(value);
+  if (!entries) throw new Error('middleware must be a dense array without extra properties');
+  const ids = new Set<string>();
+  const normalized: MiddlewareInstanceConfig[] = [];
+  const allowedKeys = new Set(['id', 'type', 'enabled', 'failureMode', 'config']);
+  for (const [index, entry] of entries.entries()) {
+    if (!isPlainObject(entry)) throw new Error(`middleware[${index}] must be a plain object`);
+    const snapshot = new Map<PropertyKey, unknown>();
+    for (const key of Reflect.ownKeys(entry)) {
+      if (typeof key !== 'string' || !allowedKeys.has(key)) {
+        throw new Error(`middleware[${index}] contains an unknown property`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(entry, key);
+      if (!descriptor || !('value' in descriptor)) {
+        throw new Error(`middleware[${index}].${key} must be a data property`);
+      }
+      snapshot.set(key, descriptor.value);
+    }
+    for (const key of ['id', 'type', 'config']) {
+      if (!snapshot.has(key)) {
+        throw new Error(`middleware[${index}].${key} must be an own property`);
+      }
+    }
+    const id = snapshot.get('id');
+    const type = snapshot.get('type');
+    const enabled = snapshot.get('enabled');
+    const failureMode = snapshot.get('failureMode');
+    const config = snapshot.get('config');
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error(`middleware[${index}].id must be a non-empty string`);
+    }
+    if (ids.has(id)) throw new Error(`duplicate middleware instance id: ${id}`);
+    ids.add(id);
+    if (typeof type !== 'string' || type.trim().length === 0) {
+      throw new Error(`middleware[${index}].type must be a non-empty string`);
+    }
+    if (snapshot.has('enabled') && typeof enabled !== 'boolean') {
+      throw new Error(`middleware[${index}].enabled must be a boolean when provided`);
+    }
+    if (snapshot.has('failureMode') && failureMode !== 'open' && failureMode !== 'closed') {
+      throw new Error(`middleware[${index}].failureMode must be open or closed when provided`);
+    }
+    if (!isPlainObject(config) || !isJSONValue(config)) {
+      throw new Error(`middleware[${index}].config must be a JSON-safe object`);
+    }
+    const instance: MiddlewareInstanceConfig = {
+      id,
+      type,
+      config: structuredClone(config) as Record<string, JSONValue>,
+    };
+    if (snapshot.has('enabled')) instance.enabled = enabled as boolean;
+    if (snapshot.has('failureMode')) instance.failureMode = failureMode as 'open' | 'closed';
+    normalized.push(instance);
+  }
+  return normalized;
+}
+
+async function validateEnabledMiddleware(
+  middleware: MiddlewareInstanceConfig[],
+  context: ToolContext,
+): Promise<MiddlewareInstanceConfig[]> {
+  const enabled = structuredClone(middleware.filter((instance) => instance.enabled !== false));
+  if (enabled.length > 0) {
+    if (!context.middlewareValidator) {
+      throw new Error('middleware configuration validator unavailable');
+    }
+    await context.middlewareValidator.validate(enabled);
+  }
+  return structuredClone(middleware);
+}
+
+const middlewareSchema = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', minLength: 1, pattern: '\\S' },
+      type: { type: 'string', minLength: 1, pattern: '\\S' },
+      enabled: { type: 'boolean' },
+      failureMode: { type: 'string', enum: ['open', 'closed'] },
+      config: { type: 'object' },
+    },
+    required: ['id', 'type', 'config'],
+    additionalProperties: false,
+  },
+} as const;
 
 export const createAgentTool: Tool = {
   name: 'create_agent',
@@ -49,20 +192,29 @@ export const createAgentTool: Tool = {
           'Map of tool name to policy (auto or requires_approval). Absent tools are hidden from the agent.',
       },
       maxIterations: { type: 'number' },
+      middleware: middlewareSchema,
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, systemPrompt, model, tools, maxIterations } = args as {
+    const { id, name, systemPrompt, model, tools, maxIterations, middleware } = args as {
       id: string;
       name: string;
       systemPrompt: string;
       model: ModelConfig;
       tools?: Record<string, ToolPolicy>;
       maxIterations?: number;
+      middleware?: unknown;
     };
     try {
+      if (middleware !== undefined && !Array.isArray(middleware)) {
+        throw new Error('middleware must be an array when provided');
+      }
       const collective = requireCollective(context);
+      const validatedMiddleware =
+        middleware === undefined
+          ? undefined
+          : await validateEnabledMiddleware(validateMiddleware(middleware), context);
       const config: AgentConfig = {
         id,
         name,
@@ -72,6 +224,9 @@ export const createAgentTool: Tool = {
         model: sanitizeModelConfig(model),
         maxIterations: maxIterations ?? 20,
         status: 'active',
+        ...(validatedMiddleware === undefined
+          ? {}
+          : { middleware: validatedMiddleware, middlewareRevision: 0 }),
       };
       await collective.add(config);
       return { status: 'success', data: { id } };
@@ -108,7 +263,14 @@ export const listParticipantsTool: Tool = {
     try {
       const list = requireCollective(context)
         .list()
-        .map((p) => ({ id: p.id, name: p.name, type: p.type, status: p.status ?? 'active' }));
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          status: p.status ?? 'active',
+          middleware: structuredClone(p.middleware ?? []),
+          middlewareRevision: p.middlewareRevision ?? 0,
+        }));
       return { status: 'success', data: list };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
@@ -198,6 +360,48 @@ export const removeToolPolicyTool: Tool = {
   },
 };
 
+export const setParticipantMiddlewareTool: Tool = {
+  name: 'set_participant_middleware',
+  description: "Replace a participant's ordered middleware configuration.",
+  parameters: {
+    type: 'object',
+    properties: {
+      participantId: { type: 'string' },
+      middleware: middlewareSchema,
+    },
+    required: ['participantId', 'middleware'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input = isPlainObject(args) ? args : {};
+    if (typeof input.participantId !== 'string') {
+      return { status: 'error', error: 'participantId must be a string' };
+    }
+    if (!Array.isArray(input.middleware)) {
+      return { status: 'error', error: 'middleware must be an array' };
+    }
+    try {
+      const middleware = await validateEnabledMiddleware(
+        validateMiddleware(input.middleware),
+        context,
+      );
+      const participant = await requireCollective(context).replaceMiddleware(
+        input.participantId,
+        middleware,
+      );
+      return {
+        status: 'success',
+        data: {
+          participantId: participant.id,
+          middleware: structuredClone(participant.middleware ?? []),
+          revision: participant.middlewareRevision,
+        },
+      };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
 type MessageWithAlternates = MessageData & {
   alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
 };
@@ -250,11 +454,10 @@ export const editMessageTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation)
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      const updated = editMessage(conversation, messageId, newContent);
-      await context.conversationStore.save(updated);
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (conversation) => editMessage(conversation, messageId, newContent),
+      );
       return {
         status: 'success',
         data: {
@@ -348,11 +551,10 @@ export const switchBranchTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation)
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      const updated = switchConversationBranch(conversation, messageId);
-      await context.conversationStore.save(updated);
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (conversation) => switchConversationBranch(conversation, messageId),
+      );
       return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
@@ -381,112 +583,11 @@ export const pruneMessageTool: Tool = {
       return { status: 'error', error: 'conversationStore unavailable in context' };
     }
     try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation)
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      const updated = pruneMessage(conversation, messageId, context.participant.id);
-      await context.conversationStore.save(updated);
-      return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
-    } catch (err) {
-      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
-    }
-  },
-};
-
-const DEFAULT_SUMMARY_INSTRUCTION =
-  'Summarize the following conversation segment concisely. Capture the main topics discussed, key information exchanged, any decisions or conclusions reached, and the current state of any ongoing discussion or work. Write clearly and be complete enough that the conversation can continue naturally from this summary without the original messages.';
-
-export const compactConversationTool: Tool = {
-  name: 'compact_conversation',
-  description: 'Compact a range of messages into an agent-generated summary.',
-  parameters: {
-    type: 'object',
-    properties: {
-      conversationId: { type: 'string' },
-      messageIds: { type: 'array', items: { type: 'string' } },
-      agentId: { type: 'string' },
-      instruction: { type: 'string' },
-    },
-    required: ['conversationId', 'messageIds', 'agentId'],
-  } as JSONSchema,
-  async execute(args, context): Promise<ToolResult> {
-    const input = args as {
-      conversationId?: unknown;
-      messageIds?: unknown;
-      agentId?: unknown;
-      instruction?: unknown;
-    };
-    if (
-      typeof input.conversationId !== 'string' ||
-      !Array.isArray(input.messageIds) ||
-      input.messageIds.length === 0 ||
-      !input.messageIds.every((id) => typeof id === 'string') ||
-      typeof input.agentId !== 'string' ||
-      input.agentId.length === 0 ||
-      (input.instruction !== undefined && typeof input.instruction !== 'string')
-    ) {
-      return {
-        status: 'error',
-        error:
-          'conversationId must be a string, messageIds must be a non-empty string array, agentId must be a string, and instruction must be a string when provided',
-      };
-    }
-    const { conversationId, messageIds, agentId, instruction } = input as {
-      conversationId: string;
-      messageIds: string[];
-      agentId: string;
-      instruction?: string;
-    };
-    if (!context.conversationStore) {
-      return { status: 'error', error: 'conversationStore unavailable in context' };
-    }
-    if (!context.messageRouter) {
-      return { status: 'error', error: 'messageRouter unavailable in context' };
-    }
-    try {
-      const conversation = await context.conversationStore.load(conversationId);
-      if (!conversation) {
-        return { status: 'error', error: `Conversation not found: ${conversationId}` };
-      }
-      const targetMessages = messageIds.map((id) => {
-        const message = conversation.messages[id];
-        if (!message) throw new Error(`Message not found: ${id}`);
-        return message;
-      });
-      const transcript = targetMessages
-        .map((message) => {
-          // Label summary nodes distinctly so the compacting agent knows it is
-          // working with an already-summarised block rather than a raw turn.
-          if (message.type === 'summary') {
-            return `[summary of earlier messages]: ${message.content}`;
-          }
-          return `${message.role}: ${message.content}`;
-        })
-        .join('\n');
-      const prompt = `${instruction ?? DEFAULT_SUMMARY_INSTRUCTION}\n\n${transcript}`;
-      const summary = await context.messageRouter.send({
-        senderId: context.participant.id,
-        recipientId: agentId,
-        message: prompt,
-        replyTo: undefined,
-        context,
-      });
-      if (summary.status === 'error') {
-        return { status: 'error', error: summary.error ?? 'Summary failed' };
-      }
-      if (!summary.response) {
-        return { status: 'error', error: 'Summary agent returned no response' };
-      }
-      const beforeIds = new Set(Object.keys(conversation.messages));
-      const updated = compactRange(conversation, messageIds, summary.response);
-      await context.conversationStore.save(updated);
-      const summaryNode = Object.values(updated.messages).find(
-        (message) => message.type === 'summary' && !beforeIds.has(message.id),
+      const { after: updated } = await context.conversationStore.mutate(
+        conversationId,
+        (conversation) => pruneMessage(conversation, messageId, context.participant.id),
       );
-      return {
-        status: 'success',
-        data: { summaryMessageId: summaryNode?.id, activeBranchHead: updated.activeBranchHead },
-      };
+      return { status: 'success', data: { activeBranchHead: updated.activeBranchHead } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
@@ -552,7 +653,8 @@ export const getConversationTool: Tool = {
       if (st.parentToolCallId) {
         subThreads[st.parentToolCallId] = {
           id: st.id,
-          title: st.title,
+          title: resolveConversationTitle(st, context.participant.id),
+          sharedTitle: st.title,
           messages: getActiveChain(st),
           parentConversationId: st.parentConversationId,
           parentToolCallId: st.parentToolCallId,
@@ -564,13 +666,103 @@ export const getConversationTool: Tool = {
       status: 'success',
       data: {
         id: conversation.id,
-        title: conversation.title,
+        title: resolveConversationTitle(conversation, context.participant.id),
+        sharedTitle: conversation.title,
+        titles:
+          conversation.titles === undefined ? undefined : structuredClone(conversation.titles),
+        status: getConversationStatus(conversation),
+        tags: conversation.tags === undefined ? [] : [...conversation.tags],
+        origin:
+          conversation.origin === undefined ? undefined : structuredClone(conversation.origin),
+        middlewareState:
+          conversation.middlewareState === undefined
+            ? undefined
+            : structuredClone(conversation.middlewareState),
         messages: withAlternates(conversation.messages, chain),
         parentConversationId: conversation.parentConversationId,
         parentToolCallId: conversation.parentToolCallId,
         subThreads,
       },
     };
+  },
+};
+
+export const modifyConversationTool: Tool = {
+  name: 'modify_conversation',
+  description: 'Update conversation title, lifecycle status, or tags.',
+  parameters: {
+    type: 'object',
+    properties: {
+      conversationId: { type: 'string' },
+      title: { type: 'string' },
+      titleScope: { type: 'string', enum: ['shared', 'participant'] },
+      titleMode: { type: 'string', enum: ['replace', 'first_write_wins'] },
+      status: { type: 'string', enum: ['active', 'archived'] },
+      addTags: { type: 'array', items: { type: 'string' } },
+      removeTags: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['conversationId'],
+  } as JSONSchema,
+  async execute(args, context): Promise<ToolResult> {
+    const input =
+      typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+    const titleScope = input.titleScope ?? 'shared';
+    const titleMode = input.titleMode ?? 'replace';
+    const stringArray = (value: unknown): value is string[] =>
+      Array.isArray(value) && value.every((item) => typeof item === 'string');
+    if (
+      typeof input.conversationId !== 'string' ||
+      (input.title !== undefined && typeof input.title !== 'string') ||
+      (titleScope !== 'shared' && titleScope !== 'participant') ||
+      (titleMode !== 'replace' && titleMode !== 'first_write_wins') ||
+      (input.status !== undefined && input.status !== 'active' && input.status !== 'archived') ||
+      (input.addTags !== undefined && !stringArray(input.addTags)) ||
+      (input.removeTags !== undefined && !stringArray(input.removeTags))
+    ) {
+      return {
+        status: 'error',
+        error:
+          'Invalid modify_conversation arguments: conversationId and title must be strings; titleScope, titleMode, status, addTags, and removeTags must use supported values',
+      };
+    }
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
+
+    const mutation: ConversationMutation = {
+      titleMode,
+      status: input.status as ConversationMutation['status'],
+      addTags: input.addTags as string[] | undefined,
+      removeTags: input.removeTags as string[] | undefined,
+    };
+    if (typeof input.title === 'string') {
+      mutation.title = {
+        scope: titleScope,
+        participantId: titleScope === 'participant' ? context.participant.id : undefined,
+        value: input.title,
+      };
+    }
+
+    try {
+      const result = await context.conversationStore.mutate(input.conversationId, (conversation) =>
+        applyConversationMutation(conversation, mutation),
+      );
+      const conversation = result.after;
+      return {
+        status: 'success',
+        data: {
+          id: conversation.id,
+          title: resolveConversationTitle(conversation, context.participant.id),
+          sharedTitle: conversation.title,
+          titles: conversation.titles,
+          status: getConversationStatus(conversation),
+          tags: conversation.tags ?? [],
+          origin: conversation.origin,
+        },
+      };
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
   },
 };
 
@@ -686,16 +878,39 @@ export const listConversationsTool: Tool = {
         type: 'string',
         description: 'ISO 8601 timestamp — only return conversations updated after this time.',
       },
+      status: { type: 'string', enum: ['active', 'archived', 'all'] },
+      tags: { type: 'array', items: { type: 'string' } },
     },
-  },
-  async execute(
-    args: { participantId?: string; since?: string },
-    context: ToolContext,
-  ): Promise<ToolResult> {
+  } as JSONSchema,
+  async execute(args, context: ToolContext): Promise<ToolResult> {
+    const input =
+      typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {};
+    if (
+      (input.participantId !== undefined && typeof input.participantId !== 'string') ||
+      (input.since !== undefined && typeof input.since !== 'string') ||
+      (input.status !== undefined &&
+        input.status !== 'active' &&
+        input.status !== 'archived' &&
+        input.status !== 'all') ||
+      (input.tags !== undefined &&
+        (!Array.isArray(input.tags) || !input.tags.every((tag) => typeof tag === 'string')))
+    ) {
+      return {
+        status: 'error',
+        error:
+          'Invalid list_conversations arguments: participantId and since must be strings; status and tags must use supported values',
+      };
+    }
+    if (!context.conversationStore) {
+      return { status: 'error', error: 'conversationStore unavailable in context' };
+    }
     try {
-      const conversations = await context.conversationStore!.list({
-        participantId: args.participantId,
-        since: args.since,
+      const conversations = await context.conversationStore.list({
+        participantId: input.participantId as string | undefined,
+        since: input.since as string | undefined,
+        status: input.status as 'active' | 'archived' | 'all' | undefined,
+        tags: input.tags as string[] | undefined,
+        viewerParticipantId: context.participant.id,
       });
       return { status: 'success', data: { conversations } };
     } catch (err) {
@@ -805,12 +1020,13 @@ export const managementTools: Tool[] = [
   getParticipantTool,
   setToolPolicyTool,
   removeToolPolicyTool,
+  setParticipantMiddlewareTool,
   editMessageTool,
   pruneMessageTool,
-  compactConversationTool,
   generateTool,
   switchBranchTool,
   getConversationTool,
+  modifyConversationTool,
   setCredentialTool,
   modifyAgentTool,
   listToolsTool,

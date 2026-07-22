@@ -10,6 +10,14 @@ import type {
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
+/** Strict providers (e.g. LM Studio) reject object schemas without a properties object. */
+function normalizeParameters(parameters: ProviderTool['parameters']): ProviderTool['parameters'] {
+  if (parameters.type === 'object' && parameters.properties === undefined) {
+    return { ...parameters, properties: {} };
+  }
+  return parameters;
+}
+
 interface OAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
@@ -139,6 +147,7 @@ export class OpenAICompatibleProvider implements Provider {
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,
+    options?: { signal?: AbortSignal },
   ): AsyncGenerator<ProviderStreamChunk> {
     const body: Record<string, unknown> = {
       model: model.model,
@@ -151,7 +160,11 @@ export class OpenAICompatibleProvider implements Provider {
     if (tools.length > 0) {
       body['tools'] = tools.map((t) => ({
         type: 'function',
-        function: { name: t.name, description: t.description, parameters: t.parameters },
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: normalizeParameters(t.parameters),
+        },
       }));
       body['tool_choice'] = 'auto';
     }
@@ -163,6 +176,7 @@ export class OpenAICompatibleProvider implements Provider {
         ...authHeaders(this.apiKey),
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
 
     if (!res.ok) {
@@ -181,6 +195,7 @@ export class OpenAICompatibleProvider implements Provider {
     let usage: OAIUsage | undefined;
     let finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter' | null = null;
     let streamDone = false;
+    let completed = false;
 
     try {
       while (true) {
@@ -248,7 +263,9 @@ export class OpenAICompatibleProvider implements Provider {
         }
         if (streamDone) break;
       }
+      completed = true;
     } finally {
+      if (!completed || options?.signal?.aborted) await reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
 

@@ -66,6 +66,7 @@ async function setup() {
     toolRegistry,
     authEngine: new AuthEngine(),
     pendingApprovalRegistry: new PendingApprovalRegistry(),
+    middlewareConfigurationValidator: { validate: vi.fn() },
     messageRouter: mockRouter,
     eventBus,
     storage,
@@ -74,7 +75,7 @@ async function setup() {
   };
 
   const manager = new ServiceManager(deps);
-  return { dir, manager, mockRouter, eventBus };
+  return { dir, deps, manager, mockRouter, eventBus };
 }
 
 describe('ServiceManager', () => {
@@ -91,6 +92,28 @@ describe('ServiceManager', () => {
     await manager.loadService({ ...BASE_CONFIG, module: modPath });
     expect(manager.getStatus('svc-1')).toBe('stopped');
     expect(manager.getRuntime('svc-1')).toBeDefined();
+  });
+
+  it('forwards middleware validator into service tool contexts', async () => {
+    const { manager, deps, dir: d } = await setup();
+    dir = d;
+    const modPath = await writeModule(
+      d,
+      `export const service = { async start(ctx) { await ctx.callTool('test', {}); }, async stop() {} };`,
+    );
+    const validator = { validate: vi.fn() };
+    const execute = vi.fn().mockResolvedValue({ status: 'success' });
+    deps.middlewareConfigurationValidator = validator;
+    (deps.toolRegistry as { execute: unknown }).execute = execute;
+
+    await manager.loadService({ ...BASE_CONFIG, module: modPath, tools: { test: 'auto' } });
+    await manager.startService('svc-1');
+
+    expect(execute).toHaveBeenCalledWith(
+      'test',
+      {},
+      expect.objectContaining({ middlewareValidator: validator }),
+    );
   });
 
   it('loadService throws ConfigError when the module lacks a service export', async () => {

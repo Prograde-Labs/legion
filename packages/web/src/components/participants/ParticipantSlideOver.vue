@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import type { MiddlewareInstanceConfig } from '@legion/types';
 import SlideOver from '../common/SlideOver.vue';
 import ToolPolicyEditor, { type ToolOverride } from './ToolPolicyEditor.vue';
+import MiddlewareEditor from './MiddlewareEditor.vue';
+import type {
+  MiddlewareDefinitionInfo,
+  MiddlewareDiagnosticInfo,
+  SkillInfo,
+} from './middleware-ui-types.js';
 import { useExecute } from '../../composables/useExecute.js';
 
 const props = defineProps<{
@@ -9,11 +16,15 @@ const props = defineProps<{
   participantId: string | null;
   availableTools: string[];
   availableModels: Array<{ id: string; name?: string; provider: string }>;
+  middlewareDefinitions: MiddlewareDefinitionInfo[];
+  middlewareDiagnostics: MiddlewareDiagnosticInfo[];
+  skills: SkillInfo[];
+  credentialKeys: string[];
 }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
 const { execute } = useExecute();
 
-const tab = ref<'basic' | 'tools'>('basic');
+const tab = ref<'basic' | 'tools' | 'middleware'>('basic');
 const name = ref('');
 const model = ref('');
 const modelSearch = ref('');
@@ -22,6 +33,8 @@ const showModelDropdown = ref(false);
 const systemPrompt = ref('');
 const maxIterations = ref(20);
 const overrides = ref<ToolOverride[]>([]);
+const middleware = ref<MiddlewareInstanceConfig[]>([]);
+const middlewareErrors = ref<string[]>([]);
 const saving = ref(false);
 
 const filteredModels = computed(() =>
@@ -58,6 +71,8 @@ watch(
           enabled: true,
           requireApproval: policy === 'requires_approval',
         }));
+        middleware.value = (p.middleware as MiddlewareInstanceConfig[] | undefined) ?? [];
+        middlewareErrors.value = [];
       } catch {
         // Fallback: empty form
       }
@@ -68,6 +83,8 @@ watch(
       systemPrompt.value = '';
       maxIterations.value = 20;
       overrides.value = [];
+      middleware.value = [];
+      middlewareErrors.value = [];
     }
   },
 );
@@ -89,6 +106,13 @@ async function save() {
         maxIterations: maxIterations.value,
         tools,
       });
+      // Two-phase save is intentionally non-atomic: if this call fails, modify_agent above has
+      // already persisted. save() has no catch — the rejection propagates and the slide-over
+      // stays open (saving is reset via finally), leaving both phases retryable on next Save.
+      await execute('set_participant_middleware', {
+        participantId: props.participantId,
+        middleware: middleware.value,
+      });
     } else {
       const id =
         name.value
@@ -101,6 +125,7 @@ async function save() {
         systemPrompt: systemPrompt.value || 'You are a helpful agent.',
         model: { model: selectedModel.value || model.value },
         tools,
+        middleware: middleware.value,
       });
     }
     emit('saved');
@@ -126,8 +151,9 @@ async function retire() {
   >
     <div class="flex border-b border-navy-600 bg-navy-900">
       <button
-        v-for="t in ['basic', 'tools'] as const"
+        v-for="t in ['basic', 'tools', 'middleware'] as const"
         :key="t"
+        :data-tab="t"
         @click="tab = t"
         :class="[
           'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
@@ -136,7 +162,7 @@ async function retire() {
             : 'text-navy-400 border-transparent hover:text-slate-200',
         ]"
       >
-        {{ t === 'basic' ? 'Basic' : 'Tool policies' }}
+        {{ t === 'basic' ? 'Basic' : t === 'tools' ? 'Tool policies' : 'Middleware' }}
       </button>
     </div>
 
@@ -239,10 +265,20 @@ async function retire() {
     </div>
 
     <ToolPolicyEditor
-      v-else
+      v-else-if="tab === 'tools'"
       :overrides="overrides"
       :available-tools="availableTools"
       @update:overrides="(v) => (overrides = v)"
+    />
+
+    <MiddlewareEditor
+      v-else
+      v-model="middleware"
+      :definitions="middlewareDefinitions"
+      :diagnostics="middlewareDiagnostics"
+      :skills="skills"
+      :credential-keys="credentialKeys"
+      @validation="middlewareErrors = $event"
     />
 
     <template #footer>
@@ -263,8 +299,9 @@ async function retire() {
             Cancel
           </button>
           <button
+            data-save-participant
             @click="save"
-            :disabled="saving"
+            :disabled="saving || middlewareErrors.length > 0"
             class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50"
           >
             {{ saving ? 'Saving…' : 'Save' }}
