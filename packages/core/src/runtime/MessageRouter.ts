@@ -635,18 +635,60 @@ export class MessageRouter implements MessageRouterPort {
       if (runtime.handleStream) {
         const stream = runtime.handleStream(inbound, runtimeContext);
         runtimeStream = stream;
+        // Track streamed assistant content so a user abort can persist the
+        // partial response instead of discarding it. Mirrors the AgentRuntime
+        // accumulator: iteration boundaries reset, snapshots replace.
+        let partialText = '';
+        let partialReasoning = '';
+        const trackPartial = (chunk: LLMChunk) => {
+          if (chunk.type === 'iteration_start') {
+            partialText = '';
+            partialReasoning = '';
+          } else if (chunk.type === 'message_snapshot') {
+            partialText = chunk.content;
+            partialReasoning = chunk.reasoning ?? '';
+          } else if (chunk.type === 'text_delta') {
+            partialText += chunk.delta;
+          } else if (chunk.type === 'reasoning_delta') {
+            partialReasoning += chunk.delta;
+          }
+        };
+        // On abort with streamed content (and no middleware transformer owning
+        // provisional output), persist the partial response as the reply.
+        const persistPartialOnAbort = async (): Promise<MessageRouterResult | undefined> => {
+          if (transformer || (!partialText && !partialReasoning)) return undefined;
+          const responseRecipientId = opts.replyTo ?? opts.senderId;
+          const partialMsg = await thread.append({
+            senderId: recipient.id,
+            recipientId: responseRecipientId,
+            role: 'assistant',
+            content: partialText,
+            ...(partialReasoning ? { reasoning: partialReasoning } : {}),
+          });
+          this.eventBus.emit('message:delivered', {
+            conversationId: thread.id,
+            recipientId: responseRecipientId,
+            messageId: partialMsg.id,
+          });
+          return { conversationId: thread.id, response: partialText, status: 'success' };
+        };
         let next = await this.nextStreamResult(stream, streamAbort.signal);
         if (next === undefined) {
           streamFinished = true;
           const chunks = transformer?.abort() ?? [];
           void stream.return(undefined as never).catch(() => undefined);
           for (const chunk of chunks) yield chunk;
+          const partialResult = await persistPartialOnAbort();
+          if (partialResult) return partialResult;
           return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
         }
         while (!next.done) {
           try {
             const chunks = transformer ? await transformer.push(next.value) : [next.value];
-            for (const chunk of chunks) yield chunk;
+            for (const chunk of chunks) {
+              trackPartial(chunk);
+              yield chunk;
+            }
           } catch (error) {
             if (error instanceof MiddlewareStreamError) {
               try {
@@ -666,6 +708,8 @@ export class MessageRouter implements MessageRouterPort {
             const chunks = transformer?.abort() ?? [];
             void stream.return(undefined as never).catch(() => undefined);
             for (const chunk of chunks) yield chunk;
+            const partialResult = await persistPartialOnAbort();
+            if (partialResult) return partialResult;
             return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
           }
         }

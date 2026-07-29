@@ -28,7 +28,7 @@ export interface ConnectorContext {
     participantId: string,
     toolName: string,
     args: unknown,
-    opts?: { conversationId?: string },
+    opts?: { conversationId?: string; cancelStream?: (streamId: string) => boolean },
   ): Promise<{ result: ToolResult; conversationId: string }>;
 
   /**

@@ -45,6 +45,7 @@ export async function registerExecuteRoute(
     if (req.query.stream === 'false') {
       const { result, conversationId: convId } = await ctx.callTool(participantId, toolName, args, {
         conversationId: conversationId ?? '',
+        cancelStream: (sid: string) => streamRegistry.cancel(sid),
       });
       return reply.send({ result, conversationId: convId });
     }
