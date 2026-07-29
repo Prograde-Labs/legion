@@ -4,21 +4,28 @@ import type { StreamChunk } from '@legion/types';
 
 let communicateOnChunk: ((chunk: StreamChunk) => void) | undefined;
 let conversationOnChunk: ((chunk: StreamChunk) => void) | undefined;
+let communicateCancel: ReturnType<typeof vi.fn> | undefined;
 const streamDone = ref(false);
 const streamError = ref<string | null>(null);
 const streamResult = ref<unknown>(null);
+const streamActive = ref(false);
 
 vi.mock('./useToolStream.js', () => ({
   useToolStream: vi.fn(
     (name: string, _args: unknown, options?: { onChunk?: (chunk: StreamChunk) => void }) => {
-      if (name === 'communicate') communicateOnChunk = options?.onChunk;
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      if (name === 'communicate') {
+        communicateOnChunk = options?.onChunk;
+        communicateCancel = cancel;
+      }
       if (name === 'watch_conversation') conversationOnChunk = options?.onChunk;
       return {
         start: vi.fn().mockResolvedValue(undefined),
-        cancel: vi.fn().mockResolvedValue(undefined),
+        cancel,
         chunks: ref([]),
         done: streamDone,
         error: streamError,
+        active: streamActive,
         conversationId: ref(null),
         result: streamResult,
       };
@@ -79,9 +86,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   communicateOnChunk = undefined;
   conversationOnChunk = undefined;
+  communicateCancel = undefined;
   streamDone.value = false;
   streamError.value = null;
   streamResult.value = null;
+  streamActive.value = false;
 });
 
 describe('useConversation', () => {
@@ -276,5 +285,32 @@ describe('useConversation', () => {
 
     expect(streamingText.value).toBe('base plus');
     expect(streamingReasoning.value).toBe('why now');
+  });
+
+  it('exposes the communicate stream active state as isStreaming', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { isStreaming } = useConversation(null);
+
+    expect(isStreaming.value).toBe(false);
+    streamActive.value = true;
+    expect(isStreaming.value).toBe(true);
+  });
+
+  it('stop cancels the stream and clears thinking and streaming state', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { send, stop, streamingText, streamingReasoning, isThinking } = useConversation(null);
+
+    await send('agent-1', 'question', 'operator');
+    streamActive.value = true;
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'partial thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'partial answer' });
+    expect(isThinking.value).toBe(true);
+
+    await stop();
+
+    expect(communicateCancel).toHaveBeenCalledTimes(1);
+    expect(streamingText.value).toBe('');
+    expect(streamingReasoning.value).toBe('');
+    expect(isThinking.value).toBe(false);
   });
 });

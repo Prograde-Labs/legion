@@ -38,10 +38,12 @@ const {
   subThreads,
   loading,
   isThinking,
+  isStreaming,
   streamingText,
   streamingReasoning,
   sentConversationId,
   send: sendStream,
+  stop,
   editMessage,
   generate,
   pruneMessage,
@@ -357,6 +359,16 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           @input="autoResize"
         />
         <button
+          v-if="isStreaming"
+          data-stop-button
+          class="px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-red-800 text-white hover:bg-red-700"
+          @click="stop()"
+        >
+          Stop
+        </button>
+        <button
+          v-else
+          data-send-button
           :disabled="!canSend || sending"
           class="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
           :class="

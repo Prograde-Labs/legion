@@ -14,6 +14,7 @@ export interface UseToolStreamReturn<TChunk extends StreamChunk> {
   chunks: Ref<TChunk[]>;
   done: Ref<boolean>;
   error: Ref<string | null>;
+  active: Ref<boolean>;
   conversationId: Ref<string | null>;
   result: Ref<unknown>;
 }
@@ -40,6 +41,7 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
   const chunks = ref<TChunk[]>([]) as Ref<TChunk[]>;
   const done = ref(false);
   const error = ref<string | null>(null);
+  const active = ref(false);
   const conversationId = ref<string | null>(null);
   const result = ref<unknown>(null);
 
@@ -109,12 +111,15 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
       chunks.value.push(typed);
       options.onChunk?.(typed);
     });
+
+    active.value = true;
   }
 
   function cleanup(): void {
     unregister?.();
     unregister = null;
     activeStreamId = null;
+    active.value = false;
   }
 
   async function cancel(): Promise<void> {
@@ -144,5 +149,5 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
     if (options.cancelOnUnmount !== false) void cancel();
   });
 
-  return { start, cancel, chunks, done, error, conversationId, result };
+  return { start, cancel, chunks, done, error, active, conversationId, result };
 }

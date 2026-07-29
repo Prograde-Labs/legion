@@ -7,6 +7,8 @@ const streamState = vi.hoisted(() => ({
   text: '',
   reasoning: '',
   thinking: false,
+  streaming: false,
+  stop: vi.fn(),
 }));
 
 vi.mock('../../composables/useExecute.js', () => ({
@@ -55,11 +57,13 @@ vi.mock('../../composables/useConversation.js', () => ({
     subThreads: ref({}),
     loading: ref(false),
     isThinking: ref(streamState.thinking),
+    isStreaming: ref(streamState.streaming),
     streamingText: ref(streamState.text),
     streamingReasoning: ref(streamState.reasoning),
     sentConversationId: ref(null),
     markSent: vi.fn(),
     send: vi.fn(),
+    stop: streamState.stop,
     editMessage: vi.fn(),
     generate: vi.fn(),
     pruneMessage: vi.fn(),
@@ -73,6 +77,8 @@ describe('ConversationThread', () => {
     streamState.text = '';
     streamState.reasoning = '';
     streamState.thinking = false;
+    streamState.streaming = false;
+    streamState.stop.mockClear();
   });
 
   it('shows persisted assistant reasoning to authorized read-only viewers', () => {
@@ -139,5 +145,50 @@ describe('ConversationThread', () => {
     expect(liveMessage.find('details').exists()).toBe(false);
     expect(liveMessage.find('[data-streaming-answer]').exists()).toBe(false);
     expect(wrapper.find('.flex.items-start.gap-2').exists()).toBe(false);
+  });
+
+  it('shows a stop button instead of send while streaming', () => {
+    streamState.streaming = true;
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.find('[data-stop-button]').exists()).toBe(true);
+    expect(wrapper.find('[data-send-button]').exists()).toBe(false);
+  });
+
+  it('calls stop when the stop button is clicked', async () => {
+    streamState.streaming = true;
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    await wrapper.get('[data-stop-button]').trigger('click');
+
+    expect(streamState.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows send button when not streaming', () => {
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.find('[data-send-button]').exists()).toBe(true);
+    expect(wrapper.find('[data-stop-button]').exists()).toBe(false);
   });
 });
