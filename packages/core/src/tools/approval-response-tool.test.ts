@@ -467,6 +467,43 @@ describe('approval_response tool', () => {
     expect(resume).toHaveBeenCalledOnce();
   });
 
+  it('treats an empty message as equivalent to no message across repeated approvals', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c-empty-msg',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi
+      .fn()
+      .mockResolvedValue({ conversationId: 'c-empty-msg', status: 'success' as const });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: { send: vi.fn(), resume } as unknown as ToolContext['messageRouter'],
+    });
+
+    // First approval sends message: '' (as the web UI does with a blank reason).
+    const first = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve', message: '' }] },
+      context,
+    );
+    // A repeated approval that omits the message must be idempotent, not a conflict.
+    const second = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect((first.data as { results: { outcome: string }[] }).results).toEqual([
+      { approvalId, outcome: 'approve' },
+    ]);
+    expect((second.data as { results: { outcome: string }[] }).results).toEqual([
+      { approvalId, outcome: 'approve' },
+    ]);
+    expect(reg.getDecision(approvalId)).toMatchObject({ approved: true });
+    expect(resume).toHaveBeenCalledOnce();
+  });
+
   it('releases a failed generic resume claim so a later identical decision can retry', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
