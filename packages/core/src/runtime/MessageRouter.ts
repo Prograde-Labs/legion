@@ -653,10 +653,9 @@ export class MessageRouter implements MessageRouterPort {
             partialReasoning += chunk.delta;
           }
         };
-        // On abort with streamed content (and no middleware transformer owning
-        // provisional output), persist the partial response as the reply.
+        // On abort with streamed content, persist the partial response as the reply.
         const persistPartialOnAbort = async (): Promise<MessageRouterResult | undefined> => {
-          if (transformer || (!partialText && !partialReasoning)) return undefined;
+          if (!partialText && !partialReasoning) return undefined;
           const responseRecipientId = opts.replyTo ?? opts.senderId;
           const partialMsg = await thread.append({
             senderId: recipient.id,
@@ -677,9 +676,9 @@ export class MessageRouter implements MessageRouterPort {
           streamFinished = true;
           const chunks = transformer?.abort() ?? [];
           void stream.return(undefined as never).catch(() => undefined);
-          for (const chunk of chunks) yield chunk;
           const partialResult = await persistPartialOnAbort();
           if (partialResult) return partialResult;
+          for (const chunk of chunks) yield chunk;
           return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
         }
         while (!next.done) {
@@ -707,9 +706,9 @@ export class MessageRouter implements MessageRouterPort {
             streamFinished = true;
             const chunks = transformer?.abort() ?? [];
             void stream.return(undefined as never).catch(() => undefined);
-            for (const chunk of chunks) yield chunk;
             const partialResult = await persistPartialOnAbort();
             if (partialResult) return partialResult;
+            for (const chunk of chunks) yield chunk;
             return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
           }
         }

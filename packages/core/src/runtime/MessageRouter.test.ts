@@ -4344,14 +4344,17 @@ describe('MessageRouter: middleware response streaming', () => {
     ).resolves.toMatchObject({ status: 'success' });
   });
 
-  it('retracts emitted provisional output when stream context aborts', async () => {
-    const { router, baseContext, runtimeRegistry, store } = await setupMiddlewareRouter(dir, {
-      type: 'test:router-middleware',
-      displayName: 'Abort retraction',
-      defaultFailureMode: 'closed',
-      configSchema: { type: 'object', additionalProperties: true },
-      hooks: {},
-    });
+  it('persists emitted partial output when a lifecycle stream aborts', async () => {
+    const { router, baseContext, runtimeRegistry, store, eventBus } = await setupMiddlewareRouter(
+      dir,
+      {
+        type: 'test:router-middleware',
+        displayName: 'Abort persistence',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {},
+      },
+    );
     runtimeRegistry.registerFactory('mock', () => ({
       async handle() {
         return { kind: 'void' as const };
@@ -4364,6 +4367,8 @@ describe('MessageRouter: middleware response streaming', () => {
       },
     }));
     const controller = new AbortController();
+    const delivered: string[] = [];
+    eventBus.on('message:delivered', (event) => delivered.push(event.messageId));
     const stream = router.sendStream({
       senderId: 'op',
       recipientId: 'mock-1',
@@ -4376,17 +4381,22 @@ describe('MessageRouter: middleware response streaming', () => {
       done: false,
       value: { type: 'text_delta', delta: 'partial' },
     });
-    const retraction = stream.next();
+    const terminal = stream.next();
     controller.abort();
-    await expect(retraction).resolves.toMatchObject({
-      done: false,
-      value: { type: 'message_snapshot', content: '' },
+    const terminalResult = await terminal;
+    expect(terminalResult).toMatchObject({
+      done: true,
+      value: { status: 'success', response: 'partial' },
     });
-    const terminal = await stream.next();
-    expect(terminal).toMatchObject({ done: true, value: { status: 'error' } });
-    expect(Object.values((await store.load(terminal.value.conversationId))!.messages)).toHaveLength(
-      1,
+    const messages = Object.values(
+      (await store.load(terminalResult.value.conversationId))!.messages,
     );
+    expect(messages).toHaveLength(2);
+    const partial = messages.find((message) => message.role === 'assistant');
+    expect(partial).toMatchObject({
+      content: 'partial',
+    });
+    expect(delivered).toEqual([partial!.id]);
   });
 
   it('blocks late custom-runtime appends after cancellation before releasing its lock', async () => {
