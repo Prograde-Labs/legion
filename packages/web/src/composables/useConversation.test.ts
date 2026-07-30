@@ -313,4 +313,29 @@ describe('useConversation', () => {
     expect(streamingReasoning.value).toBe('');
     expect(isThinking.value).toBe(false);
   });
+
+  it('reloads an existing conversation after stopping its stream', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    executeMock.mockResolvedValueOnce(conversationResponse);
+    const { stop } = useConversation('c1');
+
+    await stop();
+
+    expect(executeMock).toHaveBeenCalledWith('get_conversation', { conversationId: 'c1' });
+  });
+
+  it('exposes the conversation id when a new conversation is cancelled before output', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { sentConversationId } = useConversation(null);
+
+    streamResult.value = {
+      status: 'error',
+      error: 'Runtime cancelled',
+      data: { conversationId: 'conv-cancelled' },
+    };
+    streamDone.value = true;
+    await nextTick();
+
+    expect(sentConversationId.value).toBe('conv-cancelled');
+  });
 });

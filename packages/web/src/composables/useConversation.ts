@@ -182,6 +182,7 @@ export function useConversation(conversationId: string | null) {
 
   async function stop(): Promise<void> {
     await communicateStream.cancel();
+    if (conversationId) await load();
     isThinkingLocal.value = false;
     iterationFired.value = false;
     stoppedLocal.value = true;

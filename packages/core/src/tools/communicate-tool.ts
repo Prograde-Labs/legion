@@ -52,7 +52,11 @@ export const communicateTool: StreamingTool = {
     }
 
     if (result.status === 'error') {
-      return { status: 'error', error: result.error };
+      return {
+        status: 'error',
+        error: result.error,
+        data: { conversationId: result.conversationId },
+      };
     }
     if (result.status === 'pending_approval') {
       return {

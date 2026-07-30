@@ -47,6 +47,8 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
 
   let activeStreamId: string | null = null;
   let unregister: (() => void) | null = null;
+  let streamCompletion: Promise<void> | null = null;
+  let resolveStreamCompletion: (() => void) | null = null;
 
   async function start(): Promise<void> {
     // Cancel any in-flight stream before starting a new one
@@ -94,6 +96,9 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
     const body = (await res.json()) as { streamId: string; conversationId: string };
     activeStreamId = body.streamId;
     conversationId.value = body.conversationId ?? null;
+    streamCompletion = new Promise<void>((resolve) => {
+      resolveStreamCompletion = resolve;
+    });
 
     unregister = ws.onStreamChunk(activeStreamId, (chunk: StreamChunk) => {
       if (chunk.type === 'stream:done') {
@@ -120,15 +125,22 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
     unregister = null;
     activeStreamId = null;
     active.value = false;
+    resolveStreamCompletion?.();
+    resolveStreamCompletion = null;
+    streamCompletion = null;
   }
 
   async function cancel(): Promise<void> {
     const sid = activeStreamId;
-    cleanup();
     if (!sid) return;
+    const completion = streamCompletion;
+    active.value = false;
 
     const token = getToken();
-    if (!token) return;
+    if (!token) {
+      await completion;
+      return;
+    }
 
     // Use buffered mode (?stream=false) so this doesn't itself create a stream.
     try {
@@ -141,8 +153,9 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
         body: JSON.stringify({ tool: 'cancel_stream', args: { streamId: sid } }),
       });
     } catch {
-      // best-effort
+      // The original stream may still complete; keep its terminal handler registered.
     }
+    await completion;
   }
 
   onUnmounted(() => {

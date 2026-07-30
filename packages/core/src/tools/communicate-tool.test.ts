@@ -299,4 +299,33 @@ describe('communicate as StreamingTool', () => {
     expect(result.status).toBe('success');
     expect((result.data as { response: string }).response).toBe('B replies');
   });
+
+  it('preserves the conversation id when a new conversation is cancelled before output', async () => {
+    const { context } = await setup(dir);
+    const cancelledContext = {
+      ...context,
+      messageRouter: {
+        async *sendStream() {
+          return {
+            status: 'error',
+            conversationId: 'conv-cancelled',
+            error: 'Runtime cancelled',
+          } as const;
+        },
+      },
+    } as unknown as ToolContext;
+
+    const result = await communicateTool
+      .stream({ to: 'agent-b', message: 'hi B' }, cancelledContext)
+      .next();
+
+    expect(result).toEqual({
+      done: true,
+      value: {
+        status: 'error',
+        error: 'Runtime cancelled',
+        data: { conversationId: 'conv-cancelled' },
+      },
+    });
+  });
 });
