@@ -9,6 +9,8 @@ const streamDone = ref(false);
 const streamError = ref<string | null>(null);
 const streamResult = ref<unknown>(null);
 const streamActive = ref(false);
+const streamCancelling = ref(false);
+const connectionId = ref<string | null>('conn-1');
 
 vi.mock('./useToolStream.js', () => ({
   useToolStream: vi.fn(
@@ -26,6 +28,7 @@ vi.mock('./useToolStream.js', () => ({
         done: streamDone,
         error: streamError,
         active: streamActive,
+        cancelling: streamCancelling,
         conversationId: ref(null),
         result: streamResult,
       };
@@ -34,7 +37,7 @@ vi.mock('./useToolStream.js', () => ({
 }));
 vi.mock('./useWebSocket.js', () => ({
   useWebSocket: vi.fn(() => ({
-    getConnectionId: vi.fn(() => 'conn-1'),
+    getConnectionId: vi.fn(() => connectionId.value),
     connect: vi.fn(),
     disconnect: vi.fn(),
     onMessage: vi.fn(() => vi.fn()),
@@ -91,6 +94,8 @@ beforeEach(() => {
   streamError.value = null;
   streamResult.value = null;
   streamActive.value = false;
+  streamCancelling.value = false;
+  connectionId.value = 'conn-1';
 });
 
 describe('useConversation', () => {
@@ -294,6 +299,42 @@ describe('useConversation', () => {
     expect(isStreaming.value).toBe(false);
     streamActive.value = true;
     expect(isStreaming.value).toBe(true);
+  });
+
+  it('exposes the communicate stream cancellation state', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { isCancelling } = useConversation(null);
+
+    expect(isCancelling.value).toBe(false);
+    streamCancelling.value = true;
+    expect(isCancelling.value).toBe(true);
+  });
+
+  it('reloads an existing conversation before restarting watchers after reconnect', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { useToolStream } = await import('./useToolStream.js');
+    useConversation('c1');
+    const watcherStarts = vi
+      .mocked(useToolStream)
+      .mock.results.slice(-2)
+      .map((result) => result.value.start);
+    executeMock.mockClear();
+    watcherStarts.forEach((start) => start.mockClear());
+
+    connectionId.value = null;
+    await nextTick();
+    connectionId.value = 'conn-2';
+    await nextTick();
+    await vi.waitFor(() =>
+      expect(watcherStarts.every((start) => start.mock.calls.length > 0)).toBe(true),
+    );
+
+    expect(executeMock).toHaveBeenCalledWith('get_conversation', { conversationId: 'c1' });
+    expect(
+      watcherStarts.every(
+        (start) => start.mock.invocationCallOrder[0] > executeMock.mock.invocationCallOrder[0],
+      ),
+    ).toBe(true);
   });
 
   it('stop cancels the stream and clears thinking and streaming state', async () => {

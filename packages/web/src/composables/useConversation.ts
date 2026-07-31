@@ -179,9 +179,14 @@ export function useConversation(conversationId: string | null) {
   }
 
   const isStreaming = communicateStream.active;
+  const isCancelling = communicateStream.cancelling;
 
   async function stop(): Promise<void> {
-    await communicateStream.cancel();
+    try {
+      await communicateStream.cancel();
+    } catch {
+      return;
+    }
     if (conversationId) await load();
     isThinkingLocal.value = false;
     iterationFired.value = false;
@@ -251,11 +256,14 @@ export function useConversation(conversationId: string | null) {
         }
       },
     });
+    let hasConnected = false;
 
     watch(
       () => ws.getConnectionId(),
       async (id) => {
         if (!id) return;
+        if (hasConnected) await load();
+        hasConnected = true;
         await Promise.all([msgStream.start(), activityStream.start()]);
       },
       { immediate: true },
@@ -273,6 +281,7 @@ export function useConversation(conversationId: string | null) {
     error,
     isThinking,
     isStreaming,
+    isCancelling,
     streamingText,
     streamingReasoning,
     sentConversationId,

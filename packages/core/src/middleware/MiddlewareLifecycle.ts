@@ -68,6 +68,7 @@ export interface ResponseStreamTransformer {
   readonly signal: AbortSignal;
   push(chunk: LLMChunk): Promise<LLMChunk[]>;
   finish(result: RuntimeResult): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult }>;
+  finalizePartial(): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult } | undefined>;
   abort(): LLMChunk[];
   dispose(): void;
 }
@@ -365,10 +366,14 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
   private readonly controller = new AbortController();
   private raw: MessageDraft;
   private emitted: MessageDraft;
+  private approved: MessageDraft;
   private iteration: number | undefined;
   private actions: MiddlewareActionResult[];
   private terminated = false;
   private readonly forwardAbort?: () => void;
+  private partialFinalization?: Promise<
+    { chunks: LLMChunk[]; result: MessageRouterResult } | undefined
+  >;
 
   constructor(
     private readonly lifecycle: MiddlewareLifecycle,
@@ -376,6 +381,7 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
   ) {
     this.raw = this.baseDraft();
     this.emitted = this.baseDraft();
+    this.approved = this.baseDraft();
     this.actions = actionsCopy(input.actions);
     if (input.signal) {
       if (input.signal.aborted) this.controller.abort();
@@ -406,6 +412,7 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
       this.iteration = chunk.iteration;
       this.raw = this.baseDraft();
       this.emitted = this.baseDraft();
+      this.approved = this.baseDraft();
       return [chunk];
     }
     if (chunk.type !== 'text_delta' && chunk.type !== 'reasoning_delta') return [chunk];
@@ -424,11 +431,13 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
       this.iteration,
       chunk,
     );
+    if (this.terminated) return [];
     if (phase.kind !== 'continue') throw this.terminalError(phase);
     this.actions = actionsCopy(phase.actions);
     const next = phase.value;
     const chunks = diffDraft(this.emitted, next);
     this.emitted = structuredClone(next);
+    this.approved = structuredClone(next);
     return chunks;
   }
 
@@ -436,6 +445,8 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
     result: RuntimeResult,
   ): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult }> {
     if (this.terminated || this.controller.signal.aborted) {
+      const partial = await this.finalizePartial();
+      if (partial) return partial;
       throw new MiddlewareStreamError('Middleware response stream aborted', this.retract(), {
         kind: 'error',
         error: 'Middleware response stream aborted',
@@ -459,7 +470,8 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
         { kind: 'error', error: 'Conflicting middleware action ledger' },
       );
     }
-    const phase = await this.lifecycle.runResponseDraft(
+    this.actions = actionsCopy(actions);
+    const phasePromise = this.lifecycle.runResponseDraft(
       this.input,
       {
         ...this.baseDraft(),
@@ -470,11 +482,22 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
       actions,
       this.controller,
     );
+    const phase = await this.unlessAborted(phasePromise, this.controller.signal);
+    if (phase === undefined || this.controller.signal.aborted) {
+      const partial = await this.finalizePartial();
+      if (partial) return partial;
+      throw new MiddlewareStreamError('Middleware response stream aborted', this.retract(), {
+        kind: 'error',
+        error: 'Middleware response stream aborted',
+      });
+    }
     if (phase.kind !== 'continue') throw this.terminalError(phase);
     this.actions = actionsCopy(phase.actions);
     const finalDraft = phase.value;
     const chunks = diffDraft(this.emitted, finalDraft);
     this.emitted = structuredClone(finalDraft);
+    this.approved = structuredClone(finalDraft);
+    const deliveryController = new AbortController();
     const delivered = await this.lifecycle.respond({
       operationId: this.input.operationId,
       sender: this.input.sender,
@@ -482,11 +505,73 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
       thread: this.input.thread,
       draft: finalDraft,
       actions: this.actions,
-      signal: this.controller.signal,
+      signal: deliveryController.signal,
       skipDraftHooks: true,
       ...(result.usage === undefined ? {} : { usage: result.usage }),
     });
     return { chunks, result: delivered };
+  }
+
+  finalizePartial(): Promise<{ chunks: LLMChunk[]; result: MessageRouterResult } | undefined> {
+    this.partialFinalization ??= this.finalizePartialInner();
+    return this.partialFinalization;
+  }
+
+  private async finalizePartialInner(): Promise<
+    { chunks: LLMChunk[]; result: MessageRouterResult } | undefined
+  > {
+    const partial = structuredClone(this.approved);
+    this.terminated = true;
+    this.controller.abort();
+    if (partial.content === '' && partial.reasoning === undefined) return undefined;
+
+    this.emitted = structuredClone(partial);
+    const finalController = new AbortController();
+    const phase = await this.lifecycle.runResponseDraft(
+      this.input,
+      partial,
+      true,
+      this.actions,
+      finalController,
+    );
+    if (phase.kind !== 'continue') throw this.terminalError(phase);
+    this.actions = actionsCopy(phase.actions);
+    const finalDraft = phase.value;
+    const chunks = diffDraft(this.emitted, finalDraft);
+    this.emitted = structuredClone(finalDraft);
+    this.approved = structuredClone(finalDraft);
+    const delivered = await this.lifecycle.respond({
+      operationId: this.input.operationId,
+      sender: this.input.sender,
+      recipient: this.input.recipient,
+      thread: this.input.thread,
+      draft: finalDraft,
+      actions: this.actions,
+      signal: finalController.signal,
+      skipDraftHooks: true,
+    });
+    return { chunks, result: delivered };
+  }
+
+  private async unlessAborted<T>(
+    operation: Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T | undefined> {
+    if (signal.aborted) {
+      void operation.catch(() => undefined);
+      return undefined;
+    }
+    let removeAbort: () => void = () => undefined;
+    const aborted = new Promise<undefined>((resolve) => {
+      const abort = () => resolve(undefined);
+      removeAbort = () => signal.removeEventListener('abort', abort);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      return await Promise.race([operation, aborted]);
+    } finally {
+      removeAbort();
+    }
   }
 
   private baseDraft(): MessageDraft {

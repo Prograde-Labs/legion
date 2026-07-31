@@ -9,6 +9,8 @@ type StreamChunkHandler = (chunk: StreamChunk) => void;
 // Module-level singleton state — one WebSocket for the entire app
 const handlers = new Set<MessageHandler>();
 const streamHandlers = new Map<string, StreamChunkHandler>();
+const pendingStreamChunks: Array<{ streamId: string; chunk: StreamChunk }> = [];
+const MAX_PENDING_STREAM_CHUNKS = 100;
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let backoff = 1000;
@@ -42,7 +44,12 @@ function connect(): void {
     if (msg['type'] === 'stream:chunk') {
       const sid = msg['streamId'] as string;
       const chunk = msg['data'] as StreamChunk;
-      streamHandlers.get(sid)?.(chunk);
+      const handler = streamHandlers.get(sid);
+      if (handler) handler(chunk);
+      else {
+        pendingStreamChunks.push({ streamId: sid, chunk });
+        if (pendingStreamChunks.length > MAX_PENDING_STREAM_CHUNKS) pendingStreamChunks.shift();
+      }
       return;
     }
 
@@ -63,7 +70,15 @@ function connect(): void {
 
   ws.addEventListener('close', (evt) => {
     connectionId.value = null;
+    for (const handler of [...streamHandlers.values()]) {
+      try {
+        handler({ type: 'stream:error', error: 'WebSocket disconnected' });
+      } catch {
+        /* isolate */
+      }
+    }
     streamHandlers.clear();
+    pendingStreamChunks.length = 0;
     if (evt.code === 4401) {
       stoppedByAuth = true;
       const { logout } = useAuth();
@@ -115,7 +130,19 @@ export function useWebSocket() {
     /** Register a handler for chunks of a specific stream. Returns unsubscribe fn. */
     onStreamChunk(streamId: string, handler: StreamChunkHandler): () => void {
       streamHandlers.set(streamId, handler);
-      return () => streamHandlers.delete(streamId);
+      for (let index = 0; index < pendingStreamChunks.length; ) {
+        const pending = pendingStreamChunks[index];
+        if (pending.streamId !== streamId) {
+          index += 1;
+          continue;
+        }
+        pendingStreamChunks.splice(index, 1);
+        handler(pending.chunk);
+        if (streamHandlers.get(streamId) !== handler) break;
+      }
+      return () => {
+        if (streamHandlers.get(streamId) === handler) streamHandlers.delete(streamId);
+      };
     },
     /** Returns the connectionId issued by the server on auth, or null if not connected. */
     getConnectionId(): string | null {

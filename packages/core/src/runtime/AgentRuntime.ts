@@ -286,14 +286,28 @@ export class AgentRuntime implements Runtime {
         parameters: tool.parameters,
       }));
 
+    const unpersistedApprovalIds = new Set<string>();
+    const cancellationResult = async (): Promise<RuntimeResult> => {
+      try {
+        if (unpersistedApprovalIds.size > 0) {
+          await context.pendingApprovalRegistry.discardUnpersisted([...unpersistedApprovalIds]);
+        }
+        unpersistedApprovalIds.clear();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return this.withActions(
+          { kind: 'middleware_abort', error: `Runtime cancellation cleanup failed: ${message}` },
+          actions,
+        );
+      }
+      return this.withActions({ kind: 'middleware_abort', error: 'Runtime cancelled' }, actions);
+    };
+
     try {
       const firstIteration = start.iteration ?? 0;
       for (let i = firstIteration; i < maxIterations; i++) {
         if (context.signal?.aborted) {
-          return this.withActions(
-            { kind: 'middleware_abort', error: 'Runtime cancelled' },
-            actions,
-          );
+          return await cancellationResult();
         }
         await context.conversation.reload();
         let prompt = agent.systemPrompt;
@@ -335,20 +349,14 @@ export class AgentRuntime implements Runtime {
 
         yield { type: 'iteration_start', iteration: i };
         if (context.signal?.aborted) {
-          return this.withActions(
-            { kind: 'middleware_abort', error: 'Runtime cancelled' },
-            actions,
-          );
+          return await cancellationResult();
         }
         const acc = freshAccumulator();
         for await (const chunk of provider.stream(messages, providerTools, agent.model, {
           signal: context.signal,
         })) {
           if (context.signal?.aborted) {
-            return this.withActions(
-              { kind: 'middleware_abort', error: 'Runtime cancelled' },
-              actions,
-            );
+            return await cancellationResult();
           }
           accumulateChunk(acc, chunk);
           if (chunk.type !== 'done') {
@@ -356,10 +364,7 @@ export class AgentRuntime implements Runtime {
           }
         }
         if (context.signal?.aborted) {
-          return this.withActions(
-            { kind: 'middleware_abort', error: 'Runtime cancelled' },
-            actions,
-          );
+          return await cancellationResult();
         }
         const response = accumulatorToResponse(acc);
 
@@ -384,13 +389,11 @@ export class AgentRuntime implements Runtime {
 
         const toolResults: ToolCallResult[] = [];
         const pendingApprovals: PendingApproval[] = [];
+        const approvalEvents: Array<{ approvalId: string; callId: string; tool: string }> = [];
 
         for (const tc of response.toolCalls) {
           if (context.signal?.aborted) {
-            return this.withActions(
-              { kind: 'middleware_abort', error: 'Runtime cancelled' },
-              actions,
-            );
+            return await cancellationResult();
           }
           const authResult = context.authEngine.authorize(
             this.participantId,
@@ -417,32 +420,15 @@ export class AgentRuntime implements Runtime {
               tool: tc.name,
               args: tc.arguments,
             });
+            unpersistedApprovalIds.add(approvalId);
+            if (context.signal?.aborted) return await cancellationResult();
             const pending = context.pendingApprovalRegistry.get(approvalId)!;
             pendingApprovals.push(pending);
+            approvalEvents.push({ approvalId, callId: tc.id, tool: tc.name });
             toolResults.push({
               id: tc.id,
               name: tc.name,
               result: { status: 'pending_approval', approvalId },
-            });
-            // Approval-required tools bypass ToolRegistry — emit events here
-            context.eventBus.emit('tool:call', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              callId: tc.id,
-            });
-            context.eventBus.emit('tool:result', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              callId: tc.id,
-              status: 'pending_approval',
-            });
-            context.eventBus.emit('approval:requested', {
-              conversationId: context.conversationId,
-              participantId: this.participantId,
-              tool: tc.name,
-              approvalId,
             });
             continue;
           }
@@ -457,10 +443,7 @@ export class AgentRuntime implements Runtime {
 
         const usage = await this.computeUsage(providerId, agent, response);
         if (context.signal?.aborted) {
-          return this.withActions(
-            { kind: 'middleware_abort', error: 'Runtime cancelled' },
-            actions,
-          );
+          return await cancellationResult();
         }
         // Persist the tool-call turn to the conversation.
         await context.conversation.append({
@@ -473,6 +456,29 @@ export class AgentRuntime implements Runtime {
           toolResults,
           usage,
         });
+        unpersistedApprovalIds.clear();
+        for (const event of approvalEvents) {
+          // Approval-required tools bypass ToolRegistry, so publish after their turn is durable.
+          context.eventBus.emit('tool:call', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: event.tool,
+            callId: event.callId,
+          });
+          context.eventBus.emit('tool:result', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: event.tool,
+            callId: event.callId,
+            status: 'pending_approval',
+          });
+          context.eventBus.emit('approval:requested', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: event.tool,
+            approvalId: event.approvalId,
+          });
+        }
 
         // If any approvals are pending, return early.
         if (pendingApprovals.length > 0) {
@@ -492,7 +498,7 @@ export class AgentRuntime implements Runtime {
       );
     } catch (err) {
       if (context.signal?.aborted) {
-        return this.withActions({ kind: 'middleware_abort', error: 'Runtime cancelled' }, actions);
+        return await cancellationResult();
       }
       const msg = err instanceof Error ? err.message : String(err);
       return this.withActions(

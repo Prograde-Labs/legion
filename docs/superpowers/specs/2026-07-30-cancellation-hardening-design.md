@@ -60,9 +60,9 @@ errors retain existing behavior and must not be mistaken for user cancellation.
 ## Approval Consistency
 
 `AgentRuntime` will track approval IDs created for the current tool-call turn until that turn is
-persisted. If cancellation occurs before persistence, it will remove those pending records before
-returning `middleware_abort`. Once the tool-call message is persisted, approvals are authoritative
-and are not rolled back.
+persisted. If cancellation occurs before persistence, it will remove those records before returning
+`middleware_abort`, including a decision that raced before its referenced turn became durable. Once
+the tool-call message is persisted, approvals are authoritative and are not rolled back.
 
 Cleanup applies only to records created by that runtime iteration. Existing approvals and approvals
 from other operations are untouched. Cleanup failure returns an explicit runtime error rather than

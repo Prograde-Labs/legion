@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   connectionId: null as string | null,
   token: null as string | null,
   streamChunkHandler: null as ((chunk: { type: string; result?: unknown }) => void) | null,
+  streamChunkHandlers: [] as Array<(chunk: { type: string; result?: unknown }) => void>,
   streamUnregister: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock('./useWebSocket.js', () => ({
     onStreamChunk: vi.fn(
       (_streamId: string, handler: (chunk: { type: string; result?: unknown }) => void) => {
         mocks.streamChunkHandler = handler;
+        mocks.streamChunkHandlers.push(handler);
         return mocks.streamUnregister;
       },
     ),
@@ -29,6 +31,7 @@ beforeEach(() => {
   mocks.connectionId = null;
   mocks.token = null;
   mocks.streamChunkHandler = null;
+  mocks.streamChunkHandlers = [];
   mocks.streamUnregister.mockReset();
 });
 
@@ -80,10 +83,17 @@ describe('useToolStream', () => {
       mocks.streamChunkHandler = null;
       vi.stubGlobal(
         'fetch',
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ streamId: 'stream-1', conversationId: 'c1' }),
-        }),
+        vi.fn().mockImplementation((input: RequestInfo | URL) =>
+          Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve(
+                String(input).includes('stream=false')
+                  ? { result: { status: 'success', data: { cancelled: true } } }
+                  : { streamId: 'stream-1', conversationId: 'c1' },
+              ),
+          }),
+        ),
       );
     });
 
@@ -126,9 +136,12 @@ describe('useToolStream', () => {
 
       const cancellation = stream.cancel();
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      expect(stream.cancelling.value).toBe(true);
+      expect(stream.active.value).toBe(true);
       mocks.streamChunkHandler?.({ type: 'stream:done' });
       await cancellation;
       expect(stream.active.value).toBe(false);
+      expect(stream.cancelling.value).toBe(false);
       wrapper.unmount();
     });
 
@@ -151,7 +164,8 @@ describe('useToolStream', () => {
       });
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
 
-      expect(stream.active.value).toBe(false);
+      expect(stream.active.value).toBe(true);
+      expect(stream.cancelling.value).toBe(true);
       expect(mocks.streamUnregister).not.toHaveBeenCalled();
       expect(cancelSettled).toBe(false);
 
@@ -170,13 +184,13 @@ describe('useToolStream', () => {
       wrapper.unmount();
     });
 
-    it('keeps the stream handler when the cancellation request fails', async () => {
+    it('reports a failed cancellation request while keeping the original stream active', async () => {
       vi.mocked(fetch)
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ streamId: 'stream-1', conversationId: 'c1' }),
         } as Response)
-        .mockResolvedValueOnce({ ok: false } as Response);
+        .mockResolvedValueOnce({ ok: false, status: 500 } as Response);
       const { useToolStream } = await import('./useToolStream.js');
       let stream!: ReturnType<typeof useToolStream>;
       const wrapper = mount(
@@ -189,14 +203,109 @@ describe('useToolStream', () => {
       );
 
       await stream.start();
-      const cancellation = stream.cancel();
-      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      await expect(stream.cancel()).rejects.toThrow('Cancel failed: 500');
 
       expect(mocks.streamUnregister).not.toHaveBeenCalled();
-      mocks.streamChunkHandler?.({ type: 'stream:done', result: { status: 'success' } });
-      await cancellation;
+      expect(stream.active.value).toBe(true);
+      expect(stream.cancelling.value).toBe(false);
+      expect(stream.error.value).toBe('Cancel failed: 500');
+      wrapper.unmount();
+    });
 
-      expect(mocks.streamUnregister).toHaveBeenCalledTimes(1);
+    it('reports a logical cancellation error while keeping the original stream active', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ streamId: 'stream-1', conversationId: 'c1' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ result: { status: 'error', error: 'Not found' } }),
+        } as Response);
+      const { useToolStream } = await import('./useToolStream.js');
+      let stream!: ReturnType<typeof useToolStream>;
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            stream = useToolStream('communicate');
+            return () => null;
+          },
+        }),
+      );
+
+      await stream.start();
+      await expect(stream.cancel()).rejects.toThrow('Cancel failed: Not found');
+
+      expect(stream.active.value).toBe(true);
+      expect(stream.cancelling.value).toBe(false);
+      expect(mocks.streamUnregister).not.toHaveBeenCalled();
+      wrapper.unmount();
+    });
+
+    it('accepts an already-complete result when the terminal arrived first', async () => {
+      let resolveCancellation!: (response: Response) => void;
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ streamId: 'stream-1', conversationId: 'c1' }),
+        } as Response)
+        .mockReturnValueOnce(
+          new Promise<Response>((resolve) => {
+            resolveCancellation = resolve;
+          }),
+        );
+      const { useToolStream } = await import('./useToolStream.js');
+      let stream!: ReturnType<typeof useToolStream>;
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            stream = useToolStream('communicate');
+            return () => null;
+          },
+        }),
+      );
+      await stream.start();
+
+      const cancellation = stream.cancel();
+      mocks.streamChunkHandler?.({ type: 'stream:done', result: { status: 'success' } });
+      resolveCancellation({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            result: { status: 'error', error: 'Stream not found or already complete' },
+          }),
+      } as Response);
+
+      await expect(cancellation).resolves.toBeUndefined();
+      expect(stream.done.value).toBe(true);
+      expect(stream.error.value).toBeNull();
+      wrapper.unmount();
+    });
+
+    it('ignores a stale terminal handler after a new stream starts', async () => {
+      const { useToolStream } = await import('./useToolStream.js');
+      let stream!: ReturnType<typeof useToolStream>;
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            stream = useToolStream('communicate');
+            return () => null;
+          },
+        }),
+      );
+
+      await stream.start();
+      const firstHandler = mocks.streamChunkHandlers[0];
+      const cancellation = stream.cancel();
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+      firstHandler({ type: 'stream:done', result: { status: 'success' } });
+      await cancellation;
+      await stream.start();
+
+      firstHandler({ type: 'stream:error', error: 'stale' } as never);
+
+      expect(stream.active.value).toBe(true);
+      expect(stream.error.value).toBeNull();
       wrapper.unmount();
     });
 
