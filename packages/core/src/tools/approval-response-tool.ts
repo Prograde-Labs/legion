@@ -59,7 +59,11 @@ export const approvalResponseTool: Tool = {
     const toResume = new Map<string, { conversationId: string; requesterId: string }>();
     const seen = new Set<string>();
 
-    for (const { approvalId, decision, message } of decisions) {
+    for (const { approvalId, decision, message: rawMessage } of decisions) {
+      // Treat an empty reason the same as no reason so that callers which
+      // send `message: ''` (e.g. the web UI) are idempotent with callers that
+      // omit the field entirely.
+      const message = rawMessage === '' ? undefined : rawMessage;
       if (seen.has(approvalId)) {
         results.push({ approvalId, outcome: 'duplicate' });
         continue;
@@ -89,7 +93,7 @@ export const approvalResponseTool: Tool = {
       const approvalDecision: ApprovalDecision = {
         approved: decision === 'approve',
         decidedByParticipantId: context.participant.id,
-        message,
+        ...(message === undefined ? {} : { message }),
         decidedAt: new Date().toISOString(),
       };
 
