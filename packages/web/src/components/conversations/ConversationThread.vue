@@ -37,11 +37,15 @@ const {
   messages,
   subThreads,
   loading,
+  error,
   isThinking,
+  isStreaming,
+  isCancelling,
   streamingText,
   streamingReasoning,
   sentConversationId,
   send: sendStream,
+  stop,
   editMessage,
   generate,
   pruneMessage,
@@ -126,7 +130,8 @@ const canSend = computed(
 );
 
 async function send(targetId: string) {
-  if (!canSend.value || sending.value || !targetId) return;
+  if (!canSend.value || sending.value || isStreaming.value || isCancelling.value || !targetId)
+    return;
   sending.value = true;
   const text = composerText.value.trim();
   composerText.value = '';
@@ -357,6 +362,17 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           @input="autoResize"
         />
         <button
+          v-if="isStreaming || isCancelling"
+          data-stop-button
+          :disabled="isCancelling"
+          class="px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-red-800 text-white hover:bg-red-700"
+          @click="stop()"
+        >
+          Stop
+        </button>
+        <button
+          v-else
+          data-send-button
           :disabled="!canSend || sending"
           class="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
           :class="
@@ -369,6 +385,7 @@ function subThreadForToolCall(toolCallId: string): ToolCallEntry | null {
           Send
         </button>
       </div>
+      <div v-if="error" data-composer-error class="mt-1 text-xs text-red-400">{{ error }}</div>
       <div class="text-xs text-slate-700 mt-1">Enter to send · Shift+Enter for new line</div>
     </div>
 

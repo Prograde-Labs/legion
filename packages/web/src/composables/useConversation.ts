@@ -33,12 +33,14 @@ export function useConversation(conversationId: string | null) {
   const error = ref<string | null>(null);
   const isThinkingLocal = ref(false); // set when user sends in this tab
   const iterationFired = ref(false); // set when iteration event arrives
+  const stoppedLocal = ref(false); // set when user stops the run in this tab
   const streamingText = ref('');
   const streamingReasoning = ref('');
   const sentConversationId = ref<string | null>(null);
   let loadSeq = 0; // prevents stale concurrent load() responses from overwriting newer data
 
   const isThinking = computed(() => {
+    if (stoppedLocal.value) return false;
     if (isThinkingLocal.value || iterationFired.value) return true;
     if (error.value) return false;
     // Indeterminate: last message is user with no assistant reply
@@ -71,6 +73,7 @@ export function useConversation(conversationId: string | null) {
   function markSent() {
     error.value = null;
     isThinkingLocal.value = true;
+    stoppedLocal.value = false;
   }
 
   async function editMessage(messageId: string, newContent: string): Promise<string> {
@@ -175,6 +178,23 @@ export function useConversation(conversationId: string | null) {
     return conversationId;
   }
 
+  const isStreaming = communicateStream.active;
+  const isCancelling = communicateStream.cancelling;
+
+  async function stop(): Promise<void> {
+    try {
+      await communicateStream.cancel();
+    } catch {
+      return;
+    }
+    if (conversationId) await load();
+    isThinkingLocal.value = false;
+    iterationFired.value = false;
+    stoppedLocal.value = true;
+    streamingText.value = '';
+    streamingReasoning.value = '';
+  }
+
   watch(
     () => communicateStream.done.value,
     (done) => {
@@ -236,11 +256,14 @@ export function useConversation(conversationId: string | null) {
         }
       },
     });
+    let hasConnected = false;
 
     watch(
       () => ws.getConnectionId(),
       async (id) => {
         if (!id) return;
+        if (hasConnected) await load();
+        hasConnected = true;
         await Promise.all([msgStream.start(), activityStream.start()]);
       },
       { immediate: true },
@@ -257,12 +280,15 @@ export function useConversation(conversationId: string | null) {
     loading,
     error,
     isThinking,
+    isStreaming,
+    isCancelling,
     streamingText,
     streamingReasoning,
     sentConversationId,
     load,
     markSent,
     send,
+    stop,
     editMessage,
     generate,
     pruneMessage,

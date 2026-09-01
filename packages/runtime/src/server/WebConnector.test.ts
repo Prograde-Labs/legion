@@ -199,6 +199,30 @@ describe('WebConnector: POST /api/execute', () => {
     await connector.stop();
   });
 
+  it('passes a cancelStream callback to buffered tool calls', async () => {
+    const { connector, ctx } = await makeConnector();
+    const loginRes = await inject(connector, {
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { name: 'Operator', password: 'hunter2' },
+    });
+    const { token } = JSON.parse(loginRes.body) as { token: string };
+    const res = await inject(connector, {
+      method: 'POST',
+      url: '/api/execute?stream=false',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { tool: 'cancel_stream', args: { streamId: 'sid-1' } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(ctx.callTool).toHaveBeenCalledWith(
+      'op-1',
+      'cancel_stream',
+      { streamId: 'sid-1' },
+      expect.objectContaining({ cancelStream: expect.any(Function) }),
+    );
+    await connector.stop();
+  });
+
   it('returns 400 when tool name is missing', async () => {
     const { connector } = await makeConnector();
     const loginRes = await inject(connector, {

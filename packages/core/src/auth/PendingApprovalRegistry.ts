@@ -1886,6 +1886,13 @@ export class PendingApprovalRegistry {
       .map((record) => cloneJsonSafe(record, '$.pending'));
   }
 
+  async discardUnpersisted(approvalIds: readonly string[]): Promise<void> {
+    const ids = [...new Set(approvalIds)];
+    await this.mutate((data) => {
+      for (const approvalId of ids) delete data.records[approvalId];
+    });
+  }
+
   async resolve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     if (!this.data.records[approvalId]) {
       throw new LegionError(`Unknown approval request: ${approvalId}`, 'APPROVAL_NOT_FOUND');

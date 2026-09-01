@@ -3804,6 +3804,90 @@ describe('MessageRouter.sendStream()', () => {
     expect(conversation?.parentToolCallId).toBeUndefined();
   });
 
+  it('persists the partial assistant message when the stream is aborted mid-response', async () => {
+    const { baseContext, store, eventBus, collective } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream(_incoming: unknown, context: { signal: AbortSignal }) {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'reasoning_delta', delta: 'thinking ' } as const;
+        yield { type: 'text_delta', delta: 'partial ' } as const;
+        yield { type: 'text_delta', delta: 'answer' } as const;
+        await new Promise<void>((resolve) => context.signal.addEventListener('abort', resolve));
+        return { kind: 'response' as const, content: 'must not win' };
+      },
+    }));
+    const plainRouter = new MessageRouter(store, registry, collective, eventBus);
+    const controller = new AbortController();
+    const delivered: string[] = [];
+    eventBus.on('message:delivered', (event) => delivered.push(event.messageId));
+
+    const stream = plainRouter.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'abort me',
+      context: { ...baseContext, signal: controller.signal },
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const chunk = await stream.next();
+      expect(chunk.done).toBe(false);
+    }
+    const terminal = stream.next();
+    controller.abort();
+    let terminalResult = await terminal;
+    while (!terminalResult.done) terminalResult = await stream.next();
+
+    expect(terminalResult).toMatchObject({
+      done: true,
+      value: { status: 'success', response: 'partial answer' },
+    });
+
+    const conv = await store.load(terminalResult.value.conversationId);
+    const messages = Object.values(conv!.messages);
+    const partial = messages.find((m) => m.role === 'assistant');
+    expect(partial).toBeDefined();
+    expect(partial!.content).toBe('partial answer');
+    expect(partial!.reasoning).toBe('thinking ');
+    expect(delivered).toContain(partial!.id);
+  });
+
+  it('keeps the error terminal when aborted before any content streamed', async () => {
+    const { baseContext, store, eventBus, collective } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream(_incoming: unknown, context: { signal: AbortSignal }) {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        await new Promise<void>((resolve) => context.signal.addEventListener('abort', resolve));
+        return { kind: 'response' as const, content: 'must not persist' };
+      },
+    }));
+    const plainRouter = new MessageRouter(store, registry, collective, eventBus);
+    const controller = new AbortController();
+
+    const stream = plainRouter.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'abort early',
+      context: { ...baseContext, signal: controller.signal },
+    });
+
+    await stream.next();
+    const terminal = stream.next();
+    controller.abort();
+    const terminalResult = await terminal;
+
+    expect(terminalResult).toMatchObject({ done: true, value: { status: 'error' } });
+    const conv = await store.load(terminalResult.value.conversationId);
+    expect(Object.values(conv!.messages)).toHaveLength(1);
+  });
+
   it('preserves origin and links when a streamed conversation id falls back to creation', async () => {
     const { router, baseContext, store } = await setup(dir);
     const parent = await store.create({
@@ -4261,13 +4345,85 @@ describe('MessageRouter: middleware response streaming', () => {
     ).resolves.toMatchObject({ status: 'success' });
   });
 
-  it('retracts emitted provisional output when stream context aborts', async () => {
+  it('persists emitted partial output when a lifecycle stream aborts', async () => {
+    let finalCalls = 0;
+    const { router, baseContext, runtimeRegistry, store, eventBus } = await setupMiddlewareRouter(
+      dir,
+      {
+        type: 'test:router-middleware',
+        displayName: 'Abort persistence',
+        defaultFailureMode: 'closed',
+        configSchema: { type: 'object', additionalProperties: true },
+        hooks: {
+          beforeSend: (context) => {
+            if (context.message.role !== 'assistant' || !context.final) return { kind: 'continue' };
+            finalCalls += 1;
+            return {
+              kind: 'continue',
+              message: { ...context.message, content: `${context.message.content} finalized` },
+            };
+          },
+        },
+      },
+    );
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream(_incoming, context) {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'text_delta', delta: 'partial' } as const;
+        await new Promise<void>((resolve) => context.signal.addEventListener('abort', resolve));
+        return { kind: 'response' as const, content: 'must not persist' };
+      },
+    }));
+    const controller = new AbortController();
+    const delivered: string[] = [];
+    eventBus.on('message:delivered', (event) => delivered.push(event.messageId));
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'abort',
+      context: { ...baseContext, signal: controller.signal },
+    });
+
+    await stream.next();
+    await expect(stream.next()).resolves.toMatchObject({
+      done: false,
+      value: { type: 'text_delta', delta: 'partial' },
+    });
+    const terminal = stream.next();
+    controller.abort();
+    let terminalResult = await terminal;
+    while (!terminalResult.done) terminalResult = await stream.next();
+    expect(terminalResult).toMatchObject({
+      done: true,
+      value: { status: 'success', response: 'partial finalized' },
+    });
+    const messages = Object.values(
+      (await store.load(terminalResult.value.conversationId))!.messages,
+    );
+    expect(messages).toHaveLength(2);
+    const partial = messages.find((message) => message.role === 'assistant');
+    expect(partial).toMatchObject({
+      content: 'partial finalized',
+    });
+    expect(finalCalls).toBe(1);
+    expect(delivered).toEqual([partial!.id]);
+  });
+
+  it('keeps final middleware rejection authoritative when a stream aborts', async () => {
     const { router, baseContext, runtimeRegistry, store } = await setupMiddlewareRouter(dir, {
       type: 'test:router-middleware',
-      displayName: 'Abort retraction',
+      displayName: 'Abort rejection',
       defaultFailureMode: 'closed',
       configSchema: { type: 'object', additionalProperties: true },
-      hooks: {},
+      hooks: {
+        beforeSend: (context) =>
+          context.message.role === 'assistant' && context.final
+            ? { kind: 'reject', error: 'partial rejected' }
+            : { kind: 'continue' },
+      },
     });
     runtimeRegistry.registerFactory('mock', () => ({
       async handle() {
@@ -4287,23 +4443,150 @@ describe('MessageRouter: middleware response streaming', () => {
       message: 'abort',
       context: { ...baseContext, signal: controller.signal },
     });
-
     await stream.next();
-    await expect(stream.next()).resolves.toMatchObject({
-      done: false,
-      value: { type: 'text_delta', delta: 'partial' },
-    });
-    const retraction = stream.next();
+    await stream.next();
+
+    const terminal = stream.next();
     controller.abort();
-    await expect(retraction).resolves.toMatchObject({
-      done: false,
-      value: { type: 'message_snapshot', content: '' },
+
+    let result = await terminal;
+    while (!result.done) result = await stream.next();
+    expect(result).toMatchObject({
+      done: true,
+      value: { status: 'error', error: 'partial rejected' },
     });
-    const terminal = await stream.next();
-    expect(terminal).toMatchObject({ done: true, value: { status: 'error' } });
-    expect(Object.values((await store.load(terminal.value.conversationId))!.messages)).toHaveLength(
+    expect(Object.values((await store.load(result.value.conversationId))!.messages)).toHaveLength(
       1,
     );
+  });
+
+  it('finalizes the last emitted draft when cancellation interrupts a blocked push', async () => {
+    const { router, baseContext, runtimeRegistry, store } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Blocked provisional hook',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          if (
+            context.message.role === 'assistant' &&
+            !context.final &&
+            context.message.content === 'approved blocked'
+          ) {
+            return new Promise(() => undefined);
+          }
+          return context.message.role === 'assistant' && context.final
+            ? {
+                kind: 'continue',
+                message: { ...context.message, content: `${context.message.content} finalized` },
+              }
+            : { kind: 'continue' };
+        },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream() {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'text_delta', delta: 'approved' } as const;
+        yield { type: 'text_delta', delta: ' blocked' } as const;
+        return { kind: 'response' as const, content: 'approved blocked' };
+      },
+    }));
+    const controller = new AbortController();
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'abort push',
+      context: { ...baseContext, signal: controller.signal },
+    });
+    await stream.next();
+    await stream.next();
+    const terminal = stream.next();
+    controller.abort();
+
+    let result = await terminal;
+    while (!result.done) result = await stream.next();
+    expect(result).toMatchObject({
+      done: true,
+      value: { status: 'success', response: 'approved finalized' },
+    });
+    const response = Object.values((await store.load(result.value.conversationId))!.messages).find(
+      (message) => message.role === 'assistant',
+    );
+    expect(response?.content).toBe('approved finalized');
+  });
+
+  it('restarts final middleware with the emitted draft when cancellation interrupts finish', async () => {
+    let finalCalls = 0;
+    const finalActions: string[][] = [];
+    const { router, baseContext, runtimeRegistry, store } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Blocked final hook',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        beforeSend: (context) => {
+          if (context.message.role !== 'assistant' || !context.final) return { kind: 'continue' };
+          finalCalls += 1;
+          finalActions.push(context.actions.map((action) => action.requestId));
+          if (finalCalls === 1) return new Promise(() => undefined);
+          return {
+            kind: 'continue',
+            message: { ...context.message, content: `${context.message.content} finalized` },
+          };
+        },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'void' as const };
+      },
+      async *handleStream() {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'text_delta', delta: 'complete' } as const;
+        return {
+          kind: 'response' as const,
+          content: 'complete',
+          actions: [
+            {
+              requestId: 'runtime',
+              participantId: 'mock-1',
+              instanceId: 'runtime',
+              tool: 'runtime_tool',
+              status: 'success' as const,
+              result: { status: 'success' as const, data: 'done' },
+            },
+          ],
+        };
+      },
+    }));
+    const controller = new AbortController();
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'abort finish',
+      context: { ...baseContext, signal: controller.signal },
+    });
+    await stream.next();
+    await stream.next();
+    const terminal = stream.next();
+    await vi.waitFor(() => expect(finalCalls).toBe(1));
+    controller.abort();
+
+    let result = await terminal;
+    while (!result.done) result = await stream.next();
+    expect(result).toMatchObject({
+      done: true,
+      value: { status: 'success', response: 'complete finalized' },
+    });
+    const response = Object.values((await store.load(result.value.conversationId))!.messages).find(
+      (message) => message.role === 'assistant',
+    );
+    expect(response?.content).toBe('complete finalized');
+    expect(finalActions).toEqual([['runtime'], ['runtime']]);
   });
 
   it('blocks late custom-runtime appends after cancellation before releasing its lock', async () => {

@@ -141,6 +141,27 @@ export class MessageRouter implements MessageRouterPort {
     }
   }
 
+  private async unlessAborted<T>(
+    operation: Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T | undefined> {
+    if (signal.aborted) {
+      void operation.catch(() => undefined);
+      return undefined;
+    }
+    let removeAbort: () => void = () => undefined;
+    const aborted = new Promise<undefined>((resolve) => {
+      const abort = () => resolve(undefined);
+      removeAbort = () => signal.removeEventListener('abort', abort);
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      return await Promise.race([operation, aborted]);
+    } finally {
+      removeAbort();
+    }
+  }
+
   private async getThread(
     conversationId?: string,
     creation?: {
@@ -635,19 +656,96 @@ export class MessageRouter implements MessageRouterPort {
       if (runtime.handleStream) {
         const stream = runtime.handleStream(inbound, runtimeContext);
         runtimeStream = stream;
+        // Track streamed assistant content so a user abort can persist the
+        // partial response instead of discarding it. Mirrors the AgentRuntime
+        // accumulator: iteration boundaries reset, snapshots replace.
+        let partialText = '';
+        let partialReasoning = '';
+        const trackPartial = (chunk: LLMChunk) => {
+          if (chunk.type === 'iteration_start') {
+            partialText = '';
+            partialReasoning = '';
+          } else if (chunk.type === 'message_snapshot') {
+            partialText = chunk.content;
+            partialReasoning = chunk.reasoning ?? '';
+          } else if (chunk.type === 'text_delta') {
+            partialText += chunk.delta;
+          } else if (chunk.type === 'reasoning_delta') {
+            partialReasoning += chunk.delta;
+          }
+        };
+        // On abort with streamed content, persist the partial response as the reply.
+        const persistPartialOnAbort = async (): Promise<MessageRouterResult | undefined> => {
+          if (!partialText && !partialReasoning) return undefined;
+          const responseRecipientId = opts.replyTo ?? opts.senderId;
+          const partialMsg = await thread.append({
+            senderId: recipient.id,
+            recipientId: responseRecipientId,
+            role: 'assistant',
+            content: partialText,
+            ...(partialReasoning ? { reasoning: partialReasoning } : {}),
+          });
+          this.eventBus.emit('message:delivered', {
+            conversationId: thread.id,
+            recipientId: responseRecipientId,
+            messageId: partialMsg.id,
+          });
+          return { conversationId: thread.id, response: partialText, status: 'success' };
+        };
+        const finalizeCancellation = async (): Promise<{
+          chunks: LLMChunk[];
+          result: MessageRouterResult;
+        }> => {
+          streamFinished = true;
+          void stream.return(undefined as never).catch(() => undefined);
+          if (transformer) {
+            try {
+              const finalized = await transformer.finalizePartial();
+              if (finalized) return finalized;
+            } catch (error) {
+              if (error instanceof MiddlewareStreamError) {
+                return {
+                  chunks: error.chunks,
+                  result: this.mapLifecycleResult(error.lifecycleResult, thread.id, opts.context),
+                };
+              }
+              throw error;
+            }
+          } else {
+            const partialResult = await persistPartialOnAbort();
+            if (partialResult) return { chunks: [], result: partialResult };
+          }
+          return {
+            chunks: [],
+            result: { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' },
+          };
+        };
         let next = await this.nextStreamResult(stream, streamAbort.signal);
         if (next === undefined) {
-          streamFinished = true;
-          const chunks = transformer?.abort() ?? [];
-          void stream.return(undefined as never).catch(() => undefined);
-          for (const chunk of chunks) yield chunk;
-          return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+          const cancelled = await finalizeCancellation();
+          for (const chunk of cancelled.chunks) yield chunk;
+          return cancelled.result;
         }
         while (!next.done) {
           try {
-            const chunks = transformer ? await transformer.push(next.value) : [next.value];
-            for (const chunk of chunks) yield chunk;
+            const chunks = transformer
+              ? await this.unlessAborted(transformer.push(next.value), streamAbort.signal)
+              : [next.value];
+            if (chunks === undefined) {
+              const cancelled = await finalizeCancellation();
+              for (const chunk of cancelled.chunks) yield chunk;
+              return cancelled.result;
+            }
+            for (const chunk of chunks) {
+              trackPartial(chunk);
+              yield chunk;
+            }
           } catch (error) {
+            if (streamAbort.signal.aborted) {
+              const cancelled = await finalizeCancellation();
+              for (const chunk of cancelled.chunks) yield chunk;
+              return cancelled.result;
+            }
             if (error instanceof MiddlewareStreamError) {
               try {
                 await stream.return(undefined as never);
@@ -662,11 +760,9 @@ export class MessageRouter implements MessageRouterPort {
           }
           next = await this.nextStreamResult(stream, streamAbort.signal);
           if (next === undefined) {
-            streamFinished = true;
-            const chunks = transformer?.abort() ?? [];
-            void stream.return(undefined as never).catch(() => undefined);
-            for (const chunk of chunks) yield chunk;
-            return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+            const cancelled = await finalizeCancellation();
+            for (const chunk of cancelled.chunks) yield chunk;
+            return cancelled.result;
           }
         }
         const result = next.value;

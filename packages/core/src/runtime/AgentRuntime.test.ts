@@ -794,6 +794,73 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     expect(toolTurn?.toolResults?.[0].result.approvalId).toMatch(/^appr-/);
   });
 
+  it('discards approval created by a cancelled unpersisted tool turn', async () => {
+    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
+    const controller = new AbortController();
+    context.signal = controller.signal;
+    const create = pendingApprovalRegistry.create.bind(pendingApprovalRegistry);
+    vi.spyOn(pendingApprovalRegistry, 'create').mockImplementation(async (input, seed) => {
+      const created = await create(input, seed);
+      await pendingApprovalRegistry.resolve(created.approvalId, {
+        approved: true,
+        decidedByParticipantId: 'operator',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+      });
+      controller.abort();
+      return created;
+    });
+
+    const result = await runtime.handle(incoming, context);
+
+    expect(result).toMatchObject({ kind: 'middleware_abort', error: 'Runtime cancelled' });
+    expect(pendingApprovalRegistry.listPending()).toEqual([]);
+    expect(thread.activeChain).toHaveLength(0);
+  });
+
+  it('retains approval after its tool turn persists even if cancellation follows append', async () => {
+    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
+    const controller = new AbortController();
+    context.signal = controller.signal;
+    const append = thread.append.bind(thread);
+    vi.spyOn(thread, 'append').mockImplementation(async (...args) => {
+      const stored = await append(...args);
+      controller.abort();
+      return stored;
+    });
+
+    const result = await runtime.handle(incoming, context);
+
+    expect(result.kind).toBe('pending_approval');
+    expect(pendingApprovalRegistry.listPending()).toHaveLength(1);
+    expect(thread.activeChain).toHaveLength(1);
+  });
+
+  it('reports cleanup failure instead of silently orphaning approval', async () => {
+    const { runtime, incoming, context, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
+    const controller = new AbortController();
+    context.signal = controller.signal;
+    const create = pendingApprovalRegistry.create.bind(pendingApprovalRegistry);
+    vi.spyOn(pendingApprovalRegistry, 'create').mockImplementation(async (input, seed) => {
+      const created = await create(input, seed);
+      controller.abort();
+      return created;
+    });
+    vi.spyOn(pendingApprovalRegistry, 'discardUnpersisted').mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+
+    const result = await runtime.handle(incoming, context);
+
+    expect(result).toMatchObject({
+      kind: 'middleware_abort',
+      error: 'Runtime cancellation cleanup failed: storage unavailable',
+    });
+    expect(pendingApprovalRegistry.listPending()).toHaveLength(1);
+  });
+
   it('resumes and completes after approval is granted', async () => {
     const { runtime, incoming, context, thread, pendingApprovalRegistry } =
       await setupApprovalScenario(dir);

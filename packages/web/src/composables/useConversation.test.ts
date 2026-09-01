@@ -4,21 +4,31 @@ import type { StreamChunk } from '@legion/types';
 
 let communicateOnChunk: ((chunk: StreamChunk) => void) | undefined;
 let conversationOnChunk: ((chunk: StreamChunk) => void) | undefined;
+let communicateCancel: ReturnType<typeof vi.fn> | undefined;
 const streamDone = ref(false);
 const streamError = ref<string | null>(null);
 const streamResult = ref<unknown>(null);
+const streamActive = ref(false);
+const streamCancelling = ref(false);
+const connectionId = ref<string | null>('conn-1');
 
 vi.mock('./useToolStream.js', () => ({
   useToolStream: vi.fn(
     (name: string, _args: unknown, options?: { onChunk?: (chunk: StreamChunk) => void }) => {
-      if (name === 'communicate') communicateOnChunk = options?.onChunk;
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      if (name === 'communicate') {
+        communicateOnChunk = options?.onChunk;
+        communicateCancel = cancel;
+      }
       if (name === 'watch_conversation') conversationOnChunk = options?.onChunk;
       return {
         start: vi.fn().mockResolvedValue(undefined),
-        cancel: vi.fn().mockResolvedValue(undefined),
+        cancel,
         chunks: ref([]),
         done: streamDone,
         error: streamError,
+        active: streamActive,
+        cancelling: streamCancelling,
         conversationId: ref(null),
         result: streamResult,
       };
@@ -27,7 +37,7 @@ vi.mock('./useToolStream.js', () => ({
 }));
 vi.mock('./useWebSocket.js', () => ({
   useWebSocket: vi.fn(() => ({
-    getConnectionId: vi.fn(() => 'conn-1'),
+    getConnectionId: vi.fn(() => connectionId.value),
     connect: vi.fn(),
     disconnect: vi.fn(),
     onMessage: vi.fn(() => vi.fn()),
@@ -79,9 +89,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   communicateOnChunk = undefined;
   conversationOnChunk = undefined;
+  communicateCancel = undefined;
   streamDone.value = false;
   streamError.value = null;
   streamResult.value = null;
+  streamActive.value = false;
+  streamCancelling.value = false;
+  connectionId.value = 'conn-1';
 });
 
 describe('useConversation', () => {
@@ -276,5 +290,93 @@ describe('useConversation', () => {
 
     expect(streamingText.value).toBe('base plus');
     expect(streamingReasoning.value).toBe('why now');
+  });
+
+  it('exposes the communicate stream active state as isStreaming', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { isStreaming } = useConversation(null);
+
+    expect(isStreaming.value).toBe(false);
+    streamActive.value = true;
+    expect(isStreaming.value).toBe(true);
+  });
+
+  it('exposes the communicate stream cancellation state', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { isCancelling } = useConversation(null);
+
+    expect(isCancelling.value).toBe(false);
+    streamCancelling.value = true;
+    expect(isCancelling.value).toBe(true);
+  });
+
+  it('reloads an existing conversation before restarting watchers after reconnect', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { useToolStream } = await import('./useToolStream.js');
+    useConversation('c1');
+    const watcherStarts = vi
+      .mocked(useToolStream)
+      .mock.results.slice(-2)
+      .map((result) => result.value.start);
+    executeMock.mockClear();
+    watcherStarts.forEach((start) => start.mockClear());
+
+    connectionId.value = null;
+    await nextTick();
+    connectionId.value = 'conn-2';
+    await nextTick();
+    await vi.waitFor(() =>
+      expect(watcherStarts.every((start) => start.mock.calls.length > 0)).toBe(true),
+    );
+
+    expect(executeMock).toHaveBeenCalledWith('get_conversation', { conversationId: 'c1' });
+    expect(
+      watcherStarts.every(
+        (start) => start.mock.invocationCallOrder[0] > executeMock.mock.invocationCallOrder[0],
+      ),
+    ).toBe(true);
+  });
+
+  it('stop cancels the stream and clears thinking and streaming state', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { send, stop, streamingText, streamingReasoning, isThinking } = useConversation(null);
+
+    await send('agent-1', 'question', 'operator');
+    streamActive.value = true;
+    communicateOnChunk?.({ type: 'reasoning_delta', delta: 'partial thought' });
+    communicateOnChunk?.({ type: 'text_delta', delta: 'partial answer' });
+    expect(isThinking.value).toBe(true);
+
+    await stop();
+
+    expect(communicateCancel).toHaveBeenCalledTimes(1);
+    expect(streamingText.value).toBe('');
+    expect(streamingReasoning.value).toBe('');
+    expect(isThinking.value).toBe(false);
+  });
+
+  it('reloads an existing conversation after stopping its stream', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    executeMock.mockResolvedValueOnce(conversationResponse);
+    const { stop } = useConversation('c1');
+
+    await stop();
+
+    expect(executeMock).toHaveBeenCalledWith('get_conversation', { conversationId: 'c1' });
+  });
+
+  it('exposes the conversation id when a new conversation is cancelled before output', async () => {
+    const { useConversation } = await import('./useConversation.js');
+    const { sentConversationId } = useConversation(null);
+
+    streamResult.value = {
+      status: 'error',
+      error: 'Runtime cancelled',
+      data: { conversationId: 'conv-cancelled' },
+    };
+    streamDone.value = true;
+    await nextTick();
+
+    expect(sentConversationId.value).toBe('conv-cancelled');
   });
 });

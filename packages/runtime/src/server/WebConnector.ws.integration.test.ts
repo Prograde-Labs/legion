@@ -54,7 +54,7 @@ async function setup(port: number) {
   };
 
   await connector.start(ctx);
-  return { connector, eventBus };
+  return { connector, eventBus, ctx };
 }
 
 describe.skipIf(!LIVE)('WebConnector: WebSocket (integration)', () => {
@@ -179,6 +179,82 @@ describe.skipIf(!LIVE)('WebConnector: WebSocket (integration)', () => {
       setTimeout(() => reject(new Error('timeout')), 5000);
     });
 
+    ws.close();
+  });
+
+  it('cancels a WebSocket tool stream and removes it from the registry', async () => {
+    const { connector: c, ctx } = await setup(4325);
+    connector = c;
+    let generatorAborted = false;
+    ctx.streamTool = vi.fn(async (_participantId, _tool, _args, options) => ({
+      conversationId: 'c1',
+      gen: (async function* () {
+        yield { type: 'text_delta', delta: 'partial' };
+        await new Promise<void>((resolve) =>
+          options.signal.addEventListener('abort', resolve, { once: true }),
+        );
+        generatorAborted = true;
+        yield {
+          type: 'stream:done',
+          result: { status: 'success', data: { conversationId: 'c1' } },
+        };
+      })(),
+    }));
+    ctx.callTool = vi.fn(async (_participantId, _tool, args, options) => ({
+      result: options.cancelStream(args.streamId)
+        ? { status: 'success', data: { streamId: args.streamId } }
+        : { status: 'error', error: 'Stream not found or already complete' },
+      conversationId: 'c1',
+    }));
+
+    const loginRes = await fetch('http://127.0.0.1:4325/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Operator', password: 'hunter2' }),
+    });
+    const { token } = (await loginRes.json()) as { token: string };
+    const ws = new WebSocket('ws://127.0.0.1:4325/ws');
+    let resolvePartial!: () => void;
+    let resolveTerminal!: () => void;
+    const partial = new Promise<void>((resolve) => (resolvePartial = resolve));
+    const terminal = new Promise<void>((resolve) => (resolveTerminal = resolve));
+    const connected = new Promise<string>((resolve, reject) => {
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'auth', token })));
+      ws.on('message', (raw) => {
+        const message = JSON.parse(raw.toString());
+        if (message.type === 'connected') resolve(message.connectionId);
+        if (message.type !== 'stream:chunk') return;
+        if (message.data.type === 'text_delta') resolvePartial();
+        if (message.data.type === 'stream:done') resolveTerminal();
+      });
+      ws.on('error', reject);
+    });
+    const connectionId = await connected;
+
+    const startRes = await fetch('http://127.0.0.1:4325/api/execute', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'x-stream-connection': connectionId,
+      },
+      body: JSON.stringify({ tool: 'communicate', args: {} }),
+    });
+    const { streamId } = (await startRes.json()) as { streamId: string };
+    await partial;
+    const cancel = async () => {
+      const response = await fetch('http://127.0.0.1:4325/api/execute?stream=false', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ tool: 'cancel_stream', args: { streamId } }),
+      });
+      return (await response.json()) as { result: { status: string } };
+    };
+
+    expect((await cancel()).result.status).toBe('success');
+    await terminal;
+    expect(generatorAborted).toBe(true);
+    expect((await cancel()).result.status).toBe('error');
     ws.close();
   });
 });

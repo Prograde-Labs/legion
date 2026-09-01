@@ -170,6 +170,27 @@ describe('PendingApprovalRegistry (in-memory)', () => {
     expect(reg.listPending('c1').length).toBe(1);
     expect(reg.listPending('c2')[0].requesterId).toBe('b');
   });
+
+  it('atomically discards specific approvals before their tool turn is persisted', async () => {
+    const reg = new PendingApprovalRegistry();
+    const keep = await reg.create({ conversationId: 'c1', requesterId: 'a', tool: 't', args: {} });
+    const discard = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'a',
+      tool: 't',
+      args: {},
+    });
+
+    await reg.resolve(discard.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.discardUnpersisted([discard.approvalId]);
+
+    expect(reg.getRecord(discard.approvalId)).toBeUndefined();
+    expect(reg.get(keep.approvalId)).toBeDefined();
+  });
 });
 
 describe('PendingApprovalRegistry (durable)', () => {
@@ -195,6 +216,22 @@ describe('PendingApprovalRegistry (durable)', () => {
     const reg2 = await PendingApprovalRegistry.load(storage);
     expect(reg2.get(approvalId)?.requesterId).toBe('agent-b');
     expect(reg2.getDecision(approvalId)).toBeUndefined();
+  });
+
+  it('durably discards an approval from an unpersisted tool turn', async () => {
+    const storage = new FileStorage(dir);
+    const reg = new PendingApprovalRegistry(storage);
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+    });
+
+    await reg.discardUnpersisted([approvalId]);
+
+    const reloaded = await PendingApprovalRegistry.load(storage);
+    expect(reloaded.getRecord(approvalId)).toBeUndefined();
   });
 
   it('persists and reloads resolved decisions', async () => {

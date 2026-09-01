@@ -7,6 +7,11 @@ const streamState = vi.hoisted(() => ({
   text: '',
   reasoning: '',
   thinking: false,
+  streaming: false,
+  cancelling: false,
+  send: vi.fn(),
+  error: null as string | null,
+  stop: vi.fn(),
 }));
 
 vi.mock('../../composables/useExecute.js', () => ({
@@ -54,12 +59,16 @@ vi.mock('../../composables/useConversation.js', () => ({
     ]),
     subThreads: ref({}),
     loading: ref(false),
+    error: ref(streamState.error),
     isThinking: ref(streamState.thinking),
+    isStreaming: ref(streamState.streaming),
+    isCancelling: ref(streamState.cancelling),
     streamingText: ref(streamState.text),
     streamingReasoning: ref(streamState.reasoning),
     sentConversationId: ref(null),
     markSent: vi.fn(),
-    send: vi.fn(),
+    send: streamState.send,
+    stop: streamState.stop,
     editMessage: vi.fn(),
     generate: vi.fn(),
     pruneMessage: vi.fn(),
@@ -73,6 +82,11 @@ describe('ConversationThread', () => {
     streamState.text = '';
     streamState.reasoning = '';
     streamState.thinking = false;
+    streamState.streaming = false;
+    streamState.cancelling = false;
+    streamState.stop.mockClear();
+    streamState.send.mockReset();
+    streamState.error = null;
   });
 
   it('shows persisted assistant reasoning to authorized read-only viewers', () => {
@@ -139,5 +153,97 @@ describe('ConversationThread', () => {
     expect(liveMessage.find('details').exists()).toBe(false);
     expect(liveMessage.find('[data-streaming-answer]').exists()).toBe(false);
     expect(wrapper.find('.flex.items-start.gap-2').exists()).toBe(false);
+  });
+
+  it('shows a stop button instead of send while streaming', () => {
+    streamState.streaming = true;
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.find('[data-stop-button]').exists()).toBe(true);
+    expect(wrapper.find('[data-send-button]').exists()).toBe(false);
+  });
+
+  it('calls stop when the stop button is clicked', async () => {
+    streamState.streaming = true;
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    await wrapper.get('[data-stop-button]').trigger('click');
+
+    expect(streamState.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows send button when not streaming', () => {
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.find('[data-send-button]').exists()).toBe(true);
+    expect(wrapper.find('[data-stop-button]').exists()).toBe(false);
+  });
+
+  it('keeps stop visible and send hidden while cancellation settles', () => {
+    streamState.cancelling = true;
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.find('[data-stop-button]').exists()).toBe(true);
+    expect(wrapper.find('[data-send-button]').exists()).toBe(false);
+    expect(wrapper.get('[data-stop-button]').attributes('disabled')).toBeDefined();
+  });
+
+  it('does not send with Enter while cancellation settles', async () => {
+    streamState.cancelling = true;
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+    await wrapper.get('textarea').setValue('next message');
+
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter' });
+
+    expect(streamState.send).not.toHaveBeenCalled();
+  });
+
+  it('shows a cancellation failure beside the composer', () => {
+    streamState.error = 'Cancel failed: 500';
+    const wrapper = mount(ConversationThread, {
+      props: {
+        conversationId: 'c1',
+        mode: 'chat',
+        myParticipantId: 'viewer',
+        recipientName: 'Atlas',
+      },
+    });
+
+    expect(wrapper.get('[data-composer-error]').text()).toBe('Cancel failed: 500');
   });
 });
