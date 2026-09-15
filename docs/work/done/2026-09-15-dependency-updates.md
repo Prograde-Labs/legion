@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 base: 39ab15a
 rigor:
   tests: test-after
@@ -114,7 +114,8 @@ Worktree: /workspace/legion-deps (branch `chore/dependency-updates-2026-09` from
   ok; communicate round-trip via runtime loop returned success. sglang was
   down (workload not running) — used the repo e2e mock provider on :4501
   with user-level provider config; smoke stack torn down after.
-- [ ] 9. GitLab issue (before/after audit table) + push branch + open MR to main
+- [x] 9. GitLab issue (before/after audit table) + push branch + open MR to main
+      commits: [(ship gate below)]
 
 ## Log
 
@@ -131,3 +132,12 @@ Worktree: /workspace/legion-deps (branch `chore/dependency-updates-2026-09` from
   vitest@2.1.9" from stale lock). Resolution: merged tasks 4+5 into one atomic
   stage and re-resolve from a clean lockfile — user-approved the node_modules +
   package-lock wipe 2026-09-15 (execute_code consent guard honored).
+- 2026-09-15: review (review_at: end) — attempt 1 (deleg_db424a16) died to the
+  documented 465s model stall with no findings; attempt 2 (deleg_d94b0000,
+  tightened brief) completed: VERDICT findings (F1 real, F2 real-but-inherent,
+  F3-F5 explicit passes on asyncDispose/markdown/injection). F1 fixed in
+  90f2f80 (+regression test, core 1020); F2 documented as known limitation.
+  Re-review of fix (deleg_53a5a98d): VERDICT pass, C1-C4 verified with
+  file:line citations.
+- 2026-09-15: ship gate — full build + format green, whole-diff scope check
+  clean (31 files, all mapped to tasks; no smoke leftovers). Status -> done.
