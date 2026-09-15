@@ -78,6 +78,9 @@ export async function loadWorkspaceMiddleware(
       // security boundary, and normal file URLs preserve module-relative imports.
       publicError = 'Middleware module path must remain within workspace root';
       requireContainedPath(canonicalRoot, target);
+      // From here on, any failure is an import failure — keep the public
+      // diagnostic accurate even when both import strategies throw.
+      publicError = 'Middleware module import failed';
 
       let namespace: unknown;
       try {
@@ -92,6 +95,11 @@ export async function loadWorkspaceMiddleware(
         // In sandboxed test VMs the native dynamic import has no importModuleDynamically
         // callback and throws; fall back to createRequire. Node >= 20.19 loads ESM
         // modules through require() transparently (returns the module namespace).
+        // Known limitation: require(esm) cannot load modules with top-level await
+        // (ERR_REQUIRE_ASYNC_MODULE) — such modules load via native import in
+        // production but fail under the sandboxed test fallback. If this require
+        // also throws, the error propagates with 'Middleware module import failed'
+        // as the public diagnostic and the underlying error as the cause.
         const nodeRequire = createRequire(import.meta.url);
         namespace = nodeRequire(target);
       }

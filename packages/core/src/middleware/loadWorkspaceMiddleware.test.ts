@@ -79,6 +79,22 @@ describe('loadWorkspaceMiddleware', () => {
     );
   });
 
+  it('reports import failure (not path error) when a module exists but cannot be imported', async () => {
+    // Syntactically broken module: both native import and require(esm) fail.
+    // Regression: the public diagnostic must be the import failure, not the
+    // earlier path-containment message that was current before the import ran.
+    await writeFile(join(workspaceRoot, 'broken.mjs'), 'export default {', 'utf8');
+
+    await expectLoadFailure(
+      loadWorkspaceMiddleware(
+        workspaceRoot,
+        [{ id: 'broken', module: 'broken.mjs' }],
+        new MiddlewareRegistry(),
+      ),
+      /Middleware module import failed/,
+    );
+  });
+
   it('rejects a configured id that differs from the exported type', async () => {
     await writeFile(join(workspaceRoot, 'audit.mjs'), definitionSource('exported-audit'), 'utf8');
 
