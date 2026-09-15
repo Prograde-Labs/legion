@@ -13,8 +13,7 @@ export type LLMChunk =
 
 // Lifecycle — emitted by ToolRegistry, never by tool authors
 export type LifecycleChunk =
-  | { type: 'stream:done'; result: ToolResult }
-  | { type: 'stream:error'; error: string };
+  { type: 'stream:done'; result: ToolResult } | { type: 'stream:error'; error: string };
 
 // Event — from subscription tools; reuses LegionEventMap shapes
 export type EventChunk = {
@@ -33,8 +32,4 @@ export type ConversationWatchChunk = {
 };
 
 export type StreamChunk =
-  | LLMChunk
-  | EventChunk
-  | LifecycleChunk
-  | ProcessChunk
-  | ConversationWatchChunk;
+  LLMChunk | EventChunk | LifecycleChunk | ProcessChunk | ConversationWatchChunk;

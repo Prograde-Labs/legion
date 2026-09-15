@@ -77,8 +77,7 @@ export type LLMChunk =
 
 // Lifecycle — emitted by ToolRegistry, never by tool authors
 export type LifecycleChunk =
-  | { type: 'stream:done'; result: ToolResult }
-  | { type: 'stream:error'; error: string };
+  { type: 'stream:done'; result: ToolResult } | { type: 'stream:error'; error: string };
 
 // Event — from subscription tools; reuses LegionEventMap shapes
 export type EventChunk = {
@@ -1184,12 +1183,7 @@ import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
 type ActivityEventName =
-  | 'tool:call'
-  | 'tool:result'
-  | 'iteration'
-  | 'approval:requested'
-  | 'approval:resolved'
-  | 'error';
+  'tool:call' | 'tool:result' | 'iteration' | 'approval:requested' | 'approval:resolved' | 'error';
 
 const ACTIVITY_EVENTS: ActivityEventName[] = [
   'tool:call',

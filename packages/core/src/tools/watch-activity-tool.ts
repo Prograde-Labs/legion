@@ -3,12 +3,7 @@ import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
 type ActivityEventName =
-  | 'tool:call'
-  | 'tool:result'
-  | 'iteration'
-  | 'approval:requested'
-  | 'approval:resolved'
-  | 'error';
+  'tool:call' | 'tool:result' | 'iteration' | 'approval:requested' | 'approval:resolved' | 'error';
 
 const ACTIVITY_EVENTS: ActivityEventName[] = [
   'tool:call',

@@ -14,8 +14,7 @@ function fmt(v: unknown) {
     <pre
       v-if="event"
       class="flex-1 text-[10px] font-mono text-navy-400 p-4 overflow-auto leading-relaxed whitespace-pre-wrap"
-      >{{ fmt(event.data) }}</pre
-    >
+      >{{ fmt(event.data) }}</pre>
     <div v-else class="flex-1 flex items-center justify-center text-navy-600 text-xs">
       Select an event
     </div>

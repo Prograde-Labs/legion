@@ -1844,8 +1844,7 @@ export class MiddlewareRunner {
         throw new TypeError(`Middleware configuration invalid: ${configurationErrors.join('; ')}`);
       }
       const hook = definition.hooks[phase] as
-        | ((context: object) => unknown | Promise<unknown>)
-        | undefined;
+        ((context: object) => unknown | Promise<unknown>) | undefined;
       if (!hook) return { status: 'skipped' };
 
       const signal = input.signal ?? new AbortController().signal;

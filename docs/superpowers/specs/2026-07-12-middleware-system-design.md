@@ -371,8 +371,7 @@ authoritative chunk:
 
 ```ts
 type LLMChunk =
-  | ExistingLLMChunk
-  | { type: 'message_snapshot'; content: string; reasoning?: string };
+  ExistingLLMChunk | { type: 'message_snapshot'; content: string; reasoning?: string };
 ```
 
 When the runtime returns its completed response, the runner invokes both pre-persistence chains one
