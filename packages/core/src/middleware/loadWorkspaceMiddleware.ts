@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
@@ -80,10 +81,19 @@ export async function loadWorkspaceMiddleware(
 
       let namespace: unknown;
       try {
-        namespace = await import(pathToFileURL(target).href);
-      } catch (error) {
-        publicError = 'Middleware module import failed';
-        throw error;
+        // Indirection so bundler-injected module runners (vite/vitest) do not
+        // intercept the dynamic import of workspace files at absolute file
+        // URLs. Plain Node keeps native ESM import semantics for this call.
+        const nativeImport = new Function('specifier', 'return import(specifier)') as (
+          specifier: string,
+        ) => Promise<unknown>;
+        namespace = await nativeImport(pathToFileURL(target).href);
+      } catch {
+        // In sandboxed test VMs the native dynamic import has no importModuleDynamically
+        // callback and throws; fall back to createRequire. Node >= 20.19 loads ESM
+        // modules through require() transparently (returns the module namespace).
+        const nodeRequire = createRequire(import.meta.url);
+        namespace = nodeRequire(target);
       }
 
       publicError = 'Middleware module must have a default object export';

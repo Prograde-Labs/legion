@@ -15,7 +15,7 @@ describe('useAuth', () => {
 
   it('login sets token and participantId', async () => {
     const { useAuth } = await import('./useAuth.js');
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ token: 'tok-1', participantId: 'p1', expiresAt: 9999999999 }),
     } as Response);
@@ -26,7 +26,7 @@ describe('useAuth', () => {
 
   it('logout clears token', async () => {
     const { useAuth } = await import('./useAuth.js');
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ token: 'tok-1', participantId: 'p1', expiresAt: 9999999999 }),
     } as Response);
@@ -37,7 +37,7 @@ describe('useAuth', () => {
 
   it('isAuthenticated returns false when expiresAt is in the past', async () => {
     const { useAuth } = await import('./useAuth.js');
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ token: 'tok-expired', participantId: 'p1', expiresAt: 1 }),
     } as Response);
@@ -54,7 +54,7 @@ describe('useAuth', () => {
       'base64url',
     );
     const fakeToken = `${header}.${payload}.sig`;
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ token: fakeToken, participantId: 'p1' }),
     } as Response);
@@ -65,7 +65,7 @@ describe('useAuth', () => {
 
   it('treats token without exp as expired (fallback decode fails)', async () => {
     const { useAuth } = await import('./useAuth.js');
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ token: 'not-a-jwt', participantId: 'p1' }),
     } as Response);
