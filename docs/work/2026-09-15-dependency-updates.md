@@ -73,25 +73,47 @@ Worktree: /workspace/legion-deps (branch `chore/dependency-updates-2026-09` from
   DONE 2026-09-15: npm ci clean (420 pkgs, 19 vulns); typecheck pass; core
   1018 passed / 16 skipped; web 157 passed; format:check RED on the two
   committed sample participants (issue #5) + this work file (pre-fix).
-- [ ] 2. Stage 1 — safe updates: `npm update` + `npm audit fix` (non-breaking
-      transitives: nanoid, postcss, brace-expansion, fast-uri, find-my-way,
-      ip-address, qs, hono, @hono/node-server, dompurify, fastify minor) +
-      `@types/node` 26; then gates (format/typecheck/core/web)
-- [ ] 3. Fix #5 — trailing newlines in the two committed sample participant
-      files; format:check fully green (work file prettier-formatted too)
-      files: .legion/collective/participants/compaction-agent.json, .legion/collective/participants/title-agent.json
-- [ ] 4. Stage 2a — vitest 5 + @vitest/coverage-v8 5 (config migration as
-      required); gates
-- [ ] 5. Stage 2b — vite 8 + @vitejs/plugin-vue (web build + runtime dev
-      middleware); gates + `npm run build`
-- [ ] 6. Stage 2c — happy-dom 20 (web test env); web tests
+- [~] 2. Stage 1 — safe updates: `npm update` + `npm audit fix` (non-breaking
+  transitives: nanoid, postcss, brace-expansion, fast-uri, find-my-way,
+  ip-address, qs, hono, @hono/node-server, dompurify, fastify minor) +
+  `@types/node` 26; then gates (format/typecheck/core/web)
+  commits: [5708636]
+  result: 19→8 vulns; typecheck pass; core 1019 (incl. new dispose test);
+  web 157. @types/node 26 surfaced the asyncDispose gap → task 6a.
+- [~] 3. Fix #5 — trailing newlines in the two committed sample participant
+  files; format:check fully green (work file prettier-formatted too)
+  files: .legion/collective/participants/compaction-agent.json, .legion/collective/participants/title-agent.json
+  commits: [c0cfff7]
+  note: prettier 3.9.6 (via npm update) also reflows 14 more files —
+  included here (pure formatting; spot-checked semantics untouched).
+- [~] 4. Stage 2a — vitest 5 + coverage-v8 5 + vite 8 + @vitejs/plugin-vue 6
+  (atomic: vitest 5 peer-requires vite ≥6.4, so vitest+vite must resolve
+  together; fresh lockfile resolution, user-approved 2026-09-15); gates
+  commits: [13f0acc]
+  result: all gates green (typecheck, core 1019, web 157, format, build,
+  web build). Required code changes: loader import escape (35 test
+  failures fixed), function-mock implementations in MCP tests, global→
+  globalThis, web tsconfig +ESNext.Disposable lib +node types.
+- [~] 5. (merged into task 4 — was standalone vite bump)
+- [~] 6. Stage 2c — happy-dom 20 (web test env); web tests
+  commits: [7cfed1b]
+  result: web 157 green. Exposed a latent double-escape in
+  renderPlainCodeBlock (real-browser bug masked by happy-dom 14's
+  serializer); fixed by dropping escapeSanitizedText.
 - [~] 6a. `@types/node` 26 follow-up: add `[Symbol.asyncDispose]` to the
   hand-rolled generator wrapper in `MessageRouter.sendStream` (aborts
   controller + closes inner), so the AsyncGenerator contract is complete
   files: packages/core/src/runtime/MessageRouter.ts, packages/core/src/runtime/MessageRouter.test.ts
   commits: [0abb061]
-- [ ] 7. Stage 2d — @fastify/static 10 (runtime static serving); typecheck + boot
-- [ ] 8. Full build + production boot + live smoke (health / login / round-trip)
+- [~] 7. Stage 2d — @fastify/static 10 (runtime static serving); typecheck + boot
+  commits: [9df70b3]
+  result: registration options compatible as-is; typecheck green.
+- [~] 8. Full build + production boot + live smoke (health / login / round-trip)
+  result: build + web build green; prod boot on :4110 with @fastify/static
+  10 serving the vite-8 SPA (root 200 text/html, health ok); operator login
+  ok; communicate round-trip via runtime loop returned success. sglang was
+  down (workload not running) — used the repo e2e mock provider on :4501
+  with user-level provider config; smoke stack torn down after.
 - [ ] 9. GitLab issue (before/after audit table) + push branch + open MR to main
 
 ## Log
@@ -99,3 +121,13 @@ Worktree: /workspace/legion-deps (branch `chore/dependency-updates-2026-09` from
 - 2026-09-15: recon (`npm outdated` / `npm audit --json`) done; subagent recon
   dispatched (deleg_91dee952); worktree /workspace/legion-deps created from
   main 39ab15a; baseline gates started.
+- 2026-09-15: baseline recorded (task 1). Stage 1 committed (5708636) with
+  honest pipefail gates; @types/node 26 exposed missing asyncDispose on
+  sendStream wrapper → new task 6a, fixed + tested (0abb061).
+- 2026-09-15: #5 fix folded into prettier 3.9.6 reflow commit (c0cfff7).
+- 2026-09-15: vitest 5 install hit npm peer deadlock twice (coverage-v8/vitest
+  mutual peers; then vitest 5 peer vite >=6.4 vs locked vite 5). npm's
+  incremental resolve fails even with consistent manifests ("Found:
+  vitest@2.1.9" from stale lock). Resolution: merged tasks 4+5 into one atomic
+  stage and re-resolve from a clean lockfile — user-approved the node_modules +
+  package-lock wipe 2026-09-15 (execute_code consent guard honored).
