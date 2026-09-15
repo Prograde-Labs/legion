@@ -454,6 +454,10 @@ export class MessageRouter implements MessageRouterPort {
       [Symbol.asyncIterator]() {
         return this;
       },
+      [Symbol.asyncDispose](): Promise<void> {
+        controller.abort();
+        return inner.return(undefined as never).then(() => undefined);
+      },
     };
   }
 
