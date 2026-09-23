@@ -163,14 +163,17 @@ execute route.
 participant exists, else no default → plain text gets a hint to use `/to`). Distinct from
 `defaultParticipantId` (the *sender* fallback for unknown identities).
 
-#### Tool-call ergonomics (no hand-written JSON)
+#### Direct tool-call ergonomics (no hand-written JSON)
 
-Three tiers, all resolving to the same authorized `ctx.callTool` path:
+Plain text already reaches agents, which construct tool calls themselves — that is Legion's
+baseline, not a connector feature. For calling a specific tool directly without agent
+interpretation, two mechanisms, both resolving to the same authorized `ctx.callTool` path:
 
-1. **Natural language is the primary path.** Plain text goes to the default-recipient agent,
-   which constructs tool calls itself from the request — the human describes intent, the agent
-   supplies parameters. Direct `/tool` exists for running a specific tool without agent
-   interpretation, not as the main interface.
+1. **Kwargs shorthand.** `/tool <name> key=value …` — shlex-style parsing so quoted values can
+   contain spaces; scalars coerced from the schema (`true`/`false` → boolean, numeric strings →
+   number); comma-split for array-of-string parameters. Unrecognized parameter names, and
+   nested-object/array-of-object values, fall back to the form-fill flow for those parameters
+   instead of failing.
 2. **Schema-driven form fill.** `/tool <name>` with no args fetches the tool's schema via
    `list_tools` (cached per participant), then prompts each **required** parameter one message
    at a time (`message (string, required):`), with inline-keyboard buttons for enum/boolean
@@ -178,11 +181,6 @@ Three tiers, all resolving to the same authorized `ctx.callTool` path:
    required parameters are collected, the tool executes and the result is sent to the chat.
    `/cancel` aborts; a fill with no input for 10 minutes is dropped. One fill per chat at a
    time — starting a new one replaces the old.
-3. **Kwargs shorthand.** `/tool <name> key=value …` — shlex-style parsing so quoted values can
-   contain spaces; scalars coerced from the schema (`true`/`false` → boolean, numeric strings →
-   number); comma-split for array-of-string parameters. Unrecognized parameter names, and
-   nested-object/array-of-object values, fall back to the form-fill flow for those parameters
-   instead of failing.
 
 Tool results: non-error results render `result.data` as text (JSON-formatted when not a
 string); `status: 'pending_approval'` / `'dispatched'` render the corresponding status text.
