@@ -406,6 +406,7 @@ export class LegionProcess {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const RUNTIME_TOOL_NAMES = [
+  'list_tools',
   'list_providers',
   'save_provider',
   'delete_provider',
