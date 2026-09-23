@@ -198,6 +198,23 @@ describe('AgentRuntime', () => {
     });
   });
 
+  it('explains a max_tokens truncation that produced no visible output', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        reasoning: 'very long thinking that exhausted the entire budget',
+        toolCalls: [],
+        stopReason: 'max_tokens',
+      },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    const result = (await runtime.handle(inbound, context)) as { kind: string; content: string };
+    expect(result.kind).toBe('response');
+    expect(result.content).toContain('max token limit');
+    expect(result.content).not.toContain('very long thinking');
+  });
+
   it('does not send reasoning back to the provider on later iterations', async () => {
     const { context, inbound, router, providerRequests } = await makeSetup([
       {

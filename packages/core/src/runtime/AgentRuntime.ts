@@ -370,10 +370,19 @@ export class AgentRuntime implements Runtime {
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
           const usage = await this.computeUsage(providerId, agent, response);
+          // Reasoning models can spend the entire token budget on reasoning and return no
+          // visible content (stopReason 'max_tokens', empty content, no tool calls). Surface
+          // an explicit explanation instead of a silent empty response.
+          const truncatedWithNoOutput =
+            response.stopReason === 'max_tokens' &&
+            !response.content &&
+            response.toolCalls.length === 0;
           return this.withActions(
             {
               kind: 'response',
-              content: response.content ?? '',
+              content: truncatedWithNoOutput
+                ? '(Model response truncated: the max token limit was reached during the reasoning phase before any visible output was produced. Increase the model maxTokens config or simplify the request.)'
+                : (response.content ?? ''),
               ...(response.reasoning ? { reasoning: response.reasoning } : {}),
               ...(usage ? { usage } : {}),
             },
