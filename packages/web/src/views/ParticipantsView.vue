@@ -50,7 +50,11 @@ async function load() {
         model: (full?.model as { model?: string })?.model,
       };
     }) as any;
-    allTools.value = await execute<string[]>('list_tools', {});
+    const toolsResult = await execute<{ tools: Array<{ name: string; description: string }> }>(
+      'list_tools',
+      {},
+    );
+    allTools.value = toolsResult.tools.map((t) => t.name);
     const raw = await execute<Array<{ provider: string; model: { id: string; name?: string } }>>(
       'list_models',
       {},

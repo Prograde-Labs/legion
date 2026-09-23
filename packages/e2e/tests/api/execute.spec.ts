@@ -22,13 +22,19 @@ test.describe('POST /api/execute — management tools', () => {
     expect(operator!.status).toBe('active');
   });
 
-  test('list_tools returns array of tool names, count > 0', async ({ api }) => {
-    const { result } = await api.execute<string[]>(token, 'list_tools');
+  test('list_tools returns array of tools with name and description, count > 0', async ({
+    api,
+  }) => {
+    const { result } = await api.execute<{ tools: Array<{ name: string; description: string }> }>(
+      token,
+      'list_tools',
+    );
     expect(result.status).toBe('success');
-    expect(Array.isArray(result.data)).toBe(true);
-    expect(result.data!.length).toBeGreaterThan(0);
-    const first = result.data![0]!;
-    expect(typeof first).toBe('string');
+    expect(Array.isArray(result.data?.tools)).toBe(true);
+    expect(result.data!.tools.length).toBeGreaterThan(0);
+    const first = result.data!.tools[0]!;
+    expect(typeof first.name).toBe('string');
+    expect(typeof first.description).toBe('string');
   });
 
   test('list_conversations returns empty array on fresh workspace', async ({ api }) => {
