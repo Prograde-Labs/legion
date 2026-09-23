@@ -140,6 +140,42 @@ describe('approval_response tool', () => {
     expect(resumeSpy).toHaveBeenCalledWith('c1', 'agent-b', context);
   });
 
+  it('releases the resume claim when the conversation still has pending approvals', async () => {
+    const reg = new PendingApprovalRegistry();
+    const first = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_read',
+      args: {},
+    });
+    const second = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_read',
+      args: {},
+    });
+    // Router reports pending_approval — one of the two approvals is still outstanding.
+    const resumeSpy = vi
+      .fn()
+      .mockResolvedValue({ conversationId: 'c1', status: 'pending_approval' });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume: resumeSpy,
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId: first.approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    // The claim must be releasable: a later decision can claim and resume again.
+    expect(await reg.claimGenericResume('c1', 'agent-b')).toBe('claimed');
+    expect(second).toBeDefined();
+  });
+
   it('rejects a request with a message', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({

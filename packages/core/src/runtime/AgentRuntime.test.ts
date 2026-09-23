@@ -935,6 +935,122 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     );
     expect(rejectedTurn?.toolResults?.[0].result.message).toBe('Not permitted on prod');
   });
+
+  it('persists partial approval progress across multi-approval resumes', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('collective/participants/agent-1.json', {
+      id: 'agent-1',
+      name: 'A',
+      type: 'agent',
+      status: 'active',
+      tools: { echo: 'requires_approval' },
+      systemPrompt: 'You are an assistant.',
+      model: { model: 'test' },
+    });
+    const collective = await Collective.load(storage);
+    const store = new FileConversationStore(new FileStorage(dir));
+    const eventBus = new EventBus();
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+
+    let echoCalls = 0;
+    const provider: Provider = {
+      async *stream(msgs) {
+        const last = msgs[msgs.length - 1];
+        if (last.role === 'tool') {
+          const parsed = JSON.parse(last.content ?? '{}');
+          if (parsed.status !== 'pending_approval') {
+            yield { type: 'text_delta', delta: 'Done' };
+            yield { type: 'done', stopReason: 'stop' };
+            return;
+          }
+        }
+        yield { type: 'tool_call_start', index: 0, id: 'tc-1', name: 'echo' };
+        yield { type: 'tool_call_args_delta', index: 0, delta: JSON.stringify({ text: 'one' }) };
+        yield { type: 'tool_call_start', index: 1, id: 'tc-2', name: 'echo' };
+        yield { type: 'tool_call_args_delta', index: 1, delta: JSON.stringify({ text: 'two' }) };
+        yield { type: 'done', stopReason: 'tool_calls' };
+      },
+    };
+    const router = new MockModelRouter(new Map([['test', provider]])) as unknown as ModelRouter;
+    const toolRegistry = new ToolRegistry();
+    toolRegistry.register({
+      name: 'echo',
+      description: 'echo',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      } as JSONSchema,
+      async execute(args) {
+        echoCalls += 1;
+        return { status: 'success', data: (args as { text: string }).text };
+      },
+    });
+    const pendingApprovalRegistry = new PendingApprovalRegistry();
+    const context: RuntimeContext = {
+      participant: collective.getOrThrow('agent-1'),
+      conversationId: thread.id,
+      conversation: thread,
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry,
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry,
+    } as unknown as RuntimeContext;
+    const incoming: MessageData = {
+      id: 'in-1',
+      parentId: null,
+      conversationId: thread.id,
+      senderId: 'operator',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'use echo twice',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    };
+    const runtime = new AgentRuntime(
+      'agent-1',
+      router,
+      new UsageCalculator(new MockPricingSource({}), new Map()),
+    );
+
+    const first = await runtime.handle(incoming, context);
+    expect(first.kind).toBe('pending_approval');
+    const { approvalRequests } = first as { approvalRequests: { approvalId: string }[] };
+    expect(approvalRequests).toHaveLength(2);
+    const [a, b] = approvalRequests.map((r) => r.approvalId);
+
+    // Approve only the first — partial progress must become durable.
+    await pendingApprovalRegistry.resolve(a, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: new Date().toISOString(),
+    });
+    const second = await runtime.handle(incoming, context);
+    expect(second.kind).toBe('pending_approval');
+    const turn = thread.activeChain.find((m) => m.toolResults && m.toolResults.length === 2);
+    expect(turn?.toolResults?.[0].result.status).toBe('success');
+    expect(turn?.toolResults?.[1].result.status).toBe('pending_approval');
+    expect(echoCalls).toBe(1);
+
+    // Approve the second — completes without re-executing the first.
+    await pendingApprovalRegistry.resolve(b, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: new Date().toISOString(),
+    });
+    const third = await runtime.handle(incoming, context);
+    expect(third.kind).toBe('response');
+    expect((third as { content: string }).content).toBe('Done');
+    expect(echoCalls).toBe(2);
+  });
 });
 
 describe('AgentRuntime.handleStream()', () => {

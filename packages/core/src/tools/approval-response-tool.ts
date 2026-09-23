@@ -163,16 +163,21 @@ export const approvalResponseTool: Tool = {
     if (!messageRouter) return { status: 'success', data: { results } };
 
     for (const pending of toResume.values()) {
-      let resumed = false;
+      // A still-pending conversation (resume returned pending_approval) must stay
+      // resumable: later approval decisions re-claim and re-trigger it. Only a
+      // finished resume (success/dispatched) consumes the claim terminally.
+      let settled: 'complete' | 'release' = 'release';
       try {
         const result = await messageRouter.resume(
           pending.conversationId,
           pending.requesterId,
           context,
         );
-        resumed = result.status !== 'error';
+        if (result.status !== 'error' && result.status !== 'pending_approval') {
+          settled = 'complete';
+        }
       } finally {
-        await (resumed
+        await (settled === 'complete'
           ? pendingRegistry.completeGenericResume(pending.conversationId, pending.requesterId)
           : pendingRegistry.releaseGenericResume(pending.conversationId, pending.requesterId));
       }

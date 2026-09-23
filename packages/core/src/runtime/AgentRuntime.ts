@@ -575,37 +575,49 @@ export class AgentRuntime implements Runtime {
           approved: false,
           decidedByParticipantId: decision.decidedByParticipantId,
         });
-        continue;
+      } else {
+        // Approved: execute the tool now.
+        const toolCall = lastMsg.toolCalls?.find((tc) => tc.id === tr.id);
+        if (!toolCall) {
+          updatedResults[i] = {
+            ...tr,
+            result: { status: 'error', error: 'Tool call data missing from conversation' },
+          };
+        } else {
+          context.eventBus.emit('tool:call', {
+            conversationId: context.conversationId,
+            participantId: this.participantId,
+            tool: tr.name,
+            callId: tr.id,
+          });
+          const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, {
+            ...context,
+            toolCallId: tr.id,
+          });
+          if (context.signal?.aborted) {
+            // Persist progress made before the abort so it is not lost.
+            await (context.conversation as ConversationThread).updateToolResults(
+              lastMsg.id,
+              updatedResults,
+            );
+            return stillPending;
+          }
+          updatedResults[i] = { ...tr, result };
+        }
+        context.eventBus.emit('approval:resolved', {
+          conversationId: context.conversationId,
+          approvalId,
+          approved: true,
+          decidedByParticipantId: decision.decidedByParticipantId,
+        });
       }
-
-      // Approved: execute the tool now.
-      const toolCall = lastMsg.toolCalls?.find((tc) => tc.id === tr.id);
-      if (!toolCall) {
-        updatedResults[i] = {
-          ...tr,
-          result: { status: 'error', error: 'Tool call data missing from conversation' },
-        };
-        continue;
-      }
-
-      context.eventBus.emit('tool:call', {
-        conversationId: context.conversationId,
-        participantId: this.participantId,
-        tool: tr.name,
-        callId: tr.id,
-      });
-      const result = await context.toolRegistry.execute(tr.name, toolCall.arguments, {
-        ...context,
-        toolCallId: tr.id,
-      });
-      if (context.signal?.aborted) return stillPending;
-      updatedResults[i] = { ...tr, result };
-      context.eventBus.emit('approval:resolved', {
-        conversationId: context.conversationId,
-        approvalId,
-        approved: true,
-        decidedByParticipantId: decision.decidedByParticipantId,
-      });
+      // Persist after each resolved decision: a multi-approval conversation can
+      // resume many times (one resume per approval_response call), and partial
+      // progress must survive a still-pending return instead of being discarded.
+      await (context.conversation as ConversationThread).updateToolResults(
+        lastMsg.id,
+        updatedResults,
+      );
     }
 
     if (stillPending.length > 0) {
@@ -614,11 +626,6 @@ export class AgentRuntime implements Runtime {
 
     if (context.signal?.aborted) return stillPending;
 
-    // All resolved — update the conversation message in place.
-    await (context.conversation as ConversationThread).updateToolResults(
-      lastMsg.id,
-      updatedResults,
-    );
     return null;
   }
 
