@@ -38,6 +38,7 @@ export interface LegionEventMap {
     participantId: string;
     tool: string;
     approvalId: string;
+    args?: Record<string, unknown>;
   };
   'approval:resolved': {
     conversationId: string;

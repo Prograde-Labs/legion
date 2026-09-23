@@ -800,6 +800,18 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     expect(r.approvalRequests[0].tool).toBe('echo');
   });
 
+  it('includes tool arguments in the approval:requested event', async () => {
+    const { runtime, incoming, context } = await setupApprovalScenario(dir);
+    const payloads: Array<{ tool: string; approvalId: string; args?: unknown }> = [];
+    context.eventBus.on('approval:requested', (p) => payloads.push({ ...p }));
+
+    await runtime.handle(incoming, context);
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].tool).toBe('echo');
+    expect(payloads[0].args).toEqual({ text: 'hello' });
+  });
+
   it('writes pending_approval tool result to the conversation', async () => {
     const { runtime, incoming, context, thread } = await setupApprovalScenario(dir);
     await runtime.handle(incoming, context);

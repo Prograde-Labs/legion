@@ -398,7 +398,12 @@ export class AgentRuntime implements Runtime {
 
         const toolResults: ToolCallResult[] = [];
         const pendingApprovals: PendingApproval[] = [];
-        const approvalEvents: Array<{ approvalId: string; callId: string; tool: string }> = [];
+        const approvalEvents: Array<{
+          approvalId: string;
+          callId: string;
+          tool: string;
+          args?: Record<string, unknown>;
+        }> = [];
 
         for (const tc of response.toolCalls) {
           if (context.signal?.aborted) {
@@ -433,7 +438,7 @@ export class AgentRuntime implements Runtime {
             if (context.signal?.aborted) return await cancellationResult();
             const pending = context.pendingApprovalRegistry.get(approvalId)!;
             pendingApprovals.push(pending);
-            approvalEvents.push({ approvalId, callId: tc.id, tool: tc.name });
+            approvalEvents.push({ approvalId, callId: tc.id, tool: tc.name, args: tc.arguments });
             toolResults.push({
               id: tc.id,
               name: tc.name,
@@ -486,6 +491,7 @@ export class AgentRuntime implements Runtime {
             participantId: this.participantId,
             tool: event.tool,
             approvalId: event.approvalId,
+            ...(event.args === undefined ? {} : { args: event.args }),
           });
         }
 
