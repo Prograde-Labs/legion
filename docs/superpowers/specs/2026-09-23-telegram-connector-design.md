@@ -53,9 +53,9 @@ Two deliverables:
 ```typescript
 export interface ConnectorConfig {
   name: string;
-  enabled?: boolean;               // default true
-  module?: string;                 // npm package name OR absolute/workspace-relative path to built JS
-  defaultParticipantId?: string;   // low-priv fallback for unknown verified identities (opt-in)
+  enabled?: boolean; // default true
+  module?: string; // npm package name OR absolute/workspace-relative path to built JS
+  defaultParticipantId?: string; // low-priv fallback for unknown verified identities (opt-in)
   options?: Record<string, unknown>; // passed verbatim to the connector factory
 }
 ```
@@ -88,7 +88,7 @@ export interface ConnectorConfig {
 ```typescript
 export interface ConnectorRuntimeDeps {
   collective: Collective; // read access for identity mapping (findByIdentity)
-  eventBus: EventBus;     // subscribe to approval:requested etc.
+  eventBus: EventBus; // subscribe to approval:requested etc.
 }
 ```
 
@@ -113,9 +113,9 @@ Public API:
 
 ```typescript
 export interface TelegramConnectorOptions {
-  botToken?: string;        // inline token (discouraged)
-  botTokenEnv?: string;     // default 'TELEGRAM_BOT_TOKEN'
-  apiServer?: string;       // optional local Bot API server base URL (future)
+  botToken?: string; // inline token (discouraged)
+  botTokenEnv?: string; // default 'TELEGRAM_BOT_TOKEN'
+  apiServer?: string; // optional local Bot API server base URL (future)
 }
 export function connector(options: TelegramConnectorOptions, deps: ConnectorRuntimeDeps): Connector;
 ```
@@ -137,7 +137,7 @@ skips). Tokens never live in committed config — env only, same rule as provide
   - Neither → reply "unknown sender — register your Telegram identity with an operator" and
     drop. Never guess.
 - On first successful mapping of a participant, `ctx.registry.setActive(participantId,
-  'telegram')`. Long polling is always connected, so participants mapped this way are
+'telegram')`. Long polling is always connected, so participants mapped this way are
   permanently deliverable while the process runs. `clearActive` on `stop()`.
 
 ### 4. Inbound translation: general tool calls, not hard-coded commands
@@ -148,20 +148,20 @@ fixed command list. All inbound traffic becomes `ctx.callTool(mappedParticipantI
 authority is the participant's `tools` policy, enforced by AuthEngine exactly as on the web
 execute route.
 
-| Input | Action (as mapped participant) |
-| --- | --- |
-| `/start` | Connector help text (no tool call) |
-| `/new` | Reset this chat's conversation mapping (connector protocol, no tool call) |
-| `/tools` | `list_tools` (see below), formatted as text |
-| `/tool <name>` (no args) | Start schema-driven form fill for that tool (see ergonomics below) |
-| `/tool <name> key=value …` | Kwargs shorthand → `ctx.callTool(name, args)` (see ergonomics below) |
-| `/cancel` | Abort an in-progress form fill (connector protocol) |
+| Input                        | Action (as mapped participant)                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `/start`                     | Connector help text (no tool call)                                                         |
+| `/new`                       | Reset this chat's conversation mapping (connector protocol, no tool call)                  |
+| `/tools`                     | `list_tools` (see below), formatted as text                                                |
+| `/tool <name>` (no args)     | Start schema-driven form fill for that tool (see ergonomics below)                         |
+| `/tool <name> key=value …`   | Kwargs shorthand → `ctx.callTool(name, args)` (see ergonomics below)                       |
+| `/cancel`                    | Abort an in-progress form fill (connector protocol)                                        |
 | `/to <participantId> <text>` | `ctx.callTool('communicate', { to, message, conversationId })` — sugar for the common case |
-| plain text | `ctx.callTool('communicate', { to: defaultRecipient, message, conversationId })` |
+| plain text                   | `ctx.callTool('communicate', { to: defaultRecipient, message, conversationId })`           |
 
 `defaultRecipient` is a connector option (`defaultRecipientId`, default `'assistant'` if that
 participant exists, else no default → plain text gets a hint to use `/to`). Distinct from
-`defaultParticipantId` (the *sender* fallback for unknown identities).
+`defaultParticipantId` (the _sender_ fallback for unknown identities).
 
 #### Direct tool-call ergonomics (no hand-written JSON)
 
