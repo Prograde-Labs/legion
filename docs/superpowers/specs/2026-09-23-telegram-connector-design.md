@@ -153,7 +153,9 @@ execute route.
 | `/start` | Connector help text (no tool call) |
 | `/new` | Reset this chat's conversation mapping (connector protocol, no tool call) |
 | `/tools` | `list_tools` (see below), formatted as text |
-| `/tool <name> <json>` | `ctx.callTool(name, JSON.parse(json))` — any tool the participant is authorized for |
+| `/tool <name>` (no args) | Start schema-driven form fill for that tool (see ergonomics below) |
+| `/tool <name> key=value …` | Kwargs shorthand → `ctx.callTool(name, args)` (see ergonomics below) |
+| `/cancel` | Abort an in-progress form fill (connector protocol) |
 | `/to <participantId> <text>` | `ctx.callTool('communicate', { to, message, conversationId })` — sugar for the common case |
 | plain text | `ctx.callTool('communicate', { to: defaultRecipient, message, conversationId })` |
 
@@ -161,10 +163,31 @@ execute route.
 participant exists, else no default → plain text gets a hint to use `/to`). Distinct from
 `defaultParticipantId` (the *sender* fallback for unknown identities).
 
+#### Tool-call ergonomics (no hand-written JSON)
+
+Three tiers, all resolving to the same authorized `ctx.callTool` path:
+
+1. **Natural language is the primary path.** Plain text goes to the default-recipient agent,
+   which constructs tool calls itself from the request — the human describes intent, the agent
+   supplies parameters. Direct `/tool` exists for running a specific tool without agent
+   interpretation, not as the main interface.
+2. **Schema-driven form fill.** `/tool <name>` with no args fetches the tool's schema via
+   `list_tools` (cached per participant), then prompts each **required** parameter one message
+   at a time (`message (string, required):`), with inline-keyboard buttons for enum/boolean
+   parameters. `skip` skips optional parameters (prompted last, marked optional). When all
+   required parameters are collected, the tool executes and the result is sent to the chat.
+   `/cancel` aborts; a fill with no input for 10 minutes is dropped. One fill per chat at a
+   time — starting a new one replaces the old.
+3. **Kwargs shorthand.** `/tool <name> key=value …` — shlex-style parsing so quoted values can
+   contain spaces; scalars coerced from the schema (`true`/`false` → boolean, numeric strings →
+   number); comma-split for array-of-string parameters. Unrecognized parameter names, and
+   nested-object/array-of-object values, fall back to the form-fill flow for those parameters
+   instead of failing.
+
 Tool results: non-error results render `result.data` as text (JSON-formatted when not a
 string); `status: 'pending_approval'` / `'dispatched'` render the corresponding status text.
 Errors (including authorization failures) surface verbatim — the phone is an ordinary tool
-caller, no special-casing. Malformed JSON after `/tool` → usage hint, no call.
+caller, no special-casing.
 
 Conversation continuity: an in-memory `Map<chatId, conversationId>`. First message in a chat
 omits `conversationId`; for `communicate` calls the tool result's `data.conversationId` is
@@ -232,10 +255,13 @@ card is visible. Follow-up: route cards by querying approver authority.
 - **Unit (vitest, in the connector package, no network):** grammY transformer API stubs
   `bot.api.*`. Cover: identity resolution (found / fallback / unknown), translation table
   (plain text → communicate with default recipient and stored conversationId, `/to` sugar,
-  `/tool` with valid and malformed JSON, unknown command → communicate passthrough),
-  conversation mapping across messages and `/new` plus reply-thread learning from `deliver`,
-  deliver + 4096 chunking, callback → `approval_response` args + button edit, token-missing
-  error, delivery-failure tolerance, tool-result rendering (data/pending_approval/error).
+  unknown command → communicate passthrough), conversation mapping across messages and `/new`
+  plus reply-thread learning from `deliver`, deliver + 4096 chunking, callback →
+  `approval_response` args + button edit, token-missing error, delivery-failure tolerance,
+  tool-result rendering (data/pending_approval/error). Tool-call ergonomics: kwargs parsing
+  (quoted values, scalar coercion, comma-split arrays, unknown-key fallback to form fill),
+  form-fill state machine (required-then-optional prompts, enum/boolean buttons, skip,
+  `/cancel`, timeout, replacement by a new fill), schema fetch/caching via `list_tools`.
 - **Unit (packages/core):** `list_tools` — filtered by participant policy, shape of results.
 - **Loader unit tests (packages/runtime):** config entries → factories; web preserved; module
   resolution paths; broken module → process continues; duplicate names.
