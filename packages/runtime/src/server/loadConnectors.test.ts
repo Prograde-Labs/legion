@@ -193,6 +193,39 @@ it('passes options and runtimeDeps to the external factory', async () => {
   expect(args.deps).toBe(runtimeDeps);
 });
 
+it('forwards entry defaultParticipantId into the factory options', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'legion-conn-'));
+  const modPath = join(dir, 'opted-dpid.mjs');
+  writeFileSync(
+    modPath,
+    `export function connector(options) {
+      globalThis.__lastDpidFactoryOptions = options;
+      return { name: 'dpid', start: async () => {}, deliver: async () => {}, stop: async () => {} };
+    }`,
+  );
+  await loadAndStartConnectors(
+    baseDeps({
+      configs: [
+        {
+          name: 'dpid',
+          module: modPath,
+          options: { botTokenEnv: 'X', botToken: 'secret' },
+          defaultParticipantId: 'guest',
+        },
+      ],
+    }),
+  );
+  const options = (globalThis as Record<string, unknown>).__lastDpidFactoryOptions as Record<
+    string,
+    unknown
+  >;
+  expect(options).toEqual({
+    botTokenEnv: 'X',
+    botToken: 'secret',
+    defaultParticipantId: 'guest',
+  });
+});
+
 it('deregisters an external connector whose start() throws and keeps the process alive', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'legion-conn-'));
   const modPath = join(dir, 'badstart.mjs');

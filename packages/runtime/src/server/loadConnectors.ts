@@ -52,8 +52,11 @@ async function loadExternalConnector(
         `(options, deps) => Connector`,
     );
   }
+  const factoryOptions = entry.defaultParticipantId
+    ? { ...(entry.options ?? {}), defaultParticipantId: entry.defaultParticipantId }
+    : (entry.options ?? {});
   return (factory as (options: Record<string, unknown>, deps: ConnectorRuntimeDeps) => Connector)(
-    entry.options ?? {},
+    factoryOptions,
     runtimeDeps,
   );
 }
