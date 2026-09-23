@@ -62,8 +62,7 @@ export interface ConnectorConfig {
 
 `LegionProcess.start()` step 9 becomes:
 
-1. Build the `ConnectorContext` once (unchanged shape).
-2. For each entry in `mergedConfig.connectors ?? [{ name: 'web' }]`:
+1. For each entry in `mergedConfig.connectors ?? [{ name: 'web' }]`:
    - Skip if `enabled === false`.
    - `name === 'web'` → built-in `WebConnector`, constructed exactly as today (its deps are
      runtime-internal: collective, credentials, eventBus, processManager, serverConfig, SPA
@@ -77,8 +76,12 @@ export interface ConnectorConfig {
         `(options: Record<string, unknown>, deps: ConnectorRuntimeDeps) => Connector`.
      3. Call the factory with the entry's `options` and the runtime deps (below).
      4. `connectorRegistry.register(connector)`; duplicate names throw (registry already does).
-   - Wrap construction + `start()` per connector in try/catch: a broken external connector is
-     logged and skipped; the process still boots. (The web connector keeps fail-fast behavior.)
+   - Wrap construction + registration per connector in try/catch: a broken external connector
+     is logged and skipped; the process still boots. (The web connector keeps fail-fast
+     behavior.)
+2. Build the `ConnectorContext` once (unchanged shape) — after all connectors are registered,
+   mirroring the current register → build-context → start sequence.
+3. `start()` every registered connector with that context.
 
 `ConnectorRuntimeDeps` (new, exported from `@legion/core`):
 
@@ -98,6 +101,13 @@ arrives through `ConnectorContext` at `start()`. This keeps `ConnectorContext` u
 Own repo/workspace dir (`/workspace/legion-connector-telegram`), pure ESM, Node ≥ 20,
 TypeScript strict matching Legion's tsconfig style. Depends on
 [grammY](https://grammy.dev) for the Bot API (long polling, `handleUpdate()` for tests).
+
+Packaging rule — the connector must be loadable by any Legion workspace without that
+workspace resolving `@legion/core` types at runtime: **type-only imports** for
+`Connector`/`ConnectorRuntimeDeps` (erased at compile; verified with `tsc --declaration
+--emitDeclarationOnly`), grammY as the only runtime dependency, Legion packages as
+devDependencies for type conformance. The Legion root workspace installs the connector
+package (never `packages/runtime` itself — the runtime must not depend on connectors).
 
 Public API:
 
@@ -153,6 +163,11 @@ omits `conversationId`; the router creates a thread and `MessageRouterResult.con
 is stored. `/new` deletes the entry. State is not persisted: a process restart starts fresh
 conversations (acceptable for v1; `/new` semantics anyway). Each chat maps to exactly one
 Legion conversation.
+
+Reply-thread learning: `deliver()` stores `message.conversationId` into the chat map for the
+recipient's chat. When an agent initiates (fire-and-forget) and Chris then types a plain
+message, it continues the agent's thread rather than opening the default one. Inbound
+`/to <id>` submissions follow the chat's currently mapped conversation.
 
 `ctx.submit` is synchronous (blocks until the recipient's response, per the communicate-hub
 philosophy). The connector awaits it and sends `result.response` back to the chat. While
