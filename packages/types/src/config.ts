@@ -37,6 +37,11 @@ export interface ServerConfig {
 export interface ConnectorConfig {
   name: string;
   enabled?: boolean;
+  /**
+   * For external connectors: npm package name OR absolute/workspace-relative path to
+   * built JS. Built-in name 'web' needs no module.
+   */
+  module?: string;
   defaultParticipantId?: string;
   options?: Record<string, unknown>;
 }
