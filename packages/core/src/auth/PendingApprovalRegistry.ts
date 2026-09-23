@@ -1473,6 +1473,14 @@ export class PendingApprovalRegistry {
           ? { automationCompaction: { lifecycle: 'waiting' as const } }
           : {}),
       };
+      // A new approval is a new resume round: a completed generic claim from a
+      // previous round in this conversation must not latch future rounds.
+      // 'executing' claims stay protected — they belong to a live resume.
+      const priorClaim =
+        data.genericResumes[genericResumeKey(snapshot.conversationId, snapshot.requesterId)];
+      if (priorClaim === 'completed') {
+        delete data.genericResumes[genericResumeKey(snapshot.conversationId, snapshot.requesterId)];
+      }
       if (snapshot.continuation?.kind === 'automation_compaction') {
         const checkpoint = snapshot.continuation.parentCheckpoint;
         const action =

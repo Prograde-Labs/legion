@@ -176,6 +176,45 @@ describe('approval_response tool', () => {
     expect(second).toBeDefined();
   });
 
+  it('resumes again for a new approval round after a completed resume in the same conversation', async () => {
+    const reg = new PendingApprovalRegistry();
+    const first = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resumeSpy = vi.fn().mockResolvedValue({ conversationId: 'c1', status: 'success' });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume: resumeSpy,
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    // Round 1: decide + resume completes the generic claim.
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId: first.approvalId, decision: 'approve' }] },
+      context,
+    );
+    expect(resumeSpy).toHaveBeenCalledTimes(1);
+
+    // Round 2: a brand-new approval in the same conversation must be able to
+    // claim and resume again — the completed claim from round 1 must not latch.
+    const second = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    await approvalResponseTool.execute(
+      { decisions: [{ approvalId: second.approvalId, decision: 'approve' }] },
+      context,
+    );
+    expect(resumeSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects a request with a message', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
