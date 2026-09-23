@@ -852,17 +852,6 @@ export const modifyAgentTool: Tool = {
   },
 };
 
-export const listToolsTool: Tool = {
-  name: 'list_tools',
-  description: 'List all tool names registered in the ToolRegistry.',
-  parameters: { type: 'object', properties: {}, required: [] },
-  async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
-    const toolRegistry = context.toolRegistry;
-    if (!toolRegistry) return { status: 'error', error: 'toolRegistry unavailable' };
-    return { status: 'success', data: toolRegistry.listAll() };
-  },
-};
-
 export const listConversationsTool: Tool = {
   name: 'list_conversations',
   description:
@@ -1029,7 +1018,6 @@ export const managementTools: Tool[] = [
   modifyConversationTool,
   setCredentialTool,
   modifyAgentTool,
-  listToolsTool,
   listConversationsTool,
   deleteConversationTool,
   queryUsageTool,

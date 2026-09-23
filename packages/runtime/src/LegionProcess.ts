@@ -35,6 +35,7 @@ import {
   // Global tools
   communicateTool,
   approvalResponseTool,
+  listToolsTool,
   managementTools,
   fileTools,
   processTools,
@@ -227,6 +228,7 @@ export class LegionProcess {
     for (const tool of managementTools) {
       toolRegistry.register(tool);
     }
+    toolRegistry.register(listToolsTool);
     for (const tool of fileTools) {
       toolRegistry.register(tool);
     }

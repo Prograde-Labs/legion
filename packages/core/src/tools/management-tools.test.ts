@@ -46,7 +46,6 @@ async function makeContext() {
   for (const name of [
     'communicate',
     'list_participants',
-    'list_tools',
     'get_participant',
     'list_conversations',
     'get_conversation',
@@ -1539,16 +1538,6 @@ describe('remove_tool_policy', () => {
       deps,
     );
     expect((result as { status: string }).status).toBe('success');
-  });
-});
-
-describe('list_tools', () => {
-  it('returns registered tool names', async () => {
-    const deps = await buildTestDeps({});
-    const result = await invokeManagementTool('list_tools', {}, deps);
-    const tools = (result as { status: string; data: string[] }).data;
-    expect(Array.isArray(tools)).toBe(true);
-    expect(tools).toContain('list_tools');
   });
 });
 
