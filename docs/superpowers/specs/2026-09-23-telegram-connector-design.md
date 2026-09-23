@@ -140,39 +140,51 @@ skips). Tokens never live in committed config — env only, same rule as provide
   'telegram')`. Long polling is always connected, so participants mapped this way are
   permanently deliverable while the process runs. `clearActive` on `stop()`.
 
-### 4. Addressing and commands (inbound translation)
+### 4. Inbound translation: general tool calls, not hard-coded commands
 
-The connector is a protocol translator; authority stays with the mapped participant's tool
-policy. Per message:
+Legion's tool system is the universal interface — every collective operation is an authorized
+tool call — so the connector exposes the participant's full tool surface instead of mapping a
+fixed command list. All inbound traffic becomes `ctx.callTool(mappedParticipantId, name, args)`;
+authority is the participant's `tools` policy, enforced by AuthEngine exactly as on the web
+execute route.
 
 | Input | Action (as mapped participant) |
 | --- | --- |
-| `/start` | Welcome + command help (no tool calls) |
-| `/agents` | `list_participants` via `ctx.callTool`, format as text |
-| `/to <participantId> <text>` | `ctx.submit({ senderId, recipientId: <id>, content: <text>, conversationId })` |
-| `/new` | Reset this chat's conversation mapping (next message starts a fresh thread) |
-| anything else | `ctx.submit({ senderId, recipientId: defaultRecipient, content, conversationId })` |
+| `/start` | Connector help text (no tool call) |
+| `/new` | Reset this chat's conversation mapping (connector protocol, no tool call) |
+| `/tools` | `list_tools` (see below), formatted as text |
+| `/tool <name> <json>` | `ctx.callTool(name, JSON.parse(json))` — any tool the participant is authorized for |
+| `/to <participantId> <text>` | `ctx.callTool('communicate', { to, message, conversationId })` — sugar for the common case |
+| plain text | `ctx.callTool('communicate', { to: defaultRecipient, message, conversationId })` |
 
-`defaultRecipient` is a connector option (`defaultRecipientId`, default `'assistant'` if it
-exists, else no default → text messages get a hint to use `/to`). Note this option is the
-*recipient* default for plain chat — distinct from `defaultParticipantId`, which is the
-*sender* fallback for unknown identities.
+`defaultRecipient` is a connector option (`defaultRecipientId`, default `'assistant'` if that
+participant exists, else no default → plain text gets a hint to use `/to`). Distinct from
+`defaultParticipantId` (the *sender* fallback for unknown identities).
+
+Tool results: non-error results render `result.data` as text (JSON-formatted when not a
+string); `status: 'pending_approval'` / `'dispatched'` render the corresponding status text.
+Errors (including authorization failures) surface verbatim — the phone is an ordinary tool
+caller, no special-casing. Malformed JSON after `/tool` → usage hint, no call.
 
 Conversation continuity: an in-memory `Map<chatId, conversationId>`. First message in a chat
-omits `conversationId`; the router creates a thread and `MessageRouterResult.conversationId`
-is stored. `/new` deletes the entry. State is not persisted: a process restart starts fresh
+omits `conversationId`; for `communicate` calls the tool result's `data.conversationId` is
+stored. `/new` deletes the entry. State is not persisted: a process restart starts fresh
 conversations (acceptable for v1; `/new` semantics anyway). Each chat maps to exactly one
 Legion conversation.
 
 Reply-thread learning: `deliver()` stores `message.conversationId` into the chat map for the
 recipient's chat. When an agent initiates (fire-and-forget) and Chris then types a plain
-message, it continues the agent's thread rather than opening the default one. Inbound
-`/to <id>` submissions follow the chat's currently mapped conversation.
+message, it continues the agent's thread rather than opening the default one.
 
-`ctx.submit` is synchronous (blocks until the recipient's response, per the communicate-hub
-philosophy). The connector awaits it and sends `result.response` back to the chat. While
-waiting it sends a `sendChatAction('typing')` indicator. `status: 'pending_approval'` /
-`'dispatched'` results send the corresponding status text instead of a response body.
+New core tool `list_tools`: a global tool returning `{name, description, parameters}` for
+every tool in the registry that appears in the calling participant's `tools` map (fine-grained
+authorization still enforced per call). Same family as the existing `list_*` tools; needs no
+access beyond the `ToolContext` the other tools already receive. `/tools` only works for
+participants whose policy includes `list_tools` — correct per the no-special-casing rule.
+
+Tool calls are synchronous (buffered) — `communicate` blocks until the recipient's response,
+per the communicate-hub philosophy. While waiting, the connector sends a
+`sendChatAction('typing')` indicator.
 
 ### 5. Outbound delivery (`deliver`)
 
@@ -218,10 +230,13 @@ card is visible. Follow-up: route cards by querying approver authority.
 ### 8. Testing
 
 - **Unit (vitest, in the connector package, no network):** grammY transformer API stubs
-  `bot.api.*`. Cover: identity resolution (found / fallback / unknown), command parsing
-  (`/to` with and without id, unknown command passthrough), conversation mapping across
-  messages and `/new`, deliver + 4096 chunking, callback → `approval_response` args + button
-  edit, token-missing error, delivery-failure tolerance.
+  `bot.api.*`. Cover: identity resolution (found / fallback / unknown), translation table
+  (plain text → communicate with default recipient and stored conversationId, `/to` sugar,
+  `/tool` with valid and malformed JSON, unknown command → communicate passthrough),
+  conversation mapping across messages and `/new` plus reply-thread learning from `deliver`,
+  deliver + 4096 chunking, callback → `approval_response` args + button edit, token-missing
+  error, delivery-failure tolerance, tool-result rendering (data/pending_approval/error).
+- **Unit (packages/core):** `list_tools` — filtered by participant policy, shape of results.
 - **Loader unit tests (packages/runtime):** config entries → factories; web preserved; module
   resolution paths; broken module → process continues; duplicate names.
 - **Integration (env-gated `LEGION_TELEGRAM_INTEGRATION=1`):** real bot token, real temp
@@ -234,6 +249,8 @@ card is visible. Follow-up: route cards by querying approver authority.
 
 - `packages/types/src/config.ts` — add `module?` to `ConnectorConfig`.
 - `packages/core/src/connectors/ConnectorRuntimeDeps.ts` (new) + export from index.
+- `packages/core/src/tools/list-tools-tool.ts` (new) + `list_tools` registration in
+  `LegionProcess` step 6; grant `auto` on the bootstrap operator like the other `list_*` tools.
 - `packages/runtime/src/LegionProcess.ts` — generic connector loading in step 9.
 - `packages/runtime/src/LegionProcess.connector-loading.test.ts` (new).
 - External repo `/workspace/legion-connector-telegram` — package source + tests + README
