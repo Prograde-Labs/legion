@@ -10,6 +10,7 @@ import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
+import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
@@ -3541,6 +3542,80 @@ describe('MessageRouter: resume()', () => {
     const conv = await store.load(conversationId);
     const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
+  });
+
+  it('pushes the resumed response to the user recipient via active connectors', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/mock-1.json', {
+      id: 'mock-1',
+      name: 'M',
+      type: 'mock',
+      tools: {},
+      responses: ['resumed response'],
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+
+    const deliver = vi.fn(async () => undefined);
+    const connectorRegistry = new ConnectorRegistry();
+    connectorRegistry.register({
+      name: 'stub',
+      register: async () => undefined,
+      deregister: async () => undefined,
+      deliver,
+    } as unknown as import('../connectors/Connector.js').Connector);
+    connectorRegistry.setActive('op', 'stub');
+
+    const router = new MessageRouter(
+      store,
+      registry,
+      collective,
+      eventBus,
+      undefined,
+      undefined,
+      connectorRegistry,
+    );
+    const baseContext = {
+      participant: collective.getOrThrow('mock-1'),
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as import('../tools/Tool.js').ToolContext;
+
+    const sent = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'original',
+      context: baseContext,
+    });
+    // Sync response path renders through the caller's tool result — no push.
+    expect(deliver).not.toHaveBeenCalled();
+
+    await router.resume(sent.conversationId, 'mock-1', baseContext);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0][0]).toMatchObject({
+      conversationId: sent.conversationId,
+      senderId: 'mock-1',
+      recipientId: 'op',
+      content: 'resumed response',
+    });
   });
 });
 

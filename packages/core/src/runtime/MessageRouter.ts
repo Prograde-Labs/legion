@@ -53,6 +53,8 @@ type ResponseOperation = {
   thread: ConversationThread;
   recipientId: string;
   responseRecipientId: string;
+  /** Push the response to the recipient's connectors (resume / background dispatch only). */
+  deliver?: boolean;
   lifecycleState?: {
     operationId: string;
     actions: MiddlewareActionResult[];
@@ -72,6 +74,19 @@ export class MessageRouter implements MessageRouterPort {
     private eventBus: EventBus,
     private lifecycle?: MiddlewareLifecycle,
     private middlewareRunner?: MiddlewareRunner,
+    private connectorRegistry?: {
+      getActiveConnectors(participantId: string): {
+        deliver(message: {
+          id: string;
+          conversationId: string;
+          senderId: string;
+          recipientId: string;
+          replyTo?: string;
+          content: string;
+          timestamp: string;
+        }): Promise<void>;
+      }[];
+    },
   ) {}
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
@@ -317,6 +332,39 @@ export class MessageRouter implements MessageRouterPort {
       messageId: responseMsg.id,
     });
     return { conversationId: thread.id, response: response.content, status: 'success' };
+  }
+
+  /**
+   * Push a response to its user recipient through the recipient's active
+   * connectors. Responses produced outside a live synchronous call (approval
+   * resumes, fire-and-forget dispatches) are persisted but would otherwise
+   * never reach a channel the user is watching.
+   */
+  private async deliverToUser(
+    thread: ConversationThread,
+    senderId: string,
+    recipientId: string,
+    content: string,
+  ): Promise<void> {
+    const recipient = this.collective.get(recipientId);
+    if (recipient?.type !== 'user' || !this.connectorRegistry) return;
+    const connectors = this.connectorRegistry.getActiveConnectors(recipientId);
+    await Promise.all(
+      connectors.map((connector) =>
+        connector
+          .deliver({
+            id: createId('msg'),
+            conversationId: thread.id,
+            senderId,
+            recipientId,
+            content,
+            timestamp: new Date().toISOString(),
+          })
+          .catch((err: unknown) =>
+            console.error('[MessageRouter] connector delivery failed:', err),
+          ),
+      ),
+    );
   }
 
   private withRuntimeActions(
@@ -1027,6 +1075,7 @@ export class MessageRouter implements MessageRouterPort {
           thread,
           recipientId: participant.id,
           responseRecipientId: lastIncoming.senderId,
+          deliver: true,
           lifecycleState: { operationId: createId('route'), actions: [], context: toolContext },
         },
         result,
@@ -2158,13 +2207,22 @@ export class MessageRouter implements MessageRouterPort {
   ): Promise<MessageRouterResult> {
     const lifecycleState = this.withRuntimeActions(operation.lifecycleState, result);
     if (result.kind === 'response') {
-      return this.persistResponse(
+      const persisted = await this.persistResponse(
         operation.thread,
         operation.recipientId,
         operation.responseRecipientId,
         result,
         lifecycleState,
       );
+      if (operation.deliver && persisted.status === 'success' && persisted.response) {
+        await this.deliverToUser(
+          operation.thread,
+          operation.recipientId,
+          operation.responseRecipientId,
+          persisted.response,
+        );
+      }
+      return persisted;
     }
     if (result.kind === 'pending_approval') {
       return {
@@ -2229,6 +2287,7 @@ export class MessageRouter implements MessageRouterPort {
           thread: backgroundThread,
           recipientId: opts.recipientId,
           responseRecipientId: opts.replyTo!,
+          deliver: true,
           lifecycleState,
         },
         result,
@@ -2240,6 +2299,7 @@ export class MessageRouter implements MessageRouterPort {
           thread: backgroundThread,
           recipientId: opts.recipientId,
           responseRecipientId: opts.replyTo!,
+          deliver: true,
           lifecycleState,
         },
         { kind: 'response', content: `[Runtime error: ${msg}]` },
