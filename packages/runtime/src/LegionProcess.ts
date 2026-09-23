@@ -65,6 +65,7 @@ import type {
   MiddlewareDiagnostic,
 } from '@legion/types';
 import { WebConnector } from './server/WebConnector.js';
+import { loadAndStartConnectors } from './server/loadConnectors.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 
 export interface StartOptions {
@@ -309,39 +310,42 @@ export class LegionProcess {
     const webSrcPath = dev
       ? join(_dirname, '..', '..', 'web') // packages/runtime/src/ → packages/web/
       : undefined;
-    const webDistPath = dev ? undefined : join(_dirname, '..', '..', 'web', 'dist'); // packages/runtime/dist/ → packages/web/dist/
+    const webDistPath = dev ? undefined : join(_dirname, '..', '..', 'web', 'dist');
 
-    const webConnector = new WebConnector({
-      collective,
-      credentials,
-      eventBus,
-      processManager,
-      serverConfig: webConnectorConfig,
-      webDistPath,
-      webSrcPath,
-      dev,
-    });
-
-    connectorRegistry.register(webConnector);
-
-    const connectorContext: ConnectorContext = buildConnectorContext({
-      router,
-      toolRegistry,
-      authEngine,
+    await loadAndStartConnectors({
+      configs: mergedConfig.connectors ?? [{ name: 'web' }],
       connectorRegistry,
-      collective,
-      store,
-      pendingApprovalRegistry,
-      eventBus,
-      storage,
-      config: mergedConfig,
       workspaceRoot,
-      serviceManager,
-      processManager,
-      middlewareRegistry,
+      runtimeDeps: { collective, eventBus },
+      createWebConnector: () =>
+        new WebConnector({
+          collective,
+          credentials,
+          eventBus,
+          processManager,
+          serverConfig: webConnectorConfig,
+          webDistPath,
+          webSrcPath,
+          dev,
+        }),
+      buildContext: () =>
+        buildConnectorContext({
+          router,
+          toolRegistry,
+          authEngine,
+          connectorRegistry,
+          collective,
+          store,
+          pendingApprovalRegistry,
+          eventBus,
+          storage,
+          config: mergedConfig,
+          workspaceRoot,
+          serviceManager,
+          processManager,
+          middlewareRegistry,
+        }),
     });
-
-    await webConnector.start(connectorContext);
 
     // ── Step 10: Auto-start services ─────────────────────────────────────────
     await serviceManager.autoStart();
