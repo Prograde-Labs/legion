@@ -75,6 +75,19 @@ export class Collective {
     return participant ? structuredClone(participant) : undefined;
   }
 
+  /**
+   * All active participants holding an identity for the given connector name.
+   * Used by connectors to activate their identity-mapped mailboxes at startup,
+   * so outbound delivery works before any inbound message arrives.
+   */
+  listByIdentity(connector: string): ParticipantConfig[] {
+    return this.listActive()
+      .filter((participant) =>
+        participant.identities?.some((identity) => identity.connector === connector),
+      )
+      .map((participant) => structuredClone(participant));
+  }
+
   operators(): ParticipantConfig[] {
     return this.operatorsStored().map((participant) => structuredClone(participant));
   }

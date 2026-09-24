@@ -104,6 +104,24 @@ describe('Collective: load and query', () => {
     expect(collective.findByIdentity('web', 'nobody')).toBeUndefined();
   });
 
+  it('lists identity-mapped participants for a connector (active only)', async () => {
+    const { storage, operator, agent } = seedStorage();
+    await storage.writeJson('collective/participants/op-1.json', {
+      ...operator,
+      identities: [{ connector: 'telegram', externalId: '111' }],
+    });
+    await storage.writeJson('collective/participants/agent-1.json', {
+      ...agent,
+      status: 'retired',
+      identities: [{ connector: 'telegram', externalId: '222' }],
+    });
+    const collective = await Collective.load(storage);
+    const mapped = collective.listByIdentity('telegram');
+    expect(mapped.map((p) => p.id)).toEqual(['op-1']);
+    expect(mapped[0].identities).toEqual([{ connector: 'telegram', externalId: '111' }]);
+    expect(collective.listByIdentity('slack')).toEqual([]);
+  });
+
   it('returns detached snapshots from every public participant read', async () => {
     const { storage, operator, agent } = seedStorage();
     await storage.writeJson('collective/participants/op-1.json', operator);
