@@ -304,7 +304,11 @@ export class LegionProcess {
     if (isNaN(port)) {
       throw new Error(`Invalid PORT env var: "${process.env.PORT}" — must be a number`);
     }
-    const webConnectorConfig = { ...(mergedConfig.server ?? {}), port };
+    // HOST env overrides config for container deployments (0.0.0.0 to be
+    // reachable outside the container); config server.host still wins over
+    // the loopback default when HOST is unset.
+    const host = process.env.HOST ?? mergedConfig.server?.host ?? '127.0.0.1';
+    const webConnectorConfig = { ...(mergedConfig.server ?? {}), port, host };
     const _dirname = fileURLToPath(new URL('.', import.meta.url));
 
     const dev = options.dev ?? false;

@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+.legion
+.superpowers
+coverage
+docs
+*.tsbuildinfo
+.env
+.playwright-mcp
