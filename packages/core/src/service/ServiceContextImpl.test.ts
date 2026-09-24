@@ -154,6 +154,25 @@ describe('ServiceContextImpl', () => {
       expect(result).toEqual({ status: 'success', data: 'file content' });
     });
 
+    it('passes conversationStore into the tool context (conversation tools work from services)', async () => {
+      const { dir: d, deps } = await setup();
+      dir = d;
+      const execute = vi.fn().mockResolvedValue({ status: 'success' });
+      const ctx = new ServiceContextImpl({
+        ...deps,
+        participant: { ...deps.participant, tools: { list_conversations: 'auto' } },
+        toolRegistry: { ...deps.toolRegistry, execute },
+      });
+
+      await ctx.callTool('list_conversations', {});
+
+      expect(execute).toHaveBeenCalledWith(
+        'list_conversations',
+        {},
+        expect.objectContaining({ conversationStore: deps.store }),
+      );
+    });
+
     it('returns error result when tool is not in participant tools map (hidden)', async () => {
       const { dir: d, deps } = await setup();
       dir = d;

@@ -140,6 +140,7 @@ export class ServiceContextImpl implements ServiceContext {
       messageRouter,
       serviceManager,
       toolRegistry,
+      store,
     } = this.deps;
 
     return {
@@ -149,6 +150,10 @@ export class ServiceContextImpl implements ServiceContext {
       config: workspaceConfig,
       eventBus,
       storage: rawStorage,
+      // Conversation-rooted tools (list_conversations, get_conversation) read the
+      // store from their tool context. Without it, every tool call made by or on
+      // behalf of a service fails with "conversationStore unavailable in context".
+      conversationStore: store,
       workspaceRoot,
       communicationDepth: 0,
       toolRegistry,
