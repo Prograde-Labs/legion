@@ -55,6 +55,12 @@ export interface ServiceContext {
   /** Process-level typed event bus. */
   eventBus: EventBus;
   /**
+   * Service-specific configuration from the participant's `config` field
+   * (e.g. {quietPeriodMinutes, targetAgent, reportTo} for the caretaker).
+   * Undefined when the participant declares no config.
+   */
+  config?: Record<string, unknown>;
+  /**
    * Send a message to another participant.
    * Creates a new conversation if `opts.conversationId` is omitted.
    */

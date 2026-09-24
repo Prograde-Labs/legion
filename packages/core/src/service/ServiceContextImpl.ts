@@ -67,6 +67,10 @@ export class ServiceContextImpl implements ServiceContext {
     return this.deps.eventBus;
   }
 
+  get config(): Record<string, unknown> | undefined {
+    return this.deps.participant.config;
+  }
+
   async communicate(
     to: string,
     message: string,

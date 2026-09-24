@@ -125,6 +125,14 @@ describe('ServiceContextImpl', () => {
     expect(ctx.eventBus).toBe(deps.eventBus);
   });
 
+  it('exposes the service participant config', async () => {
+    const { dir: d, deps } = await setup();
+    dir = d;
+    const participant = { ...deps.participant, config: { reportTo: 'caretaker' } };
+    const ctx = new ServiceContextImpl({ ...deps, participant });
+    expect(ctx.config).toEqual({ reportTo: 'caretaker' });
+  });
+
   describe('callTool', () => {
     it('forwards middleware validator into tool context', async () => {
       const { dir: d, deps } = await setup();
