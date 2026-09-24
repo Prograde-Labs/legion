@@ -3091,6 +3091,154 @@ describe('MessageRouter: fire-and-forget', () => {
     expect(toOp?.content).toBe('hello back');
   });
 
+  it('delivers fire-and-forget responses to activated non-user recipients (mailbox pattern)', async () => {
+    // Regression: deliverToUser() gated on recipient.type === 'user', so a
+    // service/agent participant with a connector identity (mailbox pattern,
+    // e.g. the caretaker relaying reports to its own Telegram chat) had its
+    // responses persisted but silently never delivered.
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/caretaker.json', {
+      id: 'caretaker',
+      name: 'Caretaker',
+      type: 'service',
+      module: './nowhere.js',
+      tools: {},
+      status: 'active',
+      identities: [{ connector: 'telegram', externalId: '42' }],
+    });
+    await storage.writeJson('collective/participants/mock-1.json', {
+      id: 'mock-1',
+      name: 'Mock',
+      type: 'mock',
+      tools: {},
+      responses: ['cycle report'],
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+    registry.registerFactory('service', () => ({
+      async handle() {
+        return { kind: 'response', content: 'cycle report' };
+      },
+    }));
+    const connectors = new ConnectorRegistry();
+    const deliveredTo: string[] = [];
+    connectors.register({
+      name: 'telegram',
+      async start() {},
+      async stop() {},
+      async deliver(message) {
+        deliveredTo.push(`${message.recipientId}:${message.content}`);
+      },
+    });
+    connectors.setActive('caretaker', 'telegram');
+    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, connectors);
+
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const result = await router.send({
+      senderId: 'mock-1',
+      recipientId: 'caretaker',
+      message: 'trigger',
+      replyTo: 'caretaker',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    expect(deliveredTo).toEqual(['caretaker:cycle report']);
+  });
+
+  it('still skips connector delivery for recipients with no active connectors', async () => {
+    const storage = new FileStorage(dir);
+    await storage.writeJson('collective/participants/op.json', {
+      id: 'op',
+      name: 'Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/caretaker.json', {
+      id: 'caretaker',
+      name: 'Caretaker',
+      type: 'service',
+      module: './nowhere.js',
+      tools: {},
+      status: 'active',
+    });
+    await storage.writeJson('collective/participants/mock-1.json', {
+      id: 'mock-1',
+      name: 'Mock',
+      type: 'mock',
+      tools: {},
+      responses: ['report'],
+      status: 'active',
+    });
+    const collective = await Collective.load(storage);
+    const eventBus = new EventBus();
+    const store = new FileConversationStore(storage, eventBus);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+    registry.registerFactory('service', () => ({
+      async handle() {
+        return { kind: 'response', content: 'cycle report' };
+      },
+    }));
+    const connectors = new ConnectorRegistry();
+    connectors.register({
+      name: 'telegram',
+      async start() {},
+      async stop() {},
+      async deliver() {
+        throw new Error('should not be called');
+      },
+    });
+    // No setActive: caretaker has NO active connectors.
+    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, connectors);
+
+    const baseContext = {
+      collective,
+      config: { version: '2' },
+      eventBus,
+      storage,
+      workspaceRoot: dir,
+      communicationDepth: 0,
+      toolRegistry: new ToolRegistry(),
+      authEngine: new AuthEngine(),
+      pendingApprovalRegistry: new PendingApprovalRegistry(),
+    } as unknown as ToolContext;
+
+    const result = await router.send({
+      senderId: 'mock-1',
+      recipientId: 'caretaker',
+      message: 'trigger',
+      replyTo: 'caretaker',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+  });
+
   it('catches runtime errors in fire-and-forget and persists an error message', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/op.json', {

@@ -347,7 +347,13 @@ export class MessageRouter implements MessageRouterPort {
     content: string,
   ): Promise<void> {
     const recipient = this.collective.get(recipientId);
-    if (recipient?.type !== 'user' || !this.connectorRegistry) return;
+    // Delivery follows the connector registry, not the participant type: any
+    // participant with an activated connector identity is deliverable (mailbox
+    // pattern — e.g. a service relaying reports to its own Telegram chat).
+    // The recipient must be activated by the connector (inbound contact or
+    // explicit setActive) so we never invent destinations for participants
+    // that have no channel presence.
+    if (!recipient || !this.connectorRegistry) return;
     const connectors = this.connectorRegistry.getActiveConnectors(recipientId);
     await Promise.all(
       connectors.map((connector) =>
