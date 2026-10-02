@@ -1,6 +1,6 @@
 import { useAuth } from './useAuth.js';
 import { router } from '../router/index.js';
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 
 export function useExecute() {
   const { getToken, logout } = useAuth();

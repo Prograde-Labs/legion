@@ -19,7 +19,7 @@ import type {
   ProviderStopReason,
   ProviderUsage,
 } from '../providers/Provider.js';
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 import type { ModelPricing, PricingSource } from '../providers/PricingSource.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
@@ -29,7 +29,7 @@ import type {
   Tool,
   MessageData,
   MiddlewareActionResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
 

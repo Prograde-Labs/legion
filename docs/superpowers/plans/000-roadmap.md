@@ -12,10 +12,10 @@ End state of the full plan set: a **functional web connector + Vue web interface
 ## Decisions locked in
 
 - **Monorepo tooling:** npm workspaces, pure ESM (`"type": "module"`, `.js` import extensions).
-- **Packages:** `@legion/types` (zero-dep, browser-safe shared models + wire DTOs + event
-  payload map), `@legion/core` (engine; re-exports `@legion/types`), `@legion/runtime`
-  (process entry + web connector), `@legion/web` (Vue SPA). The web frontend consumes
-  `@legion/types` only, so Node-only deps never reach the browser bundle. Behavior/Node-coupled
+- **Packages:** `@legion-collective/types` (zero-dep, browser-safe shared models + wire DTOs + event
+  payload map), `@legion-collective/core` (engine; re-exports `@legion-collective/types`), `@legion-collective/runtime`
+  (process entry + web connector), `@legion-collective/web` (Vue SPA). The web frontend consumes
+  `@legion-collective/types` only, so Node-only deps never reach the browser bundle. Behavior/Node-coupled
   types (`Storage`, `EventBus` class, `Runtime`, `ToolContext`, `AuthEngine`) stay in core.
 - **Language:** TypeScript strict (`noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`).
 - **Test runner:** Vitest (globals), colocated `*.test.ts` / `*.integration.test.ts`.

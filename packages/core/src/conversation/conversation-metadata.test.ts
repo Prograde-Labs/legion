@@ -1,4 +1,4 @@
-import type { ConversationData, MessageData } from '@legion/types';
+import type { ConversationData, MessageData } from '@legion-collective/types';
 import {
   applyConversationMutation,
   conversationMatchesFilter,

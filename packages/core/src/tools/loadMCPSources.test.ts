@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { ConflictError } from '../errors/index.js';
 import type { Tool } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';

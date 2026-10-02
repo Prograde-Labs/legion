@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import MessageBubble from './MessageBubble.vue';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 const userMessage: MessageData = {
   id: 'm1',

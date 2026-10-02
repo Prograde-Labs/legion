@@ -5,7 +5,7 @@ import type {
   MessageData,
   MiddlewareDefinition,
   ProviderModel,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { ConversationStore } from '../../conversation/ConversationStore.js';
 
 export interface AutoCompactionConfig {

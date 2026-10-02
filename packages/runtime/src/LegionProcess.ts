@@ -55,7 +55,7 @@ import {
   type ConnectorContext,
   type MiddlewareLogger,
   BOOTSTRAP_OPERATOR_ID,
-} from '@legion/core';
+} from '@legion-collective/core';
 import type {
   ConversationData,
   LocalConfig,
@@ -63,7 +63,7 @@ import type {
   SystemConfig,
   ToolResult,
   MiddlewareDiagnostic,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { WebConnector } from './server/WebConnector.js';
 import { createRuntimeTools } from './server/runtime-tools.js';
 

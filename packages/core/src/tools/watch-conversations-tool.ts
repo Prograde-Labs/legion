@@ -1,4 +1,4 @@
-import type { ConversationFilter, StreamChunk } from '@legion/types';
+import type { ConversationFilter, StreamChunk } from '@legion-collective/types';
 import { conversationMatchesFilter } from '../conversation/conversation-metadata.js';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';

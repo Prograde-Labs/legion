@@ -3,7 +3,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { appendMessage, type NewMessageInput } from '../conversation/conversation-ops.js';
 import { UsageQuery } from './UsageQuery.js';
-import type { MessageData, MessageUsage } from '@legion/types';
+import type { MessageData, MessageUsage } from '@legion-collective/types';
 
 const USAGE_GPT4O: MessageUsage = {
   input: 100,

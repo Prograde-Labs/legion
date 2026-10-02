@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
-import type { BaseParticipant } from '@legion/types';
+import type { BaseParticipant } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
 import type {

@@ -5,7 +5,7 @@ import type {
   MiddlewareInstanceConfig,
   MiddlewareLogger,
   ParticipantConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { Collective } from '../collective/Collective.js';

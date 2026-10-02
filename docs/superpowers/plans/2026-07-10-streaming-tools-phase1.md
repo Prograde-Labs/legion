@@ -129,7 +129,7 @@ Add to `packages/core/src/tools/ToolRegistry.test.ts` (new `describe` block at t
 ```ts
 import { isStreamingTool } from './Tool.js';
 import type { AnyTool, StreamingTool } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 describe('isStreamingTool', () => {
   it('returns false for a regular Tool', () => {
@@ -174,7 +174,7 @@ import type {
   ParticipantConfig,
   WorkspaceConfig,
   StreamChunk,
-} from '@legion/types';
+} from '@legion-collective/types';
 ```
 
 Add to `ToolContext` interface (after `conversationStore?`):
@@ -490,7 +490,7 @@ Add to `packages/core/src/tools/ToolRegistry.test.ts` (new describe block):
 
 ```ts
 import type { StreamingTool } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 // Helper: collect all chunks from a generator
 async function collect(gen: AsyncGenerator<StreamChunk>): Promise<StreamChunk[]> {
@@ -593,11 +593,11 @@ Replace `packages/core/src/tools/ToolRegistry.ts` with:
 
 ```ts
 import { randomUUID } from 'node:crypto';
-import type { ToolResult, StreamChunk } from '@legion/types';
+import type { ToolResult, StreamChunk } from '@legion-collective/types';
 import { ConflictError, ToolNotFoundError } from '../errors/LegionError.js';
 import type { AnyTool, Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import { isStreamingTool } from './Tool.js';
-import type { ToolResultStatus } from '@legion/types';
+import type { ToolResultStatus } from '@legion-collective/types';
 
 async function* managedStream(
   tool: AnyTool,
@@ -842,7 +842,7 @@ Expected: FAIL — module not found
 Create `packages/core/src/tools/cancel-stream-tool.ts`:
 
 ```ts
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 export const cancelStreamTool: Tool = {
@@ -899,7 +899,7 @@ Create `packages/core/src/tools/watch-conversations-tool.test.ts`:
 import { watchConversationsTool } from './watch-conversations-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 function fakeCtx(eventBus: EventBus, signal?: AbortSignal): ToolContext {
   return {
@@ -954,7 +954,7 @@ Expected: FAIL — module not found
 Create `packages/core/src/tools/watch-conversations-tool.ts`:
 
 ```ts
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
@@ -1012,7 +1012,7 @@ Create `packages/core/src/tools/watch-participants-tool.test.ts`:
 import { watchParticipantsTool } from './watch-participants-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 function fakeCtx(eventBus: EventBus, signal?: AbortSignal): ToolContext {
   return {
@@ -1052,7 +1052,7 @@ Expected: FAIL
 Create `packages/core/src/tools/watch-participants-tool.ts`:
 
 ```ts
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
@@ -1115,7 +1115,7 @@ Create `packages/core/src/tools/watch-activity-tool.test.ts`:
 import { watchActivityTool } from './watch-activity-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 function fakeCtx(eventBus: EventBus, signal?: AbortSignal): ToolContext {
   return {
@@ -1179,7 +1179,7 @@ Expected: FAIL
 Create `packages/core/src/tools/watch-activity-tool.ts`:
 
 ```ts
-import type { LegionEventMap, LegionEventName, StreamChunk } from '@legion/types';
+import type { LegionEventMap, LegionEventName, StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
@@ -1269,7 +1269,7 @@ Create `packages/core/src/tools/watch-conversation-tool.test.ts`:
 import { watchConversationTool } from './watch-conversation-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 function fakeCtx(eventBus: EventBus, signal?: AbortSignal): ToolContext {
   return {
@@ -1334,7 +1334,7 @@ Expected: FAIL
 Create `packages/core/src/tools/watch-conversation-tool.ts`:
 
 ```ts
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 
@@ -1412,7 +1412,7 @@ Create `packages/core/src/tools/watch-process-tool.test.ts`:
 import { watchProcessTool } from './watch-process-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { ProcessChunk, StreamChunk } from '@legion/types';
+import type { ProcessChunk, StreamChunk } from '@legion-collective/types';
 
 function makeMockProcessManager(processId: string, ownerId: string) {
   const listeners: Record<string, Array<(evt: unknown) => void>> = {
@@ -1519,7 +1519,7 @@ Expected: FAIL
 Create `packages/core/src/tools/watch-process-tool.ts`:
 
 ```ts
-import type { ProcessChunk, StreamChunk } from '@legion/types';
+import type { ProcessChunk, StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 import type { ProcessManager } from '../process/ProcessManager.js';
@@ -1678,7 +1678,7 @@ git commit -m "feat(core): export streaming tools and utilities"
 Replace the `ConnectorContext` interface in `packages/core/src/connectors/Connector.ts`:
 
 ```ts
-import type { ToolResult, StreamChunk } from '@legion/types';
+import type { ToolResult, StreamChunk } from '@legion-collective/types';
 import type { MessageRouterResult } from '../tools/Tool.js';
 import type { ConnectorRegistry } from './ConnectorRegistry.js';
 
@@ -1804,7 +1804,7 @@ At the top of `WebConnector.ts`, add imports:
 
 ```ts
 import { randomUUID } from 'node:crypto';
-import { StreamRegistry } from '@legion/core';
+import { StreamRegistry } from '@legion-collective/core';
 ```
 
 In the `WebConnector` class body, add private fields after `private connections`:
@@ -1991,8 +1991,8 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { verifyToken, extractBearerToken } from '../auth.js';
 import type { JwtSecret } from '../auth.js';
-import type { ConnectorContext, Collective, StreamChunk } from '@legion/core';
-import { StreamRegistry } from '@legion/core';
+import type { ConnectorContext, Collective, StreamChunk } from '@legion-collective/core';
+import { StreamRegistry } from '@legion-collective/core';
 
 export interface ExecuteRouteDeps {
   collective: Collective;
@@ -2312,7 +2312,7 @@ async streamTool(participantId, toolName, args, opts) {
 },
 ```
 
-Note: `ConversationData` is already imported (`type ConversationData` from `@legion/types`). `ConversationThread` is already imported.
+Note: `ConversationData` is already imported (`type ConversationData` from `@legion-collective/types`). `ConversationThread` is already imported.
 
 - [ ] **Step 6: Typecheck**
 
@@ -2347,7 +2347,7 @@ Replace `packages/web/src/composables/useWebSocket.ts`:
 ```ts
 import { useAuth } from './useAuth.js';
 import { router } from '../router/index.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 type MessageHandler = (data: unknown) => void;
 type StreamChunkHandler = (chunk: StreamChunk) => void;
@@ -2499,7 +2499,7 @@ Create `packages/web/src/composables/useToolStream.ts`:
 import { ref, onUnmounted, type Ref } from 'vue';
 import { useWebSocket } from './useWebSocket.js';
 import { useAuth } from './useAuth.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 export interface UseToolStreamOptions<TChunk extends StreamChunk> {
   onChunk?: (chunk: TChunk) => void;

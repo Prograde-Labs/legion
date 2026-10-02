@@ -55,14 +55,14 @@ A root-level TypeScript config used exclusively by `tsx` during development. It 
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@legion/types": ["packages/types/src/index.ts"],
-      "@legion/core": ["packages/core/src/index.ts"]
+      "@legion-collective/types": ["packages/types/src/index.ts"],
+      "@legion-collective/core": ["packages/core/src/index.ts"]
     }
   }
 }
 ```
 
-`tsx` respects these paths when running `bin/legion.js`, so it resolves `@legion/core` to `packages/core/src/index.ts` rather than `packages/core/dist/index.js`. No dist build is required.
+`tsx` respects these paths when running `bin/legion.js`, so it resolves `@legion-collective/core` to `packages/core/src/index.ts` rather than `packages/core/dist/index.js`. No dist build is required.
 
 ### Dev mode branch in `WebConnector`
 

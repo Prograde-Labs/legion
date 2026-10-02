@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { JSONSchema, JSONValue, ToolResult } from '@legion/types';
+import type { JSONSchema, JSONValue, ToolResult } from '@legion-collective/types';
 import { compactRange, getActiveChain } from '../conversation/conversation-ops.js';
-import type { ConversationData } from '@legion/types';
+import type { ConversationData } from '@legion-collective/types';
 import type { Tool } from './Tool.js';
 
 const SUMMARY_INSTRUCTION =

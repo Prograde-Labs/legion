@@ -3,7 +3,7 @@ import type {
   MiddlewareDefinition,
   PostMessageContext,
   PostMessageResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { ConversationStore } from '../../conversation/ConversationStore.js';
 
 export interface ConversationNamingConfig {

@@ -1,4 +1,4 @@
-import type { MiddlewareDefinition, ProviderModel } from '@legion/types';
+import type { MiddlewareDefinition, ProviderModel } from '@legion-collective/types';
 import type { MiddlewareRegistry } from '../MiddlewareRegistry.js';
 import type { SkillRegistry } from '../../skills/SkillRegistry.js';
 import type { ConversationStore } from '../../conversation/ConversationStore.js';

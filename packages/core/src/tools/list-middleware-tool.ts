@@ -1,4 +1,8 @@
-import type { MiddlewareDefinitionSummary, MiddlewareDiagnostic, ToolResult } from '@legion/types';
+import type {
+  MiddlewareDefinitionSummary,
+  MiddlewareDiagnostic,
+  ToolResult,
+} from '@legion-collective/types';
 import type { Tool } from './Tool.js';
 
 export interface ListMiddlewareToolDependencies {

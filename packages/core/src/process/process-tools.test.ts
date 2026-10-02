@@ -1,6 +1,6 @@
 import { processTools } from './process-tools.js';
 import type { ToolContext } from '../tools/Tool.js';
-import type { ProcessHandle, ExecuteResult } from '@legion/types';
+import type { ProcessHandle, ExecuteResult } from '@legion-collective/types';
 
 const HANDLE: ProcessHandle = {
   id: 'proc-test',

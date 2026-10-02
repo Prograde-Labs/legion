@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import { NotImplementedError } from '../errors/LegionError.js';
 import type { Storage } from '../storage/Storage.js';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';

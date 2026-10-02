@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
 import { useExecute } from '../../composables/useExecute.js';
 

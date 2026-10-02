@@ -470,7 +470,7 @@ The key challenge: we accumulate `text_delta` + `tool_call_*` chunks into a `Pro
 In `packages/core/src/runtime/Runtime.ts`, add `handleStream?` to the `Runtime` interface:
 
 ```ts
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 
 export interface Runtime {
   handle(incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult>;
@@ -481,7 +481,7 @@ export interface Runtime {
 }
 ```
 
-Add the `LLMChunk` import to the existing `@legion/types` import at the top.
+Add the `LLMChunk` import to the existing `@legion-collective/types` import at the top.
 
 - [ ] **Step 2: Write the failing test in `AgentRuntime.test.ts`**
 
@@ -549,7 +549,7 @@ describe('AgentRuntime.handleStream()', () => {
 });
 ```
 
-Add `import type { LLMChunk } from '@legion/types';` to the test imports.
+Add `import type { LLMChunk } from '@legion-collective/types';` to the test imports.
 
 - [ ] **Step 3: Run to verify it fails**
 
@@ -876,7 +876,7 @@ private async computeUsage(
 6. Add necessary imports at the top of `AgentRuntime.ts`:
 
 ```ts
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 import type { ProviderStreamChunk, ProviderUsage } from '../providers/Provider.js';
 ```
 
@@ -958,7 +958,7 @@ In `packages/core/src/tools/Tool.ts`, update `MessageRouterPort`:
 Add import at top:
 
 ```ts
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 ```
 
 Add to `MessageRouterPort`:
@@ -987,7 +987,7 @@ In `packages/core/src/runtime/MessageRouter.ts`:
 Add import:
 
 ```ts
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 ```
 
 Add `sendStream()` to the `MessageRouter` class:
@@ -1198,7 +1198,7 @@ Add a test for `stream()`:
 
 ```ts
 import { isStreamingTool } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 describe('communicate as StreamingTool', () => {
   it('isStreamingTool returns true for communicateTool', () => {
@@ -1236,7 +1236,7 @@ Add imports at the top:
 
 ```ts
 import type { StreamingTool } from './Tool.js';
-import type { LLMChunk, StreamChunk } from '@legion/types';
+import type { LLMChunk, StreamChunk } from '@legion-collective/types';
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -1249,7 +1249,7 @@ Expected: FAIL — `isStreamingTool(communicateTool)` returns false; `communicat
 Replace `packages/core/src/tools/communicate-tool.ts`:
 
 ```ts
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 import type { MessageRouterResult, StreamingTool, ToolContext } from './Tool.js';
 
 export const communicateTool: StreamingTool = {
@@ -1471,7 +1471,7 @@ async *stream(_args: unknown, context: ToolContext): AsyncGenerator<StreamChunk,
 - [ ] **Step 5: Write the actual `communicate-tool.ts`**
 
 ```ts
-import type { ToolResult, LLMChunk } from '@legion/types';
+import type { ToolResult, LLMChunk } from '@legion-collective/types';
 import type { MessageRouterResult, StreamingTool, ToolContext } from './Tool.js';
 
 export const communicateTool: StreamingTool = {

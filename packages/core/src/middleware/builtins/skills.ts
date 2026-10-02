@@ -1,4 +1,4 @@
-import type { MiddlewareDefinition } from '@legion/types';
+import type { MiddlewareDefinition } from '@legion-collective/types';
 import type { SkillRegistry } from '../../skills/SkillRegistry.js';
 
 export interface SkillsConfig {

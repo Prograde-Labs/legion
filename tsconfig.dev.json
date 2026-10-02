@@ -3,8 +3,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@legion/types": ["packages/types/src/index.ts"],
-      "@legion/core": ["packages/core/src/index.ts"]
+      "@legion-collective/types": ["packages/types/src/index.ts"],
+      "@legion-collective/core": ["packages/core/src/index.ts"]
     }
   }
 }

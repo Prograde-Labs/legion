@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue';
-import type { JSONValue } from '@legion/types';
+import type { JSONValue } from '@legion-collective/types';
 import type { MiddlewareSchemaNode } from './middleware-ui-types.js';
 
 const props = defineProps<{

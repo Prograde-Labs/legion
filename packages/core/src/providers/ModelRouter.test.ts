@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion/types';
+import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
 import { describe, expect, it } from 'vitest';
 import type { SystemProviderStore } from './SystemProviderStore.js';
 import type { Provider } from './Provider.js';

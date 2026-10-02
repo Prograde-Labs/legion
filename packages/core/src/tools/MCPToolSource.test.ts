@@ -1,5 +1,5 @@
 import { type MockedClass, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { ConfigError } from '../errors/LegionError.js';
 import { MCPToolSource } from './MCPToolSource.js';
 

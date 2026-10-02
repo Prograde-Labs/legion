@@ -6,7 +6,7 @@
 
 **Architecture:** `Provider` is a plain interface — `complete(messages, tools, model)` → `ProviderResponse`. `OpenAICompatibleProvider` implements it with native `fetch` against the OpenAI Chat Completions API (no SDK; covers OpenAI, Ollama, LM Studio, Azure, etc.). `ProviderRegistry` maps provider names to `Provider` instances and is constructor-injected into `AgentRuntime`. `AgentRuntime` reads the agent's conversation history from `context.conversation.activeChain`, builds a `ProviderMessage[]`, calls the provider, executes tool calls (persisting each turn to the conversation), loops until the provider returns a text response or the iteration limit is hit, then returns the final response string for `MessageRouter` to persist. Depends on Plans 1–5.
 
-**Tech Stack:** `@legion/core`, native `fetch` (Node 20+), Vitest (`vi.stubGlobal`).
+**Tech Stack:** `@legion-collective/core`, native `fetch` (Node 20+), Vitest (`vi.stubGlobal`).
 
 ---
 
@@ -44,7 +44,7 @@ All new symbols exported from `packages/core/src/index.ts`.
 - [ ] **Step 1: Create `Provider.ts`** (types only; stays in core — not shared with web)
 
 ```typescript
-import type { JSONSchema, ModelConfig } from '@legion/types';
+import type { JSONSchema, ModelConfig } from '@legion-collective/types';
 
 /**
  * A message in the LLM conversation thread.
@@ -194,7 +194,7 @@ git commit -m "feat(core): add Provider interface and ProviderRegistry"
 > base URL: `model.baseUrl` → `process.env['OPENAI_BASE_URL']` → constructor default.
 > API key: `process.env[model.apiKeyEnv ?? defaultApiKeyEnv]`.
 >
-> Uses native `fetch` (Node 20+) — no SDK dependency in `@legion/core`.
+> Uses native `fetch` (Node 20+) — no SDK dependency in `@legion-collective/core`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -203,7 +203,7 @@ git commit -m "feat(core): add Provider interface and ProviderRegistry"
 ```typescript
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { ProviderError } from '../errors/LegionError.js';
-import type { ModelConfig } from '@legion/types';
+import type { ModelConfig } from '@legion-collective/types';
 
 const MODEL: ModelConfig = { provider: 'openai-compatible', model: 'gpt-4o-mini' };
 
@@ -354,7 +354,7 @@ Expected: FAIL — `Cannot find module './OpenAICompatibleProvider.js'`.
 
 ```typescript
 import { ProviderError } from '../errors/LegionError.js';
-import type { ModelConfig } from '@legion/types';
+import type { ModelConfig } from '@legion-collective/types';
 import type {
   Provider,
   ProviderMessage,
@@ -542,7 +542,7 @@ import { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { AgentConfig } from '@legion/types';
+import type { AgentConfig } from '@legion-collective/types';
 
 // ── Test helper ──────────────────────────────────────────────────────────────
 
@@ -768,7 +768,12 @@ Expected: FAIL — `Cannot find module './AgentRuntime.js'`.
 `packages/core/src/runtime/AgentRuntime.ts`:
 
 ```typescript
-import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
+import type {
+  AgentConfig,
+  MessageData,
+  ToolCallData,
+  ToolCallResult,
+} from '@legion-collective/types';
 import type { Runtime, RuntimeContext } from './Runtime.js';
 import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
@@ -1222,7 +1227,7 @@ git commit -m "docs: mark Plan 6 written in roadmap"
 - **Spec §12 `iteration`, `tool:call`, `tool:result` events:** Emitted in `AgentRuntime.handle()`. ✅
 - **First runnable deliverable (end of Plan 6) — mock loop + real AgentRuntime on OpenAI-compatible behind env-gated integration test:** Task 4. ✅
 - **Tool filter deviation (Plan 6 only presents `'auto'` tools; `'requires_approval'` deferred to Plan 7):** Documented in Task 3 task header and inline comment. ✅
-- **Native `fetch` — no SDK dependency in `@legion/core`:** `OpenAICompatibleProvider` uses `fetch` directly. ✅
+- **Native `fetch` — no SDK dependency in `@legion-collective/core`:** `OpenAICompatibleProvider` uses `fetch` directly. ✅
 - **`ProviderRegistry` constructor-injected into `AgentRuntime` (not in `RuntimeContext`):** Task 1/3. ✅ Plan 10 wires the factory registration via `LegionProcess.start()`.
 - **`verbatimModuleSyntax` compliance:** All provider/runtime imports that carry only types use `import type`. ✅
 - **Test gate for `agent-runtime.integration.test.ts`:** `describe.skipIf(!LIVE)` — the test is skipped (not failed) when the env flag is absent, so `npm test` stays green. ✅
@@ -1230,7 +1235,7 @@ git commit -m "docs: mark Plan 6 written in roadmap"
 - **Type consistency:**
   - `ProviderMessage.toolCalls` ↔ `ToolCallData` (`id`/`name`/`arguments` match); conversion is explicit in `AgentRuntime`. ✅
   - `ProviderToolCall` ↔ `ToolCallData`: both have `{ id, name, arguments: Record<string, unknown> }`. ✅
-  - `ToolCallResult` (`@legion/types`): `{ id, name, result: ToolResult }` — correctly populated in the loop. ✅
+  - `ToolCallResult` (`@legion-collective/types`): `{ id, name, result: ToolResult }` — correctly populated in the loop. ✅
   - `RuntimeContext` is from Plan 5 (`packages/core/src/runtime/Runtime.ts`); `AgentRuntime.handle()` signature matches `Runtime.handle(incoming: MessageData, context: RuntimeContext): Promise<string | void>`. ✅
   - `ConversationThread.activeChain` (Plan 2) returns `MessageData[]` via `getActiveChain(this.data)`. ✅
   - `ConversationThread.append()` accepts `NewMessageInput` which includes optional `toolCalls?: ToolCallData[]` and `toolResults?: ToolCallResult[]` (Plan 2, Task 1). ✅

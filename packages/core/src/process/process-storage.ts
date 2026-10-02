@@ -1,5 +1,5 @@
 import type { Storage } from '../storage/Storage.js';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 
 function metaKey(id: string): string {
   return `${id}/meta.json`;

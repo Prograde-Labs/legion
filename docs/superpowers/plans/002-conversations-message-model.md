@@ -4,9 +4,9 @@
 
 **Goal:** Implement the branching conversation model — keyed message maps, active-chain reconstruction, edit/prune/compaction operations, and a `ConversationStore` with a file backend.
 
-**Architecture:** Conversations are persistent threads stored as one JSON file each (`.legion/conversations/<id>.json`). Messages are a keyed map; order is recovered by walking `parentId` links from `activeBranchHead` to the root. Pure functions in `conversation-ops.ts` operate on `ConversationData` immutably-in-spirit (mutate a working copy, return it); the `ConversationStore` persists. A `ConversationThread` wrapper gives runtimes a convenient handle. Depends on Plan 1 (`@legion/core` types, `Storage`, `FileStorage`, ids, errors).
+**Architecture:** Conversations are persistent threads stored as one JSON file each (`.legion/conversations/<id>.json`). Messages are a keyed map; order is recovered by walking `parentId` links from `activeBranchHead` to the root. Pure functions in `conversation-ops.ts` operate on `ConversationData` immutably-in-spirit (mutate a working copy, return it); the `ConversationStore` persists. A `ConversationThread` wrapper gives runtimes a convenient handle. Depends on Plan 1 (`@legion-collective/core` types, `Storage`, `FileStorage`, ids, errors).
 
-**Tech Stack:** `@legion/core`, Node fs (via `FileStorage`), Vitest.
+**Tech Stack:** `@legion-collective/core`, Node fs (via `FileStorage`), Vitest.
 
 ---
 
@@ -92,7 +92,7 @@ Expected: FAIL — `Cannot find module './conversation-ops.js'`.
 - [ ] **Step 3: Write minimal implementation**
 
 ```typescript
-import type { ConversationData, MessageData } from '@legion/types';
+import type { ConversationData, MessageData } from '@legion-collective/types';
 import { createConversationId, createId, nowIso } from '../util/ids.js';
 
 export function createConversation(title?: string): ConversationData {
@@ -677,7 +677,7 @@ import type {
   ConversationFilter,
   ConversationMeta,
   MessageData,
-} from '@legion/types';
+} from '@legion-collective/types';
 
 export interface ConversationStore {
   create(data: Omit<ConversationData, 'id' | 'createdAt' | 'updatedAt'>): Promise<ConversationData>;
@@ -813,7 +813,7 @@ import type {
   ConversationFilter,
   ConversationMeta,
   MessageData,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { ConversationNotFoundError } from '../errors/LegionError.js';
 import { createConversationId, nowIso } from '../util/ids.js';
 import type { ConversationStore } from './ConversationStore.js';
@@ -1000,7 +1000,7 @@ Expected: FAIL — `Cannot find module './ConversationThread.js'`.
 `packages/core/src/conversation/ConversationThread.ts`:
 
 ```typescript
-import type { ConversationData, MessageData } from '@legion/types';
+import type { ConversationData, MessageData } from '@legion-collective/types';
 import type { ConversationStore } from './ConversationStore.js';
 import { appendMessage, getActiveChain, type NewMessageInput } from './conversation-ops.js';
 

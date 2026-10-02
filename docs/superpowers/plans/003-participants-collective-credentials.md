@@ -4,9 +4,9 @@
 
 **Goal:** Implement the participant roster (`Collective`) backed by per-participant JSON files, the bootstrap-operator seed, and the `CredentialStore` with an argon2-hashed file backend.
 
-**Architecture:** Participants live as JSON files under `.legion/collective/participants/<id>.json` (git-tracked). `Collective` loads, caches, queries, and mutates the roster (add/retire/update), enforcing the protected/last-operator invariants from spec §7. `CredentialStore` is separate from participant configs (spec §6) and stores argon2 hashes in `.legion/credentials.json` (git-ignored). Depends on Plan 1 (`@legion/core` types, `Storage`, errors, ids).
+**Architecture:** Participants live as JSON files under `.legion/collective/participants/<id>.json` (git-tracked). `Collective` loads, caches, queries, and mutates the roster (add/retire/update), enforcing the protected/last-operator invariants from spec §7. `CredentialStore` is separate from participant configs (spec §6) and stores argon2 hashes in `.legion/credentials.json` (git-ignored). Depends on Plan 1 (`@legion-collective/core` types, `Storage`, errors, ids).
 
-**Tech Stack:** `@legion/core`, `@node-rs/argon2` (native argon2 binding), Vitest.
+**Tech Stack:** `@legion-collective/core`, `@node-rs/argon2` (native argon2 binding), Vitest.
 
 ---
 
@@ -40,7 +40,7 @@ All exported from `packages/core/src/index.ts`.
 ```typescript
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from './Collective.js';
-import type { AgentConfig, UserConfig } from '@legion/types';
+import type { AgentConfig, UserConfig } from '@legion-collective/types';
 
 function seedStorage() {
   const storage = new MemoryStorage();
@@ -117,7 +117,7 @@ Expected: FAIL — `Cannot find module './Collective.js'`.
 
 ```typescript
 import type { Storage } from '../storage/Storage.js';
-import type { ParticipantConfig } from '@legion/types';
+import type { ParticipantConfig } from '@legion-collective/types';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 
 const PARTICIPANTS_PREFIX = 'collective/participants';
@@ -421,7 +421,7 @@ Expected: FAIL — `Cannot find module './default-participants.js'`.
 `packages/core/src/collective/default-participants.ts`:
 
 ```typescript
-import type { ParticipantConfig, UserConfig, ToolPolicy } from '@legion/types';
+import type { ParticipantConfig, UserConfig, ToolPolicy } from '@legion-collective/types';
 
 export const BOOTSTRAP_OPERATOR_ID = 'operator';
 

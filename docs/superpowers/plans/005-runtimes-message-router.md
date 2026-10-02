@@ -4,9 +4,9 @@
 
 **Goal:** Wire participants together into a working message loop: the `Runtime` abstraction, `RuntimeContext`, `RuntimeRegistry`, `MockRuntime`, the `communicate` tool, and the `MessageRouter` (synchronous + fire-and-forget). End state: an **end-to-end mock conversation loop** fully exercised by integration tests with zero external dependencies.
 
-**Architecture:** `MessageRouter` is the central dispatch (spec §3) — it loads/creates a conversation, persists the inbound message, resolves the recipient's runtime via `RuntimeRegistry`, invokes it with a `RuntimeContext`, persists the response, and returns. With `replyTo` set, it dispatches in the background and routes the response to the `replyTo` participant. `MockRuntime` returns scripted responses. The `communicate` tool calls `MessageRouter.send`, making agent↔agent (and tool-driven) messaging work. All of this lives in `@legion/core` (the engine). Depends on Plans 1–4.
+**Architecture:** `MessageRouter` is the central dispatch (spec §3) — it loads/creates a conversation, persists the inbound message, resolves the recipient's runtime via `RuntimeRegistry`, invokes it with a `RuntimeContext`, persists the response, and returns. With `replyTo` set, it dispatches in the background and routes the response to the `replyTo` participant. `MockRuntime` returns scripted responses. The `communicate` tool calls `MessageRouter.send`, making agent↔agent (and tool-driven) messaging work. All of this lives in `@legion-collective/core` (the engine). Depends on Plans 1–4.
 
-**Tech Stack:** `@legion/core`, Vitest.
+**Tech Stack:** `@legion-collective/core`, Vitest.
 
 ---
 
@@ -43,7 +43,7 @@ All exported from `packages/core/src/index.ts`.
 - [ ] **Step 1: Create `Runtime.ts`** (types only)
 
 ```typescript
-import type { MessageData, ParticipantType } from '@legion/types';
+import type { MessageData, ParticipantType } from '@legion-collective/types';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';
@@ -119,7 +119,7 @@ Expected: FAIL — `Cannot find module './RuntimeRegistry.js'`.
 `packages/core/src/runtime/RuntimeRegistry.ts`:
 
 ```typescript
-import type { ParticipantType } from '@legion/types';
+import type { ParticipantType } from '@legion-collective/types';
 import { ConflictError, LegionError } from '../errors/LegionError.js';
 import type { Runtime, RuntimeFactory } from './Runtime.js';
 
@@ -180,7 +180,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { MockRuntime } from './MockRuntime.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 async function ctxFor(responses: string[]): Promise<RuntimeContext> {
   const storage = new MemoryStorage();
@@ -239,7 +239,7 @@ Expected: FAIL — `Cannot find module './MockRuntime.js'`.
 `packages/core/src/runtime/MockRuntime.ts`:
 
 ```typescript
-import type { MessageData, MockConfig } from '@legion/types';
+import type { MessageData, MockConfig } from '@legion-collective/types';
 import type { Runtime, RuntimeContext } from './Runtime.js';
 
 export class MockRuntime implements Runtime {
@@ -288,7 +288,7 @@ git commit -m "feat(core): add MockRuntime"
 `packages/core/src/runtime/UserDeliveryRuntime.ts`:
 
 ```typescript
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext } from './Runtime.js';
 
 export class UserDeliveryRuntime implements Runtime {
@@ -811,7 +811,7 @@ Expected: FAIL — `Cannot find module './communicate-tool.js'`.
 `packages/core/src/tools/communicate-tool.ts`:
 
 ```typescript
-import type { JSONSchema, ToolResult } from '@legion/types';
+import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 export const communicateTool: Tool = {

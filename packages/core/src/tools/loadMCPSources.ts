@@ -1,4 +1,4 @@
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { MCPToolSource } from './MCPToolSource.js';
 import type { ToolRegistry } from './ToolRegistry.js';
 import type { ToolSource } from './ToolSource.js';

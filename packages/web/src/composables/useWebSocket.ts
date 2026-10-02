@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { useAuth } from './useAuth.js';
 import { router } from '../router/index.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 type MessageHandler = (data: unknown) => void;
 type StreamChunkHandler = (chunk: StreamChunk) => void;

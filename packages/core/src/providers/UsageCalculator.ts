@@ -1,5 +1,5 @@
 import { Decimal } from 'decimal.js';
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 import type { ProviderUsage } from './Provider.js';
 import type { Provider } from './Provider.js';
 import type { ModelPricing, PricingSource } from './PricingSource.js';

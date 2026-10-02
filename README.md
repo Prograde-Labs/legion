@@ -1,4 +1,4 @@
-# Legion v2
+# Legion
 
 A multi-agent collective framework — an always-on process that hosts AI agents, automated services, and human users who communicate by sending messages to each other.
 

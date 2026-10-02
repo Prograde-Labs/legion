@@ -46,7 +46,7 @@ The operator always calls `communicate` with `replyTo` set to their own `partici
 
 ### 4.2 `ConversationMeta.participants` field
 
-`ConversationMeta` in `@legion/types` gains a `participants: string[]` field — the set of unique participant IDs that appear as either `senderId` or `recipientId` on any message in that conversation.
+`ConversationMeta` in `@legion-collective/types` gains a `participants: string[]` field — the set of unique participant IDs that appear as either `senderId` or `recipientId` on any message in that conversation.
 
 Both fields must be scanned. A conversation where Atlas sent a fire-and-forget to the operator (`replyTo: 'operator'`) must appear in the operator's "Mine" list, because the operator's ID appears as `recipientId` on the reply message.
 

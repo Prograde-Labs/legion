@@ -3,7 +3,7 @@ import type {
   ConversationFilter,
   ConversationMeta,
   MessageData,
-} from '@legion/types';
+} from '@legion-collective/types';
 
 export interface ConversationStore {
   create(

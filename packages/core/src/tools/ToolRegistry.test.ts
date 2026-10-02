@@ -1,7 +1,7 @@
 import { ToolRegistry } from './ToolRegistry.js';
 import { isStreamingTool } from './Tool.js';
 import type { Tool, ToolContext, AnyTool, StreamingTool } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 import { EventBus } from '../events/EventBus.js';
 
 const echoTool: Tool = {

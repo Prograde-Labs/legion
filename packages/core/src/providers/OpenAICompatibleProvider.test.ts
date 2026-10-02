@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { ProviderError } from '../errors/LegionError.js';
-import type { ModelConfig } from '@legion/types';
+import type { ModelConfig } from '@legion-collective/types';
 import type { ProviderStreamChunk, ProviderUsage } from './Provider.js';
 
 const MODEL: ModelConfig = { model: 'gpt-4o-mini' };

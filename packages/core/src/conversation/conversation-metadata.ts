@@ -4,7 +4,7 @@ import type {
   ConversationFilter,
   ConversationMutation,
   ConversationStatus,
-} from '@legion/types';
+} from '@legion-collective/types';
 
 type ConversationFilterInput = ConversationData | ConversationEventMetadata;
 

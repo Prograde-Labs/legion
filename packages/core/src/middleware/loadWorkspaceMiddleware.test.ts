@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { MiddlewareModuleConfig } from '@legion/types';
+import type { MiddlewareModuleConfig } from '@legion-collective/types';
 import { LegionError } from '../errors/LegionError.js';
 import { loadWorkspaceMiddleware, MiddlewareLoadError } from './loadWorkspaceMiddleware.js';
 import { MiddlewareRegistry } from './MiddlewareRegistry.js';

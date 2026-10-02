@@ -5,7 +5,7 @@ import type {
   MiddlewareDefinition,
   MiddlewareDiagnostic,
   MiddlewareModuleConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { LegionError } from '../errors/LegionError.js';
 import { MiddlewareRegistry } from './MiddlewareRegistry.js';
 

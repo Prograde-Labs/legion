@@ -9,7 +9,7 @@ import AppLayout from '../components/layout/AppLayout.vue';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
 import SearchableCombobox from '../components/common/SearchableCombobox.vue';
-import type { ConversationMeta, BaseParticipant } from '@legion/types';
+import type { ConversationMeta, BaseParticipant } from '@legion-collective/types';
 
 const route = useRoute();
 const router = useRouter();

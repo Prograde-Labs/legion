@@ -82,7 +82,7 @@ All new exports added to `packages/core/src/index.ts`.
 - Amend: `packages/core/src/runtime/Runtime.ts`
 - Amend: `packages/core/src/tools/Tool.ts`
 
-> All type-only changes. No test files exist for `@legion/types` (types are verified via
+> All type-only changes. No test files exist for `@legion-collective/types` (types are verified via
 > downstream compilation). `Runtime.ts` and `Tool.ts` are also types-only; downstream tests
 > will start failing after this task and are fixed in subsequent tasks.
 
@@ -142,7 +142,7 @@ Add `RuntimeResult` union, change `handle()` return type, add `approvalLog` to `
 Replace the full file:
 
 ```typescript
-import type { MessageData, ParticipantConfig } from '@legion/types';
+import type { MessageData, ParticipantConfig } from '@legion-collective/types';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';
@@ -194,7 +194,7 @@ export interface MessageRouterResult {
   approvalRequests?: PendingApproval[];
 }
 
-/** Minimal port so core tools can route messages without depending on @legion/runtime. */
+/** Minimal port so core tools can route messages without depending on @legion-collective/runtime. */
 export interface MessageRouterPort {
   send(opts: {
     senderId: string;
@@ -485,7 +485,7 @@ Expected: PASS (6 tests).
 Replace `packages/core/src/runtime/MockRuntime.ts`:
 
 ```typescript
-import type { MessageData, MockConfig } from '@legion/types';
+import type { MessageData, MockConfig } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 
 export class MockRuntime implements Runtime {
@@ -534,7 +534,7 @@ describe('MockRuntime', () => {
 Replace `packages/core/src/runtime/UserDeliveryRuntime.ts`:
 
 ```typescript
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 
 export class UserDeliveryRuntime implements Runtime {
@@ -598,9 +598,9 @@ async updateToolResults(messageId: string, toolResults: ToolCallResult[]): Promi
 }
 ```
 
-> `ToolCallResult` is already imported in `ConversationThread.ts` via `@legion/types` (used
+> `ToolCallResult` is already imported in `ConversationThread.ts` via `@legion-collective/types` (used
 > in `NewMessageInput`). Add it to the import if it isn't already present:
-> `import type { ..., ToolCallResult } from '@legion/types';`
+> `import type { ..., ToolCallResult } from '@legion-collective/types';`
 
 - [ ] **Step 2: Run the existing ConversationThread tests to confirm no regression**
 
@@ -974,7 +974,12 @@ Apply this pattern to all 5 existing tests.
 - [ ] **Step 4: Replace `packages/core/src/runtime/AgentRuntime.ts`**
 
 ```typescript
-import type { AgentConfig, MessageData, ToolCallData, ToolCallResult } from '@legion/types';
+import type {
+  AgentConfig,
+  MessageData,
+  ToolCallData,
+  ToolCallResult,
+} from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ProviderRegistry } from '../providers/ProviderRegistry.js';
 import type { ProviderMessage, ProviderTool } from '../providers/Provider.js';
@@ -2094,7 +2099,7 @@ Expected: FAIL — `Cannot find module './approval-response-tool.js'`.
 - [ ] **Step 6: Create `packages/core/src/tools/approval-response-tool.ts`**
 
 ```typescript
-import type { JSONSchema, ToolResult } from '@legion/types';
+import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 import type { PendingApprovalRegistry, ApprovalDecision } from '../auth/PendingApprovalRegistry.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';
@@ -2271,7 +2276,7 @@ import { communicateTool } from '../tools/communicate-tool.js';
 import { approvalResponseTool } from '../tools/approval-response-tool.js';
 import type { Provider, ProviderResponse } from '../providers/Provider.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { JSONSchema } from '@legion/types';
+import type { JSONSchema } from '@legion-collective/types';
 
 /** A provider that cycles through a scripted sequence of responses. */
 function scriptedProvider(turns: ProviderResponse[]): Provider {
@@ -2592,4 +2597,4 @@ git commit -m "feat(core): approval flow integration test + barrel exports"
 - **Cross-plan consistency:** `approval_response` declared in Plan 3's bootstrap operator tool map under `'auto'` policy — no dangling tool reference. Plan 7 implements it; Plan 4's `MANAGEMENT_TOOLS` array should be checked and updated to include `'approval_response'` if it is absent (it may only list management tools; `approval_response` is a separate global tool registered in Plan 10 startup). ✅
 - **`ApprovalLog` in `RuntimeContext`:** Added as optional `approvalLog?: ApprovalLog` to `RuntimeContext` in Plan 7's `Runtime.ts` amendment. Plan 10 will wire the concrete instance. ✅
 - **Placeholder scan:** All steps contain full code and exact commands. ✅
-- **`verbatimModuleSyntax` compliance:** All type-only imports from `@legion/types` and sibling modules use `import type`. ✅
+- **`verbatimModuleSyntax` compliance:** All type-only imports from `@legion-collective/types` and sibling modules use `import type`. ✅

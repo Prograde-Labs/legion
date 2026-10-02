@@ -1,7 +1,7 @@
 import { ref, onUnmounted, getCurrentInstance } from 'vue';
 import type { Ref } from 'vue';
 import { useExecute } from './useExecute.js';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 
 const processes: Ref<ProcessHandle[]> = ref([]);
 const loading: Ref<boolean> = ref(false);

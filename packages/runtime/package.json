@@ -1,5 +1,5 @@
 {
-  "name": "@legion/runtime",
+  "name": "@legion-collective/runtime",
   "license": "Apache-2.0",
   "version": "0.0.1",
   "type": "module",
@@ -22,7 +22,7 @@
   "dependencies": {
     "@fastify/static": "^8.0.0",
     "@fastify/websocket": "^11.0.0",
-    "@legion/core": "*",
+    "@legion-collective/core": "*",
     "fastify": "^5.0.0",
     "jose": "^5.0.0"
   },

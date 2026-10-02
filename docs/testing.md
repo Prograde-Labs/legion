@@ -106,7 +106,7 @@ LEGION_INTEGRATION=1 LEGION_MCP_INTEGRATION=1 LEGION_OPENAI_INTEGRATION=1 npm ru
 
 ## Coverage Notes
 
-- **`@legion/types`** shows 0% statement coverage — expected, as it contains only TypeScript type/interface definitions with no executable statements.
+- **`@legion-collective/types`** shows 0% statement coverage — expected, as it contains only TypeScript type/interface definitions with no executable statements.
 - **Abstract base classes** (`Runtime.ts`, `Storage.ts`, `Provider.ts`, etc.) show 0% because they export interfaces or abstract classes with no instantiable logic; their concrete implementations are covered.
 - **`LegionProcess.ts`** shows very low coverage without `LEGION_INTEGRATION=1` because its integration tests are skipped. With the env var set and port 3000 free, coverage rises substantially.
 - **`WebConnector.ts`** coverage is partial because the WebSocket integration tests (`WebConnector.ws.integration.test.ts`) require `LEGION_INTEGRATION=1`.

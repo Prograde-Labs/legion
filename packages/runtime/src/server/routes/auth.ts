@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { Collective } from '@legion/core';
-import type { CredentialStore } from '@legion/core';
+import type { Collective } from '@legion-collective/core';
+import type { CredentialStore } from '@legion-collective/core';
 import { signToken, verifyToken, extractBearerToken } from '../auth.js';
 import type { JwtSecret } from '../auth.js';
 

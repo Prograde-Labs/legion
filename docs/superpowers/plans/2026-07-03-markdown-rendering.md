@@ -581,7 +581,7 @@ Replace the entire file contents with:
 ```vue
 <!-- packages/web/src/components/conversations/MessageBubble.vue -->
 <script setup lang="ts">
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import MarkdownContent from '../MarkdownContent.vue';
 
 defineProps<{

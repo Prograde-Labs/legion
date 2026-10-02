@@ -1,4 +1,4 @@
-# @legion/e2e — End-to-End Tests
+# @legion-collective/e2e — End-to-End Tests
 
 Playwright E2E suite for the Legion v2 web interface, HTTP API, and WebSocket layer.
 

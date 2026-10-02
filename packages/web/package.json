@@ -1,5 +1,5 @@
 {
-  "name": "@legion/web",
+  "name": "@legion-collective/web",
   "license": "Apache-2.0",
   "version": "0.0.0",
   "private": true,
@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@legion/types": "*",
+    "@legion-collective/types": "*",
     "@shikijs/markdown-it": "^4.3.1",
     "@vueuse/core": "^11.0.0",
     "ansi_up": "^6.0.6",

@@ -1,4 +1,4 @@
-import type { ParticipantType } from '@legion/types';
+import type { ParticipantType } from '@legion-collective/types';
 import { ConflictError, LegionError } from '../errors/LegionError.js';
 import type { Runtime, RuntimeFactory } from './Runtime.js';
 

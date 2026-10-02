@@ -147,7 +147,13 @@ git commit -m "feat(core): set_credential minimum 8-character password guard"
 Find the top import line:
 
 ```typescript
-import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig } from '@legion/types';
+import type {
+  JSONSchema,
+  ToolPolicy,
+  ToolResult,
+  AgentConfig,
+  ModelConfig,
+} from '@legion-collective/types';
 ```
 
 Replace with:
@@ -162,7 +168,7 @@ import type {
   UserConfig,
   ConnectorIdentity,
   ApprovalAuthority,
-} from '@legion/types';
+} from '@legion-collective/types';
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -887,7 +893,7 @@ Create `packages/web/src/components/participants/ApprovalAuthorityEditor.vue`:
 ```vue
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ApprovalAuthority } from '@legion/types';
+import type { ApprovalAuthority } from '@legion-collective/types';
 
 const props = defineProps<{
   authority: ApprovalAuthority | null | undefined;
@@ -988,7 +994,7 @@ import SlideOver from '../common/SlideOver.vue';
 import ToolPolicyEditor, { type ToolOverride } from './ToolPolicyEditor.vue';
 import ApprovalAuthorityEditor from './ApprovalAuthorityEditor.vue';
 import { useExecute } from '../../composables/useExecute.js';
-import type { ApprovalAuthority } from '@legion/types';
+import type { ApprovalAuthority } from '@legion-collective/types';
 
 const props = defineProps<{
   open: boolean;
@@ -1502,7 +1508,7 @@ import ToolPolicyEditor, { type ToolOverride } from './ToolPolicyEditor.vue';
 import ApprovalAuthorityEditor from './ApprovalAuthorityEditor.vue';
 import { useExecute } from '../../composables/useExecute.js';
 import { useAuth } from '../../composables/useAuth.js';
-import type { ApprovalAuthority, BaseParticipant } from '@legion/types';
+import type { ApprovalAuthority, BaseParticipant } from '@legion-collective/types';
 
 const props = defineProps<{
   open: boolean;
@@ -1806,7 +1812,7 @@ git commit -m "feat(web): add UserSlideOver component"
 ```vue
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import type { BaseParticipant } from '@legion/types';
+import type { BaseParticipant } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import AgentSlideOver from '../components/participants/AgentSlideOver.vue';
 import UserSlideOver from '../components/participants/UserSlideOver.vue';

@@ -55,7 +55,7 @@ git commit -m "refactor(types): narrow ToolPolicy to auto | requires_approval"
 Replace the entire file content:
 
 ```ts
-import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
+import type { ApprovalAuthority, ToolPolicy } from '@legion-collective/types';
 
 export interface AuthResult {
   authorized: boolean;
@@ -105,7 +105,7 @@ Replace the entire file content:
 
 ```ts
 import { AuthEngine } from './AuthEngine.js';
-import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
+import type { ApprovalAuthority, ToolPolicy } from '@legion-collective/types';
 
 describe('AuthEngine.authorize', () => {
   it('honors a participant per-tool auto policy', () => {

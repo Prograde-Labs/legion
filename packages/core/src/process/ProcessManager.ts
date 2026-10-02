@@ -16,7 +16,7 @@ import type {
   ProcessStatus,
   SpawnConfig,
   ExecuteResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 
 // native dep — may require build tools (node-gyp)
 let nodePty: typeof import('node-pty') | null = null;

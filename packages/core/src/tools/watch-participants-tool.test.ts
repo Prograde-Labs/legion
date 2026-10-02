@@ -1,7 +1,7 @@
 import { watchParticipantsTool } from './watch-participants-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 function fakeCtx(eventBus: EventBus, signal?: AbortSignal): ToolContext {
   return {

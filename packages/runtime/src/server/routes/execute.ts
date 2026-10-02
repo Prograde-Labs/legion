@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { verifyToken, extractBearerToken } from '../auth.js';
 import type { JwtSecret } from '../auth.js';
-import type { ConnectorContext, Collective, StreamChunk } from '@legion/core';
-import { StreamRegistry } from '@legion/core';
+import type { ConnectorContext, Collective, StreamChunk } from '@legion-collective/core';
+import { StreamRegistry } from '@legion-collective/core';
 
 export interface ExecuteRouteDeps {
   collective: Collective;

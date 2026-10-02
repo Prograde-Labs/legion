@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolResult, StreamChunk } from '@legion/types';
+import type { ToolResult, StreamChunk } from '@legion-collective/types';
 import { ConflictError, ToolNotFoundError } from '../errors/LegionError.js';
 import type { AnyTool, Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import { isStreamingTool } from './Tool.js';
-import type { ToolResultStatus } from '@legion/types';
+import type { ToolResultStatus } from '@legion-collective/types';
 
 async function* managedStream(
   tool: AnyTool,

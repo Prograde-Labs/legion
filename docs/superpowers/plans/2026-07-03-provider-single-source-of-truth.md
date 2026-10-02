@@ -39,7 +39,7 @@ Create `packages/core/src/providers/ProviderStore.test.ts`:
 import { describe, it, expect } from 'vitest';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { ProviderStore } from './ProviderStore.js';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 
 describe('ProviderStore', () => {
   it('get() returns null when no provider file exists', async () => {
@@ -139,7 +139,7 @@ Create `packages/core/src/providers/ProviderStore.ts`:
 
 ```typescript
 import type { Storage } from '../storage/Storage.js';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 
 export class ProviderStore {
@@ -432,8 +432,8 @@ git commit -m "feat(runtime): AgentRuntime now resolves providers from ProviderS
 Replace the contents of `packages/runtime/src/server/runtime-tools.ts`:
 
 ```typescript
-import type { CredentialInfo, ToolResult } from '@legion/types';
-import type { Tool, ProviderStore } from '@legion/core';
+import type { CredentialInfo, ToolResult } from '@legion-collective/types';
+import type { Tool, ProviderStore } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   providerStore: ProviderStore;
@@ -474,7 +474,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       },
       execute: async (rawArgs: unknown): Promise<ToolResult> => {
         try {
-          const args = rawArgs as import('@legion/types').ProviderConfig;
+          const args = rawArgs as import('@legion-collective/types').ProviderConfig;
           await providerStore.save(args);
           return { status: 'success', data: args };
         } catch (err) {
@@ -532,8 +532,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
 **Implementation note:** `list_credentials` and `set_credential_with_meta` still need access to raw `Storage` for the `credential-meta/` prefix. Keep `storage` in the deps alongside `providerStore`. The correct updated `RuntimeToolDeps` and full implementation is:
 
 ```typescript
-import type { CredentialInfo, ProviderConfig, ToolResult } from '@legion/types';
-import type { Storage, Tool, ProviderStore } from '@legion/core';
+import type { CredentialInfo, ProviderConfig, ToolResult } from '@legion-collective/types';
+import type { Storage, Tool, ProviderStore } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   storage: Storage;
@@ -660,7 +660,7 @@ git commit -m "feat(runtime-tools): delegate list_providers/configure_provider t
 
 - [ ] **Step 1: Update imports**
 
-In `packages/runtime/src/LegionProcess.ts`, update the `@legion/core` import block.
+In `packages/runtime/src/LegionProcess.ts`, update the `@legion-collective/core` import block.
 
 Remove `ProviderRegistry` and `OpenAICompatibleProvider` from the import, add `ProviderStore`:
 
@@ -696,7 +696,7 @@ import {
   type ToolContext,
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
-} from '@legion/core';
+} from '@legion-collective/core';
 ```
 
 - [ ] **Step 2: Replace provider wiring in `LegionProcess.start()`**

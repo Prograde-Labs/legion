@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { RoutingConfig } from '@legion/types';
+import type { RoutingConfig } from '@legion-collective/types';
 import { useExecute } from '../../composables/useExecute.js';
 
 const props = defineProps<{

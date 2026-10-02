@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { SystemProviderStore } from './SystemProviderStore.js';
 

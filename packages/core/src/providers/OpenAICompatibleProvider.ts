@@ -1,5 +1,5 @@
 import { ProviderError } from '../errors/LegionError.js';
-import type { ModelConfig, ProviderModel } from '@legion/types';
+import type { ModelConfig, ProviderModel } from '@legion-collective/types';
 import type {
   Provider,
   ProviderMessage,

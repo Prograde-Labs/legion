@@ -1,6 +1,6 @@
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from './Collective.js';
-import type { AgentConfig, UserConfig } from '@legion/types';
+import type { AgentConfig, UserConfig } from '@legion-collective/types';
 import { ConflictError, InvariantError } from '../errors/LegionError.js';
 import { EventBus } from '../events/EventBus.js';
 

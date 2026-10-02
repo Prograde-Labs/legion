@@ -4,7 +4,7 @@ import type {
   MessageUsage,
   MiddlewareActionResult,
   ParticipantConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { ToolContext } from '../tools/Tool.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';

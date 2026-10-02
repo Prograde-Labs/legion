@@ -8,7 +8,7 @@ import type {
   ConversationOrigin,
   MiddlewareInstanceConfig,
   MiddlewareCheckpoint,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { EventBus } from '../events/EventBus.js';
@@ -34,7 +34,7 @@ export interface MessageRouterResult {
   approvalRequests?: PendingApproval[];
 }
 
-/** Minimal port so core tools can route messages without depending on @legion/runtime. */
+/** Minimal port so core tools can route messages without depending on @legion-collective/runtime. */
 export interface MessageRouterPort {
   send(opts: {
     senderId: string;
@@ -86,7 +86,7 @@ export interface MiddlewareConfigurationValidator {
 
 /**
  * Context handed to every tool execution. `participant` is always the principal.
- * Runtime-only collaborators are optional here; @legion/runtime's RuntimeContext
+ * Runtime-only collaborators are optional here; @legion-collective/runtime's RuntimeContext
  * satisfies this interface and provides them concretely (spec §4).
  */
 export interface ToolContext {

@@ -1,4 +1,4 @@
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 
 export type GroupBy = 'model' | 'participant' | 'conversation' | 'day';
 

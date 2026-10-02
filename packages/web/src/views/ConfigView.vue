@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import type { ProviderConfig, RoutingConfig } from '@legion/types';
+import type { ProviderConfig, RoutingConfig } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import RoutingEditor from '../components/config/RoutingEditor.vue';

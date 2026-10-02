@@ -18,7 +18,7 @@ import { approvalResponseTool } from '../tools/approval-response-tool.js';
 import type { Provider, ProviderResponse, ProviderStreamChunk } from '../providers/Provider.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { JSONSchema } from '@legion/types';
+import type { JSONSchema } from '@legion-collective/types';
 
 class MockModelRouter {
   constructor(private mockProviders: Map<string, Provider>) {}

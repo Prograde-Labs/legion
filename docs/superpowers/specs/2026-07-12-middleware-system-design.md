@@ -223,7 +223,7 @@ type PostMessageHook<TConfig> = (
 ) => PostMessageResult | Promise<PostMessageResult>;
 ```
 
-`MessageDraft` lives in `@legion/types`. Existing core `NewMessageInput` extends this draft with
+`MessageDraft` lives in `@legion-collective/types`. Existing core `NewMessageInput` extends this draft with
 optional storage inputs such as `id`, `parentId`, tool calls, tool results, and usage. Middleware can
 change content and reasoning but cannot reroute a message, change its role, or assign tree identity.
 

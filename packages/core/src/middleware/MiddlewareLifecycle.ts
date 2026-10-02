@@ -5,7 +5,7 @@ import type {
   MessageUsage,
   MiddlewareActionResult,
   ParticipantConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { isDeepStrictEqual } from 'node:util';
 import type { RuntimeResult } from '../runtime/Runtime.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
-import type { JSONSchema, ToolResult } from '@legion/types';
+import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 function resolveInWorkspace(context: ToolContext, path: string): string | null {

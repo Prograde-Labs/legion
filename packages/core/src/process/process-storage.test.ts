@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
 import { readMeta, writeMeta, listProcessIds } from './process-storage.js';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 
 const BASE_META: ProcessMeta = {
   id: 'proc-test-1',

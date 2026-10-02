@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
-import type { ServiceConfig, WorkspaceConfig } from '@legion/types';
+import type { ServiceConfig, WorkspaceConfig } from '@legion-collective/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { Collective } from '../collective/Collective.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';

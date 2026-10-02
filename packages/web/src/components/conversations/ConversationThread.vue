@@ -8,7 +8,7 @@ import ReasoningDisclosure from './ReasoningDisclosure.vue';
 import CompactDialog from './CompactDialog.vue';
 import ToolCallBlock, { type ToolCallEntry, type MessageEntry } from './ToolCallBlock.vue';
 import ApprovalCard from './ApprovalCard.vue';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
 

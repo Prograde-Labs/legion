@@ -1,5 +1,10 @@
-import type { ProviderConfig, ProviderModel, RoutingConfig, ToolResult } from '@legion/types';
-import type { Tool, SystemProviderStore } from '@legion/core';
+import type {
+  ProviderConfig,
+  ProviderModel,
+  RoutingConfig,
+  ToolResult,
+} from '@legion-collective/types';
+import type { Tool, SystemProviderStore } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   systemStore: SystemProviderStore;

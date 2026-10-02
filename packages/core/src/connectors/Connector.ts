@@ -1,4 +1,4 @@
-import type { ToolResult, StreamChunk } from '@legion/types';
+import type { ToolResult, StreamChunk } from '@legion-collective/types';
 import type { MessageRouterResult } from '../tools/Tool.js';
 import type { ConnectorRegistry } from './ConnectorRegistry.js';
 

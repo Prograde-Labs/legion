@@ -1,4 +1,4 @@
-import type { LegionEventMap, LegionEventName } from '@legion/types';
+import type { LegionEventMap, LegionEventName } from '@legion-collective/types';
 
 type Handler<E extends LegionEventName> = (payload: LegionEventMap[E]) => void;
 

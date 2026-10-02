@@ -4,7 +4,7 @@
 
 **Goal:** Implement the `LegionService` SDK (`LegionService`, `ServiceContext`, `ServiceRuntime`) and the `ServiceManager` that loads service modules, manages their full lifecycle, and routes inbound messages to `onMessage()`.
 
-**Architecture:** Services are code-backed npm-module participants. `ServiceManager` dynamically imports each module (expecting a named `service` export), creates one `ServiceRuntime` per service (cached for the Plan 10 factory), and tracks lifecycle state (`stopped → starting → running → stopping → stopped | failed`). A per-call `ServiceContextImpl` gives each `onMessage()` invocation a typed handle over `communicate`, `callTool`, and `sleep`. The `start()` call receives a long-lived context bound to a real startup conversation; `onMessage()` calls each receive a fresh context bound to the incoming message's conversationId. All service types live in `@legion/core` because they reference `Storage` and `EventBus`, which are not in `@legion/types`. Depends on Plans 1–7.
+**Architecture:** Services are code-backed npm-module participants. `ServiceManager` dynamically imports each module (expecting a named `service` export), creates one `ServiceRuntime` per service (cached for the Plan 10 factory), and tracks lifecycle state (`stopped → starting → running → stopping → stopped | failed`). A per-call `ServiceContextImpl` gives each `onMessage()` invocation a typed handle over `communicate`, `callTool`, and `sleep`. The `start()` call receives a long-lived context bound to a real startup conversation; `onMessage()` calls each receive a fresh context bound to the incoming message's conversationId. All service types live in `@legion-collective/core` because they reference `Storage` and `EventBus`, which are not in `@legion-collective/types`. Depends on Plans 1–7.
 
 **Tech Stack:** TypeScript strict ESM, Vitest globals, Node 20+ (dynamic `import()`, `AbortController`).
 
@@ -134,7 +134,7 @@ Expected: FAIL — `Cannot find module './LegionService.js'`.
 ````typescript
 import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 
 /**
  * A message delivered inbound to a service (spec §5).
@@ -216,7 +216,7 @@ export interface ServiceContext {
  * Module export convention — service modules must export a named `service` constant:
  *
  * ```typescript
- * import type { LegionService } from '@legion/core';
+ * import type { LegionService } from '@legion-collective/core';
  *
  * export const service: LegionService = {
  *   async start(ctx) {
@@ -268,7 +268,7 @@ git commit -m "feat(core): add LegionService SDK type interfaces"
 > Two targeted amendments. No new behaviour in this task — just type narrowing and an
 > additive field. Tests are the existing Plan 1 / Plan 7 build checks.
 
-- [ ] **Step 1: Amend `ServiceConfig` in `@legion/types`**
+- [ ] **Step 1: Amend `ServiceConfig` in `@legion-collective/types`**
 
 Open `packages/types/src/participant.ts`. Find the `ServiceConfig` interface:
 
@@ -297,7 +297,7 @@ export interface ServiceConfig extends BaseParticipant {
   errorNotify?: string;
 ```
 
-- [ ] **Step 2: Verify `@legion/types` builds cleanly**
+- [ ] **Step 2: Verify `@legion-collective/types` builds cleanly**
 
 ```bash
 npx tsc --build packages/types/tsconfig.json
@@ -305,7 +305,7 @@ npx tsc --build packages/types/tsconfig.json
 
 Expected: exits 0 with no errors.
 
-- [ ] **Step 3: Amend `RuntimeContext.serviceManager` in `@legion/core`**
+- [ ] **Step 3: Amend `RuntimeContext.serviceManager` in `@legion-collective/core`**
 
 Open `packages/core/src/runtime/Runtime.ts`. Find:
 
@@ -324,7 +324,7 @@ Replace with:
 > `ServiceContextImpl`) `ServiceManager` imports `RuntimeContext` from `Runtime.ts`.
 > Both are `import type` — erased at runtime, safe for TypeScript's type-checker.
 
-- [ ] **Step 4: Verify `@legion/core` builds cleanly**
+- [ ] **Step 4: Verify `@legion-collective/core` builds cleanly**
 
 ```bash
 npx tsc --build packages/core/tsconfig.json
@@ -361,7 +361,7 @@ ServiceContext` → `LegionService.onMessage()` → `RuntimeResult`.
 `packages/core/src/service/ServiceRuntime.test.ts`:
 
 ```typescript
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { RuntimeContext } from '../runtime/Runtime.js';
 import type { LegionService, ServiceContext } from './LegionService.js';
 import { ServiceRuntime } from './ServiceRuntime.js';
@@ -508,7 +508,7 @@ Expected: FAIL — `Cannot find module './ServiceRuntime.js'`.
 `packages/core/src/service/ServiceRuntime.ts`:
 
 ```typescript
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from '../runtime/Runtime.js';
 import type { IncomingMessage, LegionService, ServiceContext } from './LegionService.js';
 
@@ -599,7 +599,7 @@ git commit -m "feat(core): add ServiceRuntime adapter"
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ServiceConfig, ToolResult } from '@legion/types';
+import type { ServiceConfig, ToolResult } from '@legion-collective/types';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { FileStorage } from '../storage/FileStorage.js';
@@ -829,7 +829,7 @@ Expected: FAIL — `Cannot find module './ServiceContextImpl.js'`.
 `packages/core/src/service/ServiceContextImpl.ts`:
 
 ```typescript
-import type { ServiceConfig, ToolResult, WorkspaceConfig } from '@legion/types';
+import type { ServiceConfig, ToolResult, WorkspaceConfig } from '@legion-collective/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { Collective } from '../collective/Collective.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
@@ -1029,7 +1029,7 @@ git commit -m "feat(core): add ServiceContextImpl (callTool, communicate, sleep)
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ServiceConfig } from '@legion/types';
+import type { ServiceConfig } from '@legion-collective/types';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { FileStorage } from '../storage/FileStorage.js';
@@ -1256,7 +1256,7 @@ Expected: FAIL — `Cannot find module './ServiceManager.js'`.
 
 ```typescript
 import { isAbsolute, resolve } from 'node:path';
-import type { ServiceConfig, WorkspaceConfig } from '@legion/types';
+import type { ServiceConfig, WorkspaceConfig } from '@legion-collective/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { Collective } from '../collective/Collective.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
@@ -1541,7 +1541,7 @@ git commit -m "feat(core): add ServiceManager (load, start, stop, autoStart, err
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { MessageData, ServiceConfig } from '@legion/types';
+import type { MessageData, ServiceConfig } from '@legion-collective/types';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { FileStorage } from '../storage/FileStorage.js';

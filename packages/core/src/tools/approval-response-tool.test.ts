@@ -4,7 +4,7 @@ import { AuthEngine } from '../auth/AuthEngine.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { approvalResponseTool } from './approval-response-tool.js';
 import type { ToolContext } from './Tool.js';
-import type { MiddlewareCheckpoint } from '@legion/types';
+import type { MiddlewareCheckpoint } from '@legion-collective/types';
 
 function checkpoint(): MiddlewareCheckpoint {
   return {

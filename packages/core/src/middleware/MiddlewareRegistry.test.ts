@@ -1,4 +1,4 @@
-import type { MiddlewareDefinition, MiddlewareInstanceConfig } from '@legion/types';
+import type { MiddlewareDefinition, MiddlewareInstanceConfig } from '@legion-collective/types';
 import { LegionError } from '../errors/LegionError.js';
 import { MiddlewareRegistry } from './MiddlewareRegistry.js';
 

@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Writable } from 'node:stream';
 import type { IPty } from 'node-pty';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 import type { RingBuffer } from './RingBuffer.js';
 
 /**

@@ -3,7 +3,7 @@ import { appendMessage, compactRange } from '../conversation/conversation-ops.js
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
-import type { MiddlewareCheckpoint } from '@legion/types';
+import type { MiddlewareCheckpoint } from '@legion-collective/types';
 import type { ToolContext } from './Tool.js';
 import { createAutomationTools, createCompactConversationTool } from './automation-tools.js';
 

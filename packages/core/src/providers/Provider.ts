@@ -1,4 +1,4 @@
-import type { JSONSchema, ModelConfig, ProviderModel } from '@legion/types';
+import type { JSONSchema, ModelConfig, ProviderModel } from '@legion-collective/types';
 
 import type { PricingSource } from './PricingSource.js';
 

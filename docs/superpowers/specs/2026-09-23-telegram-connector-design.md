@@ -9,10 +9,10 @@ delivered back to the chat, and tool-approval requests surface as inline buttons
 Two deliverables:
 
 1. **Generic config-driven connector loading** in `packages/runtime` — the `ConnectorConfig`
-   type already exists in `@legion/types` but `LegionProcess` hardcodes the web connector.
+   type already exists in `@legion-collective/types` but `LegionProcess` hardcodes the web connector.
    This change makes `connectors[]` entries actually load, from built-in factories or from
    external modules.
-2. **`@legion/connector-telegram`** — an external connector package implementing the spec §6
+2. **`@legion-collective/connector-telegram`** — an external connector package implementing the spec §6
    `Connector` interface, consumed like any third-party connector.
 
 ## Non-goals
@@ -48,7 +48,7 @@ Two deliverables:
 
 ### 1. Connector config and loading (`packages/runtime`)
 
-`ConnectorConfig` (in `@legion/types`) gains one field:
+`ConnectorConfig` (in `@legion-collective/types`) gains one field:
 
 ```typescript
 export interface ConnectorConfig {
@@ -83,7 +83,7 @@ export interface ConnectorConfig {
    mirroring the current register → build-context → start sequence.
 3. `start()` every registered connector with that context.
 
-`ConnectorRuntimeDeps` (new, exported from `@legion/core`):
+`ConnectorRuntimeDeps` (new, exported from `@legion-collective/core`):
 
 ```typescript
 export interface ConnectorRuntimeDeps {
@@ -96,14 +96,14 @@ Rationale: the spec makes identity mapping internal to the connector, which requ
 the collective; approval surfacing is event-driven. Everything else the connector needs
 arrives through `ConnectorContext` at `start()`. This keeps `ConnectorContext` unchanged.
 
-### 2. The `@legion/connector-telegram` package
+### 2. The `@legion-collective/connector-telegram` package
 
 Own repo/workspace dir (`/workspace/legion-connector-telegram`), pure ESM, Node ≥ 20,
 TypeScript strict matching Legion's tsconfig style. Depends on
 [grammY](https://grammy.dev) for the Bot API (long polling, `handleUpdate()` for tests).
 
 Packaging rule — the connector must be loadable by any Legion workspace without that
-workspace resolving `@legion/core` types at runtime: **type-only imports** for
+workspace resolving `@legion-collective/core` types at runtime: **type-only imports** for
 `Connector`/`ConnectorRuntimeDeps` (erased at compile; verified with `tsc --declaration
 --emitDeclarationOnly`), grammY as the only runtime dependency, Legion packages as
 devDependencies for type conformance. The Legion root workspace installs the connector

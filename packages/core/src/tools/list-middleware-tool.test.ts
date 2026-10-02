@@ -1,4 +1,4 @@
-import type { MiddlewareDefinitionSummary, MiddlewareDiagnostic } from '@legion/types';
+import type { MiddlewareDefinitionSummary, MiddlewareDiagnostic } from '@legion-collective/types';
 import { createListMiddlewareTool } from './list-middleware-tool.js';
 
 describe('createListMiddlewareTool', () => {

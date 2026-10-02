@@ -17,7 +17,7 @@ import type {
   MiddlewareCheckpoint,
   ParticipantConfig,
   ToolResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type {
   AutomationCompactionContinuation,

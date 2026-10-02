@@ -1,4 +1,9 @@
-import type { ConversationData, JSONValue, MessageData, ToolCallResult } from '@legion/types';
+import type {
+  ConversationData,
+  JSONValue,
+  MessageData,
+  ToolCallResult,
+} from '@legion-collective/types';
 import { ConversationNotFoundError } from '../errors/LegionError.js';
 import type { ConversationStore } from './ConversationStore.js';
 import { appendMessage, getActiveChain, type NewMessageInput } from './conversation-ops.js';

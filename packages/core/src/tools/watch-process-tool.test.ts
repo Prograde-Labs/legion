@@ -1,7 +1,7 @@
 import { watchProcessTool } from './watch-process-tool.js';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 function makeMockProcessManager(processId: string, ownerId: string) {
   const listeners: Record<string, Array<(evt: unknown) => void>> = {

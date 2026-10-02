@@ -1,4 +1,4 @@
-import type { ProcessChunk, StreamChunk } from '@legion/types';
+import type { ProcessChunk, StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
 import type { ProcessManager } from '../process/ProcessManager.js';

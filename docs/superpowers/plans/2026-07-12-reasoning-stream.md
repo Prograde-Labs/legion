@@ -890,7 +890,7 @@ Replace the static `useToolStream` mock with module-level reactive fixtures:
 
 ```ts
 import { nextTick, ref } from 'vue';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 let communicateOnChunk: ((chunk: StreamChunk) => void) | undefined;
 const streamDone = ref(false);

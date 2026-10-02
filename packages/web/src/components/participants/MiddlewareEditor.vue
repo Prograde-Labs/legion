@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { FailureMode, JSONValue, MiddlewareInstanceConfig } from '@legion/types';
+import type { FailureMode, JSONValue, MiddlewareInstanceConfig } from '@legion-collective/types';
 import MiddlewareSchemaForm from './MiddlewareSchemaForm.vue';
 import SkillsSelector from './SkillsSelector.vue';
 import type {

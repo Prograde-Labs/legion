@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { WebConnector } from './WebConnector.js';
-import { MemoryStorage } from '@legion/core';
-import { Collective } from '@legion/core';
-import { EventBus } from '@legion/core';
-import { FileCredentialStore } from '@legion/core';
+import { MemoryStorage } from '@legion-collective/core';
+import { Collective } from '@legion-collective/core';
+import { EventBus } from '@legion-collective/core';
+import { FileCredentialStore } from '@legion-collective/core';
 
 const LIVE = Boolean(process.env['LEGION_INTEGRATION']);
 

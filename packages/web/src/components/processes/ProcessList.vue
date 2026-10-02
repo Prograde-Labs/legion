@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { computed } from 'vue';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 import ProcessStatusDot from './ProcessStatusDot.vue';
 
 const props = defineProps<{

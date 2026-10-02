@@ -6,7 +6,7 @@
 
 **Architecture:** A `Tool` is a plain object with `name`, `description`, `parameters` (JSON schema), and an `execute(args, context)` that returns `{ status, data | error }` instead of throwing (spec §14). `ToolRegistry` holds tools and runs them. `AuthEngine` answers two questions — `authorize` and `hasAuthority` — and orchestrates nothing (spec §7). `PendingApprovalRegistry` tracks in-flight approval requests (used by Plans 5 & 7). Management actions (`create_agent`, etc.) are ordinary tools gated by the caller's policy. Depends on Plans 1–3.
 
-**Tech Stack:** `@legion/core`, Node fs, Vitest.
+**Tech Stack:** `@legion-collective/core`, Node fs, Vitest.
 
 ---
 
@@ -45,7 +45,12 @@ All exported from `packages/core/src/index.ts`.
 - [ ] **Step 1: Create `Tool.ts`** (types only)
 
 ```typescript
-import type { JSONSchema, ToolResult, ParticipantConfig, WorkspaceConfig } from '@legion/types';
+import type {
+  JSONSchema,
+  ToolResult,
+  ParticipantConfig,
+  WorkspaceConfig,
+} from '@legion-collective/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
 import type { EventBus } from '../events/EventBus.js';
@@ -59,7 +64,7 @@ export interface MessageRouterResult {
   error?: string;
 }
 
-/** Minimal port so core tools can route messages without depending on @legion/runtime. */
+/** Minimal port so core tools can route messages without depending on @legion-collective/runtime. */
 export interface MessageRouterPort {
   send(opts: {
     senderId: string;
@@ -73,7 +78,7 @@ export interface MessageRouterPort {
 
 /**
  * Context handed to every tool execution. `participant` is always the principal.
- * Runtime-only collaborators are optional here; @legion/runtime's RuntimeContext
+ * Runtime-only collaborators are optional here; @legion-collective/runtime's RuntimeContext
  * satisfies this interface and provides them concretely (spec §4).
  */
 export interface ToolContext {
@@ -189,7 +194,7 @@ Expected: FAIL — `Cannot find module './ToolRegistry.js'`.
 `packages/core/src/tools/ToolRegistry.ts`:
 
 ```typescript
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 import { ConflictError, ToolNotFoundError } from '../errors/LegionError.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 
@@ -262,7 +267,7 @@ git commit -m "feat(core): add Tool type, ToolContext, and ToolRegistry"
 
 ```typescript
 import { AuthEngine } from './AuthEngine.js';
-import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
+import type { ApprovalAuthority, ToolPolicy } from '@legion-collective/types';
 
 describe('AuthEngine.authorize', () => {
   it('honors a participant per-tool auto policy', () => {
@@ -341,7 +346,7 @@ Expected: FAIL — `Cannot find module './AuthEngine.js'`.
 `packages/core/src/auth/AuthEngine.ts`:
 
 ```typescript
-import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
+import type { ApprovalAuthority, ToolPolicy } from '@legion-collective/types';
 
 export interface AuthEngineOptions {
   toolPolicies?: Record<string, ToolPolicy>;
@@ -756,7 +761,7 @@ Expected: FAIL — `Cannot find module './file-tools.js'`.
 ```typescript
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
-import type { JSONSchema, ToolResult } from '@legion/types';
+import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 function resolveInWorkspace(context: ToolContext, path: string): string | null {
@@ -1034,7 +1039,13 @@ Add to the `ToolContext` interface (above the index signature):
 `packages/core/src/tools/management-tools.ts`:
 
 ```typescript
-import type { JSONSchema, ToolPolicy, ToolResult, AgentConfig, ModelConfig } from '@legion/types';
+import type {
+  JSONSchema,
+  ToolPolicy,
+  ToolResult,
+  AgentConfig,
+  ModelConfig,
+} from '@legion-collective/types';
 import { getActiveChain } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext } from './Tool.js';
 

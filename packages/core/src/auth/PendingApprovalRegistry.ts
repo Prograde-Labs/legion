@@ -6,7 +6,7 @@ import type {
   MiddlewareActionResult,
   MiddlewareCheckpoint,
   ToolResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { LegionError } from '../errors/LegionError.js';
 import { cloneJsonSafe } from '../middleware/json.js';
 import type { Storage } from '../storage/Storage.js';

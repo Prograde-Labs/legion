@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { SystemPromptContext } from '@legion/types';
+import type { SystemPromptContext } from '@legion-collective/types';
 import { SkillRegistry } from '../../skills/SkillRegistry.js';
 import { createSkillsMiddleware, type SkillsConfig } from './skills.js';
 

@@ -477,7 +477,7 @@ Replace the `<script setup lang="ts">` block in `packages/web/src/components/con
 ```vue
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import type { ConversationMeta } from '@legion/types';
+import type { ConversationMeta } from '@legion-collective/types';
 
 const props = defineProps<{
   conversations: ConversationMeta[];
@@ -627,7 +627,7 @@ import AppLayout from '../components/layout/AppLayout.vue';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
 import SearchableCombobox from '../components/common/SearchableCombobox.vue';
-import type { ConversationMeta, BaseParticipant } from '@legion/types';
+import type { ConversationMeta, BaseParticipant } from '@legion-collective/types';
 
 const route = useRoute();
 const router = useRouter();

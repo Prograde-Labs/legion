@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import ProcessStatusDot from './ProcessStatusDot.vue';
-import type { ProcessStatus } from '@legion/types';
+import type { ProcessStatus } from '@legion-collective/types';
 
 const statuses: ProcessStatus[] = ['running', 'starting', 'exited', 'killed', 'abandoned'];
 

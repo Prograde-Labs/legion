@@ -5,7 +5,7 @@ import type {
   ConversationFilter,
   ConversationMeta,
   MessageData,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { ConversationNotFoundError } from '../errors/LegionError.js';
 import type { EventBus } from '../events/EventBus.js';
 import { createConversationId, nowIso } from '../util/ids.js';

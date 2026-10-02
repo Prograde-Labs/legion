@@ -1,4 +1,4 @@
-import type { MessageData, MockConfig } from '@legion/types';
+import type { MessageData, MockConfig } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 
 export class MockRuntime implements Runtime {

@@ -9,7 +9,7 @@ import type {
   MessageData,
   JSONValue,
   MiddlewareInstanceConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { Collective } from '../collective/Collective.js';

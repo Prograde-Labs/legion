@@ -60,7 +60,7 @@ Full updated dependencies block:
 
 ```json
 "dependencies": {
-  "@legion/types": "*",
+  "@legion-collective/types": "*",
   "@shikijs/markdown-it": "^4.3.1",
   "@vueuse/core": "^11.0.0",
   "ansi_up": "^6.0.6",
@@ -116,7 +116,7 @@ Create `packages/web/src/components/processes/ProcessStatusDot.test.ts`:
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import ProcessStatusDot from './ProcessStatusDot.vue';
-import type { ProcessStatus } from '@legion/types';
+import type { ProcessStatus } from '@legion-collective/types';
 
 const statuses: ProcessStatus[] = ['running', 'starting', 'exited', 'killed', 'abandoned'];
 
@@ -174,7 +174,7 @@ Create `packages/web/src/components/processes/ProcessStatusDot.vue`:
 
 ```vue
 <script setup lang="ts">
-import type { ProcessStatus } from '@legion/types';
+import type { ProcessStatus } from '@legion-collective/types';
 
 defineProps<{ status: ProcessStatus }>();
 
@@ -576,7 +576,7 @@ Create `packages/web/src/composables/useProcesses.ts`:
 import { ref, onUnmounted, getCurrentInstance } from 'vue';
 import type { Ref } from 'vue';
 import { useExecute } from './useExecute.js';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 
 // Module-level singleton — one shared list for the whole app
 const processes: Ref<ProcessHandle[]> = ref([]);
@@ -967,7 +967,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import type { Ref } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useWebSocket } from './useWebSocket.js';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 
 export function useProcess(processId: string) {
   const { execute } = useExecute();
@@ -1273,7 +1273,7 @@ Create `packages/web/src/components/processes/ProcessStartForm.vue`:
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useExecute } from '../../composables/useExecute.js';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 
 const emit = defineEmits<{ started: [id: string] }>();
 
@@ -1437,7 +1437,7 @@ Create `packages/web/src/components/processes/ProcessList.vue`:
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { computed } from 'vue';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 import ProcessStatusDot from './ProcessStatusDot.vue';
 
 const props = defineProps<{

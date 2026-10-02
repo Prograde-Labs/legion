@@ -1,10 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { MCPServerConfig, JSONSchema } from '@legion/types';
+import type { MCPServerConfig, JSONSchema } from '@legion-collective/types';
 import { ConfigError } from '../errors/LegionError.js';
 import type { Tool, ToolContext } from './Tool.js';
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 import type { ToolSource } from './ToolSource.js';
 
 // ---------------------------------------------------------------------------

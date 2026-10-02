@@ -10,12 +10,12 @@ requests, authenticates participants via JWT, executes tools on their behalf, an
 
 **Architecture overview:**
 
-- `Connector` / `ConnectorContext` / `ConnectorRegistry` land in `@legion/core` (they are
+- `Connector` / `ConnectorContext` / `ConnectorRegistry` land in `@legion-collective/core` (they are
   needed by `UserDeliveryRuntime` and `MessageRouter`, both already in core).
-- `WebConnector` and `LegionProcess` live in `@legion/runtime`.
-- `FileCredentialStore` **already exists** in `@legion/core` (Plan 3, argon2). Plan 10 uses
+- `WebConnector` and `LegionProcess` live in `@legion-collective/runtime`.
+- `FileCredentialStore` **already exists** in `@legion-collective/core` (Plan 3, argon2). Plan 10 uses
   it without re-implementing it.
-- Three `@legion/core` amendments: `UserDeliveryRuntime` (real connector delivery),
+- Three `@legion-collective/core` amendments: `UserDeliveryRuntime` (real connector delivery),
   `EventBus` (wildcard `onAny`/`offAny` for WS bridging), `MessageRouter` (per-conversation
   locking).
 
@@ -27,15 +27,15 @@ requests, authenticates participants via JWT, executes tools on their behalf, an
 
 ## What is NOT new in this plan
 
-| Item                                                                      | Where it lives                                        | Plan       |
-| ------------------------------------------------------------------------- | ----------------------------------------------------- | ---------- |
-| `CredentialStore` interface + `FileCredentialStore` (argon2)              | `@legion/core/src/credentials/`                       | Plan 3     |
-| `BOOTSTRAP_OPERATOR_ID` + `createDefaultParticipants()`                   | `@legion/core/src/collective/default-participants.ts` | Plan 3     |
-| `Collective.seedDefaultsIfEmpty()`                                        | `@legion/core/src/collective/Collective.ts`           | Plan 3     |
-| `ServiceManager` + `ServiceRuntime`                                       | `@legion/core/src/service/`                           | Plan 8     |
-| `loadMCPSources()`                                                        | `@legion/core/src/tools/`                             | Plan 9     |
-| `AgentRuntime`, `MockRuntime`                                             | `@legion/core/src/runtime/`                           | Plans 6, 5 |
-| Global tools: `communicateTool`, `approvalResponseTool`, management tools | `@legion/core/src/tools/`                             | Plans 4–7  |
+| Item                                                                      | Where it lives                                                   | Plan       |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------- |
+| `CredentialStore` interface + `FileCredentialStore` (argon2)              | `@legion-collective/core/src/credentials/`                       | Plan 3     |
+| `BOOTSTRAP_OPERATOR_ID` + `createDefaultParticipants()`                   | `@legion-collective/core/src/collective/default-participants.ts` | Plan 3     |
+| `Collective.seedDefaultsIfEmpty()`                                        | `@legion-collective/core/src/collective/Collective.ts`           | Plan 3     |
+| `ServiceManager` + `ServiceRuntime`                                       | `@legion-collective/core/src/service/`                           | Plan 8     |
+| `loadMCPSources()`                                                        | `@legion-collective/core/src/tools/`                             | Plan 9     |
+| `AgentRuntime`, `MockRuntime`                                             | `@legion-collective/core/src/runtime/`                           | Plans 6, 5 |
+| Global tools: `communicateTool`, `approvalResponseTool`, management tools | `@legion-collective/core/src/tools/`                             | Plans 4–7  |
 
 ---
 
@@ -49,8 +49,8 @@ requests, authenticates participants via JWT, executes tools on their behalf, an
 - **Per-conversation locking:** Hand-rolled lock-chain (`Map<conversationId, Promise<void>>`).
   Wraps `MessageRouter.send()` when `conversationId` is provided. New conversations bypass the
   lock (each gets a fresh unique ID).
-- **`Connector` / `ConnectorContext` / `ConnectorRegistry`:** In `@legion/core`. External
-  connector packages depend on `@legion/core`.
+- **`Connector` / `ConnectorContext` / `ConnectorRegistry`:** In `@legion-collective/core`. External
+  connector packages depend on `@legion-collective/core`.
 - **`UserDeliveryRuntime`:** Amended to accept an optional `ConnectorRegistry`. When present,
   calls `connector.deliver()` on all active connectors for the recipient. Falls back to
   `{ kind: 'void' }` if no registry or no active connectors.
@@ -290,7 +290,7 @@ describe('MessageRouter: per-conversation locking', () => {
 Replace `packages/core/src/runtime/UserDeliveryRuntime.ts` with:
 
 ```typescript
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 
@@ -337,7 +337,7 @@ export class UserDeliveryRuntime implements Runtime {
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Connector } from '../connectors/Connector.js';
 
 function makeConnector(name: string): Connector & { delivered: unknown[] } {
@@ -448,12 +448,12 @@ describe('UserDeliveryRuntime', () => {
 
 ---
 
-## New types in `@legion/core`
+## New types in `@legion-collective/core`
 
 ### `packages/core/src/connectors/Connector.ts`
 
 ```typescript
-import type { ToolResult, MessageRouterResult } from '@legion/types';
+import type { ToolResult, MessageRouterResult } from '@legion-collective/types';
 import type { ConnectorRegistry } from './ConnectorRegistry.js';
 
 /** The shape an external entity sends as a message through a connector. */
@@ -598,7 +598,7 @@ export class ConnectorRegistry {
 
 ## File Structure
 
-### `@legion/runtime` (new package)
+### `@legion-collective/runtime` (new package)
 
 ```
 packages/runtime/
@@ -619,7 +619,7 @@ packages/runtime/
     LegionProcess.integration.test.ts ← env-gated, real server
 ```
 
-### `@legion/core` amendments
+### `@legion-collective/core` amendments
 
 ```
 packages/core/src/
@@ -641,7 +641,7 @@ packages/core/src/
 
 ---
 
-## Task 1: `@legion/runtime` package scaffold
+## Task 1: `@legion-collective/runtime` package scaffold
 
 **Files to create:**
 
@@ -659,7 +659,7 @@ packages/core/src/
 
 ```json
 {
-  "name": "@legion/runtime",
+  "name": "@legion-collective/runtime",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
@@ -676,7 +676,7 @@ packages/core/src/
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@legion/core": "workspace:*",
+    "@legion-collective/core": "workspace:*",
     "@fastify/static": "^8.0.0",
     "@fastify/websocket": "^10.0.0",
     "fastify": "^5.0.0",
@@ -730,7 +730,7 @@ export { WebConnector } from './server/WebConnector.js';
 > The exports will cause compile errors until the files exist; that is expected. The barrel
 > is filled in as subsequent tasks add the files.
 
-- [ ] **Step 5: Add `@legion/runtime` to root `tsconfig.json` references**
+- [ ] **Step 5: Add `@legion-collective/runtime` to root `tsconfig.json` references**
 
 In `tsconfig.json`, add to the `references` array:
 
@@ -744,12 +744,12 @@ In `tsconfig.json`, add to the `references` array:
 npm install
 ```
 
-Expected: `@legion/runtime` workspace resolved; fastify, jose, etc. installed.
+Expected: `@legion-collective/runtime` workspace resolved; fastify, jose, etc. installed.
 
 - [ ] **Step 7: Verify build skeleton**
 
 ```bash
-npm run build --workspace @legion/runtime 2>&1 | grep -E "error|warning" | head -20
+npm run build --workspace @legion-collective/runtime 2>&1 | grep -E "error|warning" | head -20
 ```
 
 Expected: Compile errors for missing `LegionProcess.js` and `WebConnector.js` imports —
@@ -761,12 +761,12 @@ these are normal and will resolve in later tasks. No structural errors.
 git add packages/runtime/package.json packages/runtime/tsconfig.json \
         packages/runtime/vitest.config.ts packages/runtime/src/index.ts \
         tsconfig.json
-git commit -m "feat(runtime): scaffold @legion/runtime package"
+git commit -m "feat(runtime): scaffold @legion-collective/runtime package"
 ```
 
 ---
 
-## Task 2: Connector interfaces + `ConnectorRegistry` in `@legion/core`
+## Task 2: Connector interfaces + `ConnectorRegistry` in `@legion-collective/core`
 
 **Files:**
 
@@ -923,7 +923,7 @@ git commit -m "feat(core): Connector interfaces and ConnectorRegistry"
 
 ---
 
-## Task 3: `@legion/core` amendments — UserDeliveryRuntime, EventBus.onAny, MessageRouter.withLock
+## Task 3: `@legion-collective/core` amendments — UserDeliveryRuntime, EventBus.onAny, MessageRouter.withLock
 
 **Files:**
 
@@ -1023,10 +1023,10 @@ npx vitest run packages/core/src/runtime/MessageRouter.test.ts
 
 Expected: PASS (all existing tests + 3 new concurrency tests).
 
-- [ ] **Step 10: Run the full `@legion/core` test suite**
+- [ ] **Step 10: Run the full `@legion-collective/core` test suite**
 
 ```bash
-npm test --workspace @legion/core
+npm test --workspace @legion-collective/core
 ```
 
 Expected: All tests pass.
@@ -1110,8 +1110,8 @@ export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
 
 ```typescript
 import type { FastifyInstance } from 'fastify';
-import type { Collective } from '@legion/core';
-import type { CredentialStore } from '@legion/core';
+import type { Collective } from '@legion-collective/core';
+import type { CredentialStore } from '@legion-collective/core';
 import { signToken, verifyToken, extractBearerToken } from '../auth.js';
 import type { JwtSecret } from '../auth.js';
 
@@ -1202,8 +1202,8 @@ export async function registerAuthRoutes(
 import type { FastifyInstance } from 'fastify';
 import { verifyToken, extractBearerToken } from '../auth.js';
 import type { JwtSecret } from '../auth.js';
-import type { ConnectorContext } from '@legion/core';
-import type { Collective } from '@legion/core';
+import type { ConnectorContext } from '@legion-collective/core';
+import type { Collective } from '@legion-collective/core';
 
 export async function registerExecuteRoute(
   app: FastifyInstance,
@@ -1268,14 +1268,14 @@ import type { FastifyInstance } from 'fastify';
 import websocketPlugin from '@fastify/websocket';
 import staticPlugin from '@fastify/static';
 import type { WebSocket } from 'ws';
-import type { Connector, ConnectorContext } from '@legion/core';
+import type { Connector, ConnectorContext } from '@legion-collective/core';
 import type {
   Collective,
   CredentialStore,
   EventBus,
   LegionEventName,
   ServerConfig,
-} from '@legion/core';
+} from '@legion-collective/core';
 import { signToken, verifyToken, extractBearerToken } from './auth.js';
 import type { JwtSecret } from './auth.js';
 import { registerHealthRoute } from './routes/health.js';
@@ -1468,12 +1468,12 @@ export class WebConnector implements Connector {
 
 ```typescript
 import { WebConnector } from './WebConnector.js';
-import type { ConnectorContext } from '@legion/core';
-import type { ToolResult } from '@legion/core';
-import { MemoryStorage } from '@legion/core';
-import { Collective } from '@legion/core';
-import { EventBus } from '@legion/core';
-import { FileCredentialStore } from '@legion/core';
+import type { ConnectorContext } from '@legion-collective/core';
+import type { ToolResult } from '@legion-collective/core';
+import { MemoryStorage } from '@legion-collective/core';
+import { Collective } from '@legion-collective/core';
+import { EventBus } from '@legion-collective/core';
+import { FileCredentialStore } from '@legion-collective/core';
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -1849,10 +1849,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { WebConnector } from './WebConnector.js';
-import { MemoryStorage } from '@legion/core';
-import { Collective } from '@legion/core';
-import { EventBus } from '@legion/core';
-import { FileCredentialStore } from '@legion/core';
+import { MemoryStorage } from '@legion-collective/core';
+import { Collective } from '@legion-collective/core';
+import { EventBus } from '@legion-collective/core';
+import { FileCredentialStore } from '@legion-collective/core';
 
 const LIVE = Boolean(process.env['LEGION_INTEGRATION']);
 
@@ -2102,7 +2102,7 @@ import {
   type ToolContext,
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
-} from '@legion/core';
+} from '@legion-collective/core';
 import { WebConnector } from './server/WebConnector.js';
 
 /** The assembled Legion runtime. Returned by `LegionProcess.start()`. */
@@ -2556,7 +2556,7 @@ describe.skipIf(!LIVE)('LegionProcess (integration)', () => {
 - [ ] **Step 3: Build the runtime package to catch type errors**
 
 ```bash
-npm run build --workspace @legion/runtime
+npm run build --workspace @legion-collective/runtime
 ```
 
 Expected: PASS — zero compile errors.
@@ -2608,7 +2608,7 @@ export type { WebConnectorDeps } from './server/WebConnector.js';
 npm run build --workspaces
 ```
 
-Expected: zero errors across `@legion/types`, `@legion/core`, `@legion/runtime`.
+Expected: zero errors across `@legion-collective/types`, `@legion-collective/core`, `@legion-collective/runtime`.
 
 - [ ] **Step 3: Run full unit test suite**
 
@@ -2618,7 +2618,7 @@ npm test --workspaces
 
 Expected: All unit tests PASS; integration tests SKIPPED (env vars not set).
 
-- [ ] **Step 4: Run `@legion/core` integration tests (no extra env needed)**
+- [ ] **Step 4: Run `@legion-collective/core` integration tests (no extra env needed)**
 
 ```bash
 npx vitest run packages/core --reporter=verbose
@@ -2626,10 +2626,10 @@ npx vitest run packages/core --reporter=verbose
 
 Expected: All core tests pass (Plans 1–9 still green after amendments).
 
-- [ ] **Step 5: Run `@legion/runtime` integration tests**
+- [ ] **Step 5: Run `@legion-collective/runtime` integration tests**
 
 ```bash
-LEGION_INTEGRATION=1 npm test --workspace @legion/runtime
+LEGION_INTEGRATION=1 npm test --workspace @legion-collective/runtime
 ```
 
 Expected: All 8 integration tests pass (WS + LegionProcess).
@@ -2647,8 +2647,8 @@ git commit -m "chore(runtime): wire barrel exports; full suite green"
 
 - [ ] `npm run build --workspaces` — zero TypeScript errors
 - [ ] `npm test --workspaces` — all unit tests pass; integration tests skipped
-- [ ] `LEGION_INTEGRATION=1 npm test --workspace @legion/runtime` — 8 integration tests pass
-- [ ] `npm test --workspace @legion/core` — all prior Plans 1–9 tests still pass (no regressions from amendments)
+- [ ] `LEGION_INTEGRATION=1 npm test --workspace @legion-collective/runtime` — 8 integration tests pass
+- [ ] `npm test --workspace @legion-collective/core` — all prior Plans 1–9 tests still pass (no regressions from amendments)
 - [ ] `ConnectorRegistry.test.ts` — 12 tests; no `beforeEach`/`afterEach` needed (pure state)
 - [ ] `UserDeliveryRuntime.test.ts` — 7 tests; uses fake connectors, no temp dirs
 - [ ] `EventBus.test.ts` — 7 tests (4 original + 3 new `onAny` tests)
@@ -2667,7 +2667,7 @@ git commit -m "chore(runtime): wire barrel exports; full suite green"
 - [ ] `ConnectorRegistry.clearActive` called on WS socket close — active-participant state clean
 - [ ] `deliver()` skips sockets with `readyState !== 1` (OPEN)
 - [ ] `FileCredentialStore` (argon2) from Plan 3 imported directly — not re-implemented
-- [ ] Zero `@legion/web` imports in `@legion/runtime` (SPA remains isolated until Plan 11)
+- [ ] Zero `@legion-collective/web` imports in `@legion-collective/runtime` (SPA remains isolated until Plan 11)
 
 ---
 
@@ -2675,11 +2675,11 @@ git commit -m "chore(runtime): wire barrel exports; full suite green"
 
 | Decision                                                   | Value                                                                                                        |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Password hashing                                           | argon2 (Plan 3 decision; `FileCredentialStore` in `@legion/core`)                                            |
+| Password hashing                                           | argon2 (Plan 3 decision; `FileCredentialStore` in `@legion-collective/core`)                                 |
 | Auth sessions                                              | Stateless JWT via `jose`. 8 h expiry. Secret: `crypto.getRandomValues(new Uint8Array(32))`. Never persisted. |
 | Per-conversation locking                                   | Hand-rolled lock-chain in `MessageRouter.withLock()`                                                         |
-| `Connector`/`ConnectorContext`/`ConnectorRegistry` package | `@legion/core`                                                                                               |
-| `WebConnector` / `LegionProcess` package                   | `@legion/runtime`                                                                                            |
+| `Connector`/`ConnectorContext`/`ConnectorRegistry` package | `@legion-collective/core`                                                                                    |
+| `WebConnector` / `LegionProcess` package                   | `@legion-collective/runtime`                                                                                 |
 | WS auth protocol                                           | First-message `{"type":"auth","token":"..."}`. 10 s timeout.                                                 |
 | Login lookup                                               | By participant `name` (case-insensitive), first active match                                                 |
 | `/api/execute` conversation                                | New per-call if not provided; existing if `conversationId` supplied                                          |

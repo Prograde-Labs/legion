@@ -1,7 +1,7 @@
 import { ref, onUnmounted, type Ref } from 'vue';
 import { useWebSocket } from './useWebSocket.js';
 import { useAuth } from './useAuth.js';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 export interface UseToolStreamOptions<TChunk extends StreamChunk> {
   onChunk?: (chunk: TChunk) => void;

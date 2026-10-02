@@ -6,7 +6,7 @@ import type {
   MiddlewareActionResult,
   ToolCallData,
   ToolCallResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { AgentProviderResume, Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type {

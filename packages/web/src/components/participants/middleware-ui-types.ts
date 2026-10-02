@@ -1,4 +1,4 @@
-import type { FailureMode } from '@legion/types';
+import type { FailureMode } from '@legion-collective/types';
 
 export interface MiddlewareSchemaNode {
   type?: string;

@@ -1,4 +1,4 @@
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from '../runtime/Runtime.js';
 import type { IncomingMessage, LegionService, ServiceContext } from './LegionService.js';
 

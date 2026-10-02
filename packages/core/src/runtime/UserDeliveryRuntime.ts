@@ -1,4 +1,4 @@
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 

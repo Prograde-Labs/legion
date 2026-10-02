@@ -1,4 +1,4 @@
-import type { ParticipantConfig, UserConfig, ToolPolicy } from '@legion/types';
+import type { ParticipantConfig, UserConfig, ToolPolicy } from '@legion-collective/types';
 
 export const BOOTSTRAP_OPERATOR_ID = 'operator';
 

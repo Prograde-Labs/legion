@@ -30,19 +30,19 @@ Plan 11 is a **read/manage console** — operators manage the collective and mon
 
 ## 2. Tech stack
 
-| Concern   | Choice                                          |
-| --------- | ----------------------------------------------- |
-| Framework | Vue 3 (Composition API, `<script setup>`)       |
-| Build     | Vite                                            |
-| Styling   | Tailwind CSS v4                                 |
-| Routing   | Vue Router 4                                    |
-| State     | Singleton composables (no Pinia)                |
-| HTTP      | native `fetch` (no SDK)                         |
-| WebSocket | native `WebSocket`                              |
-| Utilities | VueUse (`useLocalStorage`, `useEventListener`)  |
-| Package   | `@legion/web` — depends on `@legion/types` only |
+| Concern   | Choice                                                                |
+| --------- | --------------------------------------------------------------------- |
+| Framework | Vue 3 (Composition API, `<script setup>`)                             |
+| Build     | Vite                                                                  |
+| Styling   | Tailwind CSS v4                                                       |
+| Routing   | Vue Router 4                                                          |
+| State     | Singleton composables (no Pinia)                                      |
+| HTTP      | native `fetch` (no SDK)                                               |
+| WebSocket | native `WebSocket`                                                    |
+| Utilities | VueUse (`useLocalStorage`, `useEventListener`)                        |
+| Package   | `@legion-collective/web` — depends on `@legion-collective/types` only |
 
-No Node-only dependencies may enter `@legion/web`. Engine types that reference Node APIs stay in `@legion/core`.
+No Node-only dependencies may enter `@legion-collective/web`. Engine types that reference Node APIs stay in `@legion-collective/core`.
 
 ---
 

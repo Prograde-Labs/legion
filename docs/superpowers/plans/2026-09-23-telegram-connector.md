@@ -21,7 +21,7 @@
 - Bot token resolution: `options.botToken ?? process.env[options.botTokenEnv ?? 'TELEGRAM_BOT_TOKEN']`; missing → throw at construction. Tokens never in committed config.
 - Identity key is the **chat id** (`String(update.message.chat.id)`), resolved via `Collective.findByIdentity('telegram', chatId)`. Unknown sender + no `defaultParticipantId` → polite rejection, no state change.
 - Tool policies: `ToolPolicy = 'auto' | 'requires_approval'`; a tool is visible iff `participant.tools[name] !== undefined` (AuthEngine returns `{authorized: false, reason: 'hidden'}` otherwise).
-- Event payloads (from `@legion/types` `LegionEventMap`): `approval:requested → {conversationId, participantId, tool, approvalId}`; `approval:resolved → {conversationId, approvalId, approved, decidedByParticipantId}`.
+- Event payloads (from `@legion-collective/types` `LegionEventMap`): `approval:requested → {conversationId, participantId, tool, approvalId}`; `approval:resolved → {conversationId, approvalId, approved, decidedByParticipantId}`.
 - `ConnectorContext.callTool(participantId, toolName, args, opts?) → {result: ToolResult, conversationId: string}`; `ToolResult = {status: 'success'|'error'|'pending_approval'|'rejected', data?, error?, approvalId?, message?}`.
 - `Tool.execute(args, context): Promise<unknown>` — successful tools return `{status: 'success', data: ...}` like `list-middleware-tool.ts` does.
 - Commit as Chris's git identity (already configured globally). Branch: `feat/telegram-connector` off `main` in the Legion repo; the connector repo starts its own git history on `main`.
@@ -40,7 +40,7 @@
 **Interfaces:**
 
 - Consumes: `Connector`, `ConnectorRegistry` (core, existing); `ConnectorConfig` (types, existing — `module` field added in Task 2).
-- Produces: `ConnectorRuntimeDeps {collective: Collective; eventBus: EventBus}` (exported from `@legion/core`); `ConnectorFactory = (options: Record<string, unknown>, deps: ConnectorRuntimeDeps) => Connector`; `loadAndStartConnectors(deps: LoadConnectorsDeps): Promise<void>` where `LoadConnectorsDeps = {configs: ConnectorConfig[]; connectorRegistry: ConnectorRegistry; workspaceRoot: string; runtimeDeps: ConnectorRuntimeDeps; createWebConnector: () => Connector; buildContext: () => ConnectorContext}`.
+- Produces: `ConnectorRuntimeDeps {collective: Collective; eventBus: EventBus}` (exported from `@legion-collective/core`); `ConnectorFactory = (options: Record<string, unknown>, deps: ConnectorRuntimeDeps) => Connector`; `loadAndStartConnectors(deps: LoadConnectorsDeps): Promise<void>` where `LoadConnectorsDeps = {configs: ConnectorConfig[]; connectorRegistry: ConnectorRegistry; workspaceRoot: string; runtimeDeps: ConnectorRuntimeDeps; createWebConnector: () => Connector; buildContext: () => ConnectorContext}`.
 
 - [ ] **Step 1: Create the feature branch**
 
@@ -90,9 +90,9 @@ Create `packages/runtime/src/server/loadConnectors.test.ts`:
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Connector, ConnectorContext } from '@legion/core';
-import { ConnectorRegistry } from '@legion/core';
-import type { ConnectorConfig } from '@legion/types';
+import type { Connector, ConnectorContext } from '@legion-collective/core';
+import { ConnectorRegistry } from '@legion-collective/core';
+import type { ConnectorConfig } from '@legion-collective/types';
 import { loadAndStartConnectors } from './loadConnectors.js';
 
 function fakeConnector(name: string): Connector {
@@ -342,8 +342,8 @@ import type {
   ConnectorContext,
   ConnectorRegistry,
   ConnectorRuntimeDeps,
-} from '@legion/core';
-import type { ConnectorConfig } from '@legion/types';
+} from '@legion-collective/core';
+import type { ConnectorConfig } from '@legion-collective/types';
 
 export interface LoadConnectorsDeps {
   configs: ConnectorConfig[];
@@ -586,7 +586,7 @@ git commit -m "feat(runtime): config-driven connector loading in LegionProcess s
 Create `packages/core/src/tools/list-tools-tool.test.ts`:
 
 ```typescript
-import type { ParticipantConfig, ToolResult } from '@legion/types';
+import type { ParticipantConfig, ToolResult } from '@legion-collective/types';
 import { listToolsTool } from './list-tools-tool.js';
 import type { AnyTool, ToolContext, ToolRegistryLike } from './Tool.js';
 
@@ -672,7 +672,7 @@ Expected: FAIL — module not found.
 Create `packages/core/src/tools/list-tools-tool.ts`:
 
 ```typescript
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 /**
@@ -717,7 +717,7 @@ export * from './tools/list-tools-tool.js';
 
 In `packages/runtime/src/LegionProcess.ts`:
 
-1. Add `listToolsTool` to the `@legion/core` import list.
+1. Add `listToolsTool` to the `@legion-collective/core` import list.
 2. In step 6, after `toolRegistry.register(approvalResponseTool);` add:
 
 ```typescript
@@ -756,7 +756,7 @@ git commit -m "feat(core,runtime): list_tools discovery tool + registration"
 
 **Interfaces:**
 
-- Consumes: `ConnectorRuntimeDeps` shape (structural import type from `@legion/core` devDep).
+- Consumes: `ConnectorRuntimeDeps` shape (structural import type from `@legion-collective/core` devDep).
 - Produces: `connector(options: TelegramConnectorOptions, deps: ConnectorRuntimeDeps): Connector`; `TelegramConnectorOptions = {botToken?: string; botTokenEnv?: string}`. Class `TelegramConnector` (name `'telegram'`) with constructor `(options, deps, bot?)` — third param injects a grammY `Bot` for tests.
 
 - [ ] **Step 1: Prerequisite — build the Legion repo so core/types dist exists**
@@ -796,8 +796,8 @@ mkdir -p /workspace/legion-connector-telegram/src && cd /workspace/legion-connec
   },
   "peerDependencies": {},
   "devDependencies": {
-    "@legion/core": "file:../legion/packages/core",
-    "@legion/types": "file:../legion/packages/types",
+    "@legion-collective/core": "file:../legion/packages/core",
+    "@legion-collective/types": "file:../legion/packages/types",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
@@ -833,7 +833,7 @@ mkdir -p /workspace/legion-connector-telegram/src && cd /workspace/legion-connec
 npm install
 ```
 
-Expected: installs grammy + links `file:` devDeps (requires the Legion build from step 1; `@legion/core` resolves its own `@legion/types` through the Legion workspace node_modules).
+Expected: installs grammy + links `file:` devDeps (requires the Legion build from step 1; `@legion-collective/core` resolves its own `@legion-collective/types` through the Legion workspace node_modules).
 
 - [ ] **Step 3: Write the failing test**
 
@@ -880,7 +880,7 @@ Create `src/telegram-connector.ts`:
 
 ```typescript
 import { Bot } from 'grammy';
-import type { Connector, ConnectorContext, ConnectorRuntimeDeps } from '@legion/core';
+import type { Connector, ConnectorContext, ConnectorRuntimeDeps } from '@legion-collective/core';
 
 export interface TelegramConnectorOptions {
   /** Inline token (discouraged — prefer botTokenEnv). */
@@ -932,7 +932,7 @@ export class TelegramConnector implements Connector {
 Create `src/index.ts`:
 
 ```typescript
-import type { ConnectorRuntimeDeps } from '@legion/core';
+import type { ConnectorRuntimeDeps } from '@legion-collective/core';
 import { TelegramConnector } from './telegram-connector.js';
 import type { TelegramConnectorOptions } from './telegram-connector.js';
 
@@ -1310,7 +1310,7 @@ Run: `npx vitest run src/commands.test.ts` — Expected: FAIL.
 Create `src/commands.ts`:
 
 ```typescript
-import type { JSONSchema } from '@legion/types';
+import type { JSONSchema } from '@legion-collective/types';
 
 export type InboundAction =
   | { kind: 'help' }
@@ -1481,7 +1481,7 @@ Run: `npx vitest run src/render.test.ts` — Expected: FAIL.
 Create `src/render.ts`:
 
 ```typescript
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 
 /** Telegram hard message limit is 4096; stay under it with room for prefixes. */
 export const MAX_CHUNK = 3800;
@@ -1849,7 +1849,7 @@ Run: `npx vitest run src/formfill.test.ts` — Expected: FAIL.
 Create `src/formfill.ts`:
 
 ```typescript
-import type { JSONSchema } from '@legion/types';
+import type { JSONSchema } from '@legion-collective/types';
 
 export interface FormFillSession {
   tool: string;
@@ -2519,14 +2519,14 @@ npm run typecheck && npm run build
 
 Expected: clean compile, `dist/` emitted with `index.d.ts`, `telegram-connector.d.ts`.
 
-- [ ] **Step 3: Prove Legion types are erased (no runtime dependency on @legion/core)**
+- [ ] **Step 3: Prove Legion types are erased (no runtime dependency on @legion-collective/core)**
 
 ```bash
-grep -rn "from '@legion" dist/ | grep -v "\.d\.ts" || echo "OK: no runtime imports of @legion/*"
+grep -rn "from '@legion" dist/ | grep -v "\.d\.ts" || echo "OK: no runtime imports of @legion-collective/*"
 node -e "import('./dist/index.js').then(m => console.log(typeof m.connector))"
 ```
 
-Expected: `OK: no runtime imports of @legion/*` and `function`.
+Expected: `OK: no runtime imports of @legion-collective/*` and `function`.
 
 - [ ] **Step 4: Full test suite + format**
 
@@ -2654,5 +2654,5 @@ git checkout main && git merge --no-ff feat/telegram-connector -m "Merge branch 
 - [ ] Form fill: required-then-optional order, enum/boolean buttons, skip, cancel, timeout, kwargs preset fallback
 - [ ] Delivery: chunking ≤ limit, thread learning from `deliver()`, no-identity no-op, swallowed send failures
 - [ ] Approvals: card per mapped chat, callback → `approval_response`, callback answered, buttons disabled with outcome, unsubscribe on stop
-- [ ] Packaging: declaration emit clean, no `@legion/*` runtime imports, grammY-only runtime dep
+- [ ] Packaging: declaration emit clean, no `@legion-collective/*` runtime imports, grammY-only runtime dep
 - [ ] Live E2E (Task 11): reply, `/tools`, direct tool, approval flow, `/new`

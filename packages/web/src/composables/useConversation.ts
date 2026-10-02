@@ -2,7 +2,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
-import type { MessageData, StreamChunk } from '@legion/types';
+import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 export type MessageWithAlternates = MessageData & {
   alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;

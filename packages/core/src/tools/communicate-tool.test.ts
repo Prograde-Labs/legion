@@ -14,7 +14,7 @@ import { MessageRouter } from '../runtime/MessageRouter.js';
 import { communicateTool } from './communicate-tool.js';
 import { isStreamingTool } from './Tool.js';
 import type { ToolContext } from './Tool.js';
-import type { LLMChunk } from '@legion/types';
+import type { LLMChunk } from '@legion-collective/types';
 
 async function setup(dir: string) {
   const storage = new FileStorage(dir);

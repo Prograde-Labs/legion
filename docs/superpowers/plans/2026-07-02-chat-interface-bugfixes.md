@@ -11,7 +11,7 @@
 **Build/test commands:**
 
 - Build all: `npm run build` (from root, runs `tsc --build`)
-- Build web: `npm run build -w @legion/web`
+- Build web: `npm run build -w @legion-collective/web`
 - Typecheck: `npm run typecheck`
 - Test all: `npm test`
 - Test specific: `npx vitest run <file-path>`
@@ -408,7 +408,7 @@ Edit `packages/web/src/composables/useExecute.ts`. Replace the entire file:
 ```typescript
 import { useAuth } from './useAuth.js';
 import { router } from '../router/index.js';
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 
 export function useExecute() {
   const { getToken, logout } = useAuth();
@@ -1302,7 +1302,7 @@ The template (lines 93-208) stays unchanged.
 
 - [ ] **Step 2: Build the web package**
 
-Run: `npm run build -w @legion/web`
+Run: `npm run build -w @legion-collective/web`
 Expected: Build succeeds with no type errors.
 
 - [ ] **Step 3: Commit**
@@ -1358,7 +1358,7 @@ The template already reads `(p as any).model` and `(p as any).providerId` (lines
 
 - [ ] **Step 2: Build the web package**
 
-Run: `npm run build -w @legion/web`
+Run: `npm run build -w @legion-collective/web`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
@@ -2091,7 +2091,7 @@ Edit `packages/web/src/composables/useConversation.ts`. Replace the `Conversatio
 import { ref, computed, onMounted } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useEventStream } from './useEventStream.js';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool
 interface SubThreadData {
@@ -2274,7 +2274,7 @@ with:
 
 - [ ] **Step 4: Build the web package**
 
-Run: `npm run build -w @legion/web`
+Run: `npm run build -w @legion-collective/web`
 Expected: Build succeeds with no type errors.
 
 - [ ] **Step 5: Run web tests**

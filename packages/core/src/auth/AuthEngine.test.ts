@@ -1,5 +1,5 @@
 import { AuthEngine } from './AuthEngine.js';
-import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
+import type { ApprovalAuthority, ToolPolicy } from '@legion-collective/types';
 
 describe('AuthEngine.authorize', () => {
   it('honors a participant per-tool auto policy', () => {

@@ -7,7 +7,7 @@ import {
   PendingApprovalRegistry,
   type AutomationCompactionContinuation,
 } from './PendingApprovalRegistry.js';
-import type { MessageData, MiddlewareCheckpoint } from '@legion/types';
+import type { MessageData, MiddlewareCheckpoint } from '@legion-collective/types';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 
 function checkpoint(argumentsValue: Record<string, unknown> = { path: 'x' }): MiddlewareCheckpoint {

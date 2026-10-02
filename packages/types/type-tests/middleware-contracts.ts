@@ -150,7 +150,7 @@ const conversationMutation = {
 
 const workspace = {
   version: '2',
-  middlewareModules: [{ id: 'audit', module: '@legion/middleware-audit' }],
+  middlewareModules: [{ id: 'audit', module: '@legion-collective/middleware-audit' }],
 } satisfies WorkspaceConfig;
 
 void [

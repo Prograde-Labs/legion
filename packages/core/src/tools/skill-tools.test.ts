@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ConversationData, ParticipantConfig } from '@legion/types';
+import type { ConversationData, ParticipantConfig } from '@legion-collective/types';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import { SkillRegistry } from '../skills/SkillRegistry.js';
 import { createSkillTools } from './skill-tools.js';

@@ -1,7 +1,7 @@
 import { constants, type Dir, type Dirent } from 'node:fs';
 import { open, opendir, realpath, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
-import type { JSONValue, ToolResult } from '@legion/types';
+import type { JSONValue, ToolResult } from '@legion-collective/types';
 import type { SkillRecord } from '../skills/SkillRegistry.js';
 import { SkillRegistry } from '../skills/SkillRegistry.js';
 import type { Tool } from './Tool.js';

@@ -9,7 +9,7 @@ import type {
   MiddlewareInstanceConfig,
   MiddlewareLogger,
   ParticipantConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import {
   PendingApprovalRegistry,

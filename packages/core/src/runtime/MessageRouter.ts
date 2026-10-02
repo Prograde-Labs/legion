@@ -24,7 +24,7 @@ import type {
   LLMChunk,
   MessageDraft,
   MiddlewareActionResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { createId } from '../util/ids.js';
 import {
   MiddlewareLifecycle,
@@ -1794,7 +1794,7 @@ export class MessageRouter implements MessageRouterPort {
 
   private async automationSummaryAfterResume(
     continuation: AutomationCompactionContinuation,
-    value: MessageDraft | import('@legion/types').MessageData | string,
+    value: MessageDraft | import('@legion-collective/types').MessageData | string,
   ): Promise<string | undefined> {
     const helper = await this.store.load(continuation.helperConversationId);
     const finalMessage = helper?.messages[helper.activeBranchHead];
@@ -1803,7 +1803,7 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   private async resumeNonPromptCheckpoint(
-    checkpoint: import('@legion/types').MiddlewareCheckpoint,
+    checkpoint: import('@legion-collective/types').MiddlewareCheckpoint,
     resumed: Extract<Awaited<ReturnType<MiddlewareRunner['resumeApproval']>>, { kind: 'continue' }>,
     context: ToolContext,
     approvalId: string,
@@ -1951,7 +1951,7 @@ export class MessageRouter implements MessageRouterPort {
   private async finishAfterReceive(
     operationId: string,
     thread: ConversationThread,
-    message: import('@legion/types').MessageData,
+    message: import('@legion-collective/types').MessageData,
     result: import('../middleware/MiddlewareRunner.js').AfterReceivePhaseResult,
     context: ToolContext,
     mode: 'pre_runtime' | 'post_response',
@@ -2012,7 +2012,7 @@ export class MessageRouter implements MessageRouterPort {
 
   private async resumeRuntime(
     thread: ConversationThread,
-    incoming: import('@legion/types').MessageData,
+    incoming: import('@legion-collective/types').MessageData,
     participantId: string,
     actions: MiddlewareActionResult[],
     operationId: string,

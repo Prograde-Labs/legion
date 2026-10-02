@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ProcessStatus } from '@legion/types';
+import type { ProcessStatus } from '@legion-collective/types';
 
 defineProps<{ status: ProcessStatus }>();
 

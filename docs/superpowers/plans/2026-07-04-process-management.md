@@ -53,7 +53,7 @@ Edit `packages/core/package.json`. The full file currently reads:
 
 ```json
 {
-  "name": "@legion/core",
+  "name": "@legion-collective/core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -62,7 +62,7 @@ Edit `packages/core/package.json`. The full file currently reads:
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "scripts": { "build": "tsc --build" },
   "dependencies": {
-    "@legion/types": "*",
+    "@legion-collective/types": "*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@node-rs/argon2": "^2.0.0"
   }
@@ -73,7 +73,7 @@ Add `node-pty`:
 
 ```json
 {
-  "name": "@legion/core",
+  "name": "@legion-collective/core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -82,7 +82,7 @@ Add `node-pty`:
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "scripts": { "build": "tsc --build" },
   "dependencies": {
-    "@legion/types": "*",
+    "@legion-collective/types": "*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@node-rs/argon2": "^2.0.0",
     "node-pty": "^1.0.0"
@@ -373,7 +373,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join, tmpdir } from 'node:path';
 import { FileStorage } from '../storage/FileStorage.js';
 import { readMeta, writeMeta, listProcessIds } from './process-storage.js';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 
 const BASE_META: ProcessMeta = {
   id: 'proc-test-1',
@@ -463,7 +463,7 @@ Create `packages/core/src/process/process-storage.ts`:
 
 ```typescript
 import type { Storage } from '../storage/Storage.js';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 
 function metaKey(id: string): string {
   return `${id}/meta.json`;
@@ -520,7 +520,7 @@ import type { ChildProcess } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Writable } from 'node:stream';
 import type { IPty } from 'node-pty';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 import type { RingBuffer } from './RingBuffer.js';
 
 /**
@@ -581,7 +581,7 @@ import type { ChildProcess } from 'node:child_process';
 import { FileStorage } from '../storage/FileStorage.js';
 import { writeMeta } from './process-storage.js';
 import { ProcessManager } from './ProcessManager.js';
-import type { ProcessMeta, SpawnConfig } from '@legion/types';
+import type { ProcessMeta, SpawnConfig } from '@legion-collective/types';
 
 // ── Fake spawner ────────────────────────────────────────────────────────────
 
@@ -709,7 +709,7 @@ import type {
   ProcessStatus,
   SpawnConfig,
   ExecuteResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 
 // native dep — may require build tools (node-gyp)
 let nodePty: typeof import('node-pty') | null = null;
@@ -1561,7 +1561,7 @@ Create `packages/core/src/process/process-tools.test.ts`:
 ```typescript
 import { processTools } from './process-tools.js';
 import type { ToolContext } from '../tools/Tool.js';
-import type { ProcessHandle, ExecuteResult } from '@legion/types';
+import type { ProcessHandle, ExecuteResult } from '@legion-collective/types';
 
 const HANDLE: ProcessHandle = {
   id: 'proc-test',
@@ -2035,10 +2035,10 @@ git commit -m "feat(core): export ProcessManager and process tools"
 
 - [ ] **Step 1: Import `ProcessManager` and `processTools` at top of `LegionProcess.ts`**
 
-Add to imports (after existing `@legion/core` imports):
+Add to imports (after existing `@legion-collective/core` imports):
 
 ```typescript
-import { ProcessManager, processTools } from '@legion/core';
+import { ProcessManager, processTools } from '@legion-collective/core';
 ```
 
 - [ ] **Step 2: Construct `ProcessManager` and call `reconcileOnStartup`**
@@ -2170,7 +2170,7 @@ export interface WebConnectorDeps {
 Add `processManager`:
 
 ```typescript
-import type { ProcessManager } from '@legion/core';
+import type { ProcessManager } from '@legion-collective/core';
 
 export interface WebConnectorDeps {
   collective: Collective;

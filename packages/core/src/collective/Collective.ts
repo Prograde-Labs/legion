@@ -1,5 +1,5 @@
 import type { Storage } from '../storage/Storage.js';
-import type { MiddlewareInstanceConfig, ParticipantConfig } from '@legion/types';
+import type { MiddlewareInstanceConfig, ParticipantConfig } from '@legion-collective/types';
 import { ConflictError, InvariantError, ParticipantNotFoundError } from '../errors/LegionError.js';
 import { createDefaultParticipants } from './default-participants.js';
 import { EventBus } from '../events/EventBus.js';

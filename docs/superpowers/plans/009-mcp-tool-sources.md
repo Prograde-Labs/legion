@@ -34,7 +34,7 @@
 
 ---
 
-## Task 1: Amend `MCPServerConfig` in `@legion/types`
+## Task 1: Amend `MCPServerConfig` in `@legion-collective/types`
 
 **Files:**
 
@@ -101,7 +101,7 @@ git commit -m "types: extend MCPServerConfig with url/headers for HTTP/SSE trans
 - Create: `packages/core/src/tools/ToolSource.ts`
 - Create: `packages/core/src/tools/ToolSource.test.ts`
 
-> Spec §9 (`ToolSource` interface). Minimal abstraction over any tool source. Lives in `@legion/core` because it references `Tool` which is also in `@legion/core`.
+> Spec §9 (`ToolSource` interface). Minimal abstraction over any tool source. Lives in `@legion-collective/core` because it references `Tool` which is also in `@legion-collective/core`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -268,7 +268,7 @@ npm install --workspace=packages/core
 
 ```typescript
 import { type MockedClass, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { ConfigError } from '../errors/index.js';
 import { MCPToolSource } from './MCPToolSource.js';
 
@@ -648,11 +648,11 @@ Expected: `Cannot find module './MCPToolSource.js'`.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { ConfigError } from '../errors/index.js';
 import type { Tool } from './Tool.js';
 import type { ToolContext } from './Tool.js';
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 import type { ToolSource } from './ToolSource.js';
 
 // ---------------------------------------------------------------------------
@@ -720,7 +720,7 @@ export class MCPToolSource implements ToolSource {
         description: mcpTool.description ?? namespacedName,
         parameters: (mcpTool.inputSchema ?? {
           type: 'object',
-        }) as import('@legion/types').JSONSchema,
+        }) as import('@legion-collective/types').JSONSchema,
         async execute(args: unknown, _context: ToolContext): Promise<ToolResult> {
           try {
             const response = (await client.callTool({
@@ -812,7 +812,7 @@ git commit -m "core: add MCPToolSource with stdio + HTTP/SSE transport (spec §9
 
 ```typescript
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { ConflictError } from '../errors/index.js';
 import type { Tool } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';
@@ -957,7 +957,7 @@ Expected: `Cannot find module './loadMCPSources.js'`.
 `packages/core/src/tools/loadMCPSources.ts`:
 
 ```typescript
-import type { MCPServerConfig } from '@legion/types';
+import type { MCPServerConfig } from '@legion-collective/types';
 import { MCPToolSource } from './MCPToolSource.js';
 import type { ToolRegistry } from './ToolRegistry.js';
 import type { ToolSource } from './ToolSource.js';
@@ -1296,8 +1296,8 @@ git commit -m "core: export ToolSource, MCPToolSource, loadMCPSources from barre
 
 ## Self-review checklist
 
-- [ ] `MCPServerConfig` amended in `@legion/types`: `command?`, `url?`, `headers?` — `build` passes.
-- [ ] `ToolSource` interface exists in `@legion/core`; exports from barrel.
+- [ ] `MCPServerConfig` amended in `@legion-collective/types`: `command?`, `url?`, `headers?` — `build` passes.
+- [ ] `ToolSource` interface exists in `@legion-collective/core`; exports from barrel.
 - [ ] `MCPToolSource` constructor throws `ConfigError` when neither `command` nor `url` provided.
 - [ ] Transport selection: `url` → `SSEClientTransport`; `command` → `StdioClientTransport`; `url` preferred when both present.
 - [ ] Tool names follow `mcp__<serverName>__<toolName>` convention.

@@ -1,7 +1,7 @@
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 import type { Connector } from '../connectors/Connector.js';
 
 function makeConnector(name: string): Connector & { delivered: unknown[] } {

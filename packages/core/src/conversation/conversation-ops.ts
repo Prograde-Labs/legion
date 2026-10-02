@@ -1,4 +1,4 @@
-import type { ConversationData, MessageData, MessageDraft } from '@legion/types';
+import type { ConversationData, MessageData, MessageDraft } from '@legion-collective/types';
 import { createConversationId, createId, nowIso } from '../util/ids.js';
 import { ConversationNotFoundError } from '../errors/LegionError.js';
 

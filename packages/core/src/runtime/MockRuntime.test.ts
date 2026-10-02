@@ -2,7 +2,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { MockRuntime } from './MockRuntime.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 async function ctxFor(responses: string[]): Promise<RuntimeContext> {
   const storage = new MemoryStorage();

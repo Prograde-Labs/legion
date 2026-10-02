@@ -1,4 +1,4 @@
-import type { ConversationEventMetadata, StreamChunk } from '@legion/types';
+import type { ConversationEventMetadata, StreamChunk } from '@legion-collective/types';
 import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
 import { watchConversationsTool } from './watch-conversations-tool.js';

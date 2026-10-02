@@ -30,7 +30,7 @@ import type {
   ConversationData,
   MessageUsage,
   MiddlewareInstanceConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { ToolContext } from './Tool.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { RuntimeRegistry } from '../runtime/RuntimeRegistry.js';

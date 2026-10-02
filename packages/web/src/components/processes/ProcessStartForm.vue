@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useExecute } from '../../composables/useExecute.js';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 
 const emit = defineEmits<{ started: [id: string] }>();
 

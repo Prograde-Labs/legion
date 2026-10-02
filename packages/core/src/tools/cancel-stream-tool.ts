@@ -1,4 +1,4 @@
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 export const cancelStreamTool: Tool = {

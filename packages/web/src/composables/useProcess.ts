@@ -3,7 +3,7 @@ import type { Ref } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
-import type { ProcessHandle } from '@legion/types';
+import type { ProcessHandle } from '@legion-collective/types';
 
 export function useProcess(processId: string) {
   const { execute } = useExecute();

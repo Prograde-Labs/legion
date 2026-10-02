@@ -1,4 +1,4 @@
-import type { ConversationData, MessageData } from '@legion/types';
+import type { ConversationData, MessageData } from '@legion-collective/types';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import {
   type GroupBy,

@@ -19,7 +19,7 @@ import type {
   MiddlewareDefinition,
   MiddlewareLogger,
   MiddlewareActionResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 import type { ToolContext } from '../tools/Tool.js';
 import { MiddlewareLifecycle } from '../middleware/MiddlewareLifecycle.js';
 import { MiddlewareRegistry } from '../middleware/MiddlewareRegistry.js';

@@ -21,7 +21,7 @@ legion-v2/
   .gitignore                           — .legion runtime dirs, dist, node_modules
   vitest.config.ts                     — root vitest config (workspace-aware)
   packages/
-    types/                             — @legion/types: zero-dependency, browser-safe shared models + wire DTOs
+    types/                             — @legion-collective/types: zero-dependency, browser-safe shared models + wire DTOs
       package.json
       tsconfig.json
       src/
@@ -35,12 +35,12 @@ legion-v2/
       package.json
       tsconfig.json
       src/
-        index.ts                       — barrel re-exports (incl. re-export of @legion/types)
+        index.ts                       — barrel re-exports (incl. re-export of @legion-collective/types)
         errors/
           LegionError.ts               — base + subclasses
           LegionError.test.ts
         events/
-          EventBus.ts                  — typed pub/sub (class; imports map from @legion/types)
+          EventBus.ts                  — typed pub/sub (class; imports map from @legion-collective/types)
           EventBus.test.ts
         storage/
           Storage.ts                   — interface
@@ -56,14 +56,14 @@ legion-v2/
       package.json                     — placeholder (filled in Plan 11)
 ```
 
-> **Why a separate `@legion/types` package?** The web frontend (Plan 11) must share the
+> **Why a separate `@legion-collective/types` package?** The web frontend (Plan 11) must share the
 > domain models and wire DTOs without pulling the engine — and crucially without dragging
 > Node-only deps (`@node-rs/argon2`, `node:fs`, `node:crypto`) into the browser bundle.
 > A zero-dependency types package makes that impossible by construction. **Scope rule:**
 > only pure, browser-safe data shapes live here (domain models, `ToolResult`/`ToolCall*`,
 > config, event payload map). Behavior/Node-coupled types (`Storage`, `EventBus` class,
-> `Runtime`, `ToolContext`, `MessageRouterPort`, `AuthEngine`) stay in `@legion/core`.
-> `@legion/core` re-exports `@legion/types`, so importing domain types from `@legion/core`
+> `Runtime`, `ToolContext`, `MessageRouterPort`, `AuthEngine`) stay in `@legion-collective/core`.
+> `@legion-collective/core` re-exports `@legion-collective/types`, so importing domain types from `@legion-collective/core`
 > keeps working everywhere.
 
 ---
@@ -205,7 +205,7 @@ git commit -m "chore: scaffold npm workspace root tooling"
 
 ```json
 {
-  "name": "@legion/types",
+  "name": "@legion-collective/types",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -240,14 +240,14 @@ git commit -m "chore: scaffold npm workspace root tooling"
 - [ ] **Step 3: Create `packages/types/src/index.ts`** (temporary barrel; populated in Task 4)
 
 ```typescript
-export const TYPES_PACKAGE = '@legion/types';
+export const TYPES_PACKAGE = '@legion-collective/types';
 ```
 
-- [ ] **Step 4: Create `packages/core/package.json`** (depends on `@legion/types`)
+- [ ] **Step 4: Create `packages/core/package.json`** (depends on `@legion-collective/types`)
 
 ```json
 {
-  "name": "@legion/core",
+  "name": "@legion-collective/core",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -263,7 +263,7 @@ export const TYPES_PACKAGE = '@legion/types';
     "build": "tsc --build"
   },
   "dependencies": {
-    "@legion/types": "*"
+    "@legion-collective/types": "*"
   }
 }
 ```
@@ -286,14 +286,14 @@ export const TYPES_PACKAGE = '@legion/types';
 - [ ] **Step 6: Create `packages/core/src/index.ts`** (temporary barrel; grows per task)
 
 ```typescript
-export const CORE_PACKAGE = '@legion/core';
+export const CORE_PACKAGE = '@legion-collective/core';
 ```
 
 - [ ] **Step 7: Create `packages/runtime/package.json`**
 
 ```json
 {
-  "name": "@legion/runtime",
+  "name": "@legion-collective/runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -303,7 +303,7 @@ export const CORE_PACKAGE = '@legion/core';
     "build": "tsc --build"
   },
   "dependencies": {
-    "@legion/core": "*"
+    "@legion-collective/core": "*"
   }
 }
 ```
@@ -326,14 +326,14 @@ export const CORE_PACKAGE = '@legion/core';
 - [ ] **Step 9: Create `packages/runtime/src/index.ts`** (placeholder, filled in Plan 10)
 
 ```typescript
-export const RUNTIME_PACKAGE = '@legion/runtime';
+export const RUNTIME_PACKAGE = '@legion-collective/runtime';
 ```
 
 - [ ] **Step 10: Create `packages/web/package.json`** (placeholder, filled in Plan 11)
 
 ```json
 {
-  "name": "@legion/web",
+  "name": "@legion-collective/web",
   "version": "0.0.0",
   "private": true,
   "type": "module"
@@ -357,7 +357,7 @@ export default defineConfig({
 - [ ] **Step 12: Build and verify**
 
 Run: `npm run build`
-Expected: builds `@legion/types`, `@legion/core`, and `@legion/runtime` with no errors, emits `dist/`.
+Expected: builds `@legion-collective/types`, `@legion-collective/core`, and `@legion-collective/runtime` with no errors, emits `dist/`.
 
 - [ ] **Step 13: Commit**
 
@@ -494,7 +494,7 @@ git commit -m "feat(core): add LegionError hierarchy"
 
 ---
 
-## Task 4: Domain types — `@legion/types` (conversations, tools, participants, config)
+## Task 4: Domain types — `@legion-collective/types` (conversations, tools, participants, config)
 
 **Files:**
 
@@ -506,7 +506,7 @@ git commit -m "feat(core): add LegionError hierarchy"
 - Test: `packages/types/src/types.test.ts`
 
 > These are declaration-only modules (no runtime logic, zero dependencies) living in the
-> shared `@legion/types` package so both `@legion/core` and `@legion/web` can consume them.
+> shared `@legion-collective/types` package so both `@legion-collective/core` and `@legion-collective/web` can consume them.
 > The test exists to lock the shapes in and guard against accidental signature drift in
 > later plans. It uses `satisfies` to assert the types compile with representative literals.
 
@@ -793,13 +793,13 @@ describe('domain type shapes', () => {
 Run: `npx vitest run packages/types/src/types.test.ts`
 Expected: PASS (3 tests). If it fails to compile, the type definitions are wrong — fix them, not the test.
 
-- [ ] **Step 8: Re-export `@legion/types` from the core barrel**
+- [ ] **Step 8: Re-export `@legion-collective/types` from the core barrel**
 
-In `packages/core/src/index.ts` (so `import { MessageData } from '@legion/core'` keeps working everywhere):
+In `packages/core/src/index.ts` (so `import { MessageData } from '@legion-collective/core'` keeps working everywhere):
 
 ```typescript
 export * from './errors/LegionError.js';
-export * from '@legion/types';
+export * from '@legion-collective/types';
 ```
 
 - [ ] **Step 9: Commit**
@@ -820,9 +820,9 @@ git commit -m "feat(types): add shared domain type declarations"
 - Create: `packages/core/src/events/EventBus.ts` (the class — stays in core)
 - Test: `packages/core/src/events/EventBus.test.ts`
 
-> The `LegionEventMap` payload shapes live in `@legion/types` so the web connector's
+> The `LegionEventMap` payload shapes live in `@legion-collective/types` so the web connector's
 > `/ws` event stream (Plan 11) can type events without importing the engine. The `EventBus`
-> _class_ stays in `@legion/core`.
+> _class_ stays in `@legion-collective/core`.
 
 - [ ] **Step 1: Create the event map** (spec §12)
 
@@ -937,7 +937,7 @@ Expected: FAIL — `Cannot find module './EventBus.js'`.
 `packages/core/src/events/EventBus.ts`:
 
 ```typescript
-import type { LegionEventMap, LegionEventName } from '@legion/types';
+import type { LegionEventMap, LegionEventName } from '@legion-collective/types';
 
 type Handler<E extends LegionEventName> = (payload: LegionEventMap[E]) => void;
 
@@ -987,7 +987,7 @@ Expected: PASS (4 tests).
 
 - [ ] **Step 6: Export from the core barrel**
 
-Append to `packages/core/src/index.ts` (the event map is already re-exported via `@legion/types` in Task 4 Step 8):
+Append to `packages/core/src/index.ts` (the event map is already re-exported via `@legion-collective/types` in Task 4 Step 8):
 
 ```typescript
 export * from './events/EventBus.js';
@@ -997,7 +997,7 @@ export * from './events/EventBus.js';
 
 ```bash
 git add packages/types/src/events.ts packages/types/src/index.ts packages/core/src/events packages/core/src/index.ts
-git commit -m "feat(core): add typed EventBus over @legion/types event map"
+git commit -m "feat(core): add typed EventBus over @legion-collective/types event map"
 ```
 
 ---
@@ -1464,11 +1464,11 @@ git commit -m "chore: format foundation sources" || echo "nothing to format"
 ## Self-Review Checklist
 
 - **Spec §8 (process/package structure):** `packages/types`, `packages/core`, `packages/runtime`, `packages/web` scaffolded — Tasks 1–2. ✅
-- **Shared types package:** `@legion/types` holds browser-safe domain models + event payload map (zero deps); `@legion/core` re-exports it; web (Plan 11) consumes it without dragging Node deps — Tasks 2, 4, 5. ✅
+- **Shared types package:** `@legion-collective/types` holds browser-safe domain models + event payload map (zero deps); `@legion-collective/core` re-exports it; web (Plan 11) consumes it without dragging Node deps — Tasks 2, 4, 5. ✅
 - **Spec §10 (storage interfaces):** `Storage` low-level abstraction in place; `ConversationStore`/`CredentialStore` are Plans 2–3. ✅ (foundation only)
-- **Spec §12 (events):** typed `EventBus` (core) over `LegionEventMap` (`@legion/types`) — Task 5. ✅
+- **Spec §12 (events):** typed `EventBus` (core) over `LegionEventMap` (`@legion-collective/types`) — Task 5. ✅
 - **Spec §15 (conventions):** ESM `.js` imports, strict TS, Prettier config, Vitest globals, colocated tests, `mkdtemp` temp dirs — Tasks 1, 7. ✅
 - **Spec §16 (workspace layout):** `.gitignore` excludes `.legion/conversations`, `services`, `credentials.json` — Task 1. ✅
-- **Domain types (§1, §2, §7, §11, §14):** declared in `@legion/types` — Task 4. ✅
+- **Domain types (§1, §2, §7, §11, §14):** declared in `@legion-collective/types` — Task 4. ✅
 - **Placeholder scan:** every code step contains full code; no TODO/TBD. ✅
-- **Type consistency:** `Storage`, `EventBus`, `LegionEventMap`, `ParticipantConfig`, `ConversationData`, `MessageData`, `ToolResult` names are reused verbatim by Plans 2–5 (imported from `@legion/types` or re-exported via `@legion/core`). ✅
+- **Type consistency:** `Storage`, `EventBus`, `LegionEventMap`, `ParticipantConfig`, `ConversationData`, `MessageData`, `ToolResult` names are reused verbatim by Plans 2–5 (imported from `@legion-collective/types` or re-exported via `@legion-collective/core`). ✅

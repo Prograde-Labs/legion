@@ -6,7 +6,7 @@ import { FileStorage } from '../storage/FileStorage.js';
 import { writeMeta } from './process-storage.js';
 import { readMeta } from './process-storage.js';
 import { ProcessManager } from './ProcessManager.js';
-import type { ProcessMeta } from '@legion/types';
+import type { ProcessMeta } from '@legion-collective/types';
 
 // ── Fake spawner ────────────────────────────────────────────────────────────
 

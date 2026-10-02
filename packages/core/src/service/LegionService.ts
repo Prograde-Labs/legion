@@ -1,6 +1,6 @@
 import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
-import type { ToolResult } from '@legion/types';
+import type { ToolResult } from '@legion-collective/types';
 
 /**
  * A message delivered inbound to a service (spec §5).
@@ -82,7 +82,7 @@ export interface ServiceContext {
  * Module export convention — service modules must export a named `service` constant:
  *
  * ```typescript
- * import type { LegionService } from '@legion/core';
+ * import type { LegionService } from '@legion-collective/core';
  *
  * export const service: LegionService = {
  *   async start(ctx) {

@@ -48,7 +48,7 @@
 
 ---
 
-## Task 1: Add `MessageUsage` type to `@legion/types`
+## Task 1: Add `MessageUsage` type to `@legion-collective/types`
 
 **Files:**
 
@@ -1169,7 +1169,7 @@ Create `packages/core/src/providers/UsageCalculator.ts`:
 
 ```typescript
 import Decimal from 'decimal.js';
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 import type { ProviderUsage } from './Provider.js';
 import type { Provider } from './Provider.js';
 import type { ModelPricing, PricingSource } from './PricingSource.js';
@@ -1532,7 +1532,7 @@ Add the `computeUsage` private method at the end of the class (before the closin
 Add the necessary imports at the top of the file:
 
 ```typescript
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 import type { ProviderResponse } from '../providers/Provider.js';
 ```
 
@@ -1573,7 +1573,7 @@ return shape change is a follow-up."
 - [ ] **Step 1: Create `packages/core/src/usage/usage-types.ts`**
 
 ```typescript
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 
 export type GroupBy = 'model' | 'participant' | 'conversation' | 'day';
 
@@ -1643,7 +1643,7 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
 import { UsageQuery } from './UsageQuery.js';
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 
 const USAGE_GPT4O: MessageUsage = {
   input: 100,
@@ -1980,7 +1980,7 @@ Expected: FAIL — `UsageQuery` does not exist.
 Create `packages/core/src/usage/UsageQuery.ts`:
 
 ```typescript
-import type { ConversationStore, ConversationData, MessageData } from '@legion/types';
+import type { ConversationStore, ConversationData, MessageData } from '@legion-collective/types';
 import { getActiveChain } from '../conversation/conversation-ops.js';
 import {
   type GroupBy,
@@ -2106,7 +2106,7 @@ In `packages/core/src/tools/management-tools.test.ts`, add imports and tests:
 
 ```typescript
 import { queryUsageTool, listModelsTool } from './management-tools.js';
-import type { MessageUsage } from '@legion/types';
+import type { MessageUsage } from '@legion-collective/types';
 ```
 
 Add a new describe block at the end of the file:
@@ -2392,7 +2392,7 @@ wired at runtime construction."
 
 ---
 
-## Task 11: Export new modules from `@legion/core`
+## Task 11: Export new modules from `@legion-collective/core`
 
 **Files:**
 

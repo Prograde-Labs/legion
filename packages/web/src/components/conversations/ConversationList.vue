@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import type { ConversationMeta } from '@legion/types';
+import type { ConversationMeta } from '@legion-collective/types';
 
 const props = defineProps<{
   conversations: ConversationMeta[];

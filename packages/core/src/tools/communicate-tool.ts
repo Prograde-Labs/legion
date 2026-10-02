@@ -1,4 +1,4 @@
-import type { ToolResult, LLMChunk } from '@legion/types';
+import type { ToolResult, LLMChunk } from '@legion-collective/types';
 import type { MessageRouterResult, StreamingTool, ToolContext } from './Tool.js';
 
 export const communicateTool: StreamingTool = {

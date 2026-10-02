@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ServiceConfig, ToolResult } from '@legion/types';
+import type { ServiceConfig, ToolResult } from '@legion-collective/types';
 import { AuthEngine } from '../auth/AuthEngine.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
 import { FileStorage } from '../storage/FileStorage.js';

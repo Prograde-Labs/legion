@@ -542,7 +542,7 @@ Expected: fail — module does not exist.
 Create `packages/runtime/src/server/event-filter.ts`:
 
 ```ts
-import type { LegionEventMap } from '@legion/types';
+import type { LegionEventMap } from '@legion-collective/types';
 
 type EventName = keyof LegionEventMap;
 
@@ -615,7 +615,7 @@ import { isRelevantToParticipant } from './event-filter.js';
 `WebConnectorDeps` needs to expose `collective` so we can check `isOperator` at auth time. Check if `Collective` is already in `WebConnectorDeps` (around lines 15–27). If not, add it:
 
 ```ts
-import type { Collective } from '@legion/core';
+import type { Collective } from '@legion-collective/core';
 
 interface WebConnectorDeps {
   // ... existing deps ...
@@ -955,7 +955,7 @@ Replace the contents of `packages/web/src/composables/useEventStream.ts`:
 ```ts
 import { getCurrentInstance, onUnmounted } from 'vue';
 import { useWebSocket } from './useWebSocket.js';
-import type { LegionEventMap } from '@legion/types';
+import type { LegionEventMap } from '@legion-collective/types';
 
 type EventName = keyof LegionEventMap;
 type EventHandler<K extends EventName> = (payload: LegionEventMap[K]) => void;
@@ -1195,7 +1195,7 @@ Create `packages/web/src/composables/useConversation.ts`:
 import { ref, computed, onMounted } from 'vue';
 import { useExecute } from './useExecute.js';
 import { useEventStream } from './useEventStream.js';
-import type { ConversationData, MessageData } from '@legion/types';
+import type { ConversationData, MessageData } from '@legion-collective/types';
 
 function buildActiveChain(data: ConversationData): MessageData[] {
   const messages = data.messages;
@@ -1510,7 +1510,7 @@ Create `packages/web/src/components/conversations/MessageBubble.test.ts`:
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import MessageBubble from './MessageBubble.vue';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 const userMessage: MessageData = {
   id: 'm1',
@@ -1579,7 +1579,7 @@ Create `packages/web/src/components/conversations/MessageBubble.vue`:
 
 ```vue
 <script setup lang="ts">
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 defineProps<{
   message: MessageData;
@@ -1955,7 +1955,7 @@ Replace the full contents of `packages/web/src/components/conversations/Conversa
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import type { ConversationMeta } from '@legion/types';
+import type { ConversationMeta } from '@legion-collective/types';
 
 const props = defineProps<{
   conversations: ConversationMeta[];
@@ -2087,7 +2087,7 @@ import { useConversation } from '../../composables/useConversation.js';
 import MessageBubble from './MessageBubble.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import ToolCallBlock from './ToolCallBlock.vue';
-import type { MessageData } from '@legion/types';
+import type { MessageData } from '@legion-collective/types';
 
 const props = defineProps<{
   conversationId: string | null;
@@ -2315,7 +2315,7 @@ import { useEventStream } from '../composables/useEventStream.js';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
 import SearchableCombobox from '../components/common/SearchableCombobox.vue';
-import type { ConversationMeta, BaseParticipant } from '@legion/types';
+import type { ConversationMeta, BaseParticipant } from '@legion-collective/types';
 
 const route = useRoute();
 const router = useRouter();
@@ -2566,4 +2566,4 @@ All spec requirements covered.
 
 4. **`useAuth` `getToken()`** — verify this is already exported or add it in Task 4.
 
-5. **`ConversationData` and `MessageData`** must be exported from `@legion/types` index — verify in Task 7.
+5. **`ConversationData` and `MessageData`** must be exported from `@legion-collective/types` index — verify in Task 7.

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { MiddlewareInstanceConfig } from '@legion/types';
+import type { MiddlewareInstanceConfig } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
 import ToolPolicyEditor, { type ToolOverride } from './ToolPolicyEditor.vue';
 import MiddlewareEditor from './MiddlewareEditor.vue';

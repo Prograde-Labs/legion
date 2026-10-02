@@ -200,7 +200,7 @@ Create `packages/core/src/providers/SystemProviderStore.test.ts`:
 import { describe, it, expect } from 'vitest';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { SystemProviderStore } from './SystemProviderStore.js';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 
 describe('SystemProviderStore', () => {
   it('get() returns null when no provider file exists', async () => {
@@ -368,7 +368,7 @@ Create `packages/core/src/providers/SystemProviderStore.ts`:
 
 ```typescript
 import type { Storage } from '../storage/Storage.js';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import type { Provider } from './Provider.js';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { NotImplementedError } from '../errors/LegionError.js';
@@ -508,7 +508,7 @@ git commit -m "feat(providers): add SystemProviderStore; delete ProviderRegistry
 Replace the entire file content of `packages/core/src/providers/Provider.ts`:
 
 ```typescript
-import type { JSONSchema, ModelConfig, ProviderModel } from '@legion/types';
+import type { JSONSchema, ModelConfig, ProviderModel } from '@legion-collective/types';
 
 /**
  * A message in the LLM conversation thread.
@@ -575,7 +575,7 @@ Replace the entire file content of `packages/core/src/providers/OpenAICompatible
 
 ```typescript
 import { ProviderError } from '../errors/LegionError.js';
-import type { ModelConfig, ProviderModel } from '@legion/types';
+import type { ModelConfig, ProviderModel } from '@legion-collective/types';
 import type {
   Provider,
   ProviderMessage,
@@ -850,7 +850,7 @@ Create `packages/core/src/providers/ModelRouter.test.ts`:
 import { describe, it, expect } from 'vitest';
 import { ModelRouter } from './ModelRouter.js';
 import type { Provider, ProviderModel } from '../providers/Provider.js';
-import type { ProviderConfig, RoutingConfig } from '@legion/types';
+import type { ProviderConfig, RoutingConfig } from '@legion-collective/types';
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
@@ -1022,7 +1022,7 @@ Expected: FAIL with "Cannot find module './ModelRouter.js'"
 Create `packages/core/src/providers/ModelRouter.ts`:
 
 ```typescript
-import type { RoutingConfig } from '@legion/types';
+import type { RoutingConfig } from '@legion-collective/types';
 import type { Provider } from './Provider.js';
 import type { SystemProviderStore } from './SystemProviderStore.js';
 
@@ -1275,8 +1275,13 @@ git commit -m "feat(routing): add ModelRouter; AgentRuntime resolves providers b
 Replace the entire file:
 
 ```typescript
-import type { ProviderConfig, ProviderModel, RoutingConfig, ToolResult } from '@legion/types';
-import type { Tool, SystemProviderStore } from '@legion/core';
+import type {
+  ProviderConfig,
+  ProviderModel,
+  RoutingConfig,
+  ToolResult,
+} from '@legion-collective/types';
+import type { Tool, SystemProviderStore } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   systemStore: SystemProviderStore;
@@ -1440,7 +1445,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
 
 - [ ] **Step 2: Update `LegionProcess.ts` — load system config, local config, construct `SystemProviderStore` + `ModelRouter`, wire `.gitignore`**
 
-Update the imports at the top of `LegionProcess.ts`. Replace the `@legion/core` import block:
+Update the imports at the top of `LegionProcess.ts`. Replace the `@legion-collective/core` import block:
 
 ```typescript
 import {
@@ -1475,14 +1480,14 @@ import {
   type ToolContext,
   type ConnectorContext,
   BOOTSTRAP_OPERATOR_ID,
-} from '@legion/core';
+} from '@legion-collective/core';
 import type {
   ConversationData,
   RoutingConfig,
   SystemConfig,
   LocalConfig,
   ToolResult,
-} from '@legion/types';
+} from '@legion-collective/types';
 ```
 
 Add two new imports at the top of the file after the existing node imports:
@@ -1779,7 +1784,7 @@ cd /home/chris/source/javascript/legion-v2
 npx tsc --build packages/runtime 2>&1 | head -40
 ```
 
-Expected: zero type errors. If there are import errors for `SystemConfig`, `LocalConfig` etc., verify they are exported from `@legion/types`.
+Expected: zero type errors. If there are import errors for `SystemConfig`, `LocalConfig` etc., verify they are exported from `@legion-collective/types`.
 
 - [ ] **Step 5: Run full test suite**
 
@@ -1823,7 +1828,7 @@ Replace the entire file:
 ```vue
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
 import { useExecute } from '../../composables/useExecute.js';
 
@@ -1978,7 +1983,7 @@ Create `packages/web/src/components/config/RoutingEditor.vue`:
 ```vue
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import type { RoutingConfig } from '@legion/types';
+import type { RoutingConfig } from '@legion-collective/types';
 import { useExecute } from '../../composables/useExecute.js';
 
 const props = defineProps<{
@@ -2160,7 +2165,7 @@ Replace the entire file:
 ```vue
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { ProviderConfig, RoutingConfig } from '@legion/types';
+import type { ProviderConfig, RoutingConfig } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import RoutingEditor from '../components/config/RoutingEditor.vue';

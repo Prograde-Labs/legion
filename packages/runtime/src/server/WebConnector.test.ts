@@ -1,12 +1,12 @@
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebConnector } from './WebConnector.js';
-import type { ConnectorContext } from '@legion/core';
-import type { ToolResult } from '@legion/core';
-import { MemoryStorage } from '@legion/core';
-import { Collective } from '@legion/core';
-import { EventBus } from '@legion/core';
-import { FileCredentialStore } from '@legion/core';
+import type { ConnectorContext } from '@legion-collective/core';
+import type { ToolResult } from '@legion-collective/core';
+import { MemoryStorage } from '@legion-collective/core';
+import { Collective } from '@legion-collective/core';
+import { EventBus } from '@legion-collective/core';
+import { FileCredentialStore } from '@legion-collective/core';
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 

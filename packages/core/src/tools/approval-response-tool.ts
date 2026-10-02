@@ -1,4 +1,4 @@
-import type { JSONSchema, ToolResult } from '@legion/types';
+import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 import type { PendingApprovalRegistry, ApprovalDecision } from '../auth/PendingApprovalRegistry.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';

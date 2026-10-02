@@ -1,4 +1,4 @@
-import type { ApprovalAuthority, ToolPolicy } from '@legion/types';
+import type { ApprovalAuthority, ToolPolicy } from '@legion-collective/types';
 
 export interface AuthResult {
   authorized: boolean;

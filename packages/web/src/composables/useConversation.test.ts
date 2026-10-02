@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { nextTick, ref } from 'vue';
-import type { StreamChunk } from '@legion/types';
+import type { StreamChunk } from '@legion-collective/types';
 
 let communicateOnChunk: ((chunk: StreamChunk) => void) | undefined;
 let conversationOnChunk: ((chunk: StreamChunk) => void) | undefined;

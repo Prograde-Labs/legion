@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the `@legion/web` Vue 3 + Vite + Tailwind management console SPA and the backend tools it requires. End state: a built `packages/web/dist/` served by `@legion/runtime`'s WebConnector; operators can manage participants, monitor conversations, stream live events, and configure providers and credentials.
+**Goal:** Build the `@legion-collective/web` Vue 3 + Vite + Tailwind management console SPA and the backend tools it requires. End state: a built `packages/web/dist/` served by `@legion-collective/runtime`'s WebConnector; operators can manage participants, monitor conversations, stream live events, and configure providers and credentials.
 
-**Architecture:** `@legion/web` depends on `@legion/types` only — no Node-coupled engine code in the browser bundle. All collective operations are tool calls via `POST /api/execute`. Live state arrives via the WebSocket event stream. State management uses singleton composables (no Pinia); auth token persisted in `localStorage` via VueUse. Six new backend management tools added to `@legion/core` and `@legion/runtime`. Agent config persisted to `Storage` at `agents/<id>.json` so `modify_agent` can reconstruct runtimes.
+**Architecture:** `@legion-collective/web` depends on `@legion-collective/types` only — no Node-coupled engine code in the browser bundle. All collective operations are tool calls via `POST /api/execute`. Live state arrives via the WebSocket event stream. State management uses singleton composables (no Pinia); auth token persisted in `localStorage` via VueUse. Six new backend management tools added to `@legion-collective/core` and `@legion-collective/runtime`. Agent config persisted to `Storage` at `agents/<id>.json` so `modify_agent` can reconstruct runtimes.
 
 **Tech stack:** Vue 3 (`<script setup>`), Vite 5, Tailwind CSS v4 (`@tailwindcss/vite`), Vue Router 4, VueUse 11, `@vue/test-utils` 2, Vitest 2, happy-dom.
 
@@ -17,17 +17,17 @@
 
 ## What is NOT new in this plan
 
-| Item                                                                                      | Where                                        | Plan              |
-| ----------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------- |
-| `Storage.list(prefix)`                                                                    | `@legion/core/src/storage/Storage.ts`        | 1                 |
-| `LegionEventMap` base events                                                              | `@legion/types/src/events.ts`                | 1 (amended 7, 10) |
-| `Collective`, `BOOTSTRAP_OPERATOR_ID`                                                     | `@legion/core/src/collective/`               | 3                 |
-| `ToolRegistry`, `AuthEngine`                                                              | `@legion/core/src/tools/`                    | 4                 |
-| `create_agent`, `retire_agent`, `list_participants`, `get_conversation`, `set_credential` | `@legion/core/src/tools/management-tools.ts` | 4                 |
-| `RuntimeRegistry`                                                                         | `@legion/core/src/runtime/`                  | 5                 |
-| `AgentRuntime`, `ProviderRegistry`                                                        | `@legion/core/src/runtime/`                  | 6                 |
-| `WebConnector` `POST /api/execute`, `GET /ws`                                             | `@legion/runtime/src/server/`                | 10                |
-| `packages/web/package.json` placeholder                                                   | `packages/web/package.json`                  | 1                 |
+| Item                                                                                      | Where                                                   | Plan              |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------- |
+| `Storage.list(prefix)`                                                                    | `@legion-collective/core/src/storage/Storage.ts`        | 1                 |
+| `LegionEventMap` base events                                                              | `@legion-collective/types/src/events.ts`                | 1 (amended 7, 10) |
+| `Collective`, `BOOTSTRAP_OPERATOR_ID`                                                     | `@legion-collective/core/src/collective/`               | 3                 |
+| `ToolRegistry`, `AuthEngine`                                                              | `@legion-collective/core/src/tools/`                    | 4                 |
+| `create_agent`, `retire_agent`, `list_participants`, `get_conversation`, `set_credential` | `@legion-collective/core/src/tools/management-tools.ts` | 4                 |
+| `RuntimeRegistry`                                                                         | `@legion-collective/core/src/runtime/`                  | 5                 |
+| `AgentRuntime`, `ProviderRegistry`                                                        | `@legion-collective/core/src/runtime/`                  | 6                 |
+| `WebConnector` `POST /api/execute`, `GET /ws`                                             | `@legion-collective/runtime/src/server/`                | 10                |
+| `packages/web/package.json` placeholder                                                   | `packages/web/package.json`                             | 1                 |
 
 ---
 
@@ -172,7 +172,7 @@ Also modified:
 
 ---
 
-## Task 1: `@legion/web` package scaffold
+## Task 1: `@legion-collective/web` package scaffold
 
 **Files:**
 
@@ -191,7 +191,7 @@ Also modified:
 
 ```json
 {
-  "name": "@legion/web",
+  "name": "@legion-collective/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -202,7 +202,7 @@ Also modified:
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@legion/types": "*",
+    "@legion-collective/types": "*",
     "@vueuse/core": "^11.0.0",
     "vue": "^3.4.0",
     "vue-router": "^4.3.0"
@@ -363,7 +363,7 @@ Expected: Vite builds `packages/web/dist/` with no errors. `index.html` present 
 
 ```bash
 git add packages/web package-lock.json tsconfig.json vitest.config.ts
-git commit -m "feat(web): scaffold @legion/web package with Vite + Tailwind v4 + Vue Router"
+git commit -m "feat(web): scaffold @legion-collective/web package with Vite + Tailwind v4 + Vue Router"
 ```
 
 ---
@@ -757,7 +757,7 @@ git commit -m "feat(core): add modify_agent, list_tools, list_conversations mana
 - Test: `packages/runtime/src/server/runtime-tools.test.ts`
 - Modify: `packages/runtime/src/index.ts`
 
-- [ ] **Step 1: Add `ProviderConfig` and `CredentialInfo` to `@legion/types`**
+- [ ] **Step 1: Add `ProviderConfig` and `CredentialInfo` to `@legion-collective/types`**
 
 In `packages/types/src/config.ts`:
 
@@ -785,7 +785,7 @@ Export both from `packages/types/src/index.ts`.
 `packages/runtime/src/server/runtime-tools.test.ts`:
 
 ```typescript
-import { MemoryStorage } from '@legion/core';
+import { MemoryStorage } from '@legion-collective/core';
 import { describe, expect, it } from 'vitest';
 import { createRuntimeTools } from './runtime-tools.js';
 
@@ -862,9 +862,9 @@ Expected: FAIL — module not found.
 - [ ] **Step 4: Implement `packages/runtime/src/server/runtime-tools.ts`**
 
 ```typescript
-import type { CredentialInfo, ProviderConfig } from '@legion/types';
-import type { Storage } from '@legion/core';
-import type { Tool } from '@legion/core';
+import type { CredentialInfo, ProviderConfig } from '@legion-collective/types';
+import type { Storage } from '@legion-collective/core';
+import type { Tool } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   storage: Storage;
@@ -2129,7 +2129,7 @@ async function retire() {
 ```vue
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import type { Participant } from '@legion/types';
+import type { Participant } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
 import { useEventStream } from '../composables/useEventStream.js';
@@ -2594,7 +2594,7 @@ Expected: PASS.
 
 ```vue
 <script setup lang="ts">
-import type { ConversationSummary } from '@legion/types';
+import type { ConversationSummary } from '@legion-collective/types';
 defineProps<{ conversations: ConversationSummary[]; activeId: string | null }>();
 const emit = defineEmits<{ select: [id: string] }>();
 function ago(ts: number) {
@@ -2724,7 +2724,7 @@ import StatusDot from '../common/StatusDot.vue';
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { ConversationSummary } from '@legion/types';
+import type { ConversationSummary } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
@@ -3002,7 +3002,7 @@ git commit -m "feat(web): event stream screen — live feed, filter chips, detai
 ```vue
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import type { ProviderConfig } from '@legion/types';
+import type { ProviderConfig } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
 import { useExecute } from '../../composables/useExecute.js';
 
@@ -3140,7 +3140,7 @@ async function save() {
 ```vue
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import type { CredentialInfo } from '@legion/types';
+import type { CredentialInfo } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
 import { useExecute } from '../../composables/useExecute.js';
 
@@ -3249,7 +3249,7 @@ async function save() {
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import type { CredentialInfo, ProviderConfig } from '@legion/types';
+import type { CredentialInfo, ProviderConfig } from '@legion-collective/types';
 import AppLayout from '../components/layout/AppLayout.vue';
 import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import CredentialSlideOver from '../components/config/CredentialSlideOver.vue';
@@ -3471,7 +3471,7 @@ git commit -m "feat(web): configuration screen — providers and credentials tab
 
 - Modify: `packages/runtime/src/server/WebConnector.ts` (verify static file path already wired)
 
-- [ ] **Step 1: Build `@legion/web`**
+- [ ] **Step 1: Build `@legion-collective/web`**
 
 ```bash
 cd packages/web && npm run build
@@ -3479,7 +3479,7 @@ cd packages/web && npm run build
 
 Expected: `packages/web/dist/index.html` exists. No TypeScript errors. No Vite build errors.
 
-- [ ] **Step 2: Verify static serving from `@legion/runtime`**
+- [ ] **Step 2: Verify static serving from `@legion-collective/runtime`**
 
 Plan 10 Decision: `@fastify/static` only registered when `packages/web/dist/` exists. Confirm in `packages/runtime/src/server/WebConnector.ts`:
 
@@ -3538,32 +3538,32 @@ git commit -m "chore: mark Plan 11 written in roadmap"
 
 **Spec coverage check:**
 
-| Spec requirement                                                 | Covered by                        |
-| ---------------------------------------------------------------- | --------------------------------- |
-| Vue 3 + Vite + Tailwind v4                                       | Task 1                            |
-| `@legion/web` depends on `@legion/types` only                    | Task 1 tsconfig, no core imports  |
-| Navy/cyan colour palette                                         | Task 1 `style.css` `@theme` block |
-| Login screen                                                     | Task 5 `LoginView.vue`            |
-| Persistent left sidebar                                          | Task 7 `AppSidebar.vue`           |
-| Participants: table list                                         | Task 8 `ParticipantsView.vue`     |
-| Participants: slide-over with Basic + Tool policies tabs         | Task 8 `ParticipantSlideOver.vue` |
-| Tool policies: checkbox whitelist + require approval toggle      | Task 8 `ToolPolicyEditor.vue`     |
-| `modify_agent` tool (new)                                        | Task 3                            |
-| `list_tools` tool (new)                                          | Task 3                            |
-| Conversations: two-pane                                          | Task 9 `ConversationsView.vue`    |
-| Recursive nested delegation threads                              | Task 9 `SubThreadBlock.vue`       |
-| Tool renderer registry + built-in renderers                      | Task 9                            |
-| Event stream: live feed + filter chips + pause                   | Task 10 `EventStreamView.vue`     |
-| Event detail panel                                               | Task 10 `EventDetailPanel.vue`    |
-| Config: Providers tab                                            | Task 11 `ConfigView.vue`          |
-| Config: Credentials tab (write-only, masked)                     | Task 11                           |
-| `list_providers`, `configure_provider`, `list_credentials` (new) | Task 4                            |
-| `useAuth` singleton with `useLocalStorage`                       | Task 5                            |
-| `useEventStream` with reconnect                                  | Task 6                            |
-| Static serving from `@legion/runtime`                            | Task 12                           |
-| `participant:active` / `participant:retired` events              | Task 2                            |
-| `Collective.modify()`                                            | Task 2                            |
-| `create_agent` config persistence                                | Task 2                            |
+| Spec requirement                                                    | Covered by                        |
+| ------------------------------------------------------------------- | --------------------------------- |
+| Vue 3 + Vite + Tailwind v4                                          | Task 1                            |
+| `@legion-collective/web` depends on `@legion-collective/types` only | Task 1 tsconfig, no core imports  |
+| Navy/cyan colour palette                                            | Task 1 `style.css` `@theme` block |
+| Login screen                                                        | Task 5 `LoginView.vue`            |
+| Persistent left sidebar                                             | Task 7 `AppSidebar.vue`           |
+| Participants: table list                                            | Task 8 `ParticipantsView.vue`     |
+| Participants: slide-over with Basic + Tool policies tabs            | Task 8 `ParticipantSlideOver.vue` |
+| Tool policies: checkbox whitelist + require approval toggle         | Task 8 `ToolPolicyEditor.vue`     |
+| `modify_agent` tool (new)                                           | Task 3                            |
+| `list_tools` tool (new)                                             | Task 3                            |
+| Conversations: two-pane                                             | Task 9 `ConversationsView.vue`    |
+| Recursive nested delegation threads                                 | Task 9 `SubThreadBlock.vue`       |
+| Tool renderer registry + built-in renderers                         | Task 9                            |
+| Event stream: live feed + filter chips + pause                      | Task 10 `EventStreamView.vue`     |
+| Event detail panel                                                  | Task 10 `EventDetailPanel.vue`    |
+| Config: Providers tab                                               | Task 11 `ConfigView.vue`          |
+| Config: Credentials tab (write-only, masked)                        | Task 11                           |
+| `list_providers`, `configure_provider`, `list_credentials` (new)    | Task 4                            |
+| `useAuth` singleton with `useLocalStorage`                          | Task 5                            |
+| `useEventStream` with reconnect                                     | Task 6                            |
+| Static serving from `@legion-collective/runtime`                    | Task 12                           |
+| `participant:active` / `participant:retired` events                 | Task 2                            |
+| `Collective.modify()`                                               | Task 2                            |
+| `create_agent` config persistence                                   | Task 2                            |
 
 **Placeholder scan:** No TBD/TODO present. All code blocks are complete.
 
@@ -3571,7 +3571,7 @@ git commit -m "chore: mark Plan 11 written in roadmap"
 
 - `ToolOverride` defined in `ToolPolicyEditor.vue` and imported in `ParticipantSlideOver.vue` ✓
 - `MessageEntry` / `ToolCallEntry` defined in `ToolCallBlock.vue`, imported by `SubThreadBlock.vue` and `ConversationThread.vue` ✓
-- `ConversationSummary`, `ProviderConfig`, `CredentialInfo`, `AgentConfig` all defined in `@legion/types` ✓
+- `ConversationSummary`, `ProviderConfig`, `CredentialInfo`, `AgentConfig` all defined in `@legion-collective/types` ✓
 - `lookupRenderer` imported from `./index.js` in `ToolResultRenderer.vue` ✓
 - `useAuth().getToken()` used in both `useAuth.ts` and `useExecute.ts` ✓
 

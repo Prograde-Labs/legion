@@ -6,7 +6,7 @@ import type {
   MiddlewareDefinitionSummary,
   MiddlewareHooks,
   MiddlewareInstanceConfig,
-} from '@legion/types';
+} from '@legion-collective/types';
 import { ConflictError, LegionError } from '../errors/LegionError.js';
 import type { MiddlewareConfigurationValidator } from '../tools/Tool.js';
 import { cloneJsonSafe } from './json.js';

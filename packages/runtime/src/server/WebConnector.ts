@@ -5,15 +5,15 @@ import type { FastifyInstance } from 'fastify';
 import websocketPlugin from '@fastify/websocket';
 import staticPlugin from '@fastify/static';
 import { WebSocket } from 'ws';
-import type { Connector, ConnectorContext } from '@legion/core';
+import type { Connector, ConnectorContext } from '@legion-collective/core';
 import type {
   Collective,
   CredentialStore,
   EventBus,
   ProcessManager,
   ServerConfig,
-} from '@legion/core';
-import { StreamRegistry } from '@legion/core';
+} from '@legion-collective/core';
+import { StreamRegistry } from '@legion-collective/core';
 import { verifyToken } from './auth.js';
 import type { JwtSecret } from './auth.js';
 import { registerHealthRoute } from './routes/health.js';

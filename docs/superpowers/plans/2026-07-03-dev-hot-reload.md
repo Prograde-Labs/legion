@@ -4,7 +4,7 @@
 
 **Goal:** Add a `npm run dev` command that runs the full Legion stack (backend + frontend) with zero pre-build, instant Vue HMR, and ~1-2s backend restart on any TypeScript file change.
 
-**Architecture:** `tsx --watch` runs the TypeScript source directly (no compile step) using path aliases in `tsconfig.dev.json` to redirect `@legion/core` and `@legion/types` imports from `dist/` to `src/`. In dev mode, `WebConnector` replaces `@fastify/static` with an embedded Vite dev server middleware, keeping everything on one port.
+**Architecture:** `tsx --watch` runs the TypeScript source directly (no compile step) using path aliases in `tsconfig.dev.json` to redirect `@legion-collective/core` and `@legion-collective/types` imports from `dist/` to `src/`. In dev mode, `WebConnector` replaces `@fastify/static` with an embedded Vite dev server middleware, keeping everything on one port.
 
 **Tech Stack:** `tsx` (TypeScript execution via esbuild), `vite` (already in `packages/web/devDependencies`), Fastify middleware mode
 
@@ -30,7 +30,7 @@
 
 - Create: `tsconfig.dev.json`
 
-This file tells `tsx` to resolve `@legion/core` and `@legion/types` from their TypeScript source rather than their compiled `dist/` directories. Without this, `tsx` would try to import `packages/core/dist/index.js` which may not exist.
+This file tells `tsx` to resolve `@legion-collective/core` and `@legion-collective/types` from their TypeScript source rather than their compiled `dist/` directories. Without this, `tsx` would try to import `packages/core/dist/index.js` which may not exist.
 
 - [ ] **Step 1: Create `tsconfig.dev.json` at repo root**
 
@@ -40,8 +40,8 @@ This file tells `tsx` to resolve `@legion/core` and `@legion/types` from their T
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@legion/types": ["packages/types/src/index.ts"],
-      "@legion/core": ["packages/core/src/index.ts"]
+      "@legion-collective/types": ["packages/types/src/index.ts"],
+      "@legion-collective/core": ["packages/core/src/index.ts"]
     }
   }
 }
@@ -50,7 +50,7 @@ This file tells `tsx` to resolve `@legion/core` and `@legion/types` from their T
 - [ ] **Step 2: Verify tsx can resolve imports with the new config**
 
 ```bash
-npx tsx --tsconfig tsconfig.dev.json -e "import('@legion/core').then(m => console.log('ok:', typeof m.EventBus))"
+npx tsx --tsconfig tsconfig.dev.json -e "import('@legion-collective/core').then(m => console.log('ok:', typeof m.EventBus))"
 ```
 
 Expected output: `ok: function`
@@ -169,7 +169,7 @@ to:
 
 Wait — actually `LegionProcess` is a class not a script entry. Keep `start` as-is but update `bin/legion.js` to detect whether it's being run by `tsx` (in which case `src/` import works) or plain `node` (in which case `dist/` is needed). The cleanest approach: use a try/catch to attempt `src/` first, falling back to `dist/`. But that's over-engineered.
 
-**Simpler solution:** `bin/legion.js` always imports from `../src/LegionProcess.js`. When run in production (after `npm run build`), the `dist/` doesn't matter — the `src/` files exist and Node can run them as plain ESM... except they import `@legion/core` which resolves to `dist/`. So production still needs the build.
+**Simpler solution:** `bin/legion.js` always imports from `../src/LegionProcess.js`. When run in production (after `npm run build`), the `dist/` doesn't matter — the `src/` files exist and Node can run them as plain ESM... except they import `@legion-collective/core` which resolves to `dist/`. So production still needs the build.
 
 **Actually the correct split:** keep two entrypoints conceptually but in one file using a dynamic import:
 
