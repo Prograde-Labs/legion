@@ -29,7 +29,7 @@ describe('useExecute', () => {
       logout: () => {},
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ result: { status: 'success', data: ['p1', 'p2'] } }),
     } as Response);
@@ -37,11 +37,11 @@ describe('useExecute', () => {
     const { execute } = useExecute();
     const result = await execute<string[]>('list_participants', {});
     expect(result).toEqual(['p1', 'p2']);
-    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
       '/api/execute?stream=false',
     );
     expect(
-      (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers['Authorization'],
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].headers['Authorization'],
     ).toBe('Bearer tok-1');
   });
 
@@ -56,7 +56,7 @@ describe('useExecute', () => {
       logout: () => {},
     });
 
-    global.fetch = vi
+    globalThis.fetch = vi
       .fn()
       .mockResolvedValue({ ok: false, text: async () => 'Forbidden' } as Response);
 
@@ -77,7 +77,7 @@ describe('useExecute', () => {
       logout,
     });
 
-    global.fetch = vi.fn().mockResolvedValue({ status: 401 } as Response);
+    globalThis.fetch = vi.fn().mockResolvedValue({ status: 401 } as Response);
 
     const { execute } = useExecute();
     await expect(execute('list_participants', {})).rejects.toThrow('Unauthorized');

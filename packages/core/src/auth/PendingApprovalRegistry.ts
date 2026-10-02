@@ -48,8 +48,7 @@ export type AutomationCompactionSeed = Omit<
 >;
 
 export type ApprovalContinuation =
-  | MiddlewareApprovalContinuation
-  | AutomationCompactionContinuation;
+  MiddlewareApprovalContinuation | AutomationCompactionContinuation;
 
 export interface AutomationCompactionState {
   lifecycle: 'waiting' | 'summary_ready' | 'parent_committed' | 'completed' | 'unknown';

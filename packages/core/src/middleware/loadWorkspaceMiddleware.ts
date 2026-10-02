@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
@@ -77,13 +78,30 @@ export async function loadWorkspaceMiddleware(
       // security boundary, and normal file URLs preserve module-relative imports.
       publicError = 'Middleware module path must remain within workspace root';
       requireContainedPath(canonicalRoot, target);
+      // From here on, any failure is an import failure — keep the public
+      // diagnostic accurate even when both import strategies throw.
+      publicError = 'Middleware module import failed';
 
       let namespace: unknown;
       try {
-        namespace = await import(pathToFileURL(target).href);
-      } catch (error) {
-        publicError = 'Middleware module import failed';
-        throw error;
+        // Indirection so bundler-injected module runners (vite/vitest) do not
+        // intercept the dynamic import of workspace files at absolute file
+        // URLs. Plain Node keeps native ESM import semantics for this call.
+        const nativeImport = new Function('specifier', 'return import(specifier)') as (
+          specifier: string,
+        ) => Promise<unknown>;
+        namespace = await nativeImport(pathToFileURL(target).href);
+      } catch {
+        // In sandboxed test VMs the native dynamic import has no importModuleDynamically
+        // callback and throws; fall back to createRequire. Node >= 20.19 loads ESM
+        // modules through require() transparently (returns the module namespace).
+        // Known limitation: require(esm) cannot load modules with top-level await
+        // (ERR_REQUIRE_ASYNC_MODULE) — such modules load via native import in
+        // production but fail under the sandboxed test fallback. If this require
+        // also throws, the error propagates with 'Middleware module import failed'
+        // as the public diagnostic and the underlying error as the cause.
+        const nodeRequire = createRequire(import.meta.url);
+        namespace = nodeRequire(target);
       }
 
       publicError = 'Middleware module must have a default object export';

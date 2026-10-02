@@ -1893,8 +1893,7 @@ export function startFormFill(
 }
 
 export type Prompt =
-  | { key: string; prop: Record<string, unknown>; required: boolean }
-  | { done: true };
+  { key: string; prop: Record<string, unknown>; required: boolean } | { done: true };
 
 function propOf(session: FormFillSession, key: string): Record<string, unknown> {
   const props = (session as unknown as { __props: Record<string, Record<string, unknown>> })

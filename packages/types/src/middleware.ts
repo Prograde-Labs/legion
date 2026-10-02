@@ -5,20 +5,11 @@ import type { LLMChunk } from './streaming.js';
 import type { JSONSchema, ToolResult } from './tool.js';
 
 export type JSONValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JSONValue[]
-  | { [key: string]: JSONValue };
+  string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
 
 export type FailureMode = 'open' | 'closed';
 export type MiddlewarePhase =
-  | 'beforeSend'
-  | 'beforeReceive'
-  | 'afterReceive'
-  | 'buildSystemPrompt'
-  | 'afterSend';
+  'beforeSend' | 'beforeReceive' | 'afterReceive' | 'buildSystemPrompt' | 'afterSend';
 
 export interface MiddlewareInstanceConfig {
   id: string;

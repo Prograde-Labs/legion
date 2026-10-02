@@ -16,7 +16,7 @@ vi.mock('./MCPToolSource.js', () => {
     tools: Tool[];
   }> = [];
 
-  const MCPToolSource = vi.fn().mockImplementation((config: MCPServerConfig) => {
+  const MCPToolSource = vi.fn().mockImplementation(function (config: MCPServerConfig) {
     const tools: Tool[] = (config as MCPServerConfig & { _tools?: Tool[] })._tools ?? [];
     const instance = {
       config,
@@ -109,12 +109,14 @@ describe('loadMCPSources', () => {
 
   it('propagates errors if a source fails to load', async () => {
     const error = new Error('server not found');
-    MockMCPToolSource.mockImplementationOnce(() => ({
-      async load() {
-        throw error;
-      },
-      async unload() {},
-    }));
+    MockMCPToolSource.mockImplementationOnce(function () {
+      return {
+        async load() {
+          throw error;
+        },
+        async unload() {},
+      };
+    });
 
     const configs = [makeServerConfig('bad-server')];
     await expect(loadMCPSources(configs, registry)).rejects.toThrow('server not found');

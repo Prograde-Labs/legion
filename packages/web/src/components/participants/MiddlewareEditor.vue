@@ -161,8 +161,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
         <pre
           :data-raw-config="instance.id"
           class="mt-2 overflow-auto rounded bg-navy-950 p-2 text-[10px] text-slate-400"
-          >{{ JSON.stringify(instance.config, null, 2) }}</pre
-        >
+          >{{ JSON.stringify(instance.config, null, 2) }}</pre>
       </div>
       <template v-else>
         <label class="mt-3 block text-[10px] uppercase tracking-wider text-navy-400"

@@ -7,20 +7,28 @@ import { MCPToolSource } from './MCPToolSource.js';
 // Mock the MCP SDK so no subprocess is spawned.
 // ---------------------------------------------------------------------------
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue(undefined),
-    listTools: vi.fn().mockResolvedValue({ tools: [] }),
-    callTool: vi.fn().mockResolvedValue({ content: [], isError: false }),
-    close: vi.fn().mockResolvedValue(undefined),
-  })),
+  Client: vi.fn().mockImplementation(function ClientMock(this: unknown) {
+    return {
+      connect: vi.fn().mockResolvedValue(undefined),
+      listTools: vi.fn().mockResolvedValue({ tools: [] }),
+      callTool: vi.fn().mockResolvedValue({ content: [], isError: false }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+  }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn().mockImplementation((opts: unknown) => ({ _opts: opts })),
+  StdioClientTransport: vi.fn().mockImplementation(function StdioClientTransportMock(
+    opts: unknown,
+  ) {
+    return { _opts: opts };
+  }),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: vi.fn().mockImplementation((url: unknown) => ({ _url: url })),
+  SSEClientTransport: vi.fn().mockImplementation(function SSEClientTransportMock(url: unknown) {
+    return { _url: url };
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -199,14 +207,16 @@ describe('MCPToolSource — load() tool mapping', () => {
   });
 
   it('namespaces tool names as mcp__<serverName>__<toolName>', async () => {
-    MockClient.mockImplementationOnce(() => ({
-      connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({
-        tools: [makeToolDescriptor('search'), makeToolDescriptor('fetch')],
-      }),
-      callTool: vi.fn().mockResolvedValue({ content: [], isError: false }),
-      close: vi.fn().mockResolvedValue(undefined),
-    }));
+    MockClient.mockImplementationOnce(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [makeToolDescriptor('search'), makeToolDescriptor('fetch')],
+        }),
+        callTool: vi.fn().mockResolvedValue({ content: [], isError: false }),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+    });
 
     const source = new MCPToolSource({ name: 'brave', command: 'brave-server' });
     const tools = await source.load();
@@ -219,14 +229,16 @@ describe('MCPToolSource — load() tool mapping', () => {
       properties: { query: { type: 'string' }, limit: { type: 'number' } },
       required: ['query'],
     };
-    MockClient.mockImplementationOnce(() => ({
-      connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({
-        tools: [{ name: 'search', description: 'web search', inputSchema: schema }],
-      }),
-      callTool: vi.fn(),
-      close: vi.fn().mockResolvedValue(undefined),
-    }));
+    MockClient.mockImplementationOnce(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'search', description: 'web search', inputSchema: schema }],
+        }),
+        callTool: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+    });
 
     const source = new MCPToolSource({ name: 'brave', command: 'brave-server' });
     const [tool] = await source.load();
@@ -234,14 +246,16 @@ describe('MCPToolSource — load() tool mapping', () => {
   });
 
   it('maps MCP tool description to Tool.description', async () => {
-    MockClient.mockImplementationOnce(() => ({
-      connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({
-        tools: [{ name: 'go', description: 'Fetch a URL', inputSchema: { type: 'object' } }],
-      }),
-      callTool: vi.fn(),
-      close: vi.fn().mockResolvedValue(undefined),
-    }));
+    MockClient.mockImplementationOnce(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'go', description: 'Fetch a URL', inputSchema: { type: 'object' } }],
+        }),
+        callTool: vi.fn(),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+    });
 
     const source = new MCPToolSource({ name: 'http', command: 'http-server' });
     const [tool] = await source.load();
@@ -255,7 +269,9 @@ describe('MCPToolSource — load() tool mapping', () => {
       callTool: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
     };
-    MockClient.mockImplementationOnce(() => mockClient);
+    MockClient.mockImplementationOnce(function () {
+      return mockClient;
+    });
     const source = new MCPToolSource({ name: 'test', command: 'server' });
     await source.load();
     expect(mockClient.connect).toHaveBeenCalledOnce();
@@ -268,14 +284,16 @@ describe('MCPToolSource — execute() result mapping', () => {
   beforeEach(() => {
     MockClient.mockClear();
     mockCallTool = vi.fn();
-    MockClient.mockImplementation(() => ({
-      connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({
-        tools: [{ name: 'search', description: 'search', inputSchema: { type: 'object' } }],
-      }),
-      callTool: mockCallTool,
-      close: vi.fn().mockResolvedValue(undefined),
-    }));
+    MockClient.mockImplementation(function ClientMock() {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue({
+          tools: [{ name: 'search', description: 'search', inputSchema: { type: 'object' } }],
+        }),
+        callTool: mockCallTool,
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+    });
   });
 
   it('returns success with content data when isError is false', async () => {
@@ -343,12 +361,14 @@ describe('MCPToolSource — execute() result mapping', () => {
 describe('MCPToolSource — unload()', () => {
   it('calls client.close() on unload', async () => {
     const mockClose = vi.fn().mockResolvedValue(undefined);
-    MockClient.mockImplementationOnce(() => ({
-      connect: vi.fn().mockResolvedValue(undefined),
-      listTools: vi.fn().mockResolvedValue({ tools: [] }),
-      callTool: vi.fn(),
-      close: mockClose,
-    }));
+    MockClient.mockImplementationOnce(function () {
+      return {
+        connect: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue({ tools: [] }),
+        callTool: vi.fn(),
+        close: mockClose,
+      };
+    });
 
     const source = new MCPToolSource({ name: 'test', command: 'server' });
     await source.load();

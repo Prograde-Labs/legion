@@ -3709,6 +3709,22 @@ describe('MessageRouter.sendStream()', () => {
     expect(chunks).toHaveLength(0);
   });
 
+  it('supports explicit disposal via Symbol.asyncDispose (aborts and closes the generator)', async () => {
+    const { router, baseContext } = await setup(dir);
+    const gen = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'dispose me',
+      context: baseContext,
+    });
+
+    expect(typeof gen[Symbol.asyncDispose]).toBe('function');
+    await gen[Symbol.asyncDispose]();
+
+    const after = await gen.next();
+    expect(after.done).toBe(true);
+  });
+
   it('rejects unknown senders before creating a streaming conversation', async () => {
     const { router, baseContext, eventBus } = await setup(dir);
     let created = 0;

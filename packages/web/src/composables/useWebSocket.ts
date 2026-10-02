@@ -130,7 +130,7 @@ export function useWebSocket() {
     /** Register a handler for chunks of a specific stream. Returns unsubscribe fn. */
     onStreamChunk(streamId: string, handler: StreamChunkHandler): () => void {
       streamHandlers.set(streamId, handler);
-      for (let index = 0; index < pendingStreamChunks.length; ) {
+      for (let index = 0; index < pendingStreamChunks.length;) {
         const pending = pendingStreamChunks[index];
         if (pending.streamId !== streamId) {
           index += 1;
