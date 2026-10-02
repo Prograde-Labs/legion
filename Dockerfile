@@ -7,7 +7,11 @@
 # LEGION_WORKSPACE — mounted at /data so it survives container replacement.
 
 # ---------- build stage: compile all packages + web SPA ----------
-FROM node:22-alpine AS build
+# Debian slim (glibc), not alpine: node-pty has no musl prebuilt and needs
+# python3/make/g++ to compile from source when a prebuilt is missing.
+FROM node:22-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # Install exact dependency tree first (cache-friendly layer)
@@ -24,14 +28,11 @@ COPY tsconfig*.json ./
 COPY packages packages
 RUN npm run build && npm run build --workspace=packages/web
 
-# ---------- runtime stage: production deps + compiled output ----------
-FROM node:22-alpine
+# ---------- deps stage: production-only node_modules (native bits compiled) ----------
+FROM node:22-slim AS deps
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-ENV NODE_ENV=production \
-    LEGION_WORKSPACE=/data \
-    LEGION_HOST=0.0.0.0
-
-# Production dependency tree (workspace symlinks need every package.json)
 COPY package.json package-lock.json ./
 COPY packages/types/package.json packages/types/
 COPY packages/core/package.json packages/core/
@@ -39,6 +40,21 @@ COPY packages/runtime/package.json packages/runtime/
 COPY packages/web/package.json packages/web/
 COPY packages/e2e/package.json packages/e2e/
 RUN npm ci --omit=dev --no-audit --no-fund
+
+# ---------- runtime stage: compiled output + prod node_modules, no toolchain ----------
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_ENV=production \
+    LEGION_WORKSPACE=/data \
+    LEGION_HOST=0.0.0.0
+
+COPY --from=deps /app/node_modules node_modules
+COPY package.json package-lock.json ./
+COPY packages/types/package.json packages/types/
+COPY packages/core/package.json packages/core/
+COPY packages/runtime/package.json packages/runtime/
+COPY packages/web/package.json packages/web/
+COPY packages/e2e/package.json packages/e2e/
 
 # Compiled JS from the build stage (dist/ per package + web SPA assets)
 COPY --from=build /app/packages/types/dist packages/types/dist
