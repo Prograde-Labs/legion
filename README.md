@@ -49,6 +49,21 @@ Provider API keys belong in global config (`~/.config/legion/config.json`) or en
 | `LEGION_WORKSPACE`          | Override the workspace root directory                                                             |
 | `LEGION_BOOTSTRAP_PASSWORD` | Set a deterministic password for the bootstrap operator (useful for Docker/scripted provisioning) |
 
+### Docker
+
+A multi-arch image (amd64/arm64) is published to GHCR: `edge` tracks main, `v*`
+release tags get semver tags plus `latest`.
+
+```bash
+docker run -p 3000:3000 -v legion-data:/data \
+  -e LEGION_BOOTSTRAP_PASSWORD=change-me \
+  ghcr.io/prograde-labs/legion:edge
+```
+
+The workspace (conversations, participants, credentials, config) lives under
+`LEGION_WORKSPACE` — mounted at `/data` so it survives container replacement.
+To build locally: `docker build -t legion .`
+
 ## Architecture
 
 ```
