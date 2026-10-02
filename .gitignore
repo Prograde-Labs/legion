@@ -19,3 +19,6 @@ dist/
 ## Testing
 coverage/
 packages/*/test-results/
+# Local env files
+.env
+.env.*

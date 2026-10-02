@@ -31,12 +31,14 @@
 ### Task 1: ConnectorRuntimeDeps + generic connector loader (unit-tested, not yet wired)
 
 **Files:**
+
 - Create: `packages/core/src/connectors/ConnectorRuntimeDeps.ts`
 - Modify: `packages/core/src/connectors/index.ts`
 - Create: `packages/runtime/src/server/loadConnectors.ts`
 - Test: `packages/runtime/src/server/loadConnectors.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Connector`, `ConnectorRegistry` (core, existing); `ConnectorConfig` (types, existing — `module` field added in Task 2).
 - Produces: `ConnectorRuntimeDeps {collective: Collective; eventBus: EventBus}` (exported from `@legion/core`); `ConnectorFactory = (options: Record<string, unknown>, deps: ConnectorRuntimeDeps) => Connector`; `loadAndStartConnectors(deps: LoadConnectorsDeps): Promise<void>` where `LoadConnectorsDeps = {configs: ConnectorConfig[]; connectorRegistry: ConnectorRegistry; workspaceRoot: string; runtimeDeps: ConnectorRuntimeDeps; createWebConnector: () => Connector; buildContext: () => ConnectorContext}`.
 
@@ -137,9 +139,7 @@ it('registers and starts the built-in web connector by default', async () => {
 
 it('defaults to a single web connector entry when configs is empty', async () => {
   const registry = new ConnectorRegistry();
-  await loadAndStartConnectors(
-    baseDeps({ connectorRegistry: registry }),
-  );
+  await loadAndStartConnectors(baseDeps({ connectorRegistry: registry }));
   expect(registry.get('web')).toBeDefined();
 });
 
@@ -154,7 +154,11 @@ it('skips disabled entries', async () => {
 it('propagates web connector construction failure (fail-fast)', async () => {
   await expect(
     loadAndStartConnectors(
-      baseDeps({ createWebConnector: () => { throw new Error('spa missing'); } }),
+      baseDeps({
+        createWebConnector: () => {
+          throw new Error('spa missing');
+        },
+      }),
     ),
   ).rejects.toThrow('spa missing');
 });
@@ -333,7 +337,12 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Connector, ConnectorContext, ConnectorRegistry, ConnectorRuntimeDeps } from '@legion/core';
+import type {
+  Connector,
+  ConnectorContext,
+  ConnectorRegistry,
+  ConnectorRuntimeDeps,
+} from '@legion/core';
 import type { ConnectorConfig } from '@legion/types';
 
 export interface LoadConnectorsDeps {
@@ -441,10 +450,12 @@ git commit -m "feat(core,runtime): ConnectorRuntimeDeps + generic connector load
 ### Task 2: `ConnectorConfig.module` + wire the loader into LegionProcess
 
 **Files:**
+
 - Modify: `packages/types/src/config.ts` (add `module?: string` to `ConnectorConfig`)
 - Modify: `packages/runtime/src/LegionProcess.ts` (step 9, ~lines 296–344: replace direct web construction with `loadAndStartConnectors`)
 
 **Interfaces:**
+
 - Consumes: `loadAndStartConnectors`, `ConnectorRuntimeDeps` (Task 1); `Collective`/`EventBus` instances already assembled in `start()`.
 - Produces: config behavior — `connectors` defaults to `[{name: 'web'}]`; external entries load from `module`. No exported API change beyond `ConnectorConfig.module`.
 
@@ -471,48 +482,48 @@ export interface ConnectorConfig {
 In `packages/runtime/src/LegionProcess.ts`, replace the block from `const webConnector = new WebConnector({` through `await webConnector.start(connectorContext);` with:
 
 ```typescript
-    const dev = options.dev ?? false;
-    // In dev mode, point Vite at the web package source root (contains index.html + src/).
-    // In production, serve the pre-built static files from web/dist/.
-    const webSrcPath = dev
-      ? join(_dirname, '..', '..', 'web') // packages/runtime/src/ → packages/web/
-      : undefined;
-    const webDistPath = dev ? undefined : join(_dirname, '..', '..', 'web', 'dist');
+const dev = options.dev ?? false;
+// In dev mode, point Vite at the web package source root (contains index.html + src/).
+// In production, serve the pre-built static files from web/dist/.
+const webSrcPath = dev
+  ? join(_dirname, '..', '..', 'web') // packages/runtime/src/ → packages/web/
+  : undefined;
+const webDistPath = dev ? undefined : join(_dirname, '..', '..', 'web', 'dist');
 
-    await loadAndStartConnectors({
-      configs: mergedConfig.connectors ?? [{ name: 'web' }],
+await loadAndStartConnectors({
+  configs: mergedConfig.connectors ?? [{ name: 'web' }],
+  connectorRegistry,
+  workspaceRoot,
+  runtimeDeps: { collective, eventBus },
+  createWebConnector: () =>
+    new WebConnector({
+      collective,
+      credentials,
+      eventBus,
+      processManager,
+      serverConfig: webConnectorConfig,
+      webDistPath,
+      webSrcPath,
+      dev,
+    }),
+  buildContext: () =>
+    buildConnectorContext({
+      router,
+      toolRegistry,
+      authEngine,
       connectorRegistry,
+      collective,
+      store,
+      pendingApprovalRegistry,
+      eventBus,
+      storage,
+      config: mergedConfig,
       workspaceRoot,
-      runtimeDeps: { collective, eventBus },
-      createWebConnector: () =>
-        new WebConnector({
-          collective,
-          credentials,
-          eventBus,
-          processManager,
-          serverConfig: webConnectorConfig,
-          webDistPath,
-          webSrcPath,
-          dev,
-        }),
-      buildContext: () =>
-        buildConnectorContext({
-          router,
-          toolRegistry,
-          authEngine,
-          connectorRegistry,
-          collective,
-          store,
-          pendingApprovalRegistry,
-          eventBus,
-          storage,
-          config: mergedConfig,
-          workspaceRoot,
-          serviceManager,
-          processManager,
-          middlewareRegistry,
-        }),
-    });
+      serviceManager,
+      processManager,
+      middlewareRegistry,
+    }),
+});
 ```
 
 Preserve everything above this block that computes `port`, `webConnectorConfig`, and `_dirname` (the dev/dist path computation moves inside the replacement as shown). Add imports at the top of `LegionProcess.ts`:
@@ -526,20 +537,24 @@ import { loadAndStartConnectors } from './server/loadConnectors.js';
 - [ ] **Step 3: Run the full gate**
 
 Run:
+
 ```bash
 npm run format
 npm run format:check
 npm run typecheck
 npm test
 ```
+
 Expected: all green. If an existing test asserted on web-connector construction order, fix the test to match the new loader flow (behavior preserved: default `[{name:'web'}]`, same register → context → start sequence).
 
 - [ ] **Step 4: Verify the real process still boots (web default, no connectors config)**
 
 Run:
+
 ```bash
 LEGION_BOOTSTRAP_PASSWORD=smoke-test-$(date +%s) PORT=4199 timeout 12 node packages/runtime/bin/legion.js /tmp/legion-smoke-$(date +%s) 2>&1 | head -20
 ```
+
 Expected: boot banner, `Web UI: http://127.0.0.1:4199`, no connector errors. (No UI curl check needed here — dist serving is unchanged and covered by existing behavior.)
 
 - [ ] **Step 5: Commit**
@@ -555,12 +570,14 @@ git commit -m "feat(runtime): config-driven connector loading in LegionProcess s
 ### Task 3: `list_tools` core tool + registration
 
 **Files:**
+
 - Create: `packages/core/src/tools/list-tools-tool.ts`
 - Create: `packages/core/src/tools/list-tools-tool.test.ts`
 - Modify: `packages/core/src/index.ts` (export)
 - Modify: `packages/runtime/src/LegionProcess.ts` (register + operator policy)
 
 **Interfaces:**
+
 - Consumes: `Tool`, `ToolContext` (`context.participant`, `context.toolRegistry.list()`), `ToolResult`.
 - Produces: exported `listToolsTool: Tool` with `name: 'list_tools'`, no parameters; result `{status: 'success', data: {tools: Array<{name, description, parameters}>}}` filtered to tools present in the caller's `tools` map.
 
@@ -600,8 +617,15 @@ function makeContext(
 }
 
 it('lists only tools present in the participant policy', async () => {
-  const registryTools = [makeTool('communicate'), makeTool('list_participants'), makeTool('read_file')];
-  const context = makeContext({ communicate: 'auto', read_file: 'requires_approval' }, registryTools);
+  const registryTools = [
+    makeTool('communicate'),
+    makeTool('list_participants'),
+    makeTool('read_file'),
+  ];
+  const context = makeContext(
+    { communicate: 'auto', read_file: 'requires_approval' },
+    registryTools,
+  );
   const result = (await listToolsTool.execute({}, context)) as ToolResult;
   expect(result.status).toBe('success');
   const tools = (result.data as { tools: Array<{ name: string; description: string }> }).tools;
@@ -630,7 +654,11 @@ it('returns an empty list when the participant has no tools', async () => {
 
 it('list_tools itself is discoverable once registered', () => {
   expect(listToolsTool.name).toBe('list_tools');
-  expect(listToolsTool.parameters).toEqual({ type: 'object', properties: {}, additionalProperties: false });
+  expect(listToolsTool.parameters).toEqual({
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  });
 });
 ```
 
@@ -688,11 +716,12 @@ export * from './tools/list-tools-tool.js';
 ```
 
 In `packages/runtime/src/LegionProcess.ts`:
+
 1. Add `listToolsTool` to the `@legion/core` import list.
 2. In step 6, after `toolRegistry.register(approvalResponseTool);` add:
 
 ```typescript
-    toolRegistry.register(listToolsTool);
+toolRegistry.register(listToolsTool);
 ```
 
 3. In `ensureBootstrapRuntimeToolPolicies`, add `'list_tools'` to `RUNTIME_TOOL_NAMES` so the bootstrap operator gets it `auto`:
@@ -720,11 +749,13 @@ git commit -m "feat(core,runtime): list_tools discovery tool + registration"
 ### Task 4: Connector repo scaffold — package, factory, token resolution
 
 **Files (new repo `/workspace/legion-connector-telegram`):**
+
 - Create: `package.json`, `tsconfig.json`, `.gitignore`
 - Create: `src/index.ts`, `src/telegram-connector.ts`
 - Test: `src/telegram-connector.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ConnectorRuntimeDeps` shape (structural import type from `@legion/core` devDep).
 - Produces: `connector(options: TelegramConnectorOptions, deps: ConnectorRuntimeDeps): Connector`; `TelegramConnectorOptions = {botToken?: string; botTokenEnv?: string}`. Class `TelegramConnector` (name `'telegram'`) with constructor `(options, deps, bot?)` — third param injects a grammY `Bot` for tests.
 
@@ -733,6 +764,7 @@ git commit -m "feat(core,runtime): list_tools discovery tool + registration"
 ```bash
 cd /workspace/legion && npm run build
 ```
+
 Expected: `dist/` populated in `packages/core`, `packages/types` (needed for the connector's devDep type imports).
 
 - [ ] **Step 2: Scaffold the package**
@@ -800,6 +832,7 @@ mkdir -p /workspace/legion-connector-telegram/src && cd /workspace/legion-connec
 ```bash
 npm install
 ```
+
 Expected: installs grammy + links `file:` devDeps (requires the Legion build from step 1; `@legion/core` resolves its own `@legion/types` through the Legion workspace node_modules).
 
 - [ ] **Step 3: Write the failing test**
@@ -931,11 +964,13 @@ git add -A && git commit -m "feat: package scaffold, connector factory, token re
 ### Task 5: Identity mapping (inbound gate)
 
 **Files:**
+
 - Create: `src/identity.ts`
 - Modify: `src/telegram-connector.ts` (wire message handler)
 - Test: `src/identity.test.ts`, extend `src/telegram-connector.test.ts`
 
 **Interfaces:**
+
 - Consumes: `deps.collective.findByIdentity(connector, externalId)`; `ctx.registry.setActive(participantId, 'telegram')`.
 - Produces: `resolveIdentity(collective: CollectiveLike, chatId: string, fallbackParticipantId?: string): {participantId: string} | {error: string}` where `CollectiveLike = {findByIdentity(connector: string, externalId: string): {id: string} | undefined}`.
 
@@ -1016,7 +1051,10 @@ import { connector } from './index.js';
 
 // ... existing imports/tests ...
 
-interface RecordedCall { method: string; payload: Record<string, unknown> }
+interface RecordedCall {
+  method: string;
+  payload: Record<string, unknown>;
+}
 
 export function makeTestBot(): { bot: Bot; calls: RecordedCall[] } {
   const bot = new Bot('123456:TEST-TOKEN');
@@ -1026,8 +1064,12 @@ export function makeTestBot(): { bot: Bot; calls: RecordedCall[] } {
     return { ok: true, result: true } as never;
   });
   bot.botInfo = {
-    id: 42, is_bot: true, first_name: 'Legion', username: 'legion_bot',
-    can_join_groups: true, can_read_all_group_messages: false,
+    id: 42,
+    is_bot: true,
+    first_name: 'Legion',
+    username: 'legion_bot',
+    can_join_groups: true,
+    can_read_all_group_messages: false,
     supports_inline_queries: false,
   };
   return { bot, calls };
@@ -1043,8 +1085,11 @@ it('sends the rejection text to unknown senders and does not register them', asy
   await bot.handleUpdate({
     update_id: 1,
     message: {
-      message_id: 10, date: 0, text: 'hello',
-      chat: { id: 777, type: 'private' }, from: { id: 5, is_bot: false, first_name: 'X' },
+      message_id: 10,
+      date: 0,
+      text: 'hello',
+      chat: { id: 777, type: 'private' },
+      from: { id: 5, is_bot: false, first_name: 'X' },
     },
   } as never);
   const sends = calls.filter((c) => c.method === 'sendMessage');
@@ -1056,15 +1101,19 @@ it('sends the rejection text to unknown senders and does not register them', asy
 it('activates a mapped participant on first successful message', async () => {
   const { bot } = makeTestBot();
   const setActive = vi.fn();
-  const collective = { findByIdentity: (_c: string, id: string) =>
-    id === '777' ? { id: 'chris' } : undefined };
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive, clearActive: () => {} } } as never);
   await bot.handleUpdate({
     update_id: 1,
     message: {
-      message_id: 10, date: 0, text: 'hello',
-      chat: { id: 777, type: 'private' }, from: { id: 5, is_bot: false, first_name: 'X' },
+      message_id: 10,
+      date: 0,
+      text: 'hello',
+      chat: { id: 777, type: 'private' },
+      from: { id: 5, is_bot: false, first_name: 'X' },
     },
   } as never);
   expect(setActive).toHaveBeenCalledWith('chris', 'telegram');
@@ -1141,24 +1190,26 @@ git add -A && git commit -m "feat: chat-id identity mapping with fallback and re
 ### Task 6: Inbound translation — commands, kwargs, communicate default
 
 **Files:**
+
 - Create: `src/commands.ts` (pure parsing), `src/render.ts` (result → text + chunking)
 - Modify: `src/telegram-connector.ts` (execute path, conversation map)
 - Test: `src/commands.test.ts`, `src/render.test.ts`, extend connector tests
 
 **Interfaces:**
+
 - Consumes: `ctx.callTool(participantId, toolName, args, opts?) → {result: ToolResult, conversationId: string}`; `ctx.callTool(participantId, 'list_tools', {})` for schema lookup (cached per participant in a `Map<string, Map<string, JSONSchema>>`).
 - Produces: `parseInbound(text: string): InboundAction` where
 
 ```typescript
 type InboundAction =
-  | { kind: 'help' }                                    // /start
-  | { kind: 'new' }                                     // /new
-  | { kind: 'cancel' }                                  // /cancel
-  | { kind: 'tools' }                                   // /tools
-  | { kind: 'form' ; tool: string }                     // /tool name (no args)
-  | { kind: 'kwargs'; tool: string; kwargs: string }    // /tool name key=value ...
-  | { kind: 'to'; participantId: string; message: string }  // /to id text
-  | { kind: 'communicate'; message: string };           // plain text / unknown command
+  | { kind: 'help' } // /start
+  | { kind: 'new' } // /new
+  | { kind: 'cancel' } // /cancel
+  | { kind: 'tools' } // /tools
+  | { kind: 'form'; tool: string } // /tool name (no args)
+  | { kind: 'kwargs'; tool: string; kwargs: string } // /tool name key=value ...
+  | { kind: 'to'; participantId: string; message: string } // /to id text
+  | { kind: 'communicate'; message: string }; // plain text / unknown command
 ```
 
 and `parseKwargs(raw: string, schema: JSONSchema | undefined): {args: Record<string, unknown>; unresolved: string[]}` (unresolved = keys not in schema or needing nested objects → form fill).
@@ -1185,12 +1236,18 @@ describe('parseInbound', () => {
 
   it('treats /tool with args as kwargs', () => {
     const action = parseInbound('/tool search_files pattern="foo bar" limit=5');
-    expect(action).toEqual({ kind: 'kwargs', tool: 'search_files', kwargs: 'pattern="foo bar" limit=5' });
+    expect(action).toEqual({
+      kind: 'kwargs',
+      tool: 'search_files',
+      kwargs: 'pattern="foo bar" limit=5',
+    });
   });
 
   it('parses /to with participant and message', () => {
     expect(parseInbound('/to assistant hello there')).toEqual({
-      kind: 'to', participantId: 'assistant', message: 'hello there',
+      kind: 'to',
+      participantId: 'assistant',
+      message: 'hello there',
     });
   });
 
@@ -1200,7 +1257,10 @@ describe('parseInbound', () => {
   });
 
   it('parses /to without a message as communicate', () => {
-    expect(parseInbound('/to assistant')).toEqual({ kind: 'communicate', message: '/to assistant' });
+    expect(parseInbound('/to assistant')).toEqual({
+      kind: 'communicate',
+      message: '/to assistant',
+    });
   });
 });
 
@@ -1380,7 +1440,9 @@ describe('formatToolResult', () => {
   });
 
   it('renders pending_approval and dispatched-style statuses as status text', () => {
-    expect(formatToolResult({ status: 'pending_approval', approvalId: 'a1' })).toMatch(/pending approval/i);
+    expect(formatToolResult({ status: 'pending_approval', approvalId: 'a1' })).toMatch(
+      /pending approval/i,
+    );
     expect(formatToolResult({ status: 'rejected', message: 'nope' })).toMatch(/rejected.*nope/i);
   });
 
@@ -1461,20 +1523,32 @@ Extend `src/telegram-connector.test.ts` with the execute-path tests (uses `makeT
 it('runs communicate for plain text with the default recipient and stores the conversation', async () => {
   const { bot, calls } = makeTestBot();
   const callTool = vi.fn().mockResolvedValue({
-    result: { status: 'success', data: { response: 'hello from assistant', conversationId: 'conv-1' } },
+    result: {
+      status: 'success',
+      data: { response: 'hello from assistant', conversationId: 'conv-1' },
+    },
     conversationId: 'conv-1',
   });
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
-  const c = connector({ botToken: 'x', defaultRecipientId: 'assistant' }, { collective, eventBus: noopEventBus } as never, bot);
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
+  const c = connector(
+    { botToken: 'x', defaultRecipientId: 'assistant' },
+    { collective, eventBus: noopEventBus } as never,
+    bot,
+  );
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   await bot.handleUpdate({
     update_id: 1,
     message: { message_id: 10, date: 0, text: 'hello', chat: { id: 777, type: 'private' } },
   } as never);
   await vi.waitFor(() => expect(calls.some((x) => x.method === 'sendMessage')).toBe(true));
-  expect(callTool).toHaveBeenCalledWith('chris', 'communicate',
+  expect(callTool).toHaveBeenCalledWith(
+    'chris',
+    'communicate',
     expect.objectContaining({ to: 'assistant', message: 'hello' }),
-    expect.objectContaining({ conversationId: '' }));
+    expect.objectContaining({ conversationId: '' }),
+  );
   const send = calls.find((x) => x.method === 'sendMessage')!;
   expect(send.payload.text).toBe('hello from assistant');
 });
@@ -1485,8 +1559,14 @@ it('reuses the stored conversationId on the next message and /new resets it', as
     result: { status: 'success', data: { response: 'ok', conversationId: 'conv-1' } },
     conversationId: 'conv-1',
   });
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
-  const c = connector({ botToken: 'x', defaultRecipientId: 'assistant' }, { collective, eventBus: noopEventBus } as never, bot);
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
+  const c = connector(
+    { botToken: 'x', defaultRecipientId: 'assistant' },
+    { collective, eventBus: noopEventBus } as never,
+    bot,
+  );
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   const update = (text: string, uid: number) => ({
     update_id: uid,
@@ -1494,12 +1574,20 @@ it('reuses the stored conversationId on the next message and /new resets it', as
   });
   await bot.handleUpdate(update('first', 1) as never);
   await bot.handleUpdate(update('second', 2) as never);
-  expect(callTool).toHaveBeenLastCalledWith('chris', 'communicate',
-    expect.objectContaining({ conversationId: 'conv-1' }), expect.anything());
+  expect(callTool).toHaveBeenLastCalledWith(
+    'chris',
+    'communicate',
+    expect.objectContaining({ conversationId: 'conv-1' }),
+    expect.anything(),
+  );
   await bot.handleUpdate(update('/new', 3) as never);
   await bot.handleUpdate(update('third', 4) as never);
-  expect(callTool).toHaveBeenLastCalledWith('chris', 'communicate',
-    expect.objectContaining({ conversationId: '' }), expect.anything());
+  expect(callTool).toHaveBeenLastCalledWith(
+    'chris',
+    'communicate',
+    expect.objectContaining({ conversationId: '' }),
+    expect.anything(),
+  );
 });
 
 it('runs /to as communicate to the named participant', async () => {
@@ -1508,21 +1596,34 @@ it('runs /to as communicate to the named participant', async () => {
     result: { status: 'success', data: { response: 'agent reply', conversationId: 'conv-2' } },
     conversationId: 'conv-2',
   });
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   await bot.handleUpdate({
     update_id: 1,
-    message: { message_id: 1, date: 0, text: '/to watcher status?', chat: { id: 777, type: 'private' } },
+    message: {
+      message_id: 1,
+      date: 0,
+      text: '/to watcher status?',
+      chat: { id: 777, type: 'private' },
+    },
   } as never);
-  expect(callTool).toHaveBeenCalledWith('chris', 'communicate',
-    expect.objectContaining({ to: 'watcher', message: 'status?' }), expect.anything());
+  expect(callTool).toHaveBeenCalledWith(
+    'chris',
+    'communicate',
+    expect.objectContaining({ to: 'watcher', message: 'status?' }),
+    expect.anything(),
+  );
 });
 
 it('sends help for /start without calling any tool', async () => {
   const { bot, calls } = makeTestBot();
   const callTool = vi.fn();
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   await bot.handleUpdate({
@@ -1567,51 +1668,59 @@ In `src/telegram-connector.ts`, extend `TelegramConnectorOptions` with `defaultR
 and the translation switch (inside `handleTextMessage`, replacing the Task-5 placeholder comment):
 
 ```typescript
-    const action = parseInbound(msg.text ?? '');
-    switch (action.kind) {
-      case 'help':
-        await tgCtx.reply(HELP_TEXT);
-        return;
-      case 'new':
-        this.chatConversations.delete(chatId);
-        await tgCtx.reply('🆕 Next message starts a fresh conversation.');
-        return;
-      case 'cancel':
-        // Task 7 wires form-fill cancel; until then treat as no-op.
-        return;
-      case 'tools': {
-        const { result } = await this.ctx!.callTool(resolution.participantId, 'list_tools', {});
-        for (const chunk of chunkMessage(formatToolResult(result))) {
-          await this.bot.api.sendMessage(chatId, chunk);
-        }
-        return;
-      }
-      case 'form':
-        // Task 7 wires the form-fill state machine.
-        await tgCtx.reply('Form fill lands in the next update — use /tool <name> key=value for now.');
-        return;
-      case 'kwargs': {
-        // Task 7 completes kwargs→form-fill fallback; until then pass parsed args.
-        const schema = await this.toolSchema(resolution.participantId, action.tool);
-        const { args } = parseKwargs(action.kwargs, schema);
-        await this.callToolAs(resolution.participantId, action.tool, args, chatId);
-        return;
-      }
-      case 'to':
-        await this.callToolAs(resolution.participantId, 'communicate',
-          { to: action.participantId, message: action.message }, chatId);
-        return;
-      case 'communicate': {
-        const to = this.defaultRecipientId;
-        if (!to) {
-          await tgCtx.reply('No default recipient configured — use /to <participant> <message>.');
-          return;
-        }
-        await this.callToolAs(resolution.participantId, 'communicate',
-          { to, message: action.message }, chatId);
-        return;
-      }
+const action = parseInbound(msg.text ?? '');
+switch (action.kind) {
+  case 'help':
+    await tgCtx.reply(HELP_TEXT);
+    return;
+  case 'new':
+    this.chatConversations.delete(chatId);
+    await tgCtx.reply('🆕 Next message starts a fresh conversation.');
+    return;
+  case 'cancel':
+    // Task 7 wires form-fill cancel; until then treat as no-op.
+    return;
+  case 'tools': {
+    const { result } = await this.ctx!.callTool(resolution.participantId, 'list_tools', {});
+    for (const chunk of chunkMessage(formatToolResult(result))) {
+      await this.bot.api.sendMessage(chatId, chunk);
     }
+    return;
+  }
+  case 'form':
+    // Task 7 wires the form-fill state machine.
+    await tgCtx.reply('Form fill lands in the next update — use /tool <name> key=value for now.');
+    return;
+  case 'kwargs': {
+    // Task 7 completes kwargs→form-fill fallback; until then pass parsed args.
+    const schema = await this.toolSchema(resolution.participantId, action.tool);
+    const { args } = parseKwargs(action.kwargs, schema);
+    await this.callToolAs(resolution.participantId, action.tool, args, chatId);
+    return;
+  }
+  case 'to':
+    await this.callToolAs(
+      resolution.participantId,
+      'communicate',
+      { to: action.participantId, message: action.message },
+      chatId,
+    );
+    return;
+  case 'communicate': {
+    const to = this.defaultRecipientId;
+    if (!to) {
+      await tgCtx.reply('No default recipient configured — use /to <participant> <message>.');
+      return;
+    }
+    await this.callToolAs(
+      resolution.participantId,
+      'communicate',
+      { to, message: action.message },
+      chatId,
+    );
+    return;
+  }
+}
 ```
 
 Add module-level `HELP_TEXT` in `telegram-connector.ts` (concise: `/tools`, `/tool <name> [key=value …]`, `/to <participant> <message>`, `/new`, `/cancel`; plain text talks to the default agent). Add a `toolSchema(participantId, toolName)` helper that calls `list_tools` once per participant, caches into `this.schemaCache`, and returns the named tool's `parameters` or `undefined`. Also assign `this.defaultRecipientId = options.defaultRecipientId;` in the constructor.
@@ -1631,11 +1740,13 @@ git add -A && git commit -m "feat: inbound translation — commands, kwargs, com
 ### Task 7: Schema-driven form fill state machine
 
 **Files:**
+
 - Create: `src/formfill.ts` (pure state machine)
 - Modify: `src/telegram-connector.ts` (session map, `/cancel`, message interception during fill)
 - Test: `src/formfill.test.ts`, extend connector tests
 
 **Interfaces:**
+
 - Consumes: `toolSchema(participantId, tool)` from Task 6; grammY `InlineKeyboard` for enum/boolean params.
 - Produces: `FormFillSession` and pure helpers:
 
@@ -1786,7 +1897,8 @@ export type Prompt =
   | { done: true };
 
 function propOf(session: FormFillSession, key: string): Record<string, unknown> {
-  const props = (session as unknown as { __props: Record<string, Record<string, unknown>> }).__props;
+  const props = (session as unknown as { __props: Record<string, Record<string, unknown>> })
+    .__props;
   return props[key] ?? {};
 }
 
@@ -1823,7 +1935,7 @@ export function answerCurrent(session: FormFillSession, raw: string): void {
   const required = session.requiredQueue[0] === key;
   const optionalSkip = !required && raw.trim().toLowerCase() === 'skip';
   const value = optionalSkip ? undefined : coerceValue(raw.trim(), prop);
-  if (value !== undefined && prop.enum && !((prop.enum as unknown[]).includes(value))) {
+  if (value !== undefined && prop.enum && !(prop.enum as unknown[]).includes(value)) {
     throw new Error(`'${key}' must be one of: ${(prop.enum as unknown[]).join(', ')}`);
   }
   if (required) session.requiredQueue.shift();
@@ -1851,29 +1963,49 @@ it('completes a form fill end-to-end with enum buttons', async () => {
   const { bot, calls } = makeTestBot();
   const listResult = {
     status: 'success',
-    data: { tools: [{ name: 'search', description: 'd', parameters: {
-      type: 'object',
-      properties: { pattern: { type: 'string' }, mode: { type: 'string', enum: ['fast', 'deep'] } },
-      required: ['pattern', 'mode'],
-    } }] },
+    data: {
+      tools: [
+        {
+          name: 'search',
+          description: 'd',
+          parameters: {
+            type: 'object',
+            properties: {
+              pattern: { type: 'string' },
+              mode: { type: 'string', enum: ['fast', 'deep'] },
+            },
+            required: ['pattern', 'mode'],
+          },
+        },
+      ],
+    },
   };
-  const callTool = vi.fn()
+  const callTool = vi
+    .fn()
     .mockResolvedValueOnce({ result: listResult, conversationId: '' })
     .mockResolvedValueOnce({ result: { status: 'success', data: 'done' }, conversationId: 'c9' });
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   const update = (text: string, uid: number) => ({
     update_id: uid,
     message: { message_id: uid, date: 0, text, chat: { id: 777, type: 'private' } },
   });
-  await bot.handleUpdate(update('/tool search', 1) as never);   // starts fill, prompts pattern
-  await bot.handleUpdate(update('foo', 2) as never);            // pattern=foo, prompts mode with buttons
-  await bot.handleUpdate(update('deep', 3) as never);           // completes → executes
+  await bot.handleUpdate(update('/tool search', 1) as never); // starts fill, prompts pattern
+  await bot.handleUpdate(update('foo', 2) as never); // pattern=foo, prompts mode with buttons
+  await bot.handleUpdate(update('deep', 3) as never); // completes → executes
   await vi.waitFor(() => expect(callTool).toHaveBeenCalledTimes(2));
-  expect(callTool).toHaveBeenLastCalledWith('chris', 'search',
-    expect.objectContaining({ pattern: 'foo', mode: 'deep' }), expect.anything());
-  const modePrompt = calls.find((x) => x.method === 'sendMessage' && String(x.payload.text).includes('mode'));
+  expect(callTool).toHaveBeenLastCalledWith(
+    'chris',
+    'search',
+    expect.objectContaining({ pattern: 'foo', mode: 'deep' }),
+    expect.anything(),
+  );
+  const modePrompt = calls.find(
+    (x) => x.method === 'sendMessage' && String(x.payload.text).includes('mode'),
+  );
   expect(modePrompt).toBeDefined();
   const markup = modePrompt!.payload.reply_markup as { inline_keyboard: unknown };
   expect(markup).toBeDefined();
@@ -1883,12 +2015,24 @@ it('/cancel aborts an in-progress fill', async () => {
   const { bot, calls } = makeTestBot();
   const listResult = {
     status: 'success',
-    data: { tools: [{ name: 'search', description: 'd', parameters: {
-      type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'],
-    } }] },
+    data: {
+      tools: [
+        {
+          name: 'search',
+          description: 'd',
+          parameters: {
+            type: 'object',
+            properties: { pattern: { type: 'string' } },
+            required: ['pattern'],
+          },
+        },
+      ],
+    },
   };
   const callTool = vi.fn().mockResolvedValue({ result: listResult, conversationId: '' });
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   const update = (text: string, uid: number) => ({
@@ -1898,7 +2042,13 @@ it('/cancel aborts an in-progress fill', async () => {
   await bot.handleUpdate(update('/tool search', 1) as never);
   await bot.handleUpdate(update('/cancel', 2) as never);
   await bot.handleUpdate(update('foo', 3) as never); // plain text again → communicate, not fill
-  await vi.waitFor(() => expect(calls.some((x) => x.method === 'sendMessage' && String(x.payload.text).includes('fresh conversation'))).toBe(true));
+  await vi.waitFor(() =>
+    expect(
+      calls.some(
+        (x) => x.method === 'sendMessage' && String(x.payload.text).includes('fresh conversation'),
+      ),
+    ).toBe(true),
+  );
   expect(callTool).toHaveBeenCalledTimes(1); // only the list_tools lookup
 });
 ```
@@ -1906,27 +2056,27 @@ it('/cancel aborts an in-progress fill', async () => {
 In `src/telegram-connector.ts`: add `private readonly fills = new Map<string, FormFillSession>();`. In `handleTextMessage`, **before** `parseInbound`, check for an active fill:
 
 ```typescript
-    const activeFill = this.fills.get(chatId);
-    if (activeFill && isExpired(activeFill, Date.now())) {
-      this.fills.delete(chatId);
-      await tgCtx.reply('⌛ Form fill timed out.');
-      return;
-    }
+const activeFill = this.fills.get(chatId);
+if (activeFill && isExpired(activeFill, Date.now())) {
+  this.fills.delete(chatId);
+  await tgCtx.reply('⌛ Form fill timed out.');
+  return;
+}
 ```
 
 Then in the switch: `case 'form'` starts the fill (schema via `toolSchema`; unknown tool → error text), sends the first prompt (with `InlineKeyboard` when `prop.enum` or `type === 'boolean'` — buttons `true`/`false` for booleans, enum values otherwise); `case 'cancel'` deletes the fill and confirms; when `activeFill` exists and the action is plain-text `communicate`, instead answer the fill:
 
 ```typescript
-    if (activeFill && action.kind === 'communicate') {
-      try {
-        answerCurrent(activeFill, msg.text ?? '');
-      } catch (err) {
-        await tgCtx.reply(`⚠️ ${(err as Error).message} — try again.`);
-        return;
-      }
-      await this.promptNextOrExecute(tgCtx, chatId, activeFill);
-      return;
-    }
+if (activeFill && action.kind === 'communicate') {
+  try {
+    answerCurrent(activeFill, msg.text ?? '');
+  } catch (err) {
+    await tgCtx.reply(`⚠️ ${(err as Error).message} — try again.`);
+    return;
+  }
+  await this.promptNextOrExecute(tgCtx, chatId, activeFill);
+  return;
+}
 ```
 
 `promptNextOrExecute` sends the next prompt or executes via `callToolAs(activeFill.participantId, activeFill.tool, activeFill.values, chatId)` and deletes the fill. For enum/boolean prompts, attach `reply_markup` with `InlineKeyboard` buttons whose `callback_data` is `fill:<value>`; handle `callback_query:data` updates where data starts with `fill:` by treating the value as the answer (Task 9's callback wiring section covers registration order — the `fill:` prefix check happens before approval callbacks).
@@ -1948,10 +2098,12 @@ git add -A && git commit -m "feat: schema-driven form fill with enum buttons and
 ### Task 8: Outbound delivery + reply-thread learning
 
 **Files:**
+
 - Modify: `src/telegram-connector.ts` (`deliver()`, reverse identity lookup)
 - Test: extend `src/telegram-connector.test.ts`
 
 **Interfaces:**
+
 - Consumes: `deps.collective.get(recipientId)` → participant with `identities?: [{connector, externalId}]`; `message.conversationId` for thread learning.
 - Produces: delivery of `message.content` to the mapped chat, chunked; conversation-map learning.
 
@@ -1972,8 +2124,12 @@ it('delivers agent messages to the mapped chat and learns the thread', async () 
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} } } as never);
   await c.deliver({
-    id: 'm1', conversationId: 'conv-agent', senderId: 'watcher', recipientId: 'chris',
-    content: 'proactively pinging you', timestamp: new Date().toISOString(),
+    id: 'm1',
+    conversationId: 'conv-agent',
+    senderId: 'watcher',
+    recipientId: 'chris',
+    content: 'proactively pinging you',
+    timestamp: new Date().toISOString(),
   });
   await vi.waitFor(() => expect(calls.some((x) => x.method === 'sendMessage')).toBe(true));
   const send = calls.find((x) => x.method === 'sendMessage')!;
@@ -1986,11 +2142,20 @@ it('delivers agent messages to the mapped chat and learns the thread', async () 
   (c as unknown as { ctx: Record<string, unknown> }).ctx.callTool = callTool;
   await bot.handleUpdate({
     update_id: 2,
-    message: { message_id: 2, date: 0, text: 'and back to you', chat: { id: 777, type: 'private' } },
+    message: {
+      message_id: 2,
+      date: 0,
+      text: 'and back to you',
+      chat: { id: 777, type: 'private' },
+    },
   } as never);
   await vi.waitFor(() => expect(callTool).toHaveBeenCalled());
-  expect(callTool).toHaveBeenCalledWith('chris', 'communicate',
-    expect.objectContaining({ conversationId: 'conv-agent' }), expect.anything());
+  expect(callTool).toHaveBeenCalledWith(
+    'chris',
+    'communicate',
+    expect.objectContaining({ conversationId: 'conv-agent' }),
+    expect.anything(),
+  );
 });
 
 it('splits deliveries over the telegram limit', async () => {
@@ -1998,16 +2163,24 @@ it('splits deliveries over the telegram limit', async () => {
   const collective = {
     findByIdentity: () => undefined,
     get: (id: string) =>
-      id === 'chris' ? { id: 'chris', identities: [{ connector: 'telegram', externalId: '777' }] } : undefined,
+      id === 'chris'
+        ? { id: 'chris', identities: [{ connector: 'telegram', externalId: '777' }] }
+        : undefined,
   };
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} } } as never);
   const long = Array.from({ length: 6 }, () => 'x'.repeat(900)).join('\n\n');
   await c.deliver({
-    id: 'm2', conversationId: 'c', senderId: 's', recipientId: 'chris', content: long,
+    id: 'm2',
+    conversationId: 'c',
+    senderId: 's',
+    recipientId: 'chris',
+    content: long,
     timestamp: new Date().toISOString(),
   });
-  await vi.waitFor(() => expect(calls.filter((x) => x.method === 'sendMessage').length).toBeGreaterThan(1));
+  await vi.waitFor(() =>
+    expect(calls.filter((x) => x.method === 'sendMessage').length).toBeGreaterThan(1),
+  );
 });
 
 it('ignores recipients without a telegram identity and swallows send failures', async () => {
@@ -2016,17 +2189,31 @@ it('ignores recipients without a telegram identity and swallows send failures', 
     findByIdentity: () => undefined,
     get: (id: string) => (id === 'webmaster' ? { id: 'webmaster', identities: [] } : undefined),
   };
-  bot.api.config.use(async (_prev, method) => { throw new Error('blocked'); });
+  bot.api.config.use(async (_prev, method) => {
+    throw new Error('blocked');
+  });
   const c = connector({ botToken: 'x' }, { collective, eventBus: noopEventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} } } as never);
-  await expect(c.deliver({
-    id: 'm3', conversationId: 'c', senderId: 's', recipientId: 'webmaster', content: 'hi',
-    timestamp: new Date().toISOString(),
-  })).resolves.toBeUndefined();
-  await expect(c.deliver({
-    id: 'm4', conversationId: 'c', senderId: 's', recipientId: 'ghost', content: 'hi',
-    timestamp: new Date().toISOString(),
-  })).resolves.toBeUndefined();
+  await expect(
+    c.deliver({
+      id: 'm3',
+      conversationId: 'c',
+      senderId: 's',
+      recipientId: 'webmaster',
+      content: 'hi',
+      timestamp: new Date().toISOString(),
+    }),
+  ).resolves.toBeUndefined();
+  await expect(
+    c.deliver({
+      id: 'm4',
+      conversationId: 'c',
+      senderId: 's',
+      recipientId: 'ghost',
+      content: 'hi',
+      timestamp: new Date().toISOString(),
+    }),
+  ).resolves.toBeUndefined();
   expect(calls.filter((x) => x.method === 'sendMessage')).toHaveLength(0);
 });
 ```
@@ -2083,10 +2270,12 @@ git add -A && git commit -m "feat: outbound delivery with chunking and reply-thr
 ### Task 9: Approvals — event cards + inline-button decisions
 
 **Files:**
+
 - Modify: `src/telegram-connector.ts` (eventBus subscription, callback handler)
 - Test: extend `src/telegram-connector.test.ts`
 
 **Interfaces:**
+
 - Consumes: `deps.eventBus.on('approval:requested', handler)` (returns unsubscribe fn); `ctx.callTool(participantId, 'approval_response', {decisions: [{approvalId, decision}]})`; grammY `InlineKeyboard`, `bot.on('callback_query:data', ...)`.
 - Produces: approval card per mapped chat on `approval:requested`; button callback → `approval_response` → answer callback query + edit message buttons off with the recorded decision.
 
@@ -2104,7 +2293,9 @@ it('posts an approval card to mapped chats and records a decision via buttons', 
     result: { status: 'success', data: { approved: true } },
     conversationId: 'c',
   });
-  const collective = { findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined) };
+  const collective = {
+    findByIdentity: (_c: string, id: string) => (id === '777' ? { id: 'chris' } : undefined),
+  };
   const c = connector({ botToken: 'x' }, { collective, eventBus } as never, bot);
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} }, callTool } as never);
   // become a mapped chat
@@ -2114,22 +2305,36 @@ it('posts an approval card to mapped chats and records a decision via buttons', 
   } as never);
   expect(eventBus.on).toHaveBeenCalledWith('approval:requested', expect.any(Function));
   requestedHandler = eventBus.on.mock.calls[0][1];
-  requestedHandler!({ conversationId: 'conv-9', participantId: 'watcher', tool: 'read_file', approvalId: 'ap-1' });
+  requestedHandler!({
+    conversationId: 'conv-9',
+    participantId: 'watcher',
+    tool: 'read_file',
+    approvalId: 'ap-1',
+  });
   await vi.waitFor(() => {
-    const card = calls.find((x) => x.method === 'sendMessage' && String(x.payload.text).includes('read_file'));
+    const card = calls.find(
+      (x) => x.method === 'sendMessage' && String(x.payload.text).includes('read_file'),
+    );
     expect(card).toBeDefined();
   });
   // press approve: callback_query update
   await bot.handleUpdate({
     update_id: 2,
     callback_query: {
-      id: 'cbq-1', from: { id: 5, is_bot: false, first_name: 'X' },
+      id: 'cbq-1',
+      from: { id: 5, is_bot: false, first_name: 'X' },
       data: 'approve:ap-1',
       message: { message_id: 55, date: 0, text: 'approval', chat: { id: 777, type: 'private' } },
     },
   } as never);
-  await vi.waitFor(() => expect(callTool).toHaveBeenCalledWith('chris', 'approval_response',
-    { decisions: [{ approvalId: 'ap-1', decision: 'approve' }] }, expect.anything()));
+  await vi.waitFor(() =>
+    expect(callTool).toHaveBeenCalledWith(
+      'chris',
+      'approval_response',
+      { decisions: [{ approvalId: 'ap-1', decision: 'approve' }] },
+      expect.anything(),
+    ),
+  );
   expect(calls.some((x) => x.method === 'answerCallbackQuery')).toBe(true);
   const edit = calls.find((x) => x.method === 'editMessageText');
   expect(edit).toBeDefined();
@@ -2139,7 +2344,11 @@ it('unsubscribes from the event bus on stop', async () => {
   const { bot } = makeTestBot();
   const off = vi.fn();
   const eventBus = { on: vi.fn(() => off), off: vi.fn() };
-  const c = connector({ botToken: 'x' }, { collective: { findByIdentity: () => undefined }, eventBus } as never, bot);
+  const c = connector(
+    { botToken: 'x' },
+    { collective: { findByIdentity: () => undefined }, eventBus } as never,
+    bot,
+  );
   await c.start({ registry: { setActive: () => {}, clearActive: () => {} } } as never);
   await c.stop();
   expect(off).toHaveBeenCalled();
@@ -2163,19 +2372,19 @@ Constructor additions — nothing (deps already held). Add fields:
 In `start()`, before the `bot.on('message:text')` wiring:
 
 ```typescript
-    this.unsubscribeEvents.push(
-      this.deps.eventBus.on('approval:requested', (payload) => {
-        void this.postApprovalCard(payload).catch((err) =>
-          console.error('[telegram-connector] approval card failed:', err),
-        );
-      }),
+this.unsubscribeEvents.push(
+  this.deps.eventBus.on('approval:requested', (payload) => {
+    void this.postApprovalCard(payload).catch((err) =>
+      console.error('[telegram-connector] approval card failed:', err),
     );
+  }),
+);
 
-    this.bot.on('callback_query:data', (tgCtx) => {
-      void this.handleCallback(tgCtx).catch((err) =>
-        console.error('[telegram-connector] callback error:', err),
-      );
-    });
+this.bot.on('callback_query:data', (tgCtx) => {
+  void this.handleCallback(tgCtx).catch((err) =>
+    console.error('[telegram-connector] callback error:', err),
+  );
+});
 ```
 
 Methods:
@@ -2288,11 +2497,13 @@ git add -A && git commit -m "feat: approval cards with inline-button decisions v
 ### Task 10: Long polling lifecycle, typecheck/build, README, declaration-emit proof
 
 **Files:**
+
 - Modify: `src/telegram-connector.ts` (polling start/stop polish — final review only)
 - Create: `README.md`
 - Verify: `npm run build`, `npm run typecheck`
 
 **Interfaces:**
+
 - Consumes: everything above.
 - Produces: `dist/` build with `.d.ts` (proves type-only Legion imports are erased); README with install + workspace-config example.
 
@@ -2305,6 +2516,7 @@ Review `src/telegram-connector.ts`: `start()` must never begin long polling when
 ```bash
 npm run typecheck && npm run build
 ```
+
 Expected: clean compile, `dist/` emitted with `index.d.ts`, `telegram-connector.d.ts`.
 
 - [ ] **Step 3: Prove Legion types are erased (no runtime dependency on @legion/core)**
@@ -2313,6 +2525,7 @@ Expected: clean compile, `dist/` emitted with `index.d.ts`, `telegram-connector.
 grep -rn "from '@legion" dist/ | grep -v "\.d\.ts" || echo "OK: no runtime imports of @legion/*"
 node -e "import('./dist/index.js').then(m => console.log(typeof m.connector))"
 ```
+
 Expected: `OK: no runtime imports of @legion/*` and `function`.
 
 - [ ] **Step 4: Full test suite + format**
@@ -2349,7 +2562,7 @@ In `.legion/config.local.json` (or `config.json`) of your Legion workspace:
       ]
     }
 
-`defaultParticipantId` is the low-privilege *sender* fallback for unknown chats (omit to
+`defaultParticipantId` is the low-privilege _sender_ fallback for unknown chats (omit to
 reject unknown senders). `options.defaultRecipientId` is the recipient for plain-text chat.
 
 Set the bot token (create a bot with @BotFather):
@@ -2373,9 +2586,11 @@ git add -A && git commit -m "docs: README with install and workspace config"
 ### Task 11: Legion repo — final gate + live smoke (requires Chris's bot token)
 
 **Files:**
+
 - No new changes expected; verification only.
 
 **Interfaces:**
+
 - Consumes: Tasks 1–3 (Legion repo) and Tasks 4–10 (connector repo) complete.
 
 - [ ] **Step 1: Legion repo gate**
@@ -2384,6 +2599,7 @@ git add -A && git commit -m "docs: README with install and workspace config"
 cd /workspace/legion
 npm run format:check && npm run typecheck && npm test
 ```
+
 Expected: all green.
 
 - [ ] **Step 2: Boot a real workspace with the telegram connector (needs TELEGRAM_BOT_TOKEN from @BotFather)**
@@ -2407,6 +2623,7 @@ cd /workspace/legion
 LEGION_WORKSPACE=/tmp/legion-tg-smoke TELEGRAM_BOT_TOKEN=<token> \
   LEGION_BOOTSTRAP_PASSWORD=<pw> PORT=4100 node packages/runtime/bin/legion.js /tmp/legion-tg-smoke
 ```
+
 Expected: `Telegram connector: polling started` in the log, web UI on 4100.
 
 - [ ] **Step 3: Live round trip (Chris's phone)**
