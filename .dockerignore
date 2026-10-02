@@ -1,0 +1,20 @@
+# Keep build context lean; everything here is either generated, local-only,
+# or not needed inside the image.
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+**/*.tsbuildinfo
+coverage
+**/coverage
+playwright-report
+test-results
+.legion
+.env
+.env.*
+*.log
+docs
+sketches
+.superpowers
