@@ -29,6 +29,21 @@ import type { ModelRouter } from '../providers/ModelRouter.js';
 import { createCompactConversationTool } from '../tools/automation-tools.js';
 import { appendMessage } from '../conversation/conversation-ops.js';
 
+/**
+ * File-local equivalent of the ES2024 `Promise.withResolvers()` — that API
+ * only exists on Node >= 22, and the project's engines field promises
+ * Node >= 20. Same shape and semantics as the native helper.
+ */
+function withResolvers<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
   await storage.writeJson('collective/participants/op.json', {
@@ -1469,7 +1484,7 @@ describe('MessageRouter: middleware lifecycle', () => {
     const staleRegistry = await PendingApprovalRegistry.load(storage);
     const completingRegistry = await PendingApprovalRegistry.load(storage);
     let releasePending!: () => void;
-    const pendingStarted = Promise.withResolvers<void>();
+    const pendingStarted = withResolvers<void>();
     const pendingRunner = {
       resumeApproval: vi.fn(async () => {
         pendingStarted.resolve();
@@ -1558,8 +1573,8 @@ describe('MessageRouter: middleware lifecycle', () => {
     const storage = baseContext.storage as FileStorage;
     const staleRegistry = await PendingApprovalRegistry.load(storage);
     const handingOffRegistry = await PendingApprovalRegistry.load(storage);
-    const pendingStarted = Promise.withResolvers<void>();
-    const releasePending = Promise.withResolvers<void>();
+    const pendingStarted = withResolvers<void>();
+    const releasePending = withResolvers<void>();
     const staleRunner = {
       resumeApproval: vi.fn(async () => {
         pendingStarted.resolve();
