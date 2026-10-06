@@ -283,4 +283,146 @@ describe('OpenAIResponsesProvider', () => {
 
     expect(result.text).toEqual(['I cannot help with that.']);
   });
+
+  it('includes flat tools and tool_choice when tools are provided', async () => {
+    fetchMock.mockResolvedValue(sse([completedOnly()]));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await drain(
+      provider,
+      [{ role: 'user', content: 'hi' }],
+      [{ name: 'echo', description: 'echoes', parameters: { type: 'object' } }],
+    );
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>;
+    expect(body['tools']).toEqual([
+      {
+        type: 'function',
+        name: 'echo',
+        description: 'echoes',
+        parameters: { type: 'object', properties: {} },
+      },
+    ]);
+    expect(body['tool_choice']).toBe('auto');
+  });
+
+  it('maps function_call events to tool_call_start and tool_call_args_delta', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'function_call', id: 'fc_1', call_id: 'call_abc', name: 'echo' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 0,
+          delta: '{"text":',
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 0,
+          delta: '"hello"}',
+        }),
+        ev('response.function_call_arguments.done', { item_id: 'fc_1', output_index: 0 }),
+        ev('response.output_item.done', {
+          output_index: 0,
+          item: {
+            type: 'function_call',
+            id: 'fc_1',
+            call_id: 'call_abc',
+            name: 'echo',
+            arguments: '{"text":"hello"}',
+          },
+        }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([{ index: 0, id: 'call_abc', name: 'echo' }]);
+    expect(result.toolArgs).toEqual([
+      { index: 0, delta: '{"text":' },
+      { index: 0, delta: '"hello"}' },
+    ]);
+    expect(result.done?.stopReason).toBe('tool_calls');
+  });
+
+  it('interleaves two tool calls with distinct output_index', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'function_call', id: 'fc_0', call_id: 'call_a', name: 'get_time' },
+        }),
+        ev('response.output_item.added', {
+          output_index: 1,
+          item: { type: 'function_call', id: 'fc_1', call_id: 'call_b', name: 'get_date' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 1,
+          delta: '"2026"',
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_0',
+          output_index: 0,
+          delta: '"12:00"',
+        }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([
+      { index: 0, id: 'call_a', name: 'get_time' },
+      { index: 1, id: 'call_b', name: 'get_date' },
+    ]);
+    expect(result.toolArgs).toEqual([
+      { index: 1, delta: '"2026"' },
+      { index: 0, delta: '"12:00"' },
+    ]);
+  });
+
+  it('keys calls by item_id when ollama-style backends share output_index across items', async () => {
+    // ollama #18798: a function_call after a message item reuses output_index 0.
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'message', id: 'msg_0' },
+        }),
+        ev('response.output_text.delta', {
+          item_id: 'msg_0',
+          output_index: 0,
+          delta: 'let me check',
+        }),
+        ev('response.output_item.added', {
+          output_index: 0, // shared with the message item above
+          item: { type: 'function_call', id: 'fc_1', call_id: 'call_x', name: 'lookup' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 0, // shared
+          delta: '{"q":"x"}',
+        }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([{ index: 0, id: 'call_x', name: 'lookup' }]);
+    expect(result.toolArgs).toEqual([{ index: 0, delta: '{"q":"x"}' }]);
+    expect(result.text).toEqual(['let me check']);
+  });
 });
