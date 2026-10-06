@@ -2,6 +2,7 @@ import type { ProviderConfig } from '@legion-collective/types';
 import { NotImplementedError } from '../errors/LegionError.js';
 import type { Storage } from '../storage/Storage.js';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
+import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
 import type { Provider } from './Provider.js';
 
 export class SystemProviderStore {
@@ -35,6 +36,8 @@ export class SystemProviderStore {
       case 'openai-compatible':
       case 'anthropic':
         return new OpenAICompatibleProvider(config.baseUrl, config.apiKey);
+      case 'openai-responses':
+        return new OpenAIResponsesProvider(config.baseUrl, config.apiKey);
       case 'copilot':
       case 'codex':
         throw new NotImplementedError(

@@ -67,6 +67,21 @@ describe('SystemProviderStore', () => {
     await expect(store.get('codex')).rejects.toMatchObject({ name: 'NotImplementedError' });
   });
 
+  it('get() returns Provider with stream for openai-responses', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson(
+      'providers/responses.json',
+      providerConfig({ name: 'responses', type: 'openai-responses' }),
+    );
+    const store = new SystemProviderStore(storage);
+
+    const provider = await store.get('responses');
+
+    expect(provider).not.toBeNull();
+    expect(typeof provider!.stream).toBe('function');
+    expect(typeof provider!.listModels).toBe('function');
+  });
+
   it('list() returns [] when no providers exist', async () => {
     const store = new SystemProviderStore(new MemoryStorage());
 
