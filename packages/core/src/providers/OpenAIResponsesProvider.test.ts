@@ -425,4 +425,182 @@ describe('OpenAIResponsesProvider', () => {
     expect(result.toolArgs).toEqual([{ index: 0, delta: '{"q":"x"}' }]);
     expect(result.text).toEqual(['let me check']);
   });
+
+  it('maps response.incomplete with max_output_tokens to stopReason max_tokens', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.output_text.delta', { delta: 'partial' }),
+        ev('response.incomplete', {
+          response: {
+            id: 'resp_1',
+            incomplete_details: { reason: 'max_output_tokens' },
+            usage: { input_tokens: 10, output_tokens: 4 },
+          },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['partial']);
+    expect(result.done?.stopReason).toBe('max_tokens');
+    expect(result.done?.usage?.outputTokens).toBe(4);
+  });
+
+  it('maps response.incomplete with another reason to stopReason stop', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.incomplete', {
+          response: { id: 'resp_1', incomplete_details: { reason: 'content_filter' } },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.done?.stopReason).toBe('stop');
+  });
+
+  it('throws ProviderError on response.failed with code and message', async () => {
+    // DEVIATION from brief (documented in task-5-report.md): mockImplementation
+    // instead of mockResolvedValue — a single ReadableStream cannot serve two
+    // drains (the second sees done:true and hits the EOF error path instead).
+    fetchMock.mockImplementation(async () =>
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.failed', {
+          response: { id: 'resp_1', error: { code: 'server_error', message: 'boom' } },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(ProviderError);
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'Responses API error server_error: boom',
+    );
+  });
+
+  it('throws ProviderError when the stream ends without a terminal event', async () => {
+    fetchMock.mockResolvedValue(sse([ev('response.created', { response: { id: 'resp_1' } })]));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'Responses stream ended without a terminal event',
+    );
+  });
+
+  it('ignores unknown event types and tolerates missing sequence_number', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }), // no sequence_number anywhere
+        { type: 'response.brand_new_event.future', exotic_field: { nested: true } },
+        ev('response.output_text.delta', { delta: 'ok' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['ok']);
+    expect(result.done?.stopReason).toBe('stop');
+  });
+
+  it('never re-emits response.output items replayed in the terminal event (vLLM #59834 class)', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'function_call', id: 'fc_live', call_id: 'call_live', name: 'lookup' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_live',
+          output_index: 0,
+          delta: '{"q":"x"}',
+        }),
+        // vLLM regenerates item ids in the terminal replay — different id, same content.
+        ev('response.completed', {
+          response: {
+            id: 'resp_1',
+            output: [
+              {
+                type: 'function_call',
+                id: 'fc_REGENERATED',
+                call_id: 'call_live',
+                name: 'lookup',
+                arguments: '{"q":"x"}',
+              },
+            ],
+            usage: { input_tokens: 5, output_tokens: 3 },
+          },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([{ index: 0, id: 'call_live', name: 'lookup' }]);
+    expect(result.toolArgs).toEqual([{ index: 0, delta: '{"q":"x"}' }]);
+    expect(result.done?.stopReason).toBe('tool_calls');
+  });
+
+  it('forwards abort signal to fetch and cancels reader on generator return', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn(async () => undefined);
+    const releaseLock = vi.fn();
+    const reader = {
+      read: vi.fn(async () => ({
+        done: false,
+        value: new TextEncoder().encode(
+          `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' })}\n`,
+        ),
+      })),
+      cancel,
+      releaseLock,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => reader },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new OpenAIResponsesProvider();
+    const stream = provider.stream([], [], MODEL, { signal: controller.signal });
+    await expect(stream.next()).resolves.toEqual({
+      done: false,
+      value: { type: 'text_delta', delta: 'partial' },
+    });
+    await stream.return(undefined as never);
+    vi.unstubAllGlobals();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('stops parsing at the terminal event and ignores trailing data ([DONE] sentinel)', async () => {
+    fetchMock.mockResolvedValue(
+      sse(
+        [
+          ev('response.output_text.delta', { delta: 'final' }),
+          ev('response.completed', { response: { id: 'resp_1' } }),
+          ev('response.output_text.delta', { delta: 'GHOST' }), // after terminal
+        ],
+        { withDoneSentinel: true },
+      ),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['final']);
+  });
 });

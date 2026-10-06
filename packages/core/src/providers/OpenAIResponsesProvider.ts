@@ -36,6 +36,8 @@ interface ResponsesUsage {
 
 interface ResponsesObject {
   usage?: ResponsesUsage;
+  error?: { code?: unknown; message?: unknown };
+  incomplete_details?: { reason?: unknown };
 }
 
 interface ResponsesEvent {
@@ -298,15 +300,27 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
       return [{ type: 'tool_call_args_delta', index, delta }];
     }
 
+    if (type === 'response.incomplete') {
+      const response = event.response ?? {};
+      const reason = asString(response.incomplete_details?.reason);
+      const stopReason: ProviderStopReason = reason === 'max_output_tokens' ? 'max_tokens' : 'stop';
+      return [{ type: 'done', stopReason, usage: mapUsage(response.usage), cost: undefined }];
+    }
+
+    if (type === 'response.failed') {
+      const error = event.response?.error ?? {};
+      const code = asString(error.code) ?? 'unknown_error';
+      const message = asString(error.message) ?? 'Responses stream failed';
+      throw new ProviderError(`Responses API error ${code}: ${message}`);
+    }
+
     if (type === 'response.completed') {
       const response = event.response ?? {};
       const stopReason: ProviderStopReason = state.emittedToolCall ? 'tool_calls' : 'stop';
       return [{ type: 'done', stopReason, usage: mapUsage(response.usage), cost: undefined }];
     }
 
-    // Everything else — response.created, *_done replays (including
-    // response.function_call_arguments.done and output_item.done), unknown
-    // types — is ignored. The other terminal events arrive in Task 5.
+    // Everything else — response.created, *_done replays, unknown types — is ignored.
     return [];
   }
 
