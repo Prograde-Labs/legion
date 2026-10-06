@@ -213,4 +213,74 @@ describe('OpenAIResponsesProvider', () => {
     const provider = new OpenAIResponsesProvider('https://example.test/v1');
     await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(ProviderError);
   });
+
+  it('emits reasoning_delta from response.reasoning_text.delta', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.reasoning_text.delta', { delta: 'thinking ' }),
+        ev('response.reasoning_text.delta', { delta: 'hard' }),
+        ev('response.output_text.delta', { delta: 'answer' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.reasoning).toEqual(['thinking ', 'hard']);
+    expect(result.text).toEqual(['answer']);
+  });
+
+  it('emits reasoning_delta from reasoning_summary_text.delta (vLLM/llama.cpp/ollama shape)', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.reasoning_summary_text.delta', { delta: 'summary thought' }),
+        ev('response.output_text.delta', { delta: 'answer' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.reasoning).toEqual(['summary thought']);
+  });
+
+  it('treats reasoning_text and reasoning_summary_text as mutually exclusive per stream', async () => {
+    // First seen wins: a backend that sends both shapes must not double-emit.
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.reasoning_text.delta', { delta: 'full cot' }),
+        ev('response.reasoning_summary_text.delta', { delta: 'summary' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.reasoning).toEqual(['full cot']);
+  });
+
+  it('maps refusal deltas to text_delta', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'message', role: 'assistant', id: 'msg_0' },
+        }),
+        ev('response.refusal.delta', { delta: 'I cannot help with that.' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['I cannot help with that.']);
+  });
 });
