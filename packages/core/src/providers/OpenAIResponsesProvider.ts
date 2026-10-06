@@ -59,6 +59,14 @@ function mapUsage(usage: ResponsesUsage | undefined): ProviderUsage | undefined 
   };
 }
 
+/** Per-stream parser state — a provider instance may serve many streams. */
+interface StreamState {
+  /** First reasoning shape seen on this stream; the other shape is then ignored. */
+  reasoningMode: 'full' | 'summary' | undefined;
+  /** Set once this stream has emitted any tool_call_start (drives stopReason in Task 4/5). */
+  emittedToolCall: boolean;
+}
+
 /**
  * OpenAI Responses API wire format, mapped statelessly onto the shared
  * ProviderStreamChunk union. See docs/superpowers/specs/2026-10-06-responses-api-provider-design.md
@@ -101,6 +109,7 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     let stopReason: ProviderStopReason = 'stop';
     let usage = undefined as ReturnType<typeof mapUsage>;
     let completed = false;
+    const state: StreamState = { reasoningMode: undefined, emittedToolCall: false };
 
     try {
       while (!sawTerminal) {
@@ -126,7 +135,7 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
             continue; // quirk tolerance: skip non-JSON data lines
           }
 
-          for (const chunk of this.handleEvent(event)) {
+          for (const chunk of this.handleEvent(event, state)) {
             if (chunk.type === 'done') {
               // Exactly one done is yielded, after the loop — never inside it.
               sawTerminal = true;
@@ -223,11 +232,33 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     return { instructions, input };
   }
 
-  private handleEvent(event: ResponsesEvent): ProviderStreamChunk[] {
+  private handleEvent(event: ResponsesEvent, state: StreamState): ProviderStreamChunk[] {
     const type = asString(event.type);
     if (!type) return []; // quirk tolerance: event without a type is ignored
 
     if (type === 'response.output_text.delta') {
+      const delta = asString(event.delta);
+      if (delta) return [{ type: 'text_delta', delta }];
+      return [];
+    }
+
+    if (type === 'response.reasoning_text.delta') {
+      if (state.reasoningMode === 'summary') return []; // first shape seen wins for this stream
+      state.reasoningMode = 'full';
+      const delta = asString(event.delta);
+      if (delta) return [{ type: 'reasoning_delta', delta }];
+      return [];
+    }
+
+    if (type === 'response.reasoning_summary_text.delta') {
+      if (state.reasoningMode === 'full') return [];
+      state.reasoningMode = 'summary';
+      const delta = asString(event.delta);
+      if (delta) return [{ type: 'reasoning_delta', delta }];
+      return [];
+    }
+
+    if (type === 'response.refusal.delta') {
       const delta = asString(event.delta);
       if (delta) return [{ type: 'text_delta', delta }];
       return [];
@@ -241,8 +272,8 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     }
 
     // Everything else — response.created, *_done replays, unknown types — is ignored.
-    // Reasoning deltas (Task 3), tool calls (Task 4), and the other terminal
-    // events (Task 5) are added by extending this method.
+    // Tool calls (Task 4) and the other terminal events (Task 5) extend this method;
+    // both use state.emittedToolCall, which stream() now threads through.
     return [];
   }
 }
