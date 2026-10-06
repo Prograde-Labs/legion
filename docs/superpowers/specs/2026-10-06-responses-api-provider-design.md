@@ -64,7 +64,7 @@ dependency / docs commits landed since.
   overlay (L72–118). Constructor `(baseUrl, apiKey?)` (L138–144). `normalizeParameters()`
   (L14) adds `properties: {}` for strict backends.
 - `packages/core/src/providers/Provider.ts` — wire-agnostic: `stream(messages, tools,
-  model, options?) → AsyncGenerator<ProviderStreamChunk>` (L83–88); chunk union at L63–68
+model, options?) → AsyncGenerator<ProviderStreamChunk>` (L83–88); chunk union at L63–68
   (`reasoning_delta | text_delta | tool_call_start | tool_call_args_delta | done`).
   `ProviderStopReason = 'stop' | 'tool_calls' | 'max_tokens'` (L33). AgentRuntime and
   ModelRouter consume only these types.
@@ -73,7 +73,7 @@ dependency / docs commits landed since.
   `'codex'` → `NotImplementedError`.
 - `packages/types/src/config.ts` — `ProviderConfig.type` closed union
   `'openai-compatible' | 'anthropic' | 'copilot' | 'codex'` (L50); `ModelConfig = { model,
-  temperature?, maxTokens? }` (L3–7) — no reasoning surface. Provider configs live as JSON
+temperature?, maxTokens? }` (L3–7) — no reasoning surface. Provider configs live as JSON
   at `.legion/providers/<name>.json`; API keys in system config, never workspace config.
 - Web: `packages/web/src/components/config/ProviderSlideOver.vue` has a plain `<select>`
   with the four type `<option>`s and a baseUrl field shown only for
@@ -99,7 +99,7 @@ dependency / docs commits landed since.
 Why this over the alternatives:
 
 - **vs. per-provider wire-format option on `openai-compatible`** (e.g. `wire: 'responses'`):
-  a type is a *set of behaviors* — wire format, error shapes, capability assumptions,
+  a type is a _set of behaviors_ — wire format, error shapes, capability assumptions,
   pricing quirks, UI copy. Two wire formats behind one type name means every consumer of
   `type === 'openai-compatible'` needs a second check. The existing enum exists precisely
   to discriminate construction; wire format is the primary thing it discriminates. The
@@ -115,7 +115,7 @@ Why this over the alternatives:
 - **UI cost is small and precedented:** the type dropdown is a static `<option>` list;
   adding one option + showing the baseUrl field for the new type is a ~3-line change.
   Web tests for the provider form exist and get updated in the same change.
-- `RoutingConfig` keys models → ordered provider *names*; wire format is orthogonal and
+- `RoutingConfig` keys models → ordered provider _names_; wire format is orthogonal and
   needs no routing changes.
 
 ### Q2 — Wire mapping: full table (stateless v1)
@@ -129,20 +129,20 @@ time — pick one, don't do both.)
 
 #### Request mapping (messages/tools → `POST {baseUrl}/responses` body)
 
-| Legion input | Responses request field |
-|---|---|
-| `model.model` | `model` |
-| `model.temperature` (if set) | `temperature` |
-| `model.maxTokens` (if set) | `max_output_tokens` |
-| first `role:'system'` `ProviderMessage` | `instructions` (string) |
-| any further `role:'system'` messages | input items `{role:'system', content}` |
-| `role:'user'` | input item `{role:'user', content}` |
-| plain `role:'assistant'` (content non-null) | input item `{role:'assistant', content:[{type:'output_text', text}]}` |
-| assistant `toolCalls[]` | one input item per call: `{type:'function_call', call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments)}` |
-| `role:'tool'` | input item `{type:'function_call_output', call_id: msg.toolCallId, output: msg.content ?? ''}` |
-| `tools[]` | `tools: [{type:'function', name, description, parameters: normalizeParameters(...)}]` (flat — **not** nested under `function`) + `tool_choice: 'auto'` |
-| — (always) | `stream: true`, `store: false` |
-| — (never in v1) | `previous_response_id`, `conversation`, `reasoning`, `include`, `prompt` |
+| Legion input                                | Responses request field                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `model.model`                               | `model`                                                                                                                                                |
+| `model.temperature` (if set)                | `temperature`                                                                                                                                          |
+| `model.maxTokens` (if set)                  | `max_output_tokens`                                                                                                                                    |
+| first `role:'system'` `ProviderMessage`     | `instructions` (string)                                                                                                                                |
+| any further `role:'system'` messages        | input items `{role:'system', content}`                                                                                                                 |
+| `role:'user'`                               | input item `{role:'user', content}`                                                                                                                    |
+| plain `role:'assistant'` (content non-null) | input item `{role:'assistant', content:[{type:'output_text', text}]}`                                                                                  |
+| assistant `toolCalls[]`                     | one input item per call: `{type:'function_call', call_id: tc.id, name: tc.name, arguments: JSON.stringify(tc.arguments)}`                              |
+| `role:'tool'`                               | input item `{type:'function_call_output', call_id: msg.toolCallId, output: msg.content ?? ''}`                                                         |
+| `tools[]`                                   | `tools: [{type:'function', name, description, parameters: normalizeParameters(...)}]` (flat — **not** nested under `function`) + `tool_choice: 'auto'` |
+| — (always)                                  | `stream: true`, `store: false`                                                                                                                         |
+| — (never in v1)                             | `previous_response_id`, `conversation`, `reasoning`, `include`, `prompt`                                                                               |
 
 `store: false` is sent explicitly: the default is `true` server-side, and Legion never
 reads stored state back — silently persisting every agent turn on the backend is a
@@ -159,20 +159,20 @@ Parse `data:` lines exactly like the chat path. Ignore `[DONE]`-sentinel absence
 Responses stream terminates with the terminal event, not `[DONE]`; treat EOF without a
 terminal event as an error). Every event object carries `type`:
 
-| Responses event | Emitted chunk | Notes |
-|---|---|---|
-| `response.created` / `response.in_progress` | *(none — recorded)* | capture `response.id` for logs |
-| `response.output_item.added` where `item.type === 'function_call'` | `{type:'tool_call_start', index: event.output_index, id: item.call_id, name: item.name}` | `call_id` is the id that tool results echo back |
-| `response.output_text.delta` | `{type:'text_delta', delta: event.delta}` | |
-| `response.reasoning_text.delta` | `{type:'reasoning_delta', delta: event.delta}` | full CoT text; OpenAI-only in practice |
-| `response.reasoning_summary_text.delta` | `{type:'reasoning_delta', delta: event.delta}` | what vLLM / llama.cpp / ollama emit; treat the two as mutually exclusive per stream (first seen wins) |
-| `response.function_call_arguments.delta` | `{type:'tool_call_args_delta', index: event.output_index, delta: event.delta}` | `item_id` also present; see keying note |
-| `response.output_text.done`, `response.output_item.done`, `response.content_part.*`, `response.reasoning_*_done` | *(ignored)* | deltas already carried the content; `*_done` payloads are replays |
-| `response.refusal.delta` | `{type:'text_delta', delta: event.delta}` | refusal is assistant-visible text |
-| `response.completed` | `{type:'done', stopReason: 'stop'|'tool_calls', usage?}` | stop rule below |
-| `response.incomplete` | `{type:'done', stopReason: 'max_tokens' if incomplete_details.reason === 'max_output_tokens' else 'stop', usage?}` | |
-| `response.failed` | **throw `ProviderError`** with `response.error.code` + message | matches chat path's failure mode (throw, no synthetic done) |
-| anything else (unknown `type`) | *(ignored — debug log)* | forward compatibility; see quirk tolerance |
+| Responses event                                                                                                  | Emitted chunk                                                                                                      | Notes                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | --------------- |
+| `response.created` / `response.in_progress`                                                                      | _(none — recorded)_                                                                                                | capture `response.id` for logs                                                                        |
+| `response.output_item.added` where `item.type === 'function_call'`                                               | `{type:'tool_call_start', index: event.output_index, id: item.call_id, name: item.name}`                           | `call_id` is the id that tool results echo back                                                       |
+| `response.output_text.delta`                                                                                     | `{type:'text_delta', delta: event.delta}`                                                                          |                                                                                                       |
+| `response.reasoning_text.delta`                                                                                  | `{type:'reasoning_delta', delta: event.delta}`                                                                     | full CoT text; OpenAI-only in practice                                                                |
+| `response.reasoning_summary_text.delta`                                                                          | `{type:'reasoning_delta', delta: event.delta}`                                                                     | what vLLM / llama.cpp / ollama emit; treat the two as mutually exclusive per stream (first seen wins) |
+| `response.function_call_arguments.delta`                                                                         | `{type:'tool_call_args_delta', index: event.output_index, delta: event.delta}`                                     | `item_id` also present; see keying note                                                               |
+| `response.output_text.done`, `response.output_item.done`, `response.content_part.*`, `response.reasoning_*_done` | _(ignored)_                                                                                                        | deltas already carried the content; `*_done` payloads are replays                                     |
+| `response.refusal.delta`                                                                                         | `{type:'text_delta', delta: event.delta}`                                                                          | refusal is assistant-visible text                                                                     |
+| `response.completed`                                                                                             | `{type:'done', stopReason: 'stop'                                                                                  | 'tool_calls', usage?}`                                                                                | stop rule below |
+| `response.incomplete`                                                                                            | `{type:'done', stopReason: 'max_tokens' if incomplete_details.reason === 'max_output_tokens' else 'stop', usage?}` |                                                                                                       |
+| `response.failed`                                                                                                | **throw `ProviderError`** with `response.error.code` + message                                                     | matches chat path's failure mode (throw, no synthetic done)                                           |
+| anything else (unknown `type`)                                                                                   | _(ignored — debug log)_                                                                                            | forward compatibility; see quirk tolerance                                                            |
 
 **`stopReason` for `response.completed`:** `'tool_calls'` if the stream emitted ≥1
 `tool_call_start` (i.e. the response contains function_call items — the fact
@@ -183,7 +183,7 @@ strings.
 `output_index`. Do not assume `output_index` is unique per call: ollama currently shares
 `output_index` across a text block and a following function call (ollama #18798, open
 2026-10-05). The `tool_call_start` index and subsequent `args_delta` index must be the
-*same* resolved key so AgentRuntime accumulation works.
+_same_ resolved key so AgentRuntime accumulation works.
 
 **Quirk tolerance (parser rules):** ignore unknown event types; tolerate missing
 `sequence_number`; don't validate ids that appear both in delta events and in the
@@ -195,12 +195,12 @@ re-emitted**. These rules are unit-test-mandated (§Q6).
 **Usage mapping** (`response.usage`, terminal events only — ground in
 `response_usage.py`):
 
-| Responses usage | `ProviderUsage` |
-|---|---|
-| `input_tokens` | `inputTokens` |
-| `output_tokens` | `outputTokens` |
-| `output_tokens_details.reasoning_tokens` | `reasoningTokens` |
-| `input_tokens_details.cached_tokens` | `cacheReadInputTokens` |
+| Responses usage                           | `ProviderUsage`         |
+| ----------------------------------------- | ----------------------- |
+| `input_tokens`                            | `inputTokens`           |
+| `output_tokens`                           | `outputTokens`          |
+| `output_tokens_details.reasoning_tokens`  | `reasoningTokens`       |
+| `input_tokens_details.cached_tokens`      | `cacheReadInputTokens`  |
 | `input_tokens_details.cache_write_tokens` | `cacheWriteInputTokens` |
 
 Errors: non-OK HTTP → `ProviderError('OpenAI-compatible API error <status>: <body[0:200]>')`
@@ -222,15 +222,16 @@ no server-side conversation. Reasons, in order of weight:
    per thread) with no home in the current interface — an interface change for one wire
    format.
 3. **Portability:** most self-hosted backends either don't persist or make storage
-   optional; a design that *requires* server state would work reliably only on OpenAI.
+   optional; a design that _requires_ server state would work reliably only on OpenAI.
 
 Future path (not v1): LM Studio demonstrates the practical win — resending a
 `previous_response_id` let 1276/1293 input tokens come from cache in their docs example.
-If Legion later wants this, the clean fit is *prefix-cache validation* (OpenAI also
+If Legion later wants this, the clean fit is _prefix-cache validation_ (OpenAI also
 caches prompts server-side even statelessly) rather than thread state; revisit after v1
 sees real usage. If encrypted-reasoning replay (`include: ['reasoning.encrypted_content']`
-+ round-tripping `reasoning` items with `store: false`) is ever wanted, it must be a
-ProviderMessage extension — flagged as open question for Chris (§Open questions).
+
+- round-tripping `reasoning` items with `store: false`) is ever wanted, it must be a
+  ProviderMessage extension — flagged as open question for Chris (§Open questions).
 
 ### Q4 — Reasoning controls: **defer `reasoning.effort`; not in v1 scope**
 
@@ -238,7 +239,7 @@ ProviderMessage extension — flagged as open question for Chris (§Open questio
 effort applies). `ModelConfig` is shared by every provider and every call site; widening
 it (`reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'`) touches `packages/types`,
 ModelRouter plumbing, runtime, and the web model-UI for a benefit only Responses backends
-can use. That is a coherent standalone follow-up *after* the wire format lands and
+can use. That is a coherent standalone follow-up _after_ the wire format lands and
 something uses it — bundling it here would grow the blast radius of the first
 Responses-enabled release for no current consumer. The mapping table above stays valid
 when it lands (one more conditional field). Deferred work is tracked in the follow-up
@@ -246,21 +247,21 @@ proposal, not lost.
 
 ### Q5 — Backend reality check (verified 2026-10-06)
 
-| Server | `/v1/responses` today | Evidence | Implication |
-|---|---|---|---|
-| **OpenAI first-party** | yes, native | API docs; SDK types are the grammar source | reference implementation |
-| **LM Studio** | yes | `lmstudio.ai/blog/openresponses`: compatibility endpoint Oct 2025; **Open Responses-spec compliant in 0.3.39** (Jan 2026); docs show tool calling + token caching on `/v1/responses` | first-class local target |
-| **llama.cpp server** | yes | feature request #19138 closed as implemented; compliance PR #21174 merged; ongoing compat fixes (#26013, #24295, #27958) | supported, grammar edge cases still being smoothed |
-| **Ollama** | yes | Responses-compat issues active (#17673 custom tools, #18798 streaming tool-call ordering bug updated 2026-10-05) | works; parser must tolerate `output_index` sharing |
-| **vLLM** | yes (maturing) | 228 open responses-API issues/PRs; dedicated `[Frontend]` workstreams; strict-client breakage #59834 (ids regenerated in `response.completed`) | real usage exists; id-regeneration tolerance is not theoretical |
-| **SGLang** | yes (maturing) | 81 open responses-API issues; sgl-router `/v1/responses` support in flight (#42314); hardening bugs weekly | same as vLLM |
-| **LiteLLM (proxy)** | yes | unified Responses passthrough across backends; extensive logging/otel fixes in flight | common aggregation path for self-hosted fleets |
+| Server                 | `/v1/responses` today | Evidence                                                                                                                                                                             | Implication                                                     |
+| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| **OpenAI first-party** | yes, native           | API docs; SDK types are the grammar source                                                                                                                                           | reference implementation                                        |
+| **LM Studio**          | yes                   | `lmstudio.ai/blog/openresponses`: compatibility endpoint Oct 2025; **Open Responses-spec compliant in 0.3.39** (Jan 2026); docs show tool calling + token caching on `/v1/responses` | first-class local target                                        |
+| **llama.cpp server**   | yes                   | feature request #19138 closed as implemented; compliance PR #21174 merged; ongoing compat fixes (#26013, #24295, #27958)                                                             | supported, grammar edge cases still being smoothed              |
+| **Ollama**             | yes                   | Responses-compat issues active (#17673 custom tools, #18798 streaming tool-call ordering bug updated 2026-10-05)                                                                     | works; parser must tolerate `output_index` sharing              |
+| **vLLM**               | yes (maturing)        | 228 open responses-API issues/PRs; dedicated `[Frontend]` workstreams; strict-client breakage #59834 (ids regenerated in `response.completed`)                                       | real usage exists; id-regeneration tolerance is not theoretical |
+| **SGLang**             | yes (maturing)        | 81 open responses-API issues; sgl-router `/v1/responses` support in flight (#42314); hardening bugs weekly                                                                           | same as vLLM                                                    |
+| **LiteLLM (proxy)**    | yes                   | unified Responses passthrough across backends; extensive logging/otel fixes in flight                                                                                                | common aggregation path for self-hosted fleets                  |
 
 **Conclusion:** the ecosystem answer to "is auto-fallback worth it?" is **no** — support
 is now broad enough that the user pointing Legion at a base URL knows which API family
 the server speaks (and LM Studio / OpenAI / vLLM all serve both side-by-side on the same
 port, so a wrong explicit choice fails fast with a 404, which the config owner can fix in
-one edit). The same survey *is* the argument for the quirk-tolerant parser in Q2: three
+one edit). The same survey _is_ the argument for the quirk-tolerant parser in Q2: three
 independent backends have current, documented divergences from OpenAI's grammar.
 
 ### Q6 — Testing strategy
@@ -281,7 +282,7 @@ Three layers, mirroring existing patterns:
    - `incomplete` with `incomplete_details.reason: 'max_output_tokens'` → `max_tokens`
    - `failed` → thrown `ProviderError`
    - unknown event type ignored; missing `sequence_number` tolerated; terminal
-     `response.output` replay with *different* ids emits nothing extra (vLLM #59834 class)
+     `response.output` replay with _different_ ids emits nothing extra (vLLM #59834 class)
    - `function_call_arguments.delta` with shared `output_index` after a message item
      (ollama #18798 class) — call keyed by `item_id`
    - request-shape assertions: URL ends `/responses`; body has `store: false`,
@@ -312,17 +313,17 @@ project references).
 
 ## Implementation footprint (for the follow-up PLANNING task)
 
-| File | Change |
-|---|---|
-| `packages/types/src/config.ts` | extend `ProviderConfig.type` union with `'openai-responses'` |
-| `packages/core/src/providers/OpenAIResponsesProvider.ts` | **new** — subclass of `OpenAICompatibleProvider`, overrides `stream()` |
-| `packages/core/src/providers/OpenAICompatibleProvider.ts` | `private baseUrl/apiKey` → `protected` (2 lines); no behavior change |
-| `packages/core/src/providers/SystemProviderStore.ts` | one `case` in `construct()` |
-| `packages/e2e/mock-provider/server.ts` | `/v1/responses` handler |
-| `packages/web/src/components/config/ProviderSlideOver.vue` | type `<option>` + baseUrl field condition |
-| `packages/web/src/views/ConfigView.vue` | badge color map entry |
-| `packages/core/src/providers/OpenAIResponsesProvider.test.ts` | **new** — fixtures per Q6 |
-| `docs/testing.md` | `LEGION_OPENAI_RESPONSES_INTEGRATION=1` row |
+| File                                                          | Change                                                                 |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `packages/types/src/config.ts`                                | extend `ProviderConfig.type` union with `'openai-responses'`           |
+| `packages/core/src/providers/OpenAIResponsesProvider.ts`      | **new** — subclass of `OpenAICompatibleProvider`, overrides `stream()` |
+| `packages/core/src/providers/OpenAICompatibleProvider.ts`     | `private baseUrl/apiKey` → `protected` (2 lines); no behavior change   |
+| `packages/core/src/providers/SystemProviderStore.ts`          | one `case` in `construct()`                                            |
+| `packages/e2e/mock-provider/server.ts`                        | `/v1/responses` handler                                                |
+| `packages/web/src/components/config/ProviderSlideOver.vue`    | type `<option>` + baseUrl field condition                              |
+| `packages/web/src/views/ConfigView.vue`                       | badge color map entry                                                  |
+| `packages/core/src/providers/OpenAIResponsesProvider.test.ts` | **new** — fixtures per Q6                                              |
+| `docs/testing.md`                                             | `LEGION_OPENAI_RESPONSES_INTEGRATION=1` row                            |
 
 Untouched by design: `Provider.ts` (chunk union is sufficient), `ModelConfig`
 (reasoning deferred), AgentRuntime, ModelRouter, routing config schema. The only
@@ -336,9 +337,9 @@ UI changes beyond the type dropdown.
    from history. OpenAI's stateless-reasoning path needs
    `include: ['reasoning.encrypted_content']` plus carrying `reasoning` items (with
    `encrypted_content`) back in `input` — that requires a `ProviderMessage` extension.
-   Defer to a follow-up, or spec it now? *(Recommendation: defer.)*
+   Defer to a follow-up, or spec it now? _(Recommendation: defer.)_
 2. **Type name:** `'openai-responses'` — or prefer `'responses'` (shorter, but less
-   discoverable next to `'openai-compatible'`)? *(Recommendation: `'openai-responses'`.)*
+   discoverable next to `'openai-compatible'`)? _(Recommendation: `'openai-responses'`.)_
 3. **Integration gate:** separate `LEGION_OPENAI_RESPONSES_INTEGRATION=1` (recommended)
    or parameterize the existing `LEGION_OPENAI_INTEGRATION` gate by provider type?
 
