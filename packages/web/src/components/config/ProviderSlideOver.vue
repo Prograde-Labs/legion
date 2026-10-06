@@ -82,12 +82,13 @@ async function save() {
           class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
         >
           <option>openai-compatible</option>
+          <option>openai-responses</option>
           <option>anthropic</option>
           <option>copilot</option>
           <option>codex</option>
         </select>
       </div>
-      <div v-if="type === 'openai-compatible'">
+      <div v-if="type === 'openai-compatible' || type === 'openai-responses'">
         <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
           >Base URL</label
         >
