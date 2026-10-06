@@ -42,6 +42,9 @@ interface ResponsesEvent {
   type?: unknown;
   response?: ResponsesObject;
   delta?: unknown;
+  item?: { type?: unknown; call_id?: unknown; name?: unknown; id?: unknown };
+  output_index?: unknown;
+  item_id?: unknown;
 }
 
 function asString(value: unknown): string | undefined {
@@ -61,10 +64,12 @@ function mapUsage(usage: ResponsesUsage | undefined): ProviderUsage | undefined 
 
 /** Per-stream parser state — a provider instance may serve many streams. */
 interface StreamState {
-  /** First reasoning shape seen on this stream; the other shape is then ignored. */
   reasoningMode: 'full' | 'summary' | undefined;
-  /** Set once this stream has emitted any tool_call_start (drives stopReason in Task 4/5). */
   emittedToolCall: boolean;
+  /** Resolved chunk index per tool-call key (item_id when present, else output_index). */
+  toolKeyToIndex: Map<string, number>;
+  /** Fallback counter for args deltas whose key was never started. */
+  nextSyntheticIndex: number;
 }
 
 /**
@@ -109,7 +114,12 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     let stopReason: ProviderStopReason = 'stop';
     let usage = undefined as ReturnType<typeof mapUsage>;
     let completed = false;
-    const state: StreamState = { reasoningMode: undefined, emittedToolCall: false };
+    const state: StreamState = {
+      reasoningMode: undefined,
+      emittedToolCall: false,
+      toolKeyToIndex: new Map(),
+      nextSyntheticIndex: 0,
+    };
 
     try {
       while (!sawTerminal) {
@@ -264,16 +274,52 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
       return [];
     }
 
-    if (type === 'response.completed') {
-      const response = event.response ?? {};
-      return [
-        { type: 'done', stopReason: 'stop', usage: mapUsage(response.usage), cost: undefined },
-      ];
+    if (type === 'response.output_item.added') {
+      const item = event.item ?? {};
+      if (asString(item.type) !== 'function_call') return [];
+      state.emittedToolCall = true;
+      const callId = asString(item.call_id) ?? '';
+      const name = asString(item.name) ?? '';
+      const rawIndex = typeof event.output_index === 'number' ? event.output_index : undefined;
+      const itemId = asString(item.id) ?? asString(event.item_id) ?? `idx:${rawIndex ?? '?'}`;
+      const index = this.indexFor(itemId, state, rawIndex);
+      state.toolKeyToIndex.set(`start:${itemId}`, index);
+      return [{ type: 'tool_call_start', index, id: callId, name }];
     }
 
-    // Everything else — response.created, *_done replays, unknown types — is ignored.
-    // Tool calls (Task 4) and the other terminal events (Task 5) extend this method;
-    // both use state.emittedToolCall, which stream() now threads through.
+    if (type === 'response.function_call_arguments.delta') {
+      const delta = asString(event.delta);
+      if (!delta) return [];
+      const rawIndex = typeof event.output_index === 'number' ? event.output_index : undefined;
+      const key = asString(event.item_id) ?? `idx:${rawIndex ?? '?'}`;
+      // Reuse the index assigned at tool_call_start for the same item when known.
+      const started = state.toolKeyToIndex.get(`start:${key}`);
+      const index = started ?? this.indexFor(key, state, rawIndex);
+      return [{ type: 'tool_call_args_delta', index, delta }];
+    }
+
+    if (type === 'response.completed') {
+      const response = event.response ?? {};
+      const stopReason: ProviderStopReason = state.emittedToolCall ? 'tool_calls' : 'stop';
+      return [{ type: 'done', stopReason, usage: mapUsage(response.usage), cost: undefined }];
+    }
+
+    // Everything else — response.created, *_done replays (including
+    // response.function_call_arguments.done and output_item.done), unknown
+    // types — is ignored. The other terminal events arrive in Task 5.
     return [];
+  }
+
+  /**
+   * Resolve a delta event's tool-call key to the stable chunk index AgentRuntime
+   * accumulates by. Keys on item_id when present, falling back to output_index
+   * (ollama shares output_index across a text item and a following function call).
+   */
+  private indexFor(key: string, state: StreamState, startIndex: number | undefined): number {
+    const existing = state.toolKeyToIndex.get(key);
+    if (existing !== undefined) return existing;
+    const index = startIndex ?? state.nextSyntheticIndex++;
+    state.toolKeyToIndex.set(key, index);
+    return index;
   }
 }
