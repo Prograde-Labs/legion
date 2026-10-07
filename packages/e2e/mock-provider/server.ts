@@ -10,6 +10,21 @@ type ChatRequest = {
   messages?: ChatMessage[];
   tools?: Array<{ function?: { name?: string } }>;
 };
+type ResponsesInputItem = {
+  role?: string;
+  content?: unknown;
+  type?: string;
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  output?: string;
+};
+type ResponsesRequest = {
+  model?: string;
+  input?: ResponsesInputItem[];
+  instructions?: string;
+  tools?: Array<{ name?: string }>;
+};
 
 function isChatRequest(value: unknown): value is ChatRequest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
@@ -30,6 +45,14 @@ function isChatRequest(value: unknown): value is ChatRequest {
       (record['tool_calls'] === undefined || Array.isArray(record['tool_calls']))
     );
   });
+}
+
+function isResponsesRequest(value: unknown): value is ResponsesRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const input = (value as Record<string, unknown>)['input'];
+  if (input === undefined) return true;
+  if (!Array.isArray(input)) return false;
+  return input.every((item) => typeof item === 'object' && item !== null);
 }
 
 const MODELS_RESPONSE = JSON.stringify({
@@ -131,6 +154,93 @@ function toolChunks(id: string, name: string, args: Record<string, unknown>): un
           finish_reason: 'tool_calls',
         },
       ],
+    },
+  ];
+}
+
+function responsesTextEvents(text: string): unknown[] {
+  return [
+    { type: 'response.created', response: { id: 'resp_e2e' } },
+    {
+      type: 'response.output_item.added',
+      output_index: 0,
+      item: { type: 'message', role: 'assistant', id: 'msg_0' },
+    },
+    { type: 'response.output_text.delta', item_id: 'msg_0', output_index: 0, delta: text },
+    {
+      type: 'response.completed',
+      response: {
+        id: 'resp_e2e',
+        usage: { input_tokens: 20, output_tokens: 5 },
+      },
+    },
+  ];
+}
+
+function responsesToolCallEvents(
+  callId: string,
+  name: string,
+  args: Record<string, unknown>,
+): unknown[] {
+  return [
+    { type: 'response.created', response: { id: 'resp_e2e' } },
+    {
+      type: 'response.output_item.added',
+      output_index: 0,
+      item: { type: 'function_call', id: 'fc_0', call_id: callId, name },
+    },
+    {
+      type: 'response.function_call_arguments.delta',
+      item_id: 'fc_0',
+      output_index: 0,
+      delta: JSON.stringify(args),
+    },
+    {
+      type: 'response.output_item.done',
+      output_index: 0,
+      item: {
+        type: 'function_call',
+        id: 'fc_0',
+        call_id: callId,
+        name,
+        arguments: JSON.stringify(args),
+      },
+    },
+    {
+      type: 'response.completed',
+      response: { id: 'resp_e2e', usage: { input_tokens: 20, output_tokens: 5 } },
+    },
+  ];
+}
+
+function responsesReasoningEvents(): unknown[] {
+  return [
+    { type: 'response.created', response: { id: 'resp_e2e' } },
+    {
+      type: 'response.reasoning_summary_text.delta',
+      item_id: 'rsn_0',
+      output_index: 0,
+      delta: '**tool reasoning**',
+    },
+    {
+      type: 'response.output_item.added',
+      output_index: 1,
+      item: {
+        type: 'function_call',
+        id: 'fc_0',
+        call_id: 'reasoning-tool-call',
+        name: 'list_participants',
+      },
+    },
+    {
+      type: 'response.function_call_arguments.delta',
+      item_id: 'fc_0',
+      output_index: 1,
+      delta: '{}',
+    },
+    {
+      type: 'response.completed',
+      response: { id: 'resp_e2e', usage: { input_tokens: 20, output_tokens: 5 } },
     },
   ];
 }
@@ -257,6 +367,80 @@ export function startMockProvider(port: number): Promise<MockProvider> {
             }
 
             await writeSse(res, defaultChunks());
+            return;
+          }
+
+          if (req.method === 'POST' && req.url === '/v1/responses') {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(_body) as unknown;
+            } catch {
+              res.setHeader('Content-Type', 'application/json');
+              res.writeHead(400);
+              res.end(
+                JSON.stringify({
+                  error: { message: 'invalid JSON', type: 'invalid_request_error' },
+                }),
+              );
+              return;
+            }
+            if (!isResponsesRequest(parsed)) {
+              res.setHeader('Content-Type', 'application/json');
+              res.writeHead(400);
+              res.end(
+                JSON.stringify({
+                  error: { message: 'invalid request', type: 'invalid_request_error' },
+                }),
+              );
+              return;
+            }
+
+            const { input = [], instructions } = parsed;
+            const isReasoningScenario = input.some(
+              (item) =>
+                item.role === 'user' &&
+                typeof item.content === 'string' &&
+                item.content.includes('E2E_REASONING_SCENARIO'),
+            );
+            const hasToolResult = input.some((item) => item.type === 'function_call_output');
+
+            if (isReasoningScenario && !hasToolResult) {
+              await writeSse(res, responsesReasoningEvents(), 300);
+              return;
+            }
+            if (isReasoningScenario && hasToolResult) {
+              await writeSse(res, responsesTextEvents('final reasoning answer'), 300);
+              return;
+            }
+
+            const flatInput = input.some(
+              (item) =>
+                typeof item.content === 'string' && item.content.includes('E2E_SKILL_SCENARIO'),
+            );
+
+            if (flatInput) {
+              const callLoaded = input.some(
+                (item) => item.type === 'function_call' && item.name === 'load_skills',
+              );
+              if (!callLoaded) {
+                await writeSse(
+                  res,
+                  responsesToolCallEvents('skill-load', 'load_skills', {
+                    names: ['e2e-proof-skill'],
+                  }),
+                );
+              } else {
+                await writeSse(res, responsesTextEvents('SKILL_LOADED_OK'));
+              }
+              return;
+            }
+
+            if (hasToolResult) {
+              await writeSse(res, responsesTextEvents('tool result acknowledged'));
+              return;
+            }
+
+            await writeSse(res, responsesTextEvents('mock response'));
             return;
           }
 
