@@ -79,7 +79,7 @@
 - Consumes: nothing new.
 - Produces: `ProviderConfig['type']` accepts `'openai-responses'`. All later tasks rely on this union member existing (Task 6's switch case, Task 7's e2e provider config, Task 8's integration config).
 
-- [ ] **Step 1: Write the failing web test**
+- [x] **Step 1: Write the failing web test**
 
 Create `packages/web/src/components/config/ProviderSlideOver.test.ts`:
 
@@ -125,12 +125,12 @@ describe('ProviderSlideOver provider types', () => {
 });
 ```
 
-- [ ] **Step 2: Run the web test to verify it fails**
+- [x] **Step 2: Run the web test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- ProviderSlideOver`
 Expected: FAIL — `openai-responses` option missing, Base URL never shown for it. (The third test passes already.)
 
-- [ ] **Step 3: Extend the type union**
+- [x] **Step 3: Extend the type union**
 
 `packages/types/src/config.ts` line 50:
 
@@ -138,7 +138,7 @@ Expected: FAIL — `openai-responses` option missing, Base URL never shown for i
 type: 'openai-compatible' | 'openai-responses' | 'anthropic' | 'copilot' | 'codex';
 ```
 
-- [ ] **Step 4: Add the dropdown option and baseUrl condition**
+- [x] **Step 4: Add the dropdown option and baseUrl condition**
 
 `packages/web/src/components/config/ProviderSlideOver.vue` — in the `<select>` (after the `openai-compatible` option, keeping alphabetical-ish group order: OpenAI family first):
 
@@ -156,7 +156,7 @@ And change the Base URL field condition (currently `v-if="type === 'openai-compa
 <div v-if="type === 'openai-compatible' || type === 'openai-responses'"></div>
 ```
 
-- [ ] **Step 5: Add the badge color map entry**
+- [x] **Step 5: Add the badge color map entry**
 
 `packages/web/src/views/ConfigView.vue` — add to `typeBadge` (line 41-46), keeping the map aligned with the union order:
 
@@ -170,12 +170,12 @@ const typeBadge: Record<string, string> = {
 };
 ```
 
-- [ ] **Step 6: Run the web tests to verify they pass**
+- [x] **Step 6: Run the web tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web -- ProviderSlideOver`
 Expected: PASS (3 tests).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/types/src/config.ts packages/web/src/components/config/ProviderSlideOver.vue packages/web/src/views/ConfigView.vue packages/web/src/components/config/ProviderSlideOver.test.ts
@@ -197,7 +197,7 @@ git commit -m "feat(types,web): add 'openai-responses' provider type to config s
 - Consumes: `ProviderMessage`/`ProviderTool`/`ProviderStreamChunk`/`ProviderStopReason` from `./Provider.js`, `ModelConfig` from `@legion-collective/types`, `ProviderError` from `../errors/LegionError.js`.
 - Produces: `class OpenAIResponsesProvider extends OpenAICompatibleProvider` with constructor `(baseUrl?: string, apiKey?: string)`, inherited `listModels()`. Tasks 3-5 extend `handleEvent()` and `stream()` in this file — their exact replacement code is given there.
 
-- [ ] **Step 1: Prepare the base class (no behavior change)**
+- [x] **Step 1: Prepare the base class (no behavior change)**
 
 In `packages/core/src/providers/OpenAICompatibleProvider.ts`:
 
@@ -217,7 +217,7 @@ export class OpenAICompatibleProvider implements Provider {
 
 Run `npm run typecheck` after this step: expected PASS (no consumers break; both helpers are still used internally).
 
-- [ ] **Step 2: Write the failing tests for the request shape and text-only stream**
+- [x] **Step 2: Write the failing tests for the request shape and text-only stream**
 
 Create `packages/core/src/providers/OpenAIResponsesProvider.test.ts`. The helper block below is complete for the whole plan — write all of it now; Tasks 3-5 only add new `it(...)` cases:
 
@@ -440,12 +440,12 @@ describe('OpenAIResponsesProvider', () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: FAIL — cannot import `./OpenAIResponsesProvider.js` (module not found).
 
-- [ ] **Step 4: Implement the provider**
+- [x] **Step 4: Implement the provider**
 
 Create `packages/core/src/providers/OpenAIResponsesProvider.ts` (this is the Task-2 skeleton; Tasks 3-5 extend it in place):
 
@@ -699,12 +699,12 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: PASS (5 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/core/src/providers/OpenAICompatibleProvider.ts packages/core/src/providers/OpenAIResponsesProvider.ts packages/core/src/providers/OpenAIResponsesProvider.test.ts
@@ -725,7 +725,7 @@ git commit -m "feat(core): OpenAIResponsesProvider skeleton — request mapping 
 - Consumes: Task 2's `OpenAIResponsesProvider`, `handleEvent(event)`, test helpers (`ev`, `sse`, `drain`).
 - Produces: `reasoning_delta` chunks from `response.reasoning_text.delta` and `response.reasoning_summary_text.delta` (mutually exclusive per stream — first seen wins), and `text_delta` from `response.refusal.delta`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add inside the top-level `describe('OpenAIResponsesProvider', ...)`:
 
@@ -801,12 +801,12 @@ it('maps refusal deltas to text_delta', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: FAIL — the two reasoning fixtures yield no `reasoning_delta` (unknown events ignored); refusal test fails (event ignored).
 
-- [ ] **Step 3: Implement — per-stream state + extended `handleEvent`**
+- [x] **Step 3: Implement — per-stream state + extended `handleEvent`**
 
 Two edits in `packages/core/src/providers/OpenAIResponsesProvider.ts`. State must be per-stream, not per-instance: `SystemProviderStore` hands the same provider instance to every turn, so instance fields would leak the first-seen-wins choice into later streams.
 
@@ -881,12 +881,12 @@ Then replace the whole `private handleEvent(...)` method from Task 2 with:
 
 `stream()` already swallows the `done` chunk until after the loop; Task 4 makes the `response.completed` branch honor `state.emittedToolCall`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: PASS (9 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/core/src/providers/OpenAIResponsesProvider.ts packages/core/src/providers/OpenAIResponsesProvider.test.ts
@@ -907,7 +907,7 @@ git commit -m "feat(core): map reasoning and refusal deltas in OpenAIResponsesPr
 - Consumes: Task 3's `StreamState` and `handleEvent(event, state)`.
 - Produces: `tool_call_start` / `tool_call_args_delta` chunks; `stopReason: 'tool_calls'` on `response.completed` when any tool call was emitted; tool definitions sent flat (`{type:'function', name, description, parameters}`) with `tool_choice: 'auto'`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add inside the top-level `describe`:
 
@@ -1055,12 +1055,12 @@ it('keys calls by item_id when ollama-style backends share output_index across i
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: FAIL — tool fixtures emit no chunks (events ignored), stopReason stays `'stop'`, flat-tools request assertion fails.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Three edits in `packages/core/src/providers/OpenAIResponsesProvider.ts`:
 
@@ -1195,12 +1195,12 @@ Add this private method to the class (after `handleEvent`):
   }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: PASS (13 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/core/src/providers/OpenAIResponsesProvider.ts packages/core/src/providers/OpenAIResponsesProvider.test.ts
@@ -1221,7 +1221,7 @@ git commit -m "feat(core): tool calls and keyed accumulation in OpenAIResponsesP
 - Consumes: Task 4's `handleEvent(event, state)`.
 - Produces: `response.incomplete` → `max_tokens` stop reason; `response.failed` → thrown `ProviderError`; EOF-without-terminal → thrown `ProviderError`; unknown events / replayed `response.output` items / missing `sequence_number` tolerated (no extra chunks, no throw).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add inside the top-level `describe`:
 
@@ -1402,12 +1402,12 @@ it('stops parsing at the terminal event and ignores trailing data ([DONE] sentin
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: FAIL — `response.incomplete` and `response.failed` currently fall through the ignore branch (incomplete yields no done; failed yields a dangling done-less stream), so the incomplete/failed/EOF tests fail; the quirk-tolerance and abort tests may already pass (the reader logic is copied from the chat path).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Two edits in `packages/core/src/providers/OpenAIResponsesProvider.ts`:
 
@@ -1443,17 +1443,17 @@ Also update the end-of-method comment block to read: `// Everything else — res
 
 Note on ordering: the terminal-replay test passes without extra work because `handleEvent` only reads `event.type`, `event.item`, `event.delta`, and `event.response.{usage,incomplete_details,error}` — the `response.output` array inside the terminal event is never walked. Keep it that way; it is the spec's quirk-tolerance rule.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.test.ts`
 Expected: PASS (21 tests).
 
-- [ ] **Step 5: Run the whole core suite**
+- [x] **Step 5: Run the whole core suite**
 
 Run: `npx vitest run packages/core`
 Expected: PASS — no regressions in existing provider/store tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/core/src/providers/OpenAIResponsesProvider.ts packages/core/src/providers/OpenAIResponsesProvider.test.ts
@@ -1475,7 +1475,7 @@ git commit -m "feat(core): terminal events, error paths, and quirk tolerance in 
 - Consumes: `OpenAIResponsesProvider` from Task 2, `'openai-responses'` type from Task 1.
 - Produces: `SystemProviderStore.construct()` maps `type: 'openai-responses'` → `new OpenAIResponsesProvider(config.baseUrl, config.apiKey)`. E2E (Task 7) and integration (Task 8) configs rely on this wiring.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `packages/core/src/providers/SystemProviderStore.test.ts`, add inside `describe('SystemProviderStore', ...)` (after the codex test):
 
@@ -1496,12 +1496,12 @@ it('get() returns Provider with stream for openai-responses', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run packages/core/src/providers/SystemProviderStore.test.ts`
 Expected: FAIL — TypeScript reports the type `'openai-responses'` is fine (union extended in Task 1) but `construct()` has no case for it. Note: because `construct()`'s switch is exhaustive over the union, `tsc` fails with "not all code paths return a value" / non-exhaustive switch — this is the compile-level failure; if vitest reports a type-check error instead of a runtime one, that is the expected failure mode here.
 
-- [ ] **Step 3: Add the case and the barrel export**
+- [x] **Step 3: Add the case and the barrel export**
 
 `packages/core/src/providers/SystemProviderStore.ts` — add the import and the case:
 
@@ -1533,12 +1533,12 @@ import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
 export * from './providers/OpenAIResponsesProvider.js';
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/providers/SystemProviderStore.test.ts`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/core/src/providers/SystemProviderStore.ts packages/core/src/providers/SystemProviderStore.test.ts packages/core/src/index.ts
@@ -1559,7 +1559,7 @@ git commit -m "feat(core): construct OpenAIResponsesProvider from 'openai-respon
 - Consumes: Task 6's store wiring; e2e fixtures `connInfo.mockProviderUrl`, `api.execute(token, tool, args)` (see `packages/e2e/fixtures/index.ts`, `packages/e2e/helpers/api.ts`); mock scenario markers (`E2E_REASONING_SCENARIO`, tool scenario via `list_participants`) matching the chat handler's routing.
 - Produces: `POST /v1/responses` on the mock provider, speaking Responses grammar with scenario routing parallel to the chat handler; an e2e spec proving one agent turn end-to-end over the Responses wire. `startMockProvider`'s signature is unchanged.
 
-- [ ] **Step 1: Add the `/v1/responses` handler to the mock provider**
+- [x] **Step 1: Add the `/v1/responses` handler to the mock provider**
 
 In `packages/e2e/mock-provider/server.ts`:
 
@@ -1761,7 +1761,7 @@ if (req.method === 'POST' && req.url === '/v1/responses') {
 }
 ```
 
-- [ ] **Step 2: Write the e2e spec**
+- [x] **Step 2: Write the e2e spec**
 
 Create `packages/e2e/tests/providers/responses-provider.spec.ts` (buffered-execute pattern from `packages/e2e/tests/conversations/reasoning.spec.ts`):
 
@@ -1875,19 +1875,19 @@ test.describe('Responses API provider end-to-end', () => {
 });
 ```
 
-- [ ] **Step 3: Run the spec**
+- [x] **Step 3: Run the spec**
 
 Prerequisites from `docs/testing.md`/AGENTS.md (skip any already done): `npm install`, `npm run build`, `npx playwright install chromium`.
 
 Run: `npm run test:e2e -- tests/providers/responses-provider.spec.ts`
 Expected: PASS — the agent turn completes; the conversation contains the mock's Responses-wire reply. If the agent turn times out, check the server log for provider construction errors first (Task 6 case), then the mock's request log.
 
-- [ ] **Step 4: Run the chat-wire e2e specs to verify the mock change is regression-free**
+- [x] **Step 4: Run the chat-wire e2e specs to verify the mock change is regression-free**
 
 Run: `npm run test:e2e -- tests/conversations/reasoning.spec.ts tests/api/execute.spec.ts`
 Expected: PASS — the new `/v1/responses` route does not disturb `/v1/chat/completions` routing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/e2e/mock-provider/server.ts packages/e2e/tests/providers/responses-provider.spec.ts
@@ -1908,7 +1908,7 @@ git commit -m "test(e2e): /v1/responses mock handler and Responses-provider agen
 - Consumes: `OpenAIResponsesProvider` (Task 2), gate pattern from `packages/core/src/runtime/agent-runtime.integration.test.ts` (`describe.skipIf(!LIVE)`).
 - Produces: opt-in live-backend coverage behind `LEGION_OPENAI_RESPONSES_INTEGRATION=1` (Chris's Task-39 answer #3: separate gate, existing `LEGION_OPENAI_INTEGRATION` untouched). Skipped by default — CI and local runs are unaffected.
 
-- [ ] **Step 1: Write the integration test**
+- [x] **Step 1: Write the integration test**
 
 Create `packages/core/src/providers/OpenAIResponsesProvider.integration.test.ts`:
 
@@ -1954,12 +1954,12 @@ describe.skipIf(!LIVE)('OpenAIResponsesProvider: live backend', () => {
 
 Note the tool-call case is deliberately absent — the spec marks live tool calls optional/flaky-tolerant; the unit suite owns that grammar.
 
-- [ ] **Step 2: Verify it skips by default**
+- [x] **Step 2: Verify it skips by default**
 
 Run: `npx vitest run packages/core/src/providers/OpenAIResponsesProvider.integration.test.ts`
 Expected: 1 skipped (not failed). No network call.
 
-- [ ] **Step 3: Document the gate**
+- [x] **Step 3: Document the gate**
 
 In `docs/testing.md`, extend the environment-variable table (after the `LEGION_OPENAI_INTEGRATION` row):
 
@@ -1967,12 +1967,12 @@ In `docs/testing.md`, extend the environment-variable table (after the `LEGION_O
 | `LEGION_OPENAI_RESPONSES_INTEGRATION=1` | `OpenAIResponsesProvider.integration.test.ts` | Requires a live OpenAI API key; exercises the Responses wire (`/responses`); model `gpt-4o-mini` by default (override with `OPENAI_RESPONSES_MODEL`, base URL with `OPENAI_RESPONSES_BASE_URL`) |
 ```
 
-- [ ] **Step 4: Run the gates**
+- [x] **Step 4: Run the gates**
 
 Run: `npm run format:check && npm run typecheck && npm test`
 Expected: PASS — the new integration file is skipped in `npm test`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/core/src/providers/OpenAIResponsesProvider.integration.test.ts docs/testing.md
@@ -1992,7 +1992,7 @@ git commit -m "test(core): opt-in Responses live integration gate + docs"
 - Consumes: everything above.
 - Produces: green gates + open PR linking issue #8.
 
-- [ ] **Step 1: Run the full gate order**
+- [x] **Step 1: Run the full gate order**
 
 ```bash
 npm run format:check
@@ -2003,12 +2003,12 @@ npm run test --workspace=packages/web
 
 Expected: all PASS. If `format:check` fails, run `npm run format` and re-run the gate (include formatting-only fixes in the commit that introduced them or a final `chore: format` commit).
 
-- [ ] **Step 2: Re-run the e2e provider suite against the built app**
+- [x] **Step 2: Re-run the e2e provider suite against the built app**
 
 Run: `npm run test:e2e -- tests/providers/responses-provider.spec.ts tests/conversations/reasoning.spec.ts`
 Expected: PASS (both wires work against the final build).
 
-- [ ] **Step 3: Plan self-review against the spec**
+- [x] **Step 3: Plan self-review against the spec**
 
 Walk the spec with fresh eyes and check:
 
@@ -2016,7 +2016,7 @@ Walk the spec with fresh eyes and check:
 2. **Placeholder scan:** no TBDs, no "similar to Task N", every code step has full code.
 3. **Type consistency:** `handleEvent(event, state)` signature identical in Tasks 3/4/5; `StreamState` fields grown additively (T3 → T4) with every field written by some task; `'openai-responses'` spelled identically everywhere.
 
-- [ ] **Step 4: Push and update the PR**
+- [x] **Step 4: Push and update the PR**
 
 The plan ships on the same branch as the spec — `docs/responses-api-provider-design` (PR #9) — so spec and plan are reviewed together and the plan's spec reference resolves on the branch:
 
@@ -2030,7 +2030,7 @@ Then update PR #9's title/body to cover both artifacts:
 gh pr edit 9 --title "Design spec + implementation plan: Responses API provider (issue #8)" --body "Design spec: docs/superpowers/specs/2026-10-06-responses-api-provider-design.md. Implementation plan: docs/superpowers/plans/2026-10-06-responses-api-provider.md. Open questions resolved by Chris 2026-10-06: defer encrypted-reasoning replay; type name openai-responses; separate LEGION_OPENAI_RESPONSES_INTEGRATION gate. Links issue #8. No runtime code in this PR - implementation follows on a separate branch after merge."
 ```
 
-- [ ] **Step 5: Link issue #8**
+- [x] **Step 5: Link issue #8**
 
 Verify the PR body's `Links issue #8` reference made PR #9 appear in issue #8's timeline; if not, comment on issue #8 with the PR link.
 
