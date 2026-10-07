@@ -11,7 +11,9 @@ import type {
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
 /** Strict providers (e.g. LM Studio) reject object schemas without a properties object. */
-function normalizeParameters(parameters: ProviderTool['parameters']): ProviderTool['parameters'] {
+export function normalizeParameters(
+  parameters: ProviderTool['parameters'],
+): ProviderTool['parameters'] {
   if (parameters.type === 'object' && parameters.properties === undefined) {
     return { ...parameters, properties: {} };
   }
@@ -131,14 +133,14 @@ function toOAIMessage(msg: ProviderMessage): OAIMessage {
   return out;
 }
 
-function authHeaders(apiKey?: string): Record<string, string> {
+export function authHeaders(apiKey?: string): Record<string, string> {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
 export class OpenAICompatibleProvider implements Provider {
   constructor(
-    private baseUrl = DEFAULT_BASE_URL,
-    private apiKey?: string,
+    protected baseUrl = DEFAULT_BASE_URL,
+    protected apiKey?: string,
   ) {
     this.baseUrl = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
   }

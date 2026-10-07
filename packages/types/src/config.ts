@@ -47,7 +47,7 @@ export interface StorageConfig {
 
 export interface ProviderConfig {
   name: string;
-  type: 'openai-compatible' | 'anthropic' | 'copilot' | 'codex';
+  type: 'openai-compatible' | 'openai-responses' | 'anthropic' | 'copilot' | 'codex';
   baseUrl?: string;
   apiKey?: string;
   priority: number;

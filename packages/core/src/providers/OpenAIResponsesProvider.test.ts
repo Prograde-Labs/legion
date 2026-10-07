@@ -1,0 +1,606 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
+import { ProviderError } from '../errors/LegionError.js';
+import type { ModelConfig } from '@legion-collective/types';
+import type { ProviderMessage, ProviderStreamChunk, ProviderTool } from './Provider.js';
+
+const MODEL: ModelConfig = { model: 'mock-model' };
+
+function makeSseBody(lines: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const chunks = lines.map((l) => encoder.encode(l + '\n'));
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+}
+
+type SseEvent = Record<string, unknown>;
+
+function sse(
+  events: SseEvent[],
+  opts: { withDoneSentinel?: boolean } = {},
+): { ok: true; status: number; body: ReadableStream<Uint8Array> } {
+  const lines = events.map((e) => `data: ${JSON.stringify(e)}`);
+  if (opts.withDoneSentinel) lines.push('data: [DONE]');
+  return { ok: true, status: 200, body: makeSseBody(lines) };
+}
+
+function errResponse(status: number, text: string) {
+  return { ok: false, status, text: () => Promise.resolve(text) };
+}
+
+function ev(type: string, extra: Record<string, unknown> = {}): SseEvent {
+  return { type, ...extra };
+}
+
+function textCompleted(text: string, usage?: Record<string, unknown>): SseEvent[] {
+  const events: SseEvent[] = [
+    ev('response.created', { response: { id: 'resp_1' } }),
+    ev('response.output_item.added', {
+      output_index: 0,
+      item: { type: 'message', role: 'assistant', id: 'msg_0' },
+    }),
+    ev('response.output_text.delta', { item_id: 'msg_0', output_index: 0, delta: text }),
+    ev('response.output_text.done', { item_id: 'msg_0', output_index: 0, text }),
+    ev('response.output_item.done', {
+      output_index: 0,
+      item: { type: 'message', role: 'assistant', id: 'msg_0' },
+    }),
+  ];
+  const response: Record<string, unknown> = { id: 'resp_1' };
+  if (usage) response['usage'] = usage;
+  events.push(ev('response.completed', { response }));
+  return events;
+}
+
+function completedOnly(usage?: Record<string, unknown>): SseEvent {
+  const response: Record<string, unknown> = { id: 'resp_1' };
+  if (usage) response['usage'] = usage;
+  return ev('response.completed', { response });
+}
+
+interface Collected {
+  reasoning: string[];
+  text: string[];
+  toolStarts: Array<{ index: number; id: string; name: string }>;
+  toolArgs: Array<{ index: number; delta: string }>;
+  done: Extract<ProviderStreamChunk, { type: 'done' }> | null;
+}
+
+async function drain(
+  provider: OpenAIResponsesProvider,
+  messages: ProviderMessage[],
+  tools: ProviderTool[] = [],
+  model: ModelConfig = MODEL,
+): Promise<Collected> {
+  const out: Collected = { reasoning: [], text: [], toolStarts: [], toolArgs: [], done: null };
+  for await (const chunk of provider.stream(messages, tools, model)) {
+    if (chunk.type === 'reasoning_delta') out.reasoning.push(chunk.delta);
+    else if (chunk.type === 'text_delta') out.text.push(chunk.delta);
+    else if (chunk.type === 'tool_call_start')
+      out.toolStarts.push({ index: chunk.index, id: chunk.id, name: chunk.name });
+    else if (chunk.type === 'tool_call_args_delta')
+      out.toolArgs.push({ index: chunk.index, delta: chunk.delta });
+    else if (chunk.type === 'done') out.done = chunk;
+  }
+  return out;
+}
+
+describe('OpenAIResponsesProvider', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('posts to {baseUrl}/responses with instructions, input items, store:false, stream:true', async () => {
+    fetchMock.mockResolvedValue(sse(textCompleted('Hello!'), { withDoneSentinel: true }));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1/', 'sk-key');
+    const result = await drain(provider, [
+      { role: 'system', content: 'Be terse.' },
+      { role: 'user', content: 'hi' },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://example.test/v1/responses');
+    expect(init.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer sk-key',
+    });
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body['model']).toBe('mock-model');
+    expect(body['instructions']).toBe('Be terse.');
+    expect(body['input']).toEqual([{ role: 'user', content: 'hi' }]);
+    expect(body['store']).toBe(false);
+    expect(body['stream']).toBe(true);
+    expect(body['tools']).toBeUndefined();
+    expect(body['tool_choice']).toBeUndefined();
+    expect(body['previous_response_id']).toBeUndefined();
+    expect(body['reasoning']).toBeUndefined();
+
+    expect(result.text).toEqual(['Hello!']);
+    expect(result.done?.stopReason).toBe('stop');
+    expect(result.done?.usage).toBeUndefined();
+  });
+
+  it('maps temperature and maxTokens to temperature and max_output_tokens', async () => {
+    fetchMock.mockResolvedValue(sse([completedOnly()]));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await drain(provider, [{ role: 'user', content: 'hi' }], [], {
+      model: 'mock-model',
+      temperature: 0.3,
+      maxTokens: 256,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body['temperature']).toBe(0.3);
+    expect(body['max_output_tokens']).toBe(256);
+  });
+
+  it('maps assistant text and tool history to typed input items', async () => {
+    fetchMock.mockResolvedValue(sse([completedOnly()]));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await drain(provider, [
+      { role: 'system', content: 'sys one' },
+      { role: 'system', content: 'sys two' },
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: 'a' },
+      {
+        role: 'assistant',
+        content: null,
+        toolCalls: [{ id: 'call_1', name: 'echo', arguments: { text: 'x' } }],
+      },
+      { role: 'tool', toolCallId: 'call_1', name: 'echo', content: '{"ok":true}' },
+    ]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body['instructions']).toBe('sys one');
+    expect(body['input']).toEqual([
+      { role: 'system', content: 'sys two' },
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: [{ type: 'output_text', text: 'a' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'echo', arguments: '{"text":"x"}' },
+      { type: 'function_call_output', call_id: 'call_1', output: '{"ok":true}' },
+    ]);
+  });
+
+  it('maps terminal usage fields to ProviderUsage', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'message', id: 'msg_0' },
+        }),
+        ev('response.output_text.delta', { delta: 'hi' }),
+        completedOnly({
+          input_tokens: 100,
+          output_tokens: 50,
+          output_tokens_details: { reasoning_tokens: 7 },
+          input_tokens_details: { cached_tokens: 40, cache_write_tokens: 3 },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.done?.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 50,
+      reasoningTokens: 7,
+      cacheReadInputTokens: 40,
+      cacheWriteInputTokens: 3,
+    });
+  });
+
+  it('throws ProviderError on non-OK HTTP', async () => {
+    fetchMock.mockResolvedValue(errResponse(404, '{"error":{"message":"no route"}}'));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(ProviderError);
+  });
+
+  it('emits reasoning_delta from response.reasoning_text.delta', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.reasoning_text.delta', { delta: 'thinking ' }),
+        ev('response.reasoning_text.delta', { delta: 'hard' }),
+        ev('response.output_text.delta', { delta: 'answer' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.reasoning).toEqual(['thinking ', 'hard']);
+    expect(result.text).toEqual(['answer']);
+  });
+
+  it('emits reasoning_delta from reasoning_summary_text.delta (vLLM/llama.cpp/ollama shape)', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.reasoning_summary_text.delta', { delta: 'summary thought' }),
+        ev('response.output_text.delta', { delta: 'answer' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.reasoning).toEqual(['summary thought']);
+  });
+
+  it('treats reasoning_text and reasoning_summary_text as mutually exclusive per stream', async () => {
+    // First seen wins: a backend that sends both shapes must not double-emit.
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.reasoning_text.delta', { delta: 'full cot' }),
+        ev('response.reasoning_summary_text.delta', { delta: 'summary' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.reasoning).toEqual(['full cot']);
+  });
+
+  it('maps refusal deltas to text_delta', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'message', role: 'assistant', id: 'msg_0' },
+        }),
+        ev('response.refusal.delta', { delta: 'I cannot help with that.' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['I cannot help with that.']);
+  });
+
+  it('includes flat tools and tool_choice when tools are provided', async () => {
+    fetchMock.mockResolvedValue(sse([completedOnly()]));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await drain(
+      provider,
+      [{ role: 'user', content: 'hi' }],
+      [{ name: 'echo', description: 'echoes', parameters: { type: 'object' } }],
+    );
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>;
+    expect(body['tools']).toEqual([
+      {
+        type: 'function',
+        name: 'echo',
+        description: 'echoes',
+        parameters: { type: 'object', properties: {} },
+      },
+    ]);
+    expect(body['tool_choice']).toBe('auto');
+  });
+
+  it('maps function_call events to tool_call_start and tool_call_args_delta', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'function_call', id: 'fc_1', call_id: 'call_abc', name: 'echo' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 0,
+          delta: '{"text":',
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 0,
+          delta: '"hello"}',
+        }),
+        ev('response.function_call_arguments.done', { item_id: 'fc_1', output_index: 0 }),
+        ev('response.output_item.done', {
+          output_index: 0,
+          item: {
+            type: 'function_call',
+            id: 'fc_1',
+            call_id: 'call_abc',
+            name: 'echo',
+            arguments: '{"text":"hello"}',
+          },
+        }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([{ index: 0, id: 'call_abc', name: 'echo' }]);
+    expect(result.toolArgs).toEqual([
+      { index: 0, delta: '{"text":' },
+      { index: 0, delta: '"hello"}' },
+    ]);
+    expect(result.done?.stopReason).toBe('tool_calls');
+  });
+
+  it('interleaves two tool calls with distinct output_index', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'function_call', id: 'fc_0', call_id: 'call_a', name: 'get_time' },
+        }),
+        ev('response.output_item.added', {
+          output_index: 1,
+          item: { type: 'function_call', id: 'fc_1', call_id: 'call_b', name: 'get_date' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 1,
+          delta: '"2026"',
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_0',
+          output_index: 0,
+          delta: '"12:00"',
+        }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([
+      { index: 0, id: 'call_a', name: 'get_time' },
+      { index: 1, id: 'call_b', name: 'get_date' },
+    ]);
+    expect(result.toolArgs).toEqual([
+      { index: 1, delta: '"2026"' },
+      { index: 0, delta: '"12:00"' },
+    ]);
+  });
+
+  it('keys calls by item_id when ollama-style backends share output_index across items', async () => {
+    // ollama #18798: a function_call after a message item reuses output_index 0.
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'message', id: 'msg_0' },
+        }),
+        ev('response.output_text.delta', {
+          item_id: 'msg_0',
+          output_index: 0,
+          delta: 'let me check',
+        }),
+        ev('response.output_item.added', {
+          output_index: 0, // shared with the message item above
+          item: { type: 'function_call', id: 'fc_1', call_id: 'call_x', name: 'lookup' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_1',
+          output_index: 0, // shared
+          delta: '{"q":"x"}',
+        }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([{ index: 0, id: 'call_x', name: 'lookup' }]);
+    expect(result.toolArgs).toEqual([{ index: 0, delta: '{"q":"x"}' }]);
+    expect(result.text).toEqual(['let me check']);
+  });
+
+  it('maps response.incomplete with max_output_tokens to stopReason max_tokens', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.output_text.delta', { delta: 'partial' }),
+        ev('response.incomplete', {
+          response: {
+            id: 'resp_1',
+            incomplete_details: { reason: 'max_output_tokens' },
+            usage: { input_tokens: 10, output_tokens: 4 },
+          },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['partial']);
+    expect(result.done?.stopReason).toBe('max_tokens');
+    expect(result.done?.usage?.outputTokens).toBe(4);
+  });
+
+  it('maps response.incomplete with another reason to stopReason stop', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.incomplete', {
+          response: { id: 'resp_1', incomplete_details: { reason: 'content_filter' } },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.done?.stopReason).toBe('stop');
+  });
+
+  it('throws ProviderError on response.failed with code and message', async () => {
+    // DEVIATION from brief (documented in task-5-report.md): mockImplementation
+    // instead of mockResolvedValue — a single ReadableStream cannot serve two
+    // drains (the second sees done:true and hits the EOF error path instead).
+    fetchMock.mockImplementation(async () =>
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.failed', {
+          response: { id: 'resp_1', error: { code: 'server_error', message: 'boom' } },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(ProviderError);
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'Responses API error server_error: boom',
+    );
+  });
+
+  it('throws ProviderError when the stream ends without a terminal event', async () => {
+    fetchMock.mockResolvedValue(sse([ev('response.created', { response: { id: 'resp_1' } })]));
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'Responses stream ended without a terminal event',
+    );
+  });
+
+  it('ignores unknown event types and tolerates missing sequence_number', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }), // no sequence_number anywhere
+        { type: 'response.brand_new_event.future', exotic_field: { nested: true } },
+        ev('response.output_text.delta', { delta: 'ok' }),
+        ev('response.completed', { response: { id: 'resp_1' } }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['ok']);
+    expect(result.done?.stopReason).toBe('stop');
+  });
+
+  it('never re-emits response.output items replayed in the terminal event (vLLM #59834 class)', async () => {
+    fetchMock.mockResolvedValue(
+      sse([
+        ev('response.created', { response: { id: 'resp_1' } }),
+        ev('response.output_item.added', {
+          output_index: 0,
+          item: { type: 'function_call', id: 'fc_live', call_id: 'call_live', name: 'lookup' },
+        }),
+        ev('response.function_call_arguments.delta', {
+          item_id: 'fc_live',
+          output_index: 0,
+          delta: '{"q":"x"}',
+        }),
+        // vLLM regenerates item ids in the terminal replay — different id, same content.
+        ev('response.completed', {
+          response: {
+            id: 'resp_1',
+            output: [
+              {
+                type: 'function_call',
+                id: 'fc_REGENERATED',
+                call_id: 'call_live',
+                name: 'lookup',
+                arguments: '{"q":"x"}',
+              },
+            ],
+            usage: { input_tokens: 5, output_tokens: 3 },
+          },
+        }),
+      ]),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.toolStarts).toEqual([{ index: 0, id: 'call_live', name: 'lookup' }]);
+    expect(result.toolArgs).toEqual([{ index: 0, delta: '{"q":"x"}' }]);
+    expect(result.done?.stopReason).toBe('tool_calls');
+  });
+
+  it('forwards abort signal to fetch and cancels reader on generator return', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn(async () => undefined);
+    const releaseLock = vi.fn();
+    const reader = {
+      read: vi.fn(async () => ({
+        done: false,
+        value: new TextEncoder().encode(
+          `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'partial' })}\n`,
+        ),
+      })),
+      cancel,
+      releaseLock,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: { getReader: () => reader },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new OpenAIResponsesProvider();
+    const stream = provider.stream([], [], MODEL, { signal: controller.signal });
+    await expect(stream.next()).resolves.toEqual({
+      done: false,
+      value: { type: 'text_delta', delta: 'partial' },
+    });
+    await stream.return(undefined as never);
+    vi.unstubAllGlobals();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('stops parsing at the terminal event and ignores trailing data ([DONE] sentinel)', async () => {
+    fetchMock.mockResolvedValue(
+      sse(
+        [
+          ev('response.output_text.delta', { delta: 'final' }),
+          ev('response.completed', { response: { id: 'resp_1' } }),
+          ev('response.output_text.delta', { delta: 'GHOST' }), // after terminal
+        ],
+        { withDoneSentinel: true },
+      ),
+    );
+
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+    const result = await drain(provider, [{ role: 'user', content: 'hi' }]);
+
+    expect(result.text).toEqual(['final']);
+  });
+});

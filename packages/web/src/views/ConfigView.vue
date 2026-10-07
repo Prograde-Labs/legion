@@ -40,6 +40,7 @@ function openProvider(p: ProviderConfig | null) {
 
 const typeBadge: Record<string, string> = {
   'openai-compatible': 'bg-green-400/10 text-green-400 border-green-400/20',
+  'openai-responses': 'bg-green-400/10 text-green-400 border-green-400/20',
   anthropic: 'bg-amber-400/10 text-amber-400 border-amber-400/20',
   copilot: 'bg-cyan-400/10 text-cyan-400 border-cyan-400/20',
   codex: 'bg-violet-400/10 text-violet-400 border-violet-400/20',
