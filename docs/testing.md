@@ -81,11 +81,12 @@ Integration tests live alongside unit tests but use the `.integration.test.ts` s
 
 ### Environment variables
 
-| Variable                      | Tests enabled                                                              | Notes                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `LEGION_INTEGRATION=1`        | `LegionProcess.integration.test.ts`, `WebConnector.ws.integration.test.ts` | Starts a real Fastify server on port 3000 — ensure the port is free                                     |
-| `LEGION_MCP_INTEGRATION=1`    | `MCPToolSource.integration.test.ts`                                        | Spawns real MCP subprocess                                                                              |
-| `LEGION_OPENAI_INTEGRATION=1` | `agent-runtime.integration.test.ts`                                        | Requires a live OpenAI-compatible API key; uses `gpt-4o-mini` by default (override with `OPENAI_MODEL`) |
+| Variable                                | Tests enabled                                                              | Notes                                                                                                                                                                                           |
+| --------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LEGION_INTEGRATION=1`                  | `LegionProcess.integration.test.ts`, `WebConnector.ws.integration.test.ts` | Starts a real Fastify server on port 3000 — ensure the port is free                                                                                                                             |
+| `LEGION_MCP_INTEGRATION=1`              | `MCPToolSource.integration.test.ts`                                        | Spawns real MCP subprocess                                                                                                                                                                      |
+| `LEGION_OPENAI_INTEGRATION=1`           | `agent-runtime.integration.test.ts`                                        | Requires a live OpenAI-compatible API key; uses `gpt-4o-mini` by default (override with `OPENAI_MODEL`)                                                                                         |
+| `LEGION_OPENAI_RESPONSES_INTEGRATION=1` | `OpenAIResponsesProvider.integration.test.ts`                              | Requires a live OpenAI API key; exercises the Responses wire (`/responses`); model `gpt-4o-mini` by default (override with `OPENAI_RESPONSES_MODEL`, base URL with `OPENAI_RESPONSES_BASE_URL`) |
 
 ### Running with integration tests
 
