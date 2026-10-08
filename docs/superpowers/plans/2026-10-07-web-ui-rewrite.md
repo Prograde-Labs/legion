@@ -145,7 +145,7 @@ packages/types/src/index.ts                  — (no change expected; types alre
   - `modify_user { id: string; name?: string; operator?: boolean; tools?: Record<string, ToolPolicy> }` → `ToolResult{ status: 'success', data: <updated UserConfig> }`. Full-replacement semantics for `tools` (omit = keep existing, `{}` = clear all, mirroring `modify_agent`). Errors: unknown id, participant is not `type: 'user'`.
   - Passwords are NOT set here — `set_credential` (existing) handles them.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/core/src/tools/user-tools.test.ts` following the `management-tools.test.ts` fixture pattern (`makeContext()` with `MemoryStorage` + `Collective.load` + `seedDefaultsIfEmpty`):
 
@@ -248,12 +248,12 @@ describe('modify_user', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run packages/core/src/tools/user-tools.test.ts`
 Expected: FAIL — cannot resolve `./user-tools.js` (module not found).
 
-- [ ] **Step 3: Implement `user-tools.ts`**
+- [x] **Step 3: Implement `user-tools.ts`**
 
 Create `packages/core/src/tools/user-tools.ts` (note: `.js` import extensions, `import type` for types — this is the house style in every file):
 
@@ -357,17 +357,17 @@ export const modifyUserTool: Tool = {
 export const userTools: Tool[] = [createUserTool, modifyUserTool];
 ```
 
-- [ ] **Step 4: Register + grant to operator**
+- [x] **Step 4: Register + grant to operator**
 
 In `packages/core/src/index.ts`, next to the other tool exports: `export * from './tools/user-tools.js';`
 In `packages/core/src/collective/default-participants.ts`, add `'create_user'` and `'modify_user'` to the `MANAGEMENT_TOOLS` const array (after `'set_credential'`).
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/tools/user-tools.test.ts`
 Expected: PASS (8 tests). Then `npm run typecheck` — expected: 0 errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/core/src/tools/user-tools.ts packages/core/src/tools/user-tools.test.ts \
