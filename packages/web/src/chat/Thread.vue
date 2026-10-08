@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import MessagePart from './MessagePart.vue';
 import ForkControls from './ForkControls.vue';
 import MessageActions from './MessageActions.vue';
+import ApprovalCard from './ApprovalCard.vue';
+import { useApprovals, type PendingApproval } from '../composables/useApprovals.js';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
@@ -18,6 +20,8 @@ const props = defineProps<{ conversationId: string | null }>();
 const emit = defineEmits<{ open: [tool: string, payload: Record<string, unknown>] }>();
 
 const { execute } = useLegionApi();
+
+const approvals = useApprovals();
 
 interface ConversationResponse {
   id: string;
@@ -54,6 +58,31 @@ async function load(): Promise<void> {
     if (seq === loadSeq) loading.value = false;
   }
 }
+
+function approvalsFor(message: MessageWithAlternates): PendingApproval[] {
+  if (!props.conversationId) return [];
+  return approvals.pending.value.filter(
+    (p) =>
+      p.conversationId === props.conversationId &&
+      (message.toolCalls ?? []).some((tc) => tc.name === p.tool),
+  );
+}
+
+function onResolved(approvalId: string): void {
+  approvals.removeLocal(approvalId);
+}
+
+const inlineApprovalIds = computed(
+  () => new Set(messages.value.flatMap((m) => approvalsFor(m).map((a) => a.approvalId))),
+);
+const tailApprovals = computed(() =>
+  props.conversationId
+    ? approvals.pending.value.filter(
+        (p) =>
+          p.conversationId === props.conversationId && !inlineApprovalIds.value.has(p.approvalId),
+      )
+    : [],
+);
 
 // Live tokens: stream the communicate tool the carried-over way. Task 12 wires
 // send/stop; this task renders loaded + streamed state correctly.
@@ -96,19 +125,28 @@ watch(
     <div v-if="error" class="px-4 py-2 text-sm text-danger">{{ error }}</div>
     <div ref="tailEl" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <div class="mx-auto flex max-w-3xl flex-col gap-4">
-        <MessagePart
-          v-for="m in messages"
-          :key="m.id"
-          :message="m"
-          @open="(tool, payload) => emit('open', tool, payload)"
-        >
-          <template v-if="conversationId" #actions="{ message: m }">
-            <div class="mt-1 flex flex-wrap items-center gap-2">
-              <ForkControls :conversation-id="conversationId" :message="m" @switched="load" />
-              <MessageActions :conversation-id="conversationId" :message="m" @mutated="load" />
-            </div>
-          </template>
-        </MessagePart>
+        <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">
+          <MessagePart :message="m" @open="(tool, payload) => emit('open', tool, payload)">
+            <template v-if="conversationId" #actions="{ message: msg }">
+              <div class="mt-1 flex flex-wrap items-center gap-2">
+                <ForkControls :conversation-id="conversationId" :message="msg" @switched="load" />
+                <MessageActions :conversation-id="conversationId" :message="msg" @mutated="load" />
+              </div>
+            </template>
+          </MessagePart>
+          <ApprovalCard
+            v-for="a in approvalsFor(m)"
+            :key="a.approvalId"
+            :approval="a"
+            @resolved="onResolved(a.approvalId)"
+          />
+        </div>
+        <ApprovalCard
+          v-for="a in tailApprovals"
+          :key="a.approvalId"
+          :approval="a"
+          @resolved="onResolved(a.approvalId)"
+        />
         <div v-if="isStreaming" data-test="streaming-part" class="flex flex-col gap-2">
           <MessagePart
             v-if="streamingReasoning || streamingText"

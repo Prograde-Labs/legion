@@ -70,6 +70,9 @@ export function useApprovals() {
     pendingByConversation,
     oldest,
     refresh,
+    removeLocal(approvalId: string): void {
+      pending.value = pending.value.filter((p) => p.approvalId !== approvalId);
+    },
     __setPendingForTests(list: Array<Partial<PendingApproval> & { conversationId: string }>): void {
       pending.value = list.map((p) => ({
         approvalId: p.approvalId ?? `test-${Math.random().toString(36).slice(2)}`,
