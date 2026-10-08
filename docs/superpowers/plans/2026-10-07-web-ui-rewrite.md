@@ -1522,7 +1522,7 @@ git commit -m "feat(web): AppShell nav + approvals badge + account slide-over; d
   - `useParticipants(): { participants: Ref<BaseParticipant[]>; loading: Ref<boolean>; byId(id): BaseParticipant | undefined; load(): Promise<void>; }` — `load()` = `execute<BaseParticipant[]>('list_participants', {})`; `byId` lookup helper.
   - Both export a `__resetForTests()` helper (clears module state) AND `__setConversationsForTests(list)` / `__setParticipantsForTests(list)` (seed module state directly — test files and view tests mount components that read this shared state; helpers live HERE in the composable, never exported from `.vue` SFC files, which cannot carry named exports).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `useConversations.test.ts` (fetch mocked via `vi.stubGlobal`, seeded token like Task 6):
 
@@ -1603,12 +1603,12 @@ describe('useConversations', () => {
 
 `useParticipants.test.ts` — same pattern: assert `load()` populates `participants`, `byId` finds/misses correctly, module state is shared across `useParticipants()` calls.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/composables/useConversations.test.ts src/composables/useParticipants.test.ts`
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Implement both composables**
+- [x] **Step 3: Implement both composables**
 
 `useConversations.ts` core shape (implementation follows the module-scoped pattern proven in `useAuth.ts`):
 
@@ -1668,12 +1668,12 @@ export function useConversations() {
 
 (Note: return `conversations` as the filtered computed so list consumers never re-implement search; keep raw list internal. `useParticipants.ts` is structurally identical with `list_participants` and a `byId` computed map.)
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS — new tests green, no regressions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/web/src/composables/useConversations.ts packages/web/src/composables/useConversations.test.ts \
