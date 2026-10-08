@@ -16,15 +16,26 @@ const editing = ref(false);
 const draft = ref('');
 const confirmingPrune = ref(false);
 const busy = ref(false);
+const error = ref<string | null>(null);
+
+// Menu toggle doubles as the error-dismiss: closing the menu clears a stale
+// error (mirrors ApprovalCard's clear-on-next-action pattern).
+function toggleMenu(): void {
+  open.value = !open.value;
+  if (!open.value) error.value = null;
+}
 
 async function run(action: () => Promise<unknown>): Promise<void> {
   busy.value = true;
+  error.value = null;
   try {
     await action();
     open.value = false;
     editing.value = false;
     confirmingPrune.value = false;
     emit('mutated');
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
   } finally {
     busy.value = false;
   }
@@ -34,6 +45,7 @@ function startEdit(): void {
   draft.value = props.message.content ?? '';
   editing.value = true;
   open.value = false;
+  error.value = null;
 }
 
 function saveEdit(): void {
@@ -68,7 +80,7 @@ function prune(): void {
       data-test="actions-toggle"
       class="rounded px-1 text-xs text-faint hover:bg-surface hover:text-accent"
       aria-label="Message actions"
-      @click="open = !open"
+      @click="toggleMenu"
     >
       ⋯
     </button>
@@ -105,6 +117,7 @@ function prune(): void {
         {{ confirmingPrune ? 'Confirm prune' : 'Prune' }}
       </button>
     </div>
+    <div v-if="error" data-test="actions-error" class="px-1 text-xs text-danger">{{ error }}</div>
     <div v-if="editing" data-test="edit-area" class="flex w-full flex-col gap-1">
       <textarea
         v-model="draft"

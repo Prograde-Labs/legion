@@ -35,6 +35,7 @@ const error = ref<string | null>(null);
 const streamingText = ref('');
 const streamingReasoning = ref('');
 const isStreaming = ref(false);
+const streamError = ref<string | null>(null);
 const tailEl = ref<HTMLElement | null>(null);
 let loadSeq = 0;
 
@@ -87,22 +88,39 @@ const tailApprovals = computed(() =>
 // Live tokens: stream the communicate tool the carried-over way. Task 12 wires
 // send/stop; this task renders loaded + streamed state correctly.
 let pendingArgs: { to: string; message: string } = { to: '', message: '' };
-useToolStream('communicate', () => pendingArgs, {
+const stream = useToolStream('communicate', () => pendingArgs, {
   cancelOnUnmount: false,
   onChunk: (chunk: StreamChunk) => {
     if (chunk.type === 'iteration_start') {
+      isStreaming.value = true;
+      streamError.value = null;
       streamingText.value = '';
       streamingReasoning.value = '';
     } else if (chunk.type === 'message_snapshot') {
+      isStreaming.value = true;
       streamingText.value = chunk.content;
       streamingReasoning.value = chunk.reasoning ?? '';
     } else if (chunk.type === 'text_delta') {
+      isStreaming.value = true;
       streamingText.value += chunk.delta;
     } else if (chunk.type === 'stream:done' || chunk.type === 'stream:error') {
       isStreaming.value = false;
       void load();
     }
   },
+});
+
+// stream:done / stream:error are lifecycle chunks consumed inside useToolStream
+// (they never reach onChunk), so surface its error ref here; cleared on the
+// next iteration_start above.
+watch(stream.error, (err) => {
+  if (err) streamError.value = err;
+});
+
+// Step 3d: ChatView's Composer Stop glue calls this to cancel the in-flight
+// communicate stream (useToolStream.cancel()).
+defineExpose({
+  cancelStream: (): Promise<void> => stream.cancel(),
 });
 
 watch(
@@ -123,6 +141,9 @@ watch(
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <div v-if="error" class="px-4 py-2 text-sm text-danger">{{ error }}</div>
+    <div v-if="streamError" data-test="stream-error" class="px-4 py-2 text-sm text-danger">
+      {{ streamError }}
+    </div>
     <div ref="tailEl" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <div class="mx-auto flex max-w-3xl flex-col gap-4">
         <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">

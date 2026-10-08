@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ConversationList from './ConversationList.vue';
+import Thread from './Thread.vue';
+import Composer from './Composer.vue';
 import { useConversations } from '../composables/useConversations.js';
 import { useReadState } from '../composables/useReadState.js';
 import { useApprovals } from '../composables/useApprovals.js';
@@ -46,6 +48,39 @@ watch(
 function onSelect(id: string | null): void {
   void router.push(id ? `/chat/${id}` : '/chat');
 }
+
+// Ref values nested in a template expression do not auto-unwrap (only top-level
+// bindings do), so bind the thread/composer through this computed.
+const activeId = computed(() => store.activeId.value);
+
+// TODO(task-13/14): recipient selection via @-mentions/dock targeting. The send
+// path is real; the default routes to agent-a like the e2e flow does today.
+const recipientId = ref<string | null>('agent-a');
+
+// Composer Stop flag; Thread owns its internal isStreaming (not cross-wired in
+// this slice — 12c keeps the two states independent).
+const streaming = ref(false);
+const branchLabel = ref<string | undefined>(undefined);
+
+// Thread exposes cancelStream (step 3d) so Composer's Stop also cancels the
+// in-flight communicate stream via useToolStream.cancel().
+const threadRef = ref<InstanceType<typeof Thread> | null>(null);
+
+function onSent(conversationId: string | null): void {
+  void conversationId; // Thread reloads via its own stream:done path
+}
+
+async function onStop(): Promise<void> {
+  streaming.value = false;
+  await threadRef.value?.cancelStream();
+}
+
+// Thread `open` events (ToolCallChip inspect, Task 7) have no consumer yet —
+// Task 13 mounts DockPanel here. Dead end by design in this slice.
+function onToolOpen(tool: string, payload: Record<string, unknown>): void {
+  void tool;
+  void payload;
+}
 </script>
 
 <template>
@@ -78,7 +113,15 @@ function onSelect(id: string | null): void {
         </button>
         <span class="text-sm text-muted">Conversations</span>
       </header>
-      <div class="min-h-0 flex-1" data-test="thread-placeholder" />
+      <Thread ref="threadRef" :conversation-id="activeId" @open="onToolOpen" />
+      <Composer
+        :conversation-id="activeId"
+        :recipient-id="recipientId"
+        :branch-label="branchLabel"
+        :streaming="streaming"
+        @sent="onSent"
+        @stop="onStop"
+      />
     </div>
   </div>
 </template>

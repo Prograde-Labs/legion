@@ -58,4 +58,23 @@ describe('MessageActions', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).tool).toBe('generate');
     expect(wrapper.emitted('mutated')).toBeTruthy();
   });
+
+  it('failed edit surfaces the tool error and does not emit mutated', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ result: { status: 'error', error: 'locked' } }), {
+          status: 200,
+        }),
+      ),
+    );
+    const wrapper = mount(MessageActions, { props: { conversationId: 'c1', message } });
+    await wrapper.find('[data-test="actions-toggle"]').trigger('click');
+    await wrapper.find('[data-test="action-edit"]').trigger('click');
+    await wrapper.find('[data-test="edit-textarea"]').setValue('rewritten');
+    await wrapper.find('[data-test="edit-save"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-test="actions-error"]').text()).toContain('locked');
+    expect(wrapper.emitted('mutated')).toBeUndefined();
+  });
 });
