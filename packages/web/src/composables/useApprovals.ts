@@ -1,21 +1,37 @@
-import { ref, type Ref } from 'vue';
+import { computed, ref, type ComputedRef } from 'vue';
 
 // TODO(task-12): TEMPORARY stub — Task 12 replaces this file wholesale
 // (KEEPING the `__setPendingForTests` helper name).
-const pendingCount: Ref<number> = ref(0);
-const oldest: Ref<{ conversationId: string } | null> = ref(null);
+interface PendingApproval {
+  conversationId: string;
+  approvalId?: string;
+}
+
+// Single module-scoped pending list; count/oldest/by-conversation are all derived.
+const pending = ref<PendingApproval[]>([]);
+
+const pendingCount: ComputedRef<number> = computed(() => pending.value.length);
+const oldest: ComputedRef<PendingApproval | null> = computed(() => pending.value[0] ?? null);
+const pendingByConversation: ComputedRef<Map<string, number>> = computed(() => {
+  const map = new Map<string, number>();
+  for (const p of pending.value) {
+    map.set(p.conversationId, (map.get(p.conversationId) ?? 0) + 1);
+  }
+  return map;
+});
 
 export function useApprovals(): {
-  pendingCount: Ref<number>;
-  oldest: Ref<{ conversationId: string } | null>;
-  __setPendingForTests(list: Array<{ conversationId: string }>): void;
+  pendingCount: ComputedRef<number>;
+  oldest: ComputedRef<PendingApproval | null>;
+  pendingByConversation: ComputedRef<Map<string, number>>;
+  __setPendingForTests(list: Array<PendingApproval>): void;
 } {
   return {
     pendingCount,
     oldest,
-    __setPendingForTests(list: Array<{ conversationId: string }>): void {
-      pendingCount.value = list.length;
-      oldest.value = list.length > 0 ? (list[0] ?? null) : null;
+    pendingByConversation,
+    __setPendingForTests(list: Array<PendingApproval>): void {
+      pending.value = list;
     },
   };
 }
