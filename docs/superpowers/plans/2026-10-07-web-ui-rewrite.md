@@ -2880,7 +2880,7 @@ git commit -m "feat(web): draft conversation flow + login re-skin (spec §4.4)"
 - Consumes: everything before it.
 - Produces: a clean tree — no dead modules, no raw colors outside `theme/`. This is the task that makes "one coherent visual system" true (spec §1 success criteria).
 
-- [ ] **Step 1: Verify zero importers before each deletion**
+- [x] **Step 1: Verify zero importers before each deletion**
 
 ```bash
 grep -rn "useExecute" packages/web/src --include="*.ts" --include="*.vue" | grep -v "composables/useExecute"
@@ -2889,16 +2889,16 @@ grep -rn "components/layout" packages/web/src --include="*.ts" --include="*.vue"
 
 Each must return nothing (or only the deletion-candidate lines). If an importer survives, fix it to use the replacement FIRST, in this same task.
 
-- [ ] **Step 2: Delete + sweep**
+- [x] **Step 2: Delete + sweep**
 
 Delete the files; run both greps from the task description; fix any stragglers.
 
-- [ ] **Step 3: Full web test suite + build**
+- [x] **Step 3: Full web test suite + build**
 
 Run: `npm run test --workspace=packages/web && npm run build --workspace=packages/web`
 Expected: PASS / build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A packages/web
