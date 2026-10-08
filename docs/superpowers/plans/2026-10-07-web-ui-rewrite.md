@@ -2411,7 +2411,7 @@ git commit -m "feat(web): Participants master-detail + agent editor (spec §6.1)
   - Retire guard rules (spec §6.1, implement as a computed): hidden when `participant.protected === true`; disabled (tooltip "cannot retire yourself") when `participantId === myParticipantId`; disabled (tooltip "last active operator") when `participant.operator && participants.filter(p => p.type === 'user' && p.operator && p.status === 'active').length <= 1`.
   - "＋ New user" button on ParticipantsList (mirror of new-agent) → UserEditor `new` mode → `create_user` (+ optional immediate `set_credential`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `UserEditor.test.ts`:
 
@@ -2497,22 +2497,22 @@ describe('UserEditor', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/views/UserEditor.test.ts`
 Expected: FAIL — component not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Extract `components/common/ApprovalAuthorityEditor.vue` (props `modelValue: ApprovalAuthority | null`, wildcard toggle + per-tool booleans + participant-id list; emits `update:modelValue`) and refactor AgentEditor to use it — one shared editor, both consumers (spec §6.1 lists authority on both editors).
 - Implement UserEditor per Interfaces; the three retire guards are pure computeds over `useParticipants().participants` + `useAuth().participantId` — test the third rule by seeding two operator users and flipping one to `status: 'retired'`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
