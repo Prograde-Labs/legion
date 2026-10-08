@@ -56,5 +56,13 @@ function modelLabel(p: { type: string; model?: { model?: string } }): string {
     >
       ＋ New agent
     </button>
+    <button
+      type="button"
+      data-test="new-user"
+      class="border-t border-line px-3 py-2 text-left text-sm text-accent hover:bg-surface"
+      @click="emit('select', 'new-user')"
+    >
+      ＋ New user
+    </button>
   </div>
 </template>

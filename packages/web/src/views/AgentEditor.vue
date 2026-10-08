@@ -6,6 +6,7 @@ import ToolPolicyEditor, {
   type ToolOverride,
 } from '../components/participants/ToolPolicyEditor.vue';
 import MiddlewareEditor from '../components/participants/MiddlewareEditor.vue';
+import ApprovalAuthorityEditor from '../components/common/ApprovalAuthorityEditor.vue';
 import type { MiddlewareInstanceConfig } from '@legion-collective/types';
 
 const props = defineProps<{ participantId: string | 'new' }>();
@@ -24,8 +25,7 @@ const availableTools = ref<string[]>([]);
 const modelOptions = ref<{ provider: string; model: { model: string } }[]>([]);
 const middleware = ref<MiddlewareInstanceConfig[]>([]);
 const middlewareDefinitions = ref<never[]>([]);
-const authorityWildcard = ref(false);
-const authorityTools = ref<Record<string, boolean>>({});
+const authorityModel = ref<{ tools?: Record<string, boolean> | '*' } | null>(null);
 const loaded = ref<{ protected?: boolean } | null>(null);
 const error = ref<string | null>(null);
 const busy = ref(false);
@@ -73,8 +73,8 @@ async function load(): Promise<void> {
     }));
     middleware.value = (p['middleware'] as MiddlewareInstanceConfig[]) ?? [];
     const authority = p['approvalAuthority'] as { tools?: Record<string, boolean> | '*' } | null;
-    authorityWildcard.value = authority?.tools === '*';
-    authorityTools.value = authority?.tools === '*' ? {} : (authority?.tools ?? {});
+    authorityModel.value =
+      authority?.tools === '*' ? { tools: '*' } : { tools: authority?.tools ?? {} };
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }
@@ -141,7 +141,7 @@ async function saveAuthority(): Promise<void> {
   try {
     await execute('set_approval_authority', {
       participantId: props.participantId,
-      authority: authorityWildcard.value ? { tools: '*' } : { tools: authorityTools.value },
+      authority: authorityModel.value ?? { tools: {} },
     });
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -251,16 +251,7 @@ const groupedModels = computed(() => {
     </div>
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>
-      <label class="flex items-center gap-2 text-xs">
-        <input v-model="authorityWildcard" type="checkbox" data-test="authority-wildcard" />
-        May approve any tool (wildcard)
-      </label>
-      <div v-if="!authorityWildcard" class="flex flex-col gap-1">
-        <label v-for="t in availableTools" :key="t" class="flex items-center gap-2 text-xs">
-          <input v-model="authorityTools[t]" type="checkbox" :data-test="`authority-tool-${t}`" />
-          <span class="font-mono">{{ t }}</span>
-        </label>
-      </div>
+      <ApprovalAuthorityEditor v-model="authorityModel" :available-tools="availableTools" />
       <button
         type="button"
         data-test="authority-save"

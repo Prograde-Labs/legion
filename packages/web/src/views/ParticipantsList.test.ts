@@ -57,4 +57,10 @@ describe('ParticipantsList', () => {
     await wrapper.find('[data-test="new-agent"]').trigger('click');
     expect(wrapper.emitted('select')?.[0]).toEqual(['new']);
   });
+
+  it('emits select new-user for the new-user button', async () => {
+    const wrapper = mount(ParticipantsList);
+    await wrapper.find('[data-test="new-user"]').trigger('click');
+    expect(wrapper.emitted('select')?.[0]).toEqual(['new-user']);
+  });
 });

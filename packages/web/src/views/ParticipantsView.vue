@@ -4,14 +4,16 @@ import { useParticipants } from '../composables/useParticipants.js';
 import { useParticipantSelection } from './useParticipantSelection.js';
 import ParticipantsList from './ParticipantsList.vue';
 import AgentEditor from './AgentEditor.vue';
+import UserEditor from './UserEditor.vue';
 
 const { byId, load } = useParticipants();
 const { selectedId, select } = useParticipantSelection();
 
 const selected = computed(() => (selectedId.value ? byId(selectedId.value) : undefined));
 
-const detailKind = computed<'new' | 'agent' | 'user' | 'other' | 'none'>(() => {
+const detailKind = computed<'new' | 'new-user' | 'agent' | 'user' | 'other' | 'none'>(() => {
   if (selectedId.value === 'new') return 'new';
+  if (selectedId.value === 'new-user') return 'new-user';
   const p = selected.value;
   if (!p) return selectedId.value ? 'other' : 'none';
   if (p.type === 'agent') return 'agent';
@@ -72,13 +74,19 @@ function onRetired(): void {
         @saved="onSaved"
         @retired="onRetired"
       />
-      <div
+      <UserEditor
         v-else-if="detailKind === 'user'"
-        data-test="user-editor-placeholder"
-        class="p-6 text-sm text-faint"
-      >
-        User editor lands in the next milestone (Task 15)
-      </div>
+        :key="selectedId ?? undefined"
+        :participant-id="selectedId!"
+        @saved="onSaved"
+        @retired="onRetired"
+      />
+      <UserEditor
+        v-else-if="detailKind === 'new-user'"
+        participant-id="new"
+        @saved="onSaved"
+        @retired="onRetired"
+      />
       <dl
         v-else-if="detailKind === 'other' && selected"
         data-test="participant-detail"
