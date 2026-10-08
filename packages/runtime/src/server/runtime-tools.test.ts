@@ -44,6 +44,7 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
     },
     pendingApprovalRegistry: makeApprovalRegistry(),
     getMCPServers: async () => [],
+    saveMCPServers: async () => {},
     ...overrides,
   };
 }
@@ -75,6 +76,7 @@ describe('runtime tools', () => {
       'save_routing',
       'list_pending_approvals',
       'list_mcp_sources',
+      'save_mcp_sources',
     ]);
     expect(tools.some((t) => t.name === 'set_credential_with_meta')).toBe(false);
     expect(tools.some((t) => t.name === 'list_credentials')).toBe(false);
@@ -304,5 +306,63 @@ describe('mcp source tools', () => {
     const result = await tool.execute({}, makeContext());
     expect(result.status).toBe('success');
     expect(result.data).toEqual(servers);
+  });
+
+  it('save_mcp_sources persists a valid full list', async () => {
+    let stored: unknown[] = [];
+    const tools = createRuntimeTools(makeDeps({ saveMCPServers: async (s) => void (stored = s) }));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      {
+        servers: [
+          { name: 'fs', command: 'npx' },
+          { name: 'http-one', url: 'http://localhost:3000/mcp' },
+        ],
+      },
+      makeContext(),
+    );
+    expect(result.status).toBe('success');
+    expect(stored.length).toBe(2);
+  });
+
+  it('save_mcp_sources rejects entries without name', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute({ servers: [{ command: 'npx' }] }, makeContext());
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('name');
+  });
+
+  it('save_mcp_sources rejects entries with both command and url', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      { servers: [{ name: 'x', command: 'npx', url: 'http://x' }] },
+      makeContext(),
+    );
+    expect(result.status).toBe('error');
+  });
+
+  it('save_mcp_sources rejects duplicate names', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      {
+        servers: [
+          { name: 'x', command: 'a' },
+          { name: 'x', command: 'b' },
+        ],
+      },
+      makeContext(),
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('duplicate');
+  });
+
+  it('save_mcp_sources rejects non-array payloads', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute({ servers: 'nope' }, makeContext());
+    expect(result.status).toBe('error');
   });
 });

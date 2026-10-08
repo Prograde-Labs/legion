@@ -16,6 +16,7 @@ interface RuntimeToolDeps {
   saveWorkspaceRouting: (routing: RoutingConfig) => Promise<void>;
   pendingApprovalRegistry: PendingApprovalRegistry;
   getMCPServers: () => Promise<MCPServerConfig[]>;
+  saveMCPServers: (servers: MCPServerConfig[]) => Promise<void>;
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
@@ -27,6 +28,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
     saveWorkspaceRouting,
     pendingApprovalRegistry,
     getMCPServers,
+    saveMCPServers,
   } = deps;
 
   return [
@@ -194,6 +196,56 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       execute: async (): Promise<ToolResult> => {
         try {
           return { status: 'success', data: await getMCPServers() };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'save_mcp_sources',
+      description:
+        'Replace ALL MCP server declarations in the workspace config. Takes effect after restart.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servers: {
+            type: 'array',
+            description:
+              'Full replacement list of MCPServerConfig entries (name required; command for stdio or url for HTTP).',
+            items: { type: 'object' },
+          },
+        },
+        required: ['servers'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          const { servers } = rawArgs as { servers: unknown };
+          if (!Array.isArray(servers)) throw new Error('servers must be an array');
+          const seen = new Set<string>();
+          const validated: MCPServerConfig[] = servers.map((entry, index) => {
+            const server = entry as Partial<MCPServerConfig>;
+            if (typeof server.name !== 'string' || server.name.trim().length === 0) {
+              throw new Error(`servers[${index}].name must be a non-empty string`);
+            }
+            if (seen.has(server.name)) {
+              throw new Error(`duplicate MCP server name: ${server.name}`);
+            }
+            seen.add(server.name);
+            if (server.command !== undefined && server.url !== undefined) {
+              throw new Error(
+                `servers[${index}] (${server.name}): command and url are mutually exclusive`,
+              );
+            }
+            if (server.command === undefined && server.url === undefined) {
+              throw new Error(
+                `servers[${index}] (${server.name}): needs either command (stdio) or url (HTTP)`,
+              );
+            }
+            return server as MCPServerConfig;
+          });
+          await saveMCPServers(validated);
+          return { status: 'success', data: { saved: validated.length } };
         } catch (err) {
           return toErrorResult(err);
         }

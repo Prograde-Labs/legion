@@ -59,6 +59,7 @@ import {
 import type {
   ConversationData,
   LocalConfig,
+  MCPServerConfig,
   RoutingConfig,
   SystemConfig,
   ToolResult,
@@ -253,6 +254,12 @@ export class LegionProcess {
       saveWorkspaceRouting,
       pendingApprovalRegistry,
       getMCPServers: () => Promise.resolve(structuredClone(mergedConfig.mcpServers ?? [])),
+      saveMCPServers: async (servers: MCPServerConfig[]) => {
+        const configPath = join(workspaceRoot, '.legion', 'config.json');
+        const current = await loadWorkspaceConfig(workspaceRoot);
+        current.mcpServers = servers;
+        await writeJsonFile(configPath, current);
+      },
     });
     for (const tool of runtimeTools) {
       toolRegistry.register(tool);
@@ -410,6 +417,7 @@ const RUNTIME_TOOL_NAMES = [
   'save_routing',
   'list_pending_approvals',
   'list_mcp_sources',
+  'save_mcp_sources',
   'list_middleware',
   'list_skills',
 ] as const;
