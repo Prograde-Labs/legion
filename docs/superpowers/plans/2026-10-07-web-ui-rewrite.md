@@ -938,7 +938,7 @@ git commit -m "feat(runtime): list_mcp_sources + save_mcp_sources tools (spec §
 - Command-deck values (from the approved mockup, `.superpowers/brainstorm/700951-1791410143/content/04-visual-style.html` style card B): bg `#0a0e1a`, surface `#101828`, surface-raised `#0d1424`, border `#1e2d4d`, border-strong `#38e1ff33`, text `#c9d6ea`, text-muted `#5f7392`, text-faint `#3d4f6b`, accent `#38e1ff`, accent-strong `#7deaff`, accent-soft `rgba(56,225,255,.12)`, on-accent `#05080f`, danger `#ff6b6b`, warning `#ffb454`, success `#4ade80`, `--font-mono: 'JetBrains Mono', ui-monospace, monospace`, `--font-sans: 'Inter', system-ui, sans-serif`.
 - Blueprint-light (mockup `05-light-theme.html` direction): bg paper `#fafbfc`, surface `#ffffff`, border `#dde3ea`, text `#1a2332`, same cyan family accent `#0891b2` (darker cyan for contrast on light), mono where it reads well (tool surfaces stay `--font-mono`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/web/src/theme/useTheme.test.ts`:
 
@@ -986,12 +986,12 @@ describe('useTheme', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/theme/useTheme.test.ts`
 Expected: FAIL — `./useTheme.js` not found.
 
-- [ ] **Step 3: Implement the token files**
+- [x] **Step 3: Implement the token files**
 
 `packages/web/src/theme/tokens.css`:
 
@@ -1107,7 +1107,7 @@ export function useTheme() {
 }
 ```
 
-- [ ] **Step 4: Wire into the app**
+- [x] **Step 4: Wire into the app**
 
 In `packages/web/src/assets/style.css`, replace the `@theme { --color-navy-… }` block with:
 
@@ -1126,12 +1126,12 @@ useTheme().initTheme();
 
 Note: Tailwind 4's `@theme inline` maps utility names to the CSS variables so runtime theme switches are pure variable redefinitions — no rebuild, no class swap (spec §3.4). If `@theme inline` is not supported by the installed Tailwind version, use plain `@theme` and verify in the browser that switching `data-theme` re-themes; the mechanism is what matters, the exact at-rule is the implementation detail. Components must reference utilities like `bg-surface text-ink border-line` or `var(--color-…)` — never hex.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web -- src/theme/useTheme.test.ts`
 Expected: PASS (4 tests). Also `npm run build --workspace=packages/web` once to prove Tailwind accepts the token files — expected: build succeeds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/web/src/theme packages/web/src/assets/style.css packages/web/src/main.ts
