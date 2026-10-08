@@ -1951,7 +1951,7 @@ git commit -m "feat(web): typed-part Thread + renderer registry (spec §4.2)"
   - `ForkControls.vue` — props `{ conversationId: string; message: { id: string; alternates?: Array<{ id: string; content: string }> } }`; renders `‹ 1/2 ›` pager + branch marker chip listing sibling branch names; emits `switch(messageId)`; internally calls `switch_branch` then re-emits `switched` so Thread reloads the chain (ChatGPT-regenerate pattern; NO header branch dropdown — spec §4.3).
   - `MessageActions.vue` — hover menu with Edit (inline textarea → `edit_message`), Re-run (`generate`), Create-branch note (edit IS branch creation; the menu labels it "Edit as new branch"), Prune (`prune_message` with confirm). Emits `mutated` after any action; Thread reloads on `mutated`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `ForkControls.test.ts`:
 
@@ -2003,23 +2003,23 @@ describe('ForkControls', () => {
 
 `MessageActions.test.ts` — same fixture style: assert Edit flow calls `edit_message` with the new content; Prune shows a confirm step and then calls `prune_message`; `mutated` emitted after each success.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/chat/ForkControls.test.ts src/chat/MessageActions.test.ts`
 Expected: FAIL — components not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - `ForkControls.vue`: index state = which alternate is active (0 = the message itself, 1..n = alternates); `‹`/`›` cycle; on change → `execute('switch_branch', { conversationId, messageId: targetId })` → emit `switched`. Branch marker chip: lists alternates by truncated content; click jumps directly.
 - `MessageActions.vue`: dropdown on hover button (`⋯`); Edit opens inline textarea pre-filled with content; Save → `edit_message` → emit `mutated`; Re-run → `generate { conversationId }` → emit `mutated`; Prune → confirm → `prune_message { conversationId, messageId }` → emit `mutated`.
 - Thread integration: render `<ForkControls>` under a message whenever `message.alternates?.length` (listening for `switched` → reload chain); mount `MessageActions` in the `actions` slot from Task 10.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
