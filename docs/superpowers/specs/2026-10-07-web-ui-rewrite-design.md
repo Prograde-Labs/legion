@@ -226,14 +226,14 @@ Carried over plus one new section:
 The rewrite is web-only except for six new tools, all ordinary authorized tool
 calls consistent with the v2 philosophy (no separate permission layer):
 
-| Package  | Tool                   | Purpose                                        |
-| -------- | ---------------------- | ---------------------------------------------- |
-| core     | `create_user`          | create user participants                       |
-| core     | `modify_user`          | edit user participants                         |
-| core     | `set_approval_authority` | set approval authority on any participant     |
-| runtime  | `list_pending_approvals` | badge state across reloads (wraps `PendingApprovalRegistry.listPending`) |
-| runtime  | `list_mcp_sources`     | read MCP server declarations                   |
-| runtime  | `save_mcp_sources`     | edit MCP server declarations                   |
+| Package | Tool                     | Purpose                                                                  |
+| ------- | ------------------------ | ------------------------------------------------------------------------ |
+| core    | `create_user`            | create user participants                                                 |
+| core    | `modify_user`            | edit user participants                                                   |
+| core    | `set_approval_authority` | set approval authority on any participant                                |
+| runtime | `list_pending_approvals` | badge state across reloads (wraps `PendingApprovalRegistry.listPending`) |
+| runtime | `list_mcp_sources`       | read MCP server declarations                                             |
+| runtime | `save_mcp_sources`       | edit MCP server declarations                                             |
 
 Notes: `set_credential` already exists (passwords); the operator's tool policy
 must list the new tools for the web user; everything else the UI needs already
