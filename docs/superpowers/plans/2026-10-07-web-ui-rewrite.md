@@ -389,7 +389,7 @@ git commit -m "feat(core): create_user + modify_user tools (spec §7)"
 - Consumes: `Collective.update` (existing), `ApprovalAuthority` (types, existing: `{ tools?: Record<string, boolean> | '*'; participants?: string[] | '*' }`), `createUserTool` (Task 1) for test fixtures.
 - Produces: `export const setApprovalAuthorityTool: Tool` — `set_approval_authority { participantId: string; authority: ApprovalAuthority | null }` -> `ToolResult{ status: 'success', data: { participantId, authority } }`. `null` clears the authority. Works on ANY participant type (spec §6.1: agent editor AND user editor expose it). Errors: unknown participant id, malformed authority. Tasks 15/16 consume this contract.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/core/src/tools/approval-authority-tool.test.ts`:
 
@@ -482,12 +482,12 @@ describe('set_approval_authority', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run packages/core/src/tools/approval-authority-tool.test.ts`
 Expected: FAIL — cannot resolve `./approval-authority-tool.js`.
 
-- [ ] **Step 3: Implement `approval-authority-tool.ts`**
+- [x] **Step 3: Implement `approval-authority-tool.ts`**
 
 ```typescript
 import type { ApprovalAuthority, ToolResult } from '@legion-collective/types';
@@ -573,17 +573,17 @@ export const setApprovalAuthorityTool: Tool = {
 };
 ```
 
-- [ ] **Step 4: Register + grant to operator**
+- [x] **Step 4: Register + grant to operator**
 
 In `packages/core/src/index.ts`: `export * from './tools/approval-authority-tool.js';`
 In `packages/core/src/collective/default-participants.ts`, add `'set_approval_authority'` to `MANAGEMENT_TOOLS`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run packages/core/src/tools/approval-authority-tool.test.ts`
 Expected: PASS (5 tests). Then `npm run typecheck` — 0 errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/core/src/tools/approval-authority-tool.ts \
