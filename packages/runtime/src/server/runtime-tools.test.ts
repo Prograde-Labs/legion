@@ -43,6 +43,7 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
       Object.assign(workspaceRouting, routing);
     },
     pendingApprovalRegistry: makeApprovalRegistry(),
+    getMCPServers: async () => [],
     ...overrides,
   };
 }
@@ -73,6 +74,7 @@ describe('runtime tools', () => {
       'get_routing',
       'save_routing',
       'list_pending_approvals',
+      'list_mcp_sources',
     ]);
     expect(tools.some((t) => t.name === 'set_credential_with_meta')).toBe(false);
     expect(tools.some((t) => t.name === 'list_credentials')).toBe(false);
@@ -291,5 +293,16 @@ describe('list_pending_approvals', () => {
     const data = result.data as Array<{ conversationId: string }>;
     expect(data.length).toBe(1);
     expect(data[0].conversationId).toBe('conv-1');
+  });
+});
+
+describe('mcp source tools', () => {
+  it('list_mcp_sources returns the configured servers', async () => {
+    const servers = [{ name: 'fs', command: 'npx', args: ['-y', '@mcp/fs'] }];
+    const tools = createRuntimeTools(makeDeps({ getMCPServers: async () => servers }));
+    const tool = tools.find((t) => t.name === 'list_mcp_sources')!;
+    const result = await tool.execute({}, makeContext());
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual(servers);
   });
 });

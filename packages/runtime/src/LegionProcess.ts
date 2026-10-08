@@ -252,6 +252,7 @@ export class LegionProcess {
       saveSystemRouting,
       saveWorkspaceRouting,
       pendingApprovalRegistry,
+      getMCPServers: () => Promise.resolve(structuredClone(mergedConfig.mcpServers ?? [])),
     });
     for (const tool of runtimeTools) {
       toolRegistry.register(tool);
@@ -408,6 +409,7 @@ const RUNTIME_TOOL_NAMES = [
   'get_routing',
   'save_routing',
   'list_pending_approvals',
+  'list_mcp_sources',
   'list_middleware',
   'list_skills',
 ] as const;

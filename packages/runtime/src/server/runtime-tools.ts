@@ -1,4 +1,5 @@
 import type {
+  MCPServerConfig,
   ProviderConfig,
   ProviderModel,
   RoutingConfig,
@@ -14,6 +15,7 @@ interface RuntimeToolDeps {
   saveSystemRouting: (routing: RoutingConfig) => Promise<void>;
   saveWorkspaceRouting: (routing: RoutingConfig) => Promise<void>;
   pendingApprovalRegistry: PendingApprovalRegistry;
+  getMCPServers: () => Promise<MCPServerConfig[]>;
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
@@ -24,6 +26,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
     saveSystemRouting,
     saveWorkspaceRouting,
     pendingApprovalRegistry,
+    getMCPServers,
   } = deps;
 
   return [
@@ -177,6 +180,20 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           const { conversationId } = (rawArgs ?? {}) as { conversationId?: string };
           const pending = pendingApprovalRegistry.listPending(conversationId);
           return { status: 'success', data: pending };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'list_mcp_sources',
+      description:
+        'List MCP server declarations the process was started with (from workspace config).',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: async (): Promise<ToolResult> => {
+        try {
+          return { status: 'success', data: await getMCPServers() };
         } catch (err) {
           return toErrorResult(err);
         }
