@@ -2819,7 +2819,7 @@ git commit -m "feat(web): MCP sources editor on Config page (spec §6.3, §7)"
 - Consumes: Task 9 layout, Task 12 Composer, existing login mechanics.
 - Produces: `/chat` (no id) with no conversation selected on desktop shows the recipient picker (SearchableCombobox over active agents, carried over) + Composer underneath; on mobile it's the drawer-first empty state. Sending from draft → `communicate` creates the conversation → router replaces to `/chat/<newId>` (existing `sent(conversationId)` event path).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```typescript
 // appended to packages/web/src/chat/ChatView.test.ts
@@ -2844,21 +2844,21 @@ describe('draft flow', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/chat/ChatView.test.ts`
 Expected: FAIL — draft UI not implemented.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Wire the draft state in ChatView (recipient ref → Composer props; `@sent` → `router.replace`); re-skin LoginView with token utilities only (keep the `autocomplete` attributes and button text byte-identical for e2e stability).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
