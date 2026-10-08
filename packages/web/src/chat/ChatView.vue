@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ConversationList from './ConversationList.vue';
 import { useConversations } from '../composables/useConversations.js';
+import { useReadState } from '../composables/useReadState.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -15,7 +16,11 @@ watch(
   () => route.params.id as string | undefined,
   (id) => {
     store.select(id ?? null);
-    if (id) drawerOpen.value = false;
+    if (id) {
+      drawerOpen.value = false;
+      // Reading a conversation marks it read (spec §4.1 unread dot clears).
+      useReadState().markRead(id);
+    }
   },
   { immediate: true },
 );

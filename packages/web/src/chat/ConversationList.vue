@@ -2,10 +2,12 @@
 import { computed } from 'vue';
 import { useConversations } from '../composables/useConversations.js';
 import { useApprovals } from '../composables/useApprovals.js';
+import { useReadState } from '../composables/useReadState.js';
 import { useAuth } from '../composables/useAuth.js';
 
 const store = useConversations();
 const approvals = useApprovals();
+const { isUnread } = useReadState();
 const { participantId } = useAuth();
 
 const emit = defineEmits<{ select: [id: string | null] }>();
@@ -27,11 +29,11 @@ function timeAgo(iso: string): string {
   return `${days}d`;
 }
 
-function initials(names: string[]): string[] {
-  return names
+function initials(participants: string[]): Array<{ id: string; text: string }> {
+  return participants
     .filter((p) => p !== participantId.value)
     .slice(0, 3)
-    .map((p) => p.slice(0, 2));
+    .map((p) => ({ id: p, text: p.slice(0, 2) }));
 }
 
 function onSearch(event: Event): void {
@@ -66,13 +68,25 @@ function onSearch(event: Event): void {
         <div class="flex items-center justify-between gap-2">
           <span class="truncate text-sm font-medium text-ink">{{ c.title ?? c.id }}</span>
           <span class="shrink-0 text-xs text-faint">{{ timeAgo(c.updatedAt) }}</span>
+          <span
+            v-if="(approvals.pendingByConversation.value.get(c.id) ?? 0) > 0"
+            data-test="conv-pending"
+            class="shrink-0 text-xs text-danger"
+            >⚠ {{ approvals.pendingByConversation.value.get(c.id) }}</span
+          >
+          <span
+            v-if="isUnread(c.id, c.updatedAt)"
+            data-test="conv-unread"
+            class="size-2 shrink-0 rounded-full bg-accent"
+            aria-hidden="true"
+          />
         </div>
         <div class="flex items-center gap-1 text-xs text-muted">
           <span
             v-for="initial in initials(c.participants)"
-            :key="initial"
+            :key="initial.id"
             class="rounded-full bg-accent-soft px-1.5 py-0.5 text-accent"
-            >{{ initial }}</span
+            >{{ initial.text }}</span
           >
           <span class="truncate">{{ c.participants.join(', ') }}</span>
         </div>

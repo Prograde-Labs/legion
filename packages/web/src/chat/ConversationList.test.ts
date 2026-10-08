@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ConversationList from './ConversationList.vue';
 import { useConversations } from '../composables/useConversations.js';
 import { useApprovals } from '../composables/useApprovals.js';
+import { useReadState } from '../composables/useReadState.js';
 import type { ConversationMeta } from '@legion-collective/types';
 
 // The list component reads module-scoped composable state; tests seed that state
@@ -42,6 +43,15 @@ describe('ConversationList', () => {
     useConversations().__resetForTests();
     useConversations().__setConversationsForTests(CONVS);
     useApprovals().__setPendingForTests([]);
+    useReadState().__resetForTests();
+    // Freeze time after the fixture updatedAt values so unread comparisons are
+    // deterministic (markRead stamps Date.now()).
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-08T02:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders rows newest-first with title and participants', () => {
@@ -58,6 +68,29 @@ describe('ConversationList', () => {
     const flagged = wrapper.findAll('[data-test="conv-row"][data-pending="true"]');
     expect(flagged.length).toBe(1);
     expect(flagged[0].attributes('data-id')).toBe('c2');
+  });
+
+  it('renders the pending-approval count marker on flagged rows', () => {
+    useApprovals().__setPendingForTests([{ conversationId: 'c2' }]);
+    const wrapper = mount(ConversationList);
+    const marker = wrapper.find('[data-id="c2"] [data-test="conv-pending"]');
+    expect(marker.exists()).toBe(true);
+    expect(marker.text()).toContain('⚠');
+    expect(marker.text()).toContain('1');
+    // Rows without pending approvals show no marker.
+    expect(wrapper.find('[data-id="c1"] [data-test="conv-pending"]').exists()).toBe(false);
+  });
+
+  it('renders the unread dot for never-read rows and clears it after markRead', async () => {
+    let wrapper = mount(ConversationList);
+    // Fresh state: every row is unread.
+    expect(wrapper.find('[data-id="c1"] [data-test="conv-unread"]').exists()).toBe(true);
+    expect(wrapper.find('[data-id="c2"] [data-test="conv-unread"]').exists()).toBe(true);
+    // Reading c1 marks it read; a remount re-renders without the dot for c1 only.
+    useReadState().markRead('c1');
+    wrapper = mount(ConversationList);
+    expect(wrapper.find('[data-id="c1"] [data-test="conv-unread"]').exists()).toBe(false);
+    expect(wrapper.find('[data-id="c2"] [data-test="conv-unread"]').exists()).toBe(true);
   });
 
   it('search input filters rows', async () => {
