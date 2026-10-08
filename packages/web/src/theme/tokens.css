@@ -1,0 +1,48 @@
+/* Command-deck (default dark) — the only place dark colors are defined. */
+:root,
+[data-theme='command-deck'] {
+  --color-bg: #0a0e1a;
+  --color-surface: #101828;
+  --color-surface-raised: #0d1424;
+  --color-border: #1e2d4d;
+  --color-border-strong: rgba(56, 225, 255, 0.2);
+  --color-text: #c9d6ea;
+  --color-text-muted: #5f7392;
+  --color-text-faint: #3d4f6b;
+  --color-accent: #38e1ff;
+  --color-accent-strong: #7deaff;
+  --color-accent-soft: rgba(56, 225, 255, 0.12);
+  --color-on-accent: #05080f;
+  --color-danger: #ff6b6b;
+  --color-warning: #ffb454;
+  --color-success: #4ade80;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* Expose tokens as Tailwind 4 theme utilities (bg-surface, text-muted, border-line, ...). */
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-line: var(--color-border);
+  --color-line-strong: var(--color-border-strong);
+  --color-ink: var(--color-text);
+  --color-muted: var(--color-text-muted);
+  --color-faint: var(--color-text-faint);
+  --color-accent: var(--color-accent);
+  --color-accent-strong: var(--color-accent-strong);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-on-accent: var(--color-on-accent);
+  --color-danger: var(--color-danger);
+  --color-warning: var(--color-warning);
+  --color-success: var(--color-success);
+  --font-mono: var(--font-mono);
+  --font-sans: var(--font-sans);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+}
