@@ -60,3 +60,84 @@ describe('useLegionApi.execute', () => {
     expect(isAuthenticated.value).toBe(false);
   });
 });
+
+describe('useLegionApi.onEvent', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+
+  it('filters bus messages by type and unsubscribes', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({
+        getToken: () => 'tok-1',
+        logout: () => {},
+        isAuthenticated: { value: true },
+        login: async () => {},
+      }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      readyState = 1;
+      listeners: Record<string, EventListener[]> = {};
+      sent: string[] = [];
+      constructor(public url: string) {
+        FakeWS.instances.push(this);
+      }
+      addEventListener(type: string, listener: EventListener) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      dispatchEvent(ev: Event) {
+        for (const l of this.listeners[ev.type] ?? []) l(ev);
+        return true;
+      }
+      send(data: string) {
+        this.sent.push(data);
+      }
+      close() {
+        this.readyState = 3;
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+
+    const { useLegionApi } = await import('./useLegionApi.js');
+    const { useWebSocket } = await import('./useWebSocket.js');
+
+    const seen: unknown[] = [];
+    const api = useLegionApi();
+    const off = api.onEvent('approval:requested', (d) => seen.push(d));
+
+    // The WS singleton only starts listeners on connect(); connect via the
+    // api facade to register them.
+    await api.login('operator', 'pw'); // seeds auth (mocked) + ws.connect()
+
+    // Drive the transport directly: emit a matching frame, a non-matching
+    // frame, then unsubscribe and emit again.
+    const wsApi = useWebSocket();
+    wsApi.onMessage; // transport handlers receive frames via dispatchEvent below
+    const sock = FakeWS.instances[FakeWS.instances.length - 1];
+    const emit = (frame: unknown) =>
+      sock.dispatchEvent({
+        type: 'message',
+        data: JSON.stringify(frame),
+      } as unknown as Event);
+
+    emit({ type: 'approval:requested', data: { approvalId: 'a1' } });
+    emit({ type: 'approval:resolved', data: { approvalId: 'a1' } });
+    await Promise.resolve(); // let any microtasks settle
+    expect(seen).toEqual([{ approvalId: 'a1' }]);
+
+    off();
+    emit({ type: 'approval:requested', data: { approvalId: 'a2' } });
+    await Promise.resolve();
+    expect(seen).toEqual([{ approvalId: 'a1' }]); // after unsubscribe nothing arrives
+
+    vi.unstubAllGlobals();
+  });
+});
