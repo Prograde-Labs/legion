@@ -2,6 +2,7 @@
 import { watch } from 'vue';
 import { useAuth } from './composables/useAuth.js';
 import { useWebSocket } from './composables/useWebSocket.js';
+import AppShell from './shell/AppShell.vue';
 
 const { isAuthenticated } = useAuth();
 const { connect, disconnect } = useWebSocket();
@@ -15,4 +16,4 @@ watch(
   { immediate: true },
 );
 </script>
-<template><RouterView /></template>
+<template><AppShell /></template>
