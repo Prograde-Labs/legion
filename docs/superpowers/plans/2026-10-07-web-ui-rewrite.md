@@ -2726,7 +2726,7 @@ git commit -m "refactor(web): Config page on new shell + token layer (spec §6.3
   - `McpSourcesEditor.vue` — list of server cards (name, transport badge stdio/http, command+args or url, enabled-by-edit-only); Add button appends a blank card; per-card fields: name, transport toggle (stdio ↔ http), command, args (one per line textarea → string[]), env (key=value rows) OR url, headers (key=value rows); Save → `save_mcp_sources { servers: <full list> }` with client-side validation mirroring the tool's errors (fail fast, same messages); restart notice banner: "Changes take effect after process restart" (spec §7's behavior, verbatim in UI copy).
   - Load: `list_mcp_sources` on mount; reload after save.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `McpSourcesEditor.test.ts`:
 
@@ -2785,21 +2785,21 @@ describe('McpSourcesEditor', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/views/McpSourcesEditor.test.ts`
 Expected: FAIL — component not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Per Interfaces; keep validation messages byte-identical to the tool's (`servers[i].name must be a non-empty string`, `duplicate MCP server name: x`, `command and url are mutually exclusive`, `needs either command (stdio) or url (HTTP)`) so client and server never disagree.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
