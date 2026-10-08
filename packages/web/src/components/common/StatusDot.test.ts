@@ -8,8 +8,8 @@ describe('StatusDot', () => {
     expect(w.classes()).toContain('bg-cyan-400');
   });
 
-  it('renders retired state with navy class', () => {
+  it('renders retired state with token class', () => {
     const w = mount(StatusDot, { props: { status: 'retired' } });
-    expect(w.classes()).toContain('bg-navy-500');
+    expect(w.classes()).toContain('bg-faint');
   });
 });

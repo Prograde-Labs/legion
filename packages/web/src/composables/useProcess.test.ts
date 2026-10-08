@@ -38,8 +38,8 @@ vi.mock('./useWebSocket.js', () => ({
 }));
 
 const executeMock = vi.fn();
-vi.mock('./useExecute.js', () => ({
-  useExecute: () => ({ execute: executeMock }),
+vi.mock('./useLegionApi.js', () => ({
+  useLegionApi: () => ({ execute: executeMock }),
 }));
 
 const RUNNING_HANDLE = {

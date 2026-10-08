@@ -7,7 +7,7 @@ const colours: Record<string, string> = {
   error: 'bg-red-400/10 text-red-400 border-red-400/20',
   delegation: 'bg-amber-400/10 text-amber-400 border-amber-400/20',
 };
-const cls = (t: string) => colours[t] ?? 'bg-navy-700/50 text-navy-400 border-navy-600';
+const cls = (t: string) => colours[t] ?? 'bg-surface-raised text-muted border-line';
 </script>
 <template>
   <span

@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import ProcessesView from './ProcessesView.vue';
 
-// useLegionApi/useExecute read the auth token from localStorage-backed refs seeded
+// useLegionApi reads the auth token from localStorage-backed refs seeded
 // at module init — seed at hoist time (before the module graph initializes).
 vi.hoisted(() => {
   const exp = Math.floor(Date.now() / 1000) + 3600;

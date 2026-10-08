@@ -17,7 +17,7 @@ const entries = (r: { result?: unknown }) => (r.result as FileEntry[] | null) ??
     >
       <span>{{ e.type === 'dir' ? '📁' : '📄' }}</span>
       <span :class="e.type === 'dir' ? 'text-cyan-400' : ''">{{ e.name }}</span>
-      <span v-if="e.size" class="ml-auto text-navy-500">{{ e.size }}B</span>
+      <span v-if="e.size" class="ml-auto text-faint">{{ e.size }}B</span>
     </div>
   </div>
 </template>

@@ -48,9 +48,7 @@ const router = useRouter();
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div
-      class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0"
-    >
+    <div class="flex items-center justify-between px-3 py-2.5 border-b border-line flex-shrink-0">
       <span class="text-xs uppercase tracking-wider text-slate-500">Conversations</span>
       <button
         class="text-xs px-2 py-0.5 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700"
@@ -61,13 +59,13 @@ const router = useRouter();
     </div>
 
     <!-- Mine / All toggle -->
-    <div class="flex gap-1 px-3 py-2 border-b border-navy-800 flex-shrink-0">
+    <div class="flex gap-1 px-3 py-2 border-b border-line flex-shrink-0">
       <button
         class="text-xs px-3 py-0.5 rounded-full transition-colors"
         :class="
           mode === 'mine'
             ? 'bg-cyan-800 text-cyan-200'
-            : 'text-slate-500 border border-navy-700 hover:text-slate-300'
+            : 'text-slate-500 border border-line hover:text-slate-300'
         "
         @click="emit('update:mode', 'mine')"
       >
@@ -78,7 +76,7 @@ const router = useRouter();
         :class="
           mode === 'all'
             ? 'bg-cyan-800 text-cyan-200'
-            : 'text-slate-500 border border-navy-700 hover:text-slate-300'
+            : 'text-slate-500 border border-line hover:text-slate-300'
         "
         @click="emit('update:mode', 'all')"
       >
@@ -87,7 +85,7 @@ const router = useRouter();
     </div>
 
     <!-- Status / tag filters -->
-    <div class="border-b border-navy-800 px-3 py-2">
+    <div class="border-b border-line px-3 py-2">
       <div class="flex gap-1">
         <button
           v-for="value in ['active', 'archived', 'all'] as const"
@@ -104,7 +102,7 @@ const router = useRouter();
         v-model="tagInput"
         data-tag-filter
         placeholder="Tags: alpha, beta"
-        class="mt-2 w-full rounded border border-navy-700 bg-navy-950 px-2 py-1 text-[10px] text-slate-300"
+        class="mt-2 w-full rounded border border-line bg-surface-raised px-2 py-1 text-[10px] text-slate-300"
         @change="updateTags(tagInput)"
       />
     </div>
@@ -114,8 +112,8 @@ const router = useRouter();
       <div
         v-for="conv in conversations"
         :key="conv.id"
-        class="relative px-3 py-2.5 cursor-pointer border-b border-navy-900 hover:bg-navy-850 transition-colors group"
-        :class="conv.id === activeId ? 'bg-navy-800 border-l-2 border-l-cyan-600' : ''"
+        class="relative px-3 py-2.5 cursor-pointer border-b border-line hover:bg-surface transition-colors group"
+        :class="conv.id === activeId ? 'bg-surface border-l-2 border-l-cyan-600' : ''"
         @click="emit('select', conv.id)"
       >
         <!-- Amber dot for pending approval -->

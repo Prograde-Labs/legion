@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useExecute } from '../../composables/useExecute.js';
+import { useLegionApi } from '../../composables/useLegionApi.js';
 
 const props = defineProps<{
   approvalId: string;
@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ resolved: [] }>();
 
-const { execute } = useExecute();
+const { execute } = useLegionApi();
 const message = ref('');
 const submitting = ref(false);
 const expanded = ref(false);
@@ -48,7 +48,7 @@ async function submit(decision: 'approve' | 'reject') {
     </div>
 
     <div
-      class="bg-navy-950 rounded p-2 font-mono text-xs text-slate-500 cursor-pointer"
+      class="bg-surface-raised rounded p-2 font-mono text-xs text-slate-500 cursor-pointer"
       @click="expanded = !expanded"
     >
       <div v-if="!expanded" class="truncate">
@@ -61,7 +61,7 @@ async function submit(decision: 'approve' | 'reject') {
       v-model="message"
       rows="2"
       placeholder="Reason (optional for Allow, recommended for Deny)"
-      class="w-full bg-navy-900 border border-navy-700 rounded px-2 py-1.5 text-xs text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-700"
+      class="w-full bg-surface border border-line rounded px-2 py-1.5 text-xs text-slate-300 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-700"
     />
 
     <div class="flex gap-2">

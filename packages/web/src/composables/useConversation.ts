@@ -1,5 +1,5 @@
 import { ref, computed, watch, onMounted } from 'vue';
-import { useExecute } from './useExecute.js';
+import { useLegionApi } from './useLegionApi.js';
 import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
@@ -25,7 +25,7 @@ interface ConversationResponse {
 }
 
 export function useConversation(conversationId: string | null) {
-  const { execute } = useExecute();
+  const { execute } = useLegionApi();
 
   const messages = ref<MessageWithAlternates[]>([]);
   const subThreads = ref<Record<string, SubThreadData>>({});

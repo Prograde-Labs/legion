@@ -31,10 +31,10 @@ function remove(name: string) {
       v-for="name in modelValue"
       :key="name"
       :data-selected-skill="name"
-      class="flex items-center gap-2 rounded border border-navy-700 bg-navy-950 px-2 py-1.5"
+      class="flex items-center gap-2 rounded border border-line bg-surface-raised px-2 py-1.5"
     >
       <span class="text-xs font-medium text-slate-200">{{ name }}</span>
-      <span class="text-[10px] text-navy-500">{{ byName.get(name)?.scope ?? 'unavailable' }}</span>
+      <span class="text-[10px] text-faint">{{ byName.get(name)?.scope ?? 'unavailable' }}</span>
       <button
         type="button"
         :data-remove-skill="name"
@@ -48,20 +48,18 @@ function remove(name: string) {
       v-model="search"
       data-skill-search
       placeholder="Search skills..."
-      class="w-full rounded border border-navy-600 bg-navy-950 px-2 py-1.5 text-xs text-slate-200"
+      class="w-full rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
     />
     <button
       v-for="skill in filtered"
       :key="skill.name"
       type="button"
       :data-skill-option="skill.name"
-      class="block w-full rounded border border-navy-700 px-2 py-2 text-left hover:bg-navy-800"
+      class="block w-full rounded border border-line px-2 py-2 text-left hover:bg-surface"
       @click="add(skill.name)"
     >
       <span class="block text-xs text-slate-200">{{ skill.name }}</span>
-      <span class="block text-[10px] text-navy-500"
-        >{{ skill.description }} · {{ skill.scope }}</span
-      >
+      <span class="block text-[10px] text-faint">{{ skill.description }} · {{ skill.scope }}</span>
     </button>
   </div>
 </template>
