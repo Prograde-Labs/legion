@@ -17,6 +17,11 @@ const menuOpen = ref(false);
 function badgeClick() {
   if (oldest.value) void router.push(`/chat/${oldest.value.conversationId}`);
 }
+
+function onLogout(): void {
+  logout();
+  void router.push('/login');
+}
 </script>
 <template>
   <div class="flex h-screen flex-col bg-bg text-ink">
@@ -64,7 +69,7 @@ function badgeClick() {
           <button
             type="button"
             class="block w-full px-3 py-1.5 text-left hover:bg-surface"
-            @click="logout()"
+            @click="onLogout"
           >
             Logout
           </button>
@@ -75,3 +80,10 @@ function badgeClick() {
     <AccountSlideOver v-model:open="accountOpen" />
   </div>
 </template>
+<style scoped>
+/* Active nav tab state (spec §3.1). Tokens only — no raw hex. */
+.router-link-active {
+  background-color: var(--color-surface);
+  color: var(--color-accent);
+}
+</style>

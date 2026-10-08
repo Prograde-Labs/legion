@@ -9,6 +9,13 @@ const routes = [
     component: () => import('../views/ConversationsView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    // Approvals badge deep-links to /chat/:id from AppShell badgeClick().
+    // TODO(task-9): ChatView replaces this alias.
+    path: '/chat/:id',
+    component: () => import('../views/ConversationsView.vue'),
+    meta: { requiresAuth: true },
+  },
   { path: '/login', component: () => import('../views/LoginView.vue') },
   {
     path: '/participants',

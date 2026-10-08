@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import SlideOver from '../components/common/SlideOver.vue';
 import { useAuth } from '../composables/useAuth.js';
 import { useLegionApi } from '../composables/useLegionApi.js';
@@ -7,6 +8,7 @@ import { useLegionApi } from '../composables/useLegionApi.js';
 defineProps<{ open: boolean }>();
 const emit = defineEmits<{ 'update:open': [boolean] }>();
 
+const router = useRouter();
 const { participantId, expiresAt } = useAuth();
 const { execute, logout } = useLegionApi();
 
@@ -50,6 +52,11 @@ async function submit(): Promise<void> {
     submitting.value = false;
   }
 }
+
+function onLogout(): void {
+  logout();
+  void router.push('/login');
+}
 </script>
 <template>
   <SlideOver title="Account" :open="open" @close="emit('update:open', false)">
@@ -72,6 +79,7 @@ async function submit(): Promise<void> {
           <input
             v-model="newPassword"
             type="password"
+            autocomplete="new-password"
             data-test="account-new-password"
             class="w-full rounded-md border border-line bg-surface px-2 py-1.5"
           />
@@ -82,6 +90,7 @@ async function submit(): Promise<void> {
           <input
             v-model="confirmPassword"
             type="password"
+            autocomplete="new-password"
             data-test="account-confirm-password"
             class="w-full rounded-md border border-line bg-surface px-2 py-1.5"
           />
@@ -107,7 +116,7 @@ async function submit(): Promise<void> {
         type="button"
         data-test="account-logout"
         class="rounded-md border border-line px-3 py-1.5 hover:bg-surface"
-        @click="logout()"
+        @click="onLogout"
       >
         Logout
       </button>
