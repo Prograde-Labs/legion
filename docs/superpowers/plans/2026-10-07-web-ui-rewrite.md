@@ -2200,7 +2200,7 @@ git commit -m "feat(web): approvals card + composer + live streaming states (spe
   - `ToolDetailPanel.vue` — props `{ payload }`; renders request args, status, duration, and result via `lookupRenderer(payload.tool)` in a collapsible; the fallback panel for most tools.
   - `CommunicatePanel.vue` — props `{ payload }`; fetches the target conversation (`get_conversation`) and renders it with the SAME `Thread` component (props `highlight: { outboundMessageId?: string; replyMessageId?: string }`); highlighted messages get `data-highlight` + accent ring; live streaming included (it mounts its own `communicate` stream listener for that conversation); "jump to message in main thread" breadcrumb emits `jump(messageId)` → ChatView switches route focus.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `registry.test.ts`:
 
@@ -2259,12 +2259,12 @@ describe('useDock', () => {
 
 `DockPanel.test.ts`: mount with seeded tabs → strip shows titles; close button calls `dock.close`; narrow viewport class assertions (`max-md:fixed` present in rendered class list); slot renders active panel component (stub component via `lookupPanel` override).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/panels/registry.test.ts src/panels/DockPanel.test.ts`
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - `registry.ts` + `useDock()` exactly per Interfaces; persistence = `watch(tabs/width, …, { deep: true })` writing localStorage; `setConversation(id)` loads that conversation's saved state (or empty).
 - `DockPanel.vue`: strip + panel area + resize handle (`@mousedown` → track `mousemove` → set `width`); DnD: `draggable` tab buttons, `dragover` indices, `drop` → `reorder`.
@@ -2272,12 +2272,12 @@ Expected: FAIL — modules not found.
 - `CommunicatePanel.vue`: mount `<Thread :conversation-id="payload.conversationId" :highlight="payload">`; Thread gains an optional `highlight` prop this task (`data-highlight` ring + scroll-into-view on mount).
 - ChatView integration: right column hosts `<DockPanel v-if="dock.open">`; Thread `@open="onChipOpen"` handler → `dock.open({ kind: entry.component === CommunicatePanel ? 'communicate' : 'tool-detail', title: entry.title(payload), icon: '🔧', payload })`; toggle button on the chat pane edge.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
