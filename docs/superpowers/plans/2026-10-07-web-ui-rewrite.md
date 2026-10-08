@@ -2617,7 +2617,7 @@ git commit -m "feat(web): topology map on Participants page (spec §6.1)"
 - Consumes: existing process tools (whatever `useProcesses.ts` calls today — `start_process`-family; verify in-file), `watch_process` stream (existing), `useLegionApi.execute`.
 - Produces: same feature set as today (list, start form, detail with live ANSI output) rendered with token utilities (`bg-surface`, `border-line`, `text-ink`…) instead of navy/raw classes; no new features (spec §6.2: "No feature additions").
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add one token-conformance test (the substantive behavior tests already exist and must keep passing):
 
@@ -2635,21 +2635,21 @@ describe('ProcessesView theming', () => {
 
 (If the file doesn't exist yet, create it with this describe block plus a minimal mount harness like Task 7's.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/views/ProcessesView.test.ts`
 Expected: FAIL — raw color classes still present.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Swap every raw/navy Tailwind class in the four process components + view to the token vocabulary (Task 5 utility names). Port `useProcesses.ts` internals from direct `fetch`/`useExecute` to `useLegionApi().execute` — public function signatures unchanged so component tests need no behavioral edits.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS — new conformance test green; all carried-over process tests green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
@@ -2669,7 +2669,7 @@ git commit -m "refactor(web): Processes page on new shell + token layer (spec §
 - Consumes: `list_providers`/`save_provider`/`delete_provider`/`get_routing`/`save_routing` (existing), `useLegionApi`.
 - Produces: same feature set as today under the new shell/tokens; sections laid out as: Providers, Model routing, MCP sources (placeholder heading + "coming with Task 19" comment).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `ConfigView.test.ts` (or create like Task 17):
 
@@ -2690,21 +2690,21 @@ describe('ConfigView theming', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/views/ConfigView.test.ts`
 Expected: FAIL on the raw-color assertion.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Token-class sweep over ConfigView + the two config components (same mechanical swap as Task 17); port any `useExecute` usages to `useLegionApi`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
