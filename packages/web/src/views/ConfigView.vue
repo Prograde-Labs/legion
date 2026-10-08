@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import type { ProviderConfig, RoutingConfig } from '@legion-collective/types';
 import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import RoutingEditor from '../components/config/RoutingEditor.vue';
+import McpSourcesEditor from './McpSourcesEditor.vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 
 const { execute } = useLegionApi();
@@ -169,7 +170,7 @@ async function deleteProvider(name: string) {
       <!-- MCP sources: coming with Task 19 (spec §6.3 part 2) -->
       <section>
         <h2 class="text-xs font-semibold text-ink mb-1">MCP sources</h2>
-        <p class="text-[10px] text-faint">Coming with the MCP sources editor (Task 19).</p>
+        <McpSourcesEditor />
       </section>
     </div>
   </div>
