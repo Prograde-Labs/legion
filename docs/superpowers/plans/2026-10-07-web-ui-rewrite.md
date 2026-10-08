@@ -2052,7 +2052,7 @@ git commit -m "feat(web): inline fork navigation + message actions (spec §4.3)"
   - `Composer.vue` — textarea (Enter sends, Shift+Enter newline; root element carries `data-test="composer"`); `@` triggers mention autocomplete listing active agents (`useParticipants` filter `type === 'agent' && status !== 'retired'`); tool hints line: tools the CURRENT user's `tools` map exposes (from `useAuth().me` if present — else hidden, never guessed); Stop button visible while `communicateStream.active`, calling `.cancel()`; branch indicator chip showing `useConversations().activeId`'s chain tail ("replying on branch …" from Thread-provided prop `branchLabel: string`); emits `sent(conversationId)`.
   - Nav badge (Task 7 stub) now driven by real data — `useApprovals` full implementation satisfies the interface AppShell already coded against (`pendingCount`, `oldest`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `useApprovals.test.ts`:
 
@@ -2124,24 +2124,24 @@ describe('useApprovals', () => {
 
 `Composer.test.ts`: Enter (without shift) emits `send`; Shift+Enter inserts newline; typing `@` shows the agent list and selecting inserts the name; Stop button calls the stream cancel (assert `useToolStream` cancel invoked via spy or emitted `stop`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/composables/useApprovals.test.ts src/chat/ApprovalCard.test.ts src/chat/Composer.test.ts`
 Expected: FAIL — modules not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - `useApprovals.ts` per the Interfaces block; the WS subscription happens in a module-level `initApprovals()` called from AppShell mount (or lazily on first `useApprovals()` call — module-scoped, guarded by a boolean, mirroring `useTheme().initTheme()`); `__handleEventForTests` exposes the same reducer the real `onEvent` handlers call.
 - `ApprovalCard.vue`: card with tool name + args summary (JSON.stringify truncated), reason textarea collapsed by default, Approve/Reject buttons disabled while in-flight.
 - `Composer.vue`: follows `useConversation.ts` send mechanics (optimistic message + `communicateStream.start()`); expose `props: { conversationId: string | null; recipientId: string | null; branchLabel?: string }`.
 - Thread: while loading/streaming, render pending approvals for THIS conversation inline at the message whose tool call matches `approval.tool` + `requesterId` (best-effort position; if the tool call is not visible in the loaded chain, render the card at thread tail — documented fallback); streaming tokens append to the in-flight assistant part; tool chips show running state until `tool:result` chunk arrives (chunk types per `useToolStream` / `watch-activity-tool.ts` union: `tool:call | tool:result | iteration | approval:* | error`).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS — AppShell badge tests from Task 7 still green against the real composable (interface unchanged).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
