@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ConversationList from './ConversationList.vue';
 import { useConversations } from '../composables/useConversations.js';
 import { useReadState } from '../composables/useReadState.js';
+import { useApprovals } from '../composables/useApprovals.js';
 
 const route = useRoute();
 const router = useRouter();
 const store = useConversations();
+
+// Badge initial load on the home surface (WS subscription alone does not fetch).
+onMounted(
+  () =>
+    void useApprovals()
+      .refresh()
+      .catch(() => {}),
+);
 
 const drawerOpen = ref(false);
 
