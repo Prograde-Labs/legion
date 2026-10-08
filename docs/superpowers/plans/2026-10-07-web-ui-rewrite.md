@@ -605,7 +605,7 @@ git commit -m "feat(core): set_approval_authority tool (spec §7)"
 - Consumes: `PendingApprovalRegistry.listPending(conversationId?: string): PendingApproval[]` (core, existing at `PendingApprovalRegistry.ts:1881`); `PendingApproval = { approvalId, conversationId, requesterId, tool, args, createdAt }`.
 - Produces: `list_pending_approvals { conversationId?: string }` → `ToolResult{ status: 'success', data: PendingApproval[] }`. Also changes `RuntimeToolDeps` to `RuntimeToolDeps & { pendingApprovalRegistry: PendingApprovalRegistry }`. Task 12 (`useApprovals`) consumes the data shape.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `packages/runtime/src/server/runtime-tools.test.ts` (reuse its existing fixture helpers for the deps; extend them with an optional `pendingApprovalRegistry`. For the registry itself, mirror the constructor + `create(...)` usage found in `packages/core/src/auth/PendingApprovalRegistry.test.ts` — check it first):
 
@@ -659,12 +659,12 @@ describe('list_pending_approvals', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run packages/runtime/src/server/runtime-tools.test.ts`
 Expected: FAIL — `createRuntimeTools` does not accept `pendingApprovalRegistry` / no `list_pending_approvals` tool found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `runtime-tools.ts`, extend the deps interface and imports:
 
@@ -710,12 +710,12 @@ and add to the returned array (before the closing `] satisfies Tool[]`):
 
 In `LegionProcess.ts` (~line 248) pass `pendingApprovalRegistry` into the `createRuntimeTools({...})` call (the variable already exists in startup scope); add `'list_pending_approvals'` to `RUNTIME_TOOL_NAMES`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run packages/runtime/src/server/runtime-tools.test.ts`
 Expected: PASS (all, including the 2 new). Then `npm run typecheck` — 0 errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/runtime/src/server/runtime-tools.ts packages/runtime/src/server/runtime-tools.test.ts \
