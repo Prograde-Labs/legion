@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import ConversationList from './ConversationList.vue';
 import Thread from './Thread.vue';
 import Composer from './Composer.vue';
+import DockPanel from '../panels/DockPanel.vue';
+import { useDock, lookupPanel, CommunicatePanel } from '../panels/registry.js';
 import { useConversations } from '../composables/useConversations.js';
 import { useReadState } from '../composables/useReadState.js';
 import { useApprovals } from '../composables/useApprovals.js';
@@ -53,6 +55,18 @@ function onSelect(id: string | null): void {
 // bindings do), so bind the thread/composer through this computed.
 const activeId = computed(() => store.activeId.value);
 
+// Right dock (spec §5): one dock per ChatView; conversation switches restore
+// that conversation's persisted tab set. Watch extends the route->store glue
+// above rather than adding a second watcher on the same source.
+const dock = useDock();
+watch(
+  () => store.activeId.value,
+  (id) => {
+    dock.setConversation(id);
+  },
+  { immediate: true },
+);
+
 // TODO(task-13/14): recipient selection via @-mentions/dock targeting. The send
 // path is real; the default routes to agent-a like the e2e flow does today.
 const recipientId = ref<string | null>('agent-a');
@@ -75,11 +89,22 @@ async function onStop(): Promise<void> {
   await threadRef.value?.cancelStream();
 }
 
-// Thread `open` events (ToolCallChip inspect, Task 7) have no consumer yet —
-// Task 13 mounts DockPanel here. Dead end by design in this slice.
-function onToolOpen(tool: string, payload: Record<string, unknown>): void {
-  void tool;
-  void payload;
+// Thread `open` events (ToolCallChip inspect, Task 7) land in the dock now:
+// a panel entry is looked up per tool and opened as a dock tab. `communicate`
+// opens the CommunicatePanel sub-chat; anything else falls back to the
+// ToolDetailPanel entry (registry fallback, 13a).
+function onChipOpen(tool: string, payload: Record<string, unknown>): void {
+  const entry = lookupPanel(tool);
+  dock.open({
+    kind: entry.component === CommunicatePanel ? 'communicate' : 'tool-detail',
+    title: entry.title(payload),
+    icon: '🔧',
+    payload: { ...payload, tool },
+  });
+}
+
+function onDockJump(messageId: string): void {
+  void messageId; // Task 14+ message-focus wiring; breadcrumb lands here today
 }
 </script>
 
@@ -113,7 +138,7 @@ function onToolOpen(tool: string, payload: Record<string, unknown>): void {
         </button>
         <span class="text-sm text-muted">Conversations</span>
       </header>
-      <Thread ref="threadRef" :conversation-id="activeId" @open="onToolOpen" />
+      <Thread ref="threadRef" :conversation-id="activeId" @open="onChipOpen" />
       <Composer
         :conversation-id="activeId"
         :recipient-id="recipientId"
@@ -123,5 +148,16 @@ function onToolOpen(tool: string, payload: Record<string, unknown>): void {
         @stop="onStop"
       />
     </div>
+    <!-- Right dock edge toggle (desktop affordance; dock covers full screen on mobile) -->
+    <button
+      type="button"
+      data-test="dock-toggle"
+      class="shrink-0 rounded-l-md border border-r-0 border-line px-1 py-3 text-xs text-muted hover:bg-surface"
+      aria-label="Toggle dock"
+      @click="dock.isOpen.value = !dock.isOpen.value"
+    >
+      ▸
+    </button>
+    <DockPanel v-if="dock.isOpen.value" class="shrink-0" @jump="onDockJump" />
   </div>
 </template>

@@ -3,6 +3,10 @@ import type { Component, Ref } from 'vue';
 import ToolDetailPanel from './ToolDetailPanel.vue';
 import CommunicatePanel from './CommunicatePanel.vue';
 
+// Re-exported for ChatView dock wiring (slice 13b): the communicate entry lives
+// here, so consumers import the component from the registry too.
+export { CommunicatePanel };
+
 export interface DockTab {
   id: string;
   kind: 'tool-detail' | 'communicate';

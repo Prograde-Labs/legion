@@ -15,7 +15,10 @@ type MessageWithAlternates = MessageData & {
   alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
 };
 
-const props = defineProps<{ conversationId: string | null }>();
+const props = defineProps<{
+  conversationId: string | null;
+  highlight?: { outboundMessageId?: string; replyMessageId?: string } | null;
+}>();
 
 const emit = defineEmits<{ open: [tool: string, payload: Record<string, unknown>] }>();
 
@@ -129,11 +132,16 @@ watch(
   { immediate: true },
 );
 
+// Highlight scroll: when a highlight lands, the count watch tail scrolls it into
+// view (guarded so plain tail-scrolls stay unchanged); else plain bottom-scroll.
 watch(
   () => messages.value.length,
   async () => {
     await nextTick();
     if (tailEl.value) tailEl.value.scrollTop = tailEl.value.scrollHeight;
+    if (props.highlight?.replyMessageId) {
+      tailEl.value?.querySelector('[data-highlight="true"]')?.scrollIntoView({ block: 'center' });
+    }
   },
 );
 </script>
@@ -147,20 +155,38 @@ watch(
     <div ref="tailEl" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <div class="mx-auto flex max-w-3xl flex-col gap-4">
         <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">
-          <MessagePart :message="m" @open="(tool, payload) => emit('open', tool, payload)">
-            <template v-if="conversationId" #actions="{ message: msg }">
-              <div class="mt-1 flex flex-wrap items-center gap-2">
-                <ForkControls :conversation-id="conversationId" :message="msg" @switched="load" />
-                <MessageActions :conversation-id="conversationId" :message="msg" @mutated="load" />
-              </div>
-            </template>
-          </MessagePart>
-          <ApprovalCard
-            v-for="a in approvalsFor(m)"
-            :key="a.approvalId"
-            :approval="a"
-            @resolved="onResolved(a.approvalId)"
-          />
+          <div
+            :data-highlight="
+              highlight &&
+              (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)
+                ? 'true'
+                : undefined
+            "
+            :class="{
+              'ring-1 ring-accent':
+                highlight &&
+                (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId),
+            }"
+          >
+            <MessagePart :message="m" @open="(tool, payload) => emit('open', tool, payload)">
+              <template v-if="conversationId" #actions="{ message: msg }">
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                  <ForkControls :conversation-id="conversationId" :message="msg" @switched="load" />
+                  <MessageActions
+                    :conversation-id="conversationId"
+                    :message="msg"
+                    @mutated="load"
+                  />
+                </div>
+              </template>
+            </MessagePart>
+            <ApprovalCard
+              v-for="a in approvalsFor(m)"
+              :key="a.approvalId"
+              :approval="a"
+              @resolved="onResolved(a.approvalId)"
+            />
+          </div>
         </div>
         <ApprovalCard
           v-for="a in tailApprovals"
