@@ -1344,7 +1344,7 @@ git commit -m "feat(web): useLegionApi foundation composable (spec §3.3)"
   - Mobile (<768px): nav collapses to icons only (badge retained) — CSS-only via Tailwind responsive utilities.
 - Build order note: if Tasks are executed in order, Task 12's `useApprovals` does not exist yet. Write AppShell against the interface `useApprovals(): { pendingCount: Ref<number>; oldest: Ref<{ conversationId: string } | null> }` and create a TEMPORARY module-scoped stub in `composables/useApprovals.ts` returning zeros (with a `// TODO(task-12)` comment) that Task 12 replaces wholesale. The shell's unit tests assert the stub-driven zeros; badge behavior with real data is covered in Task 12.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/web/src/shell/AppShell.test.ts` (mount with router; pattern from `ConversationsView.test.ts`):
 
@@ -1393,12 +1393,12 @@ describe('AppShell', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/shell/AppShell.test.ts`
 Expected: FAIL — `AppShell.vue` / `useApprovals.js` missing.
 
-- [ ] **Step 3: Implement the shell**
+- [x] **Step 3: Implement the shell**
 
 `packages/web/src/shell/AppShell.vue` (template sketch — tokens only, no hex):
 
@@ -1489,16 +1489,16 @@ function badgeClick() {
 
 Router: replace the current route table with the four pages + login (keep hash history and the `requiresAuth` guard; `/` redirects `/chat`; DELETE the `/events`, `/conversations*` entries — old views go away as their replacements land in Tasks 9–21; during the transition keep `/conversations/:id` temporarily pointing at the OLD `ConversationsView` so nothing is broken mid-rewrite, then Task 9 removes it).
 
-- [ ] **Step 4: Update App.vue + delete event-log + fix imports**
+- [x] **Step 4: Update App.vue + delete event-log + fix imports**
 
 `App.vue` becomes `AppShell` + `RouterView`. Delete `EventStreamView.vue` + `EventDetailPanel.vue` and remove their imports/route. Update every view still importing `AppLayout.vue` to import `AppShell` instead (mechanical: ConversationsView, ParticipantsView, ProcessesView, ConfigView keep working under the new shell).
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS — new shell tests green; updated view tests still green (they only asserted inner content). `npm run build --workspace=packages/web` — succeeds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A packages/web/src
