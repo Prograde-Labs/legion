@@ -1848,7 +1848,7 @@ git commit -m "feat(web): ChatView 3-column layout + rebuilt ConversationList (s
   - `MessagePart.vue` — props `message: MessageWithAlternates`; renders `reasoning` via ReasoningDisclosure, `content` via MarkdownContent, each `toolCalls[i]` as a `ToolCallChip`, matching `toolResults[i]` resolved through `lookupRenderer(toolName)` inside a collapsible detail (the "unknown tools → generic collapsible detail" fallback).
   - `ToolCallChip.vue` — props `{ tool: string; status: 'running' | 'done' | 'error' }`; emits `open(tool, payload)`; click → dock (Task 13 consumes); shows running state (pulse) while the message is mid-stream.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `registry.test.ts`:
 
@@ -1910,24 +1910,24 @@ describe('Thread', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/renderers/registry.test.ts src/chat/Thread.test.ts`
 Expected: FAIL — registry/Thread not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Build `registry.ts` exactly as the block above; create `TextResultRenderer.vue` (props `{ result: unknown }`; if `typeof result === 'string'` render `new Updater().ansi_to_html(result)` in a `<pre class="font-mono">`, else JSON.stringify).
 - `Thread.vue`: load chain on mount + `conversationId` watch (port the load logic from `useConversation.ts`, kept as-is where possible — it already handles `get_conversation` + optimistic messages + streaming refs); render each chain message with `MessagePart`; thread tail auto-scrolls (`nextTick` + `scrollTop = scrollHeight` on message-count change).
 - `MessagePart.vue`: dispatch as described in Interfaces; hover menu slot for Task 11 (`<slot name="actions" :message="message" />`).
 - Delete the four replaced components + their tests + `renderers/index.ts`; grep for stragglers: `grep -rn "renderers/index\|MessageBubble\|SubThreadBlock\|ToolCallBlock\|ConversationThread" packages/web/src` must come back empty.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS. `npm run build --workspace=packages/web` — succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
