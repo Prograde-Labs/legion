@@ -2303,7 +2303,7 @@ git commit -m "feat(web): right dock panel system with tool→panel registry (sp
   - `ParticipantsList` — searchable rows: name, `TypeBadge` (agent/user/service/operator styling from the carried-over `TypeBadge.vue`), status dot, model (agents), last activity; "＋ New agent" button opens AgentEditor in create mode.
   - `AgentEditor` — props `{ participantId: string | 'new' }`; form: name, model (from `list_models` grouped by provider, free-text fallback), systemPrompt (textarea), maxIterations, tools/policies (`ToolPolicyEditor` against `list_tools`), middleware (`MiddlewareEditor`), approval authority (Task 2's `set_approval_authority` — wildcard toggle + scoped map editor); Save → `create_agent` or `modify_agent`; Retire button (hidden when `participant.protected`, disabled for self — Task 15 shares this rule; enforce here for agents too).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `ParticipantsList.test.ts`:
 
@@ -2372,22 +2372,22 @@ describe('ParticipantsList', () => {
 
 `AgentEditor.test.ts` — mount with mocked `get_participant` fetch (payload = PARTICIPANTS[0]) + mocked `list_tools`/`list_models`; assert: fields prefill; editing name + Save → fetch body `tool: 'modify_agent'` with `{ id, name, … }`; Save on `participantId === 'new'` → `create_agent`; retire button hidden when `protected: true` fixture, present otherwise.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/views/ParticipantsList.test.ts src/views/AgentEditor.test.ts`
 Expected: FAIL — components not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Build per Interfaces; reuse the carried-over editors unchanged (import paths unchanged); `ParticipantsView` wires selection ↔ detail pane with `<component :is="detailFor(selected)">`.
 - Delete `ParticipantSlideOff` files; grep for leftover imports (`grep -rn "ParticipantSlideOver" packages/web/src` → empty).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS. `npm run build --workspace=packages/web` — succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
