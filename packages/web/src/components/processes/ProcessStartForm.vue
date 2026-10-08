@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useExecute } from '../../composables/useExecute.js';
+import { useLegionApi } from '../../composables/useLegionApi.js';
 import type { ProcessHandle } from '@legion-collective/types';
 
 const emit = defineEmits<{ started: [id: string] }>();
 
-const { execute } = useExecute();
+const { execute } = useLegionApi();
 
 const command = ref('');
 const argsStr = ref('');
@@ -47,68 +47,66 @@ async function onSubmit(): Promise<void> {
 <template>
   <div class="flex-1 flex flex-col items-center justify-center p-8">
     <div class="w-full max-w-lg">
-      <h2 class="text-sm font-semibold text-slate-100 mb-5">Start a process</h2>
+      <h2 class="text-sm font-semibold text-ink mb-5">Start a process</h2>
 
       <div class="space-y-3">
         <div>
-          <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1"
-            >Command</label
-          >
+          <label class="block text-[10px] uppercase tracking-wider text-faint mb-1">Command</label>
           <input
             v-model="command"
             placeholder="command e.g. npm"
-            class="w-full bg-navy-950 border border-navy-600 rounded px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-400/50 font-mono"
+            class="w-full bg-bg border border-line rounded px-3 py-2 text-xs text-ink outline-none focus:border-accent/50 font-mono"
             @keydown.enter="onSubmit"
           />
         </div>
 
         <div>
-          <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1">Args</label>
+          <label class="block text-[10px] uppercase tracking-wider text-faint mb-1">Args</label>
           <input
             v-model="argsStr"
             placeholder="args e.g. run dev"
-            class="w-full bg-navy-950 border border-navy-600 rounded px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-400/50 font-mono"
+            class="w-full bg-bg border border-line rounded px-3 py-2 text-xs text-ink outline-none focus:border-accent/50 font-mono"
             @keydown.enter="onSubmit"
           />
         </div>
 
         <div class="flex gap-3">
           <div class="flex-1">
-            <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1"
+            <label class="block text-[10px] uppercase tracking-wider text-faint mb-1"
               >Name (optional)</label
             >
             <input
               v-model="name"
               placeholder="display name"
-              class="w-full bg-navy-950 border border-navy-600 rounded px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-400/50"
+              class="w-full bg-bg border border-line rounded px-3 py-2 text-xs text-ink outline-none focus:border-accent/50"
             />
           </div>
           <div class="flex-1">
-            <label class="block text-[10px] uppercase tracking-wider text-navy-500 mb-1"
+            <label class="block text-[10px] uppercase tracking-wider text-faint mb-1"
               >Working dir (optional)</label
             >
             <input
               v-model="cwd"
               placeholder="/path/to/dir"
-              class="w-full bg-navy-950 border border-navy-600 rounded px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-400/50 font-mono"
+              class="w-full bg-bg border border-line rounded px-3 py-2 text-xs text-ink outline-none focus:border-accent/50 font-mono"
             />
           </div>
         </div>
 
-        <div class="flex gap-5 text-xs text-slate-400">
+        <div class="flex gap-5 text-xs text-muted">
           <label class="flex items-center gap-2 cursor-pointer select-none">
-            <input v-model="tty" type="checkbox" class="accent-cyan-400" />
+            <input v-model="tty" type="checkbox" class="accent-[var(--color-accent)]" />
             <span>TTY (pseudo-terminal)</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer select-none">
-            <input v-model="shell" type="checkbox" class="accent-cyan-400" />
+            <input v-model="shell" type="checkbox" class="accent-[var(--color-accent)]" />
             <span>Shell (<code>/bin/sh -c</code>)</span>
           </label>
         </div>
 
         <div
           v-if="error"
-          class="text-xs text-red-400 bg-red-950/30 border border-red-900/40 rounded px-3 py-2"
+          class="text-xs text-danger bg-danger/10 border border-danger/20 rounded px-3 py-2"
         >
           {{ error }}
         </div>
@@ -119,8 +117,8 @@ async function onSubmit(): Promise<void> {
           class="w-full px-4 py-2 text-xs font-semibold rounded border transition-colors"
           :class="
             canSubmit
-              ? 'bg-cyan-400/10 border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/20'
-              : 'border-navy-700 text-navy-600 cursor-not-allowed'
+              ? 'bg-accent-soft border-accent/40 text-accent hover:brightness-110'
+              : 'border-line text-faint cursor-not-allowed'
           "
           @click="onSubmit"
         >

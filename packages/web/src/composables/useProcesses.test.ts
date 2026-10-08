@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { defineComponent } from 'vue';
 import { mount } from '@vue/test-utils';
 
-vi.mock('./useExecute.js', () => ({
-  useExecute: vi.fn(() => ({
+vi.mock('./useLegionApi.js', () => ({
+  useLegionApi: vi.fn(() => ({
     execute: vi.fn().mockResolvedValue([]),
   })),
 }));
@@ -33,9 +33,9 @@ describe('useProcesses', () => {
   });
 
   it('calls list_processes on first use', async () => {
-    const { useExecute } = (await import('./useExecute.js')) as any;
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
     const executeMock = vi.fn().mockResolvedValue([]);
-    useExecute.mockReturnValue({ execute: executeMock });
+    useLegionApi.mockReturnValue({ execute: executeMock });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
@@ -52,7 +52,7 @@ describe('useProcesses', () => {
   });
 
   it('populates processes from execute result', async () => {
-    const { useExecute } = (await import('./useExecute.js')) as any;
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
     const fakeProcesses = [
       {
         id: 'proc-1',
@@ -69,7 +69,7 @@ describe('useProcesses', () => {
         exitedAt: null,
       },
     ];
-    useExecute.mockReturnValue({ execute: vi.fn().mockResolvedValue(fakeProcesses) });
+    useLegionApi.mockReturnValue({ execute: vi.fn().mockResolvedValue(fakeProcesses) });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
@@ -87,9 +87,9 @@ describe('useProcesses', () => {
 
   it('clears poll interval when last consumer unmounts', async () => {
     vi.useFakeTimers();
-    const { useExecute } = (await import('./useExecute.js')) as any;
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
     const executeMock = vi.fn().mockResolvedValue([]);
-    useExecute.mockReturnValue({ execute: executeMock });
+    useLegionApi.mockReturnValue({ execute: executeMock });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
@@ -111,7 +111,7 @@ describe('useProcesses', () => {
   });
 
   it('refresh() re-fetches and updates processes', async () => {
-    const { useExecute } = (await import('./useExecute.js')) as any;
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
     const executeMock = vi
       .fn()
       .mockResolvedValueOnce([])
@@ -131,7 +131,7 @@ describe('useProcesses', () => {
           exitedAt: '2026-01-01T00:00:01Z',
         },
       ]);
-    useExecute.mockReturnValue({ execute: executeMock });
+    useLegionApi.mockReturnValue({ execute: executeMock });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({

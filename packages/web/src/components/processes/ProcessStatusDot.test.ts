@@ -11,30 +11,30 @@ describe('ProcessStatusDot', () => {
     expect(w.element.tagName).toBe('SPAN');
   });
 
-  it('running: cyan + animate-pulse', () => {
+  it('running: accent + animate-pulse', () => {
     const w = mount(ProcessStatusDot, { props: { status: 'running' } });
-    expect(w.classes()).toContain('bg-cyan-400');
+    expect(w.classes()).toContain('bg-accent');
     expect(w.classes()).toContain('animate-pulse');
   });
 
-  it('starting: amber', () => {
+  it('starting: warning', () => {
     const w = mount(ProcessStatusDot, { props: { status: 'starting' } });
-    expect(w.classes()).toContain('bg-amber-400');
+    expect(w.classes()).toContain('bg-warning');
   });
 
-  it('exited: slate', () => {
+  it('exited: faint', () => {
     const w = mount(ProcessStatusDot, { props: { status: 'exited' } });
-    expect(w.classes()).toContain('bg-slate-500');
+    expect(w.classes()).toContain('bg-faint');
   });
 
-  it('killed: red', () => {
+  it('killed: danger', () => {
     const w = mount(ProcessStatusDot, { props: { status: 'killed' } });
-    expect(w.classes()).toContain('bg-red-400');
+    expect(w.classes()).toContain('bg-danger');
   });
 
-  it('abandoned: navy', () => {
+  it('abandoned: faint', () => {
     const w = mount(ProcessStatusDot, { props: { status: 'abandoned' } });
-    expect(w.classes()).toContain('bg-navy-500');
+    expect(w.classes()).toContain('bg-faint');
   });
 
   it('all statuses render without throwing', () => {

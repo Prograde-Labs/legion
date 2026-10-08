@@ -26,7 +26,7 @@ async function onDeleted(): Promise<void> {
 <template>
   <div class="flex h-full">
     <!-- Left: process list sidebar -->
-    <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
+    <div class="w-52 flex-shrink-0 border-r border-line flex flex-col">
       <ProcessList :processes="processes" :active-id="activeId" />
     </div>
 

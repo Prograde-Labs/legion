@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
 
 const executeMock = vi.fn();
-vi.mock('../../composables/useExecute.js', () => ({
-  useExecute: () => ({ execute: executeMock }),
+vi.mock('../../composables/useLegionApi.js', () => ({
+  useLegionApi: () => ({ execute: executeMock }),
 }));
 
 beforeEach(() => {
