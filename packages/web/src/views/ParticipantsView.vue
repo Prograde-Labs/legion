@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import type { BaseParticipant } from '@legion-collective/types';
-import AppLayout from '../components/layout/AppLayout.vue';
 import ParticipantSlideOver from '../components/participants/ParticipantSlideOver.vue';
 import type {
   MiddlewareDefinitionInfo,
@@ -99,81 +98,79 @@ function openEdit(id: string) {
 </script>
 
 <template>
-  <AppLayout>
-    <div class="flex items-center justify-between px-5 py-3.5 border-b border-navy-600">
-      <h1 class="text-sm font-semibold text-slate-100">Participants</h1>
-      <button
-        @click="openCreate"
-        class="text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded hover:border-cyan-400/40"
-      >
-        + New agent
-      </button>
-    </div>
+  <div class="flex items-center justify-between px-5 py-3.5 border-b border-navy-600">
+    <h1 class="text-sm font-semibold text-slate-100">Participants</h1>
+    <button
+      @click="openCreate"
+      class="text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded hover:border-cyan-400/40"
+    >
+      + New agent
+    </button>
+  </div>
 
-    <table class="w-full border-collapse text-xs">
-      <thead>
-        <tr class="border-b border-navy-700">
-          <th
-            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
-          >
-            Status
-          </th>
-          <th
-            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
-          >
-            Name
-          </th>
-          <th
-            class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
-          >
-            Model
-          </th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="p in participants"
-          :key="p.id"
-          :class="[
-            'border-b border-navy-900 hover:bg-navy-800/40',
-            p.status === 'retired' ? 'opacity-35' : '',
-          ]"
+  <table class="w-full border-collapse text-xs">
+    <thead>
+      <tr class="border-b border-navy-700">
+        <th
+          class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
         >
-          <td class="px-4 py-2.5">
-            <div class="flex items-center gap-2">
-              <StatusDot :status="p.status === 'active' ? 'active' : 'retired'" />
-              <span :class="p.status === 'active' ? 'text-cyan-400' : 'text-navy-500'">
-                {{ p.status === 'active' ? 'Active' : 'Retired' }}
-              </span>
-            </div>
-          </td>
-          <td class="px-4 py-2.5 text-slate-100 font-medium">{{ p.name }}</td>
-          <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).model ?? '—' }}</td>
-          <td class="px-4 py-2.5 text-right">
-            <button
-              v-if="p.status === 'active'"
-              @click="openEdit(p.id)"
-              class="text-navy-400 hover:text-slate-200 mr-3"
-            >
-              Edit
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+          Status
+        </th>
+        <th
+          class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+        >
+          Name
+        </th>
+        <th
+          class="text-left text-[9px] uppercase tracking-wider text-navy-500 px-4 py-2 font-semibold"
+        >
+          Model
+        </th>
+        <th />
+      </tr>
+    </thead>
+    <tbody>
+      <tr
+        v-for="p in participants"
+        :key="p.id"
+        :class="[
+          'border-b border-navy-900 hover:bg-navy-800/40',
+          p.status === 'retired' ? 'opacity-35' : '',
+        ]"
+      >
+        <td class="px-4 py-2.5">
+          <div class="flex items-center gap-2">
+            <StatusDot :status="p.status === 'active' ? 'active' : 'retired'" />
+            <span :class="p.status === 'active' ? 'text-cyan-400' : 'text-navy-500'">
+              {{ p.status === 'active' ? 'Active' : 'Retired' }}
+            </span>
+          </div>
+        </td>
+        <td class="px-4 py-2.5 text-slate-100 font-medium">{{ p.name }}</td>
+        <td class="px-4 py-2.5 text-navy-400 font-mono">{{ (p as any).model ?? '—' }}</td>
+        <td class="px-4 py-2.5 text-right">
+          <button
+            v-if="p.status === 'active'"
+            @click="openEdit(p.id)"
+            class="text-navy-400 hover:text-slate-200 mr-3"
+          >
+            Edit
+          </button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
 
-    <ParticipantSlideOver
-      :open="slideOpen"
-      :participant-id="editingId"
-      :available-tools="allTools"
-      :available-models="availableModels"
-      :middleware-definitions="middlewareDefinitions"
-      :middleware-diagnostics="middlewareDiagnostics"
-      :skills="skills"
-      :credential-keys="credentialKeys"
-      @close="slideOpen = false"
-      @saved="load"
-    />
-  </AppLayout>
+  <ParticipantSlideOver
+    :open="slideOpen"
+    :participant-id="editingId"
+    :available-tools="allTools"
+    :available-models="availableModels"
+    :middleware-definitions="middlewareDefinitions"
+    :middleware-diagnostics="middlewareDiagnostics"
+    :skills="skills"
+    :credential-keys="credentialKeys"
+    @close="slideOpen = false"
+    @saved="load"
+  />
 </template>

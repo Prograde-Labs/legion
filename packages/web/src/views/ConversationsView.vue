@@ -5,7 +5,6 @@ import { useExecute } from '../composables/useExecute.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
-import AppLayout from '../components/layout/AppLayout.vue';
 import ConversationList from '../components/conversations/ConversationList.vue';
 import ConversationThread from '../components/conversations/ConversationThread.vue';
 import SearchableCombobox from '../components/common/SearchableCombobox.vue';
@@ -176,96 +175,94 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppLayout>
-    <div class="flex h-full">
-      <!-- Left: conversation list -->
-      <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
-        <ConversationList
-          :conversations="conversations"
-          :active-id="activeId"
-          :my-participant-id="myParticipantId ?? ''"
-          :mode="listMode"
-          :status="statusFilter"
-          :tags="tagFilter"
-          :pending-approval-ids="pendingApprovalIds"
-          @select="selectConversation"
-          @update:mode="listMode = $event"
-          @update:status="statusFilter = $event"
-          @update:tags="tagFilter = $event"
-          @delete="requestDelete"
-        />
-      </div>
+  <div class="flex h-full">
+    <!-- Left: conversation list -->
+    <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
+      <ConversationList
+        :conversations="conversations"
+        :active-id="activeId"
+        :my-participant-id="myParticipantId ?? ''"
+        :mode="listMode"
+        :status="statusFilter"
+        :tags="tagFilter"
+        :pending-approval-ids="pendingApprovalIds"
+        @select="selectConversation"
+        @update:mode="listMode = $event"
+        @update:status="statusFilter = $event"
+        @update:tags="tagFilter = $event"
+        @delete="requestDelete"
+      />
+    </div>
 
-      <!-- Right: thread -->
-      <div class="flex-1 flex flex-col min-w-0">
-        <!-- Draft: "To:" header bar -->
-        <div
-          v-if="isDraft"
-          class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-800 flex-shrink-0"
-        >
-          <span class="text-xs text-slate-500 flex-shrink-0">To:</span>
-          <div class="flex-1 max-w-xs">
-            <SearchableCombobox
-              :options="agentOptions"
-              placeholder="Select agent..."
-              @select="onDraftRecipientSelect"
-            />
-          </div>
-        </div>
-
-        <!-- Thread pane -->
-        <ConversationThread
-          v-if="activeId || isDraft"
-          :key="activeId ?? 'draft'"
-          :conversation-id="activeId"
-          :mode="threadMode"
-          :my-participant-id="myParticipantId ?? ''"
-          :recipient-id="recipientId ?? undefined"
-          :recipient-name="recipientName ?? undefined"
-          @sent="onMessageSent"
-          @delete="requestDelete"
-        />
-
-        <!-- No selection -->
-        <div v-else class="flex-1 flex items-center justify-center text-slate-600 text-sm">
-          Select a conversation or start a new one
-        </div>
-      </div>
-
-      <!-- Delete confirmation modal -->
+    <!-- Right: thread -->
+    <div class="flex-1 flex flex-col min-w-0">
+      <!-- Draft: "To:" header bar -->
       <div
-        v-if="pendingDeleteId"
-        class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-        @click.self="cancelDelete"
+        v-if="isDraft"
+        class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-800 flex-shrink-0"
       >
-        <div class="bg-navy-900 border border-navy-700 rounded-lg shadow-xl max-w-sm w-full mx-4">
-          <div class="px-4 py-3 border-b border-navy-800">
-            <span class="text-sm font-medium text-slate-200">Delete conversation?</span>
-          </div>
-          <div class="px-4 py-4 text-sm text-slate-400">
-            This will permanently delete this conversation and any nested delegations. This cannot
-            be undone.
-          </div>
-          <div class="px-4 py-3 flex justify-end gap-2 border-t border-navy-800">
-            <button
-              type="button"
-              class="text-xs px-3 py-1.5 rounded border border-navy-700 text-slate-400 hover:text-slate-200 hover:bg-navy-800 transition-colors"
-              :disabled="deleting"
-              @click="cancelDelete"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
-              :disabled="deleting"
-              @click="confirmDelete"
-            >
-              Delete
-            </button>
-          </div>
+        <span class="text-xs text-slate-500 flex-shrink-0">To:</span>
+        <div class="flex-1 max-w-xs">
+          <SearchableCombobox
+            :options="agentOptions"
+            placeholder="Select agent..."
+            @select="onDraftRecipientSelect"
+          />
+        </div>
+      </div>
+
+      <!-- Thread pane -->
+      <ConversationThread
+        v-if="activeId || isDraft"
+        :key="activeId ?? 'draft'"
+        :conversation-id="activeId"
+        :mode="threadMode"
+        :my-participant-id="myParticipantId ?? ''"
+        :recipient-id="recipientId ?? undefined"
+        :recipient-name="recipientName ?? undefined"
+        @sent="onMessageSent"
+        @delete="requestDelete"
+      />
+
+      <!-- No selection -->
+      <div v-else class="flex-1 flex items-center justify-center text-slate-600 text-sm">
+        Select a conversation or start a new one
+      </div>
+    </div>
+
+    <!-- Delete confirmation modal -->
+    <div
+      v-if="pendingDeleteId"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      @click.self="cancelDelete"
+    >
+      <div class="bg-navy-900 border border-navy-700 rounded-lg shadow-xl max-w-sm w-full mx-4">
+        <div class="px-4 py-3 border-b border-navy-800">
+          <span class="text-sm font-medium text-slate-200">Delete conversation?</span>
+        </div>
+        <div class="px-4 py-4 text-sm text-slate-400">
+          This will permanently delete this conversation and any nested delegations. This cannot be
+          undone.
+        </div>
+        <div class="px-4 py-3 flex justify-end gap-2 border-t border-navy-800">
+          <button
+            type="button"
+            class="text-xs px-3 py-1.5 rounded border border-navy-700 text-slate-400 hover:text-slate-200 hover:bg-navy-800 transition-colors"
+            :disabled="deleting"
+            @click="cancelDelete"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+            :disabled="deleting"
+            @click="confirmDelete"
+          >
+            Delete
+          </button>
         </div>
       </div>
     </div>
-  </AppLayout>
+  </div>
 </template>

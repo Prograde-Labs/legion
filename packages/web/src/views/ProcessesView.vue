@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import AppLayout from '../components/layout/AppLayout.vue';
 import ProcessList from '../components/processes/ProcessList.vue';
 import ProcessStartForm from '../components/processes/ProcessStartForm.vue';
 import ProcessDetail from '../components/processes/ProcessDetail.vue';
@@ -25,23 +24,16 @@ async function onDeleted(): Promise<void> {
 </script>
 
 <template>
-  <AppLayout>
-    <div class="flex h-full">
-      <!-- Left: process list sidebar -->
-      <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
-        <ProcessList :processes="processes" :active-id="activeId" />
-      </div>
-
-      <!-- Right: start form or process detail -->
-      <div class="flex-1 flex flex-col min-w-0">
-        <ProcessDetail
-          v-if="activeId"
-          :key="activeId"
-          :process-id="activeId"
-          @deleted="onDeleted"
-        />
-        <ProcessStartForm v-else @started="onStarted" />
-      </div>
+  <div class="flex h-full">
+    <!-- Left: process list sidebar -->
+    <div class="w-52 flex-shrink-0 border-r border-navy-800 flex flex-col">
+      <ProcessList :processes="processes" :active-id="activeId" />
     </div>
-  </AppLayout>
+
+    <!-- Right: start form or process detail -->
+    <div class="flex-1 flex flex-col min-w-0">
+      <ProcessDetail v-if="activeId" :key="activeId" :process-id="activeId" @deleted="onDeleted" />
+      <ProcessStartForm v-else @started="onStarted" />
+    </div>
+  </div>
 </template>

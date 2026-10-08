@@ -30,7 +30,7 @@ const routes = [
     component: () => import('../views/ConfigView.vue'),
     meta: { requiresAuth: true },
   },
-  // Legacy routes kept until slice 7b migrates the old views to AppShell.
+  // Legacy route kept until Task 9 replaces ConversationsView with ChatView.
   {
     path: '/conversations',
     component: () => import('../views/ConversationsView.vue'),
@@ -44,11 +44,6 @@ const routes = [
   {
     path: '/conversations/:id',
     component: () => import('../views/ConversationsView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/events',
-    component: () => import('../views/EventStreamView.vue'),
     meta: { requiresAuth: true },
   },
 ];

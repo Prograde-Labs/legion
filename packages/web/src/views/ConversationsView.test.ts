@@ -42,7 +42,7 @@ describe('ConversationsView filters', () => {
   it('sends identical status and tags to listing and watching', async () => {
     const wrapper = mount(ConversationsView, {
       global: {
-        stubs: { AppLayout: { template: '<main><slot /></main>' }, ConversationThread: true },
+        stubs: { ConversationThread: true },
       },
     });
     await flushPromises();
@@ -85,7 +85,7 @@ describe('ConversationsView filters', () => {
     });
     const wrapper = mount(ConversationsView, {
       global: {
-        stubs: { AppLayout: { template: '<main><slot /></main>' }, ConversationThread: true },
+        stubs: { ConversationThread: true },
       },
     });
     await flushPromises();
