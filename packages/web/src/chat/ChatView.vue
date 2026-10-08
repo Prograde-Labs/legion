@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router';
 import ConversationList from './ConversationList.vue';
 import Thread from './Thread.vue';
 import Composer from './Composer.vue';
+import SearchableCombobox from '../components/common/SearchableCombobox.vue';
 import DockPanel from '../panels/DockPanel.vue';
 import { useDock, lookupPanel, CommunicatePanel } from '../panels/registry.js';
 import { useConversations } from '../composables/useConversations.js';
 import { useReadState } from '../composables/useReadState.js';
 import { useApprovals } from '../composables/useApprovals.js';
+import { useParticipants } from '../composables/useParticipants.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -67,9 +69,19 @@ watch(
   { immediate: true },
 );
 
-// TODO(task-13/14): recipient selection via @-mentions/dock targeting. The send
-// path is real; the default routes to agent-a like the e2e flow does today.
-const recipientId = ref<string | null>('agent-a');
+// Draft mode (spec §4.4): no route id means a new conversation. The recipient
+// picker lists active agents; the first communicate (Composer @sent) creates
+// the conversation server-side and the new id arrives with the sent event,
+// at which point the route replaces /chat → /chat/<id>.
+const recipientId = ref<string | null>(null);
+const isDraft = computed(() => !route.params.id);
+
+const { participants } = useParticipants();
+const recipientOptions = computed(() =>
+  participants.value
+    .filter((p) => p.type === 'agent' && p.status !== 'retired')
+    .map((p) => ({ value: p.id, label: p.name || p.id })),
+);
 
 // Composer Stop flag; Thread owns its internal isStreaming (not cross-wired in
 // this slice — 12c keeps the two states independent).
@@ -81,7 +93,13 @@ const branchLabel = ref<string | undefined>(undefined);
 const threadRef = ref<InstanceType<typeof Thread> | null>(null);
 
 function onSent(conversationId: string | null): void {
-  void conversationId; // Thread reloads via its own stream:done path
+  if (isDraft.value && conversationId) {
+    // First send on a draft: communicate created the conversation server-side;
+    // replace (not push) so back doesn't return to the empty /chat draft.
+    void router.replace(`/chat/${conversationId}`);
+    return;
+  }
+  // Thread reloads via its own stream:done path
 }
 
 async function onStop(): Promise<void> {
@@ -138,7 +156,19 @@ function onDockJump(messageId: string): void {
         </button>
         <span class="text-sm text-muted">Conversations</span>
       </header>
-      <Thread ref="threadRef" :conversation-id="activeId" @open="onChipOpen" />
+      <Thread v-if="!isDraft" ref="threadRef" :conversation-id="activeId" @open="onChipOpen" />
+      <div v-else class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+        <p class="text-sm text-muted">Start a new conversation — pick a recipient.</p>
+        <div class="w-64" data-test="recipient-picker">
+          <SearchableCombobox
+            :options="recipientOptions"
+            placeholder="Search agents…"
+            :model-value="recipientId"
+            @select="recipientId = $event"
+            @update:model-value="recipientId = $event"
+          />
+        </div>
+      </div>
       <Composer
         :conversation-id="activeId"
         :recipient-id="recipientId"

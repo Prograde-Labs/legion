@@ -65,17 +65,21 @@ function onKeydown(event: KeyboardEvent): void {
 async function send(): Promise<void> {
   const message = draft.value.trim();
   if (!message || !props.recipientId) return;
+  let sentConversationId: string | null = props.conversationId ?? null;
   try {
-    await execute('communicate', {
+    // Draft sends (conversationId undefined) create the conversation server-side;
+    // the tool returns its id (communicate → data.conversationId).
+    const data = await execute<{ conversationId?: string }>('communicate', {
       to: props.recipientId,
       message,
       conversationId: props.conversationId ?? undefined,
     });
+    sentConversationId = data?.conversationId ?? sentConversationId;
   } finally {
     draft.value = '';
     mentionQuery.value = null;
   }
-  emit('sent', props.conversationId);
+  emit('sent', sentConversationId);
 }
 </script>
 
