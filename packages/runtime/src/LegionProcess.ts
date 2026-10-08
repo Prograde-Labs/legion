@@ -251,6 +251,7 @@ export class LegionProcess {
       workspaceRouting,
       saveSystemRouting,
       saveWorkspaceRouting,
+      pendingApprovalRegistry,
     });
     for (const tool of runtimeTools) {
       toolRegistry.register(tool);
@@ -406,6 +407,7 @@ const RUNTIME_TOOL_NAMES = [
   'list_models',
   'get_routing',
   'save_routing',
+  'list_pending_approvals',
   'list_middleware',
   'list_skills',
 ] as const;

@@ -5,6 +5,7 @@ import type {
   ToolResult,
 } from '@legion-collective/types';
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
+import type { PendingApprovalRegistry } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   systemStore: SystemProviderStore;
@@ -12,11 +13,18 @@ interface RuntimeToolDeps {
   workspaceRouting: RoutingConfig;
   saveSystemRouting: (routing: RoutingConfig) => Promise<void>;
   saveWorkspaceRouting: (routing: RoutingConfig) => Promise<void>;
+  pendingApprovalRegistry: PendingApprovalRegistry;
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
-  const { systemStore, systemRouting, workspaceRouting, saveSystemRouting, saveWorkspaceRouting } =
-    deps;
+  const {
+    systemStore,
+    systemRouting,
+    workspaceRouting,
+    saveSystemRouting,
+    saveWorkspaceRouting,
+    pendingApprovalRegistry,
+  } = deps;
 
   return [
     {
@@ -146,6 +154,29 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
             throw new Error(`Invalid routing scope: ${String(scope)}`);
           }
           return { status: 'success', data: { scope } };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'list_pending_approvals',
+      description:
+        'List pending approval requests, optionally scoped to one conversation. ' +
+        'Drives the global pending-approvals badge.',
+      parameters: {
+        type: 'object',
+        properties: {
+          conversationId: { type: 'string', description: 'Scope to one conversation.' },
+        },
+        required: [],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          const { conversationId } = (rawArgs ?? {}) as { conversationId?: string };
+          const pending = pendingApprovalRegistry.listPending(conversationId);
+          return { status: 'success', data: pending };
         } catch (err) {
           return toErrorResult(err);
         }

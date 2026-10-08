@@ -1,5 +1,6 @@
 import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
 import { describe, expect, it } from 'vitest';
+import { PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
 import { createRuntimeTools } from './runtime-tools.js';
 
 type ProviderStub = { listModels?: () => Promise<ProviderModel[]> };
@@ -41,6 +42,7 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
       Object.keys(workspaceRouting).forEach((k) => delete workspaceRouting[k]);
       Object.assign(workspaceRouting, routing);
     },
+    pendingApprovalRegistry: makeApprovalRegistry(),
     ...overrides,
   };
 }
@@ -49,6 +51,15 @@ function tool(tools: ReturnType<typeof createRuntimeTools>, name: string) {
   const found = tools.find((t) => t.name === name);
   if (!found) throw new Error(`Tool not found: ${name}`);
   return found;
+}
+
+function makeApprovalRegistry(): PendingApprovalRegistry {
+  return new PendingApprovalRegistry();
+}
+
+function makeContext(): ToolContext {
+  // Tools under test never read the context; a stub keeps the fixture light.
+  return {} as unknown as ToolContext;
 }
 
 describe('runtime tools', () => {
@@ -61,6 +72,7 @@ describe('runtime tools', () => {
       'list_models',
       'get_routing',
       'save_routing',
+      'list_pending_approvals',
     ]);
     expect(tools.some((t) => t.name === 'set_credential_with_meta')).toBe(false);
     expect(tools.some((t) => t.name === 'list_credentials')).toBe(false);
@@ -233,5 +245,51 @@ describe('runtime tools', () => {
         workspace: { models: { local: ['workspace-provider'] } },
       },
     });
+  });
+});
+
+describe('list_pending_approvals', () => {
+  it('returns pending approvals across conversations', async () => {
+    const registry = makeApprovalRegistry(); // fixture helper you add, e.g. MemoryStorage-backed
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    await registry.create({
+      conversationId: 'conv-2',
+      requesterId: 'agent-b',
+      tool: 'shell',
+      args: {},
+    });
+    const tools = createRuntimeTools(makeDeps({ pendingApprovalRegistry: registry }));
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    const result = await tool.execute({}, makeContext());
+    expect(result.status).toBe('success');
+    expect((result.data as unknown[]).length).toBe(2);
+  });
+
+  it('filters by conversationId', async () => {
+    const registry = makeApprovalRegistry();
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    await registry.create({
+      conversationId: 'conv-2',
+      requesterId: 'agent-b',
+      tool: 'shell',
+      args: {},
+    });
+    const tools = createRuntimeTools(makeDeps({ pendingApprovalRegistry: registry }));
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    const result = await tool.execute({ conversationId: 'conv-1' }, makeContext());
+    expect(result.status).toBe('success');
+    const data = result.data as Array<{ conversationId: string }>;
+    expect(data.length).toBe(1);
+    expect(data[0].conversationId).toBe('conv-1');
   });
 });
