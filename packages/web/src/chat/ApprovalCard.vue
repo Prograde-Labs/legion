@@ -24,9 +24,13 @@ async function decide(approved: boolean): Promise<void> {
   error.value = null;
   try {
     await execute('approval_response', {
-      approvalId: props.approval.approvalId,
-      approved,
-      ...(reason.value ? { message: reason.value } : {}),
+      decisions: [
+        {
+          approvalId: props.approval.approvalId,
+          decision: approved ? 'approve' : 'reject',
+          ...(reason.value ? { message: reason.value } : {}),
+        },
+      ],
     });
     emit('resolved', approved);
   } catch (err) {

@@ -33,7 +33,7 @@ describe('ApprovalCard', () => {
     expect(wrapper.find('[data-test="approval-args"]').text()).toContain('/tmp/x.txt');
   });
 
-  it('approve calls approval_response approved:true and emits resolved', async () => {
+  it('approve sends decisions[] approve decision and emits resolved', async () => {
     const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
     const wrapper = mount(ApprovalCard, { props: { approval } });
@@ -43,8 +43,8 @@ describe('ApprovalCard', () => {
     await flushPromises();
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.tool).toBe('approval_response');
-    expect(body.args.approvalId).toBe('a1');
-    expect(body.args.approved).toBe(true);
+    expect(body.args.decisions[0].approvalId).toBe('a1');
+    expect(body.args.decisions[0].decision).toBe('approve');
     expect(wrapper.emitted('resolved')?.[0]).toEqual([true]);
   });
 
@@ -57,8 +57,8 @@ describe('ApprovalCard', () => {
     await wrapper.find('[data-test="approval-reject"]').trigger('click');
     await flushPromises();
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.args.approved).toBe(false);
-    expect(body.args.message).toBe('not today');
+    expect(body.args.decisions[0].decision).toBe('reject');
+    expect(body.args.decisions[0].message).toBe('not today');
     expect(wrapper.emitted('resolved')?.[0]).toEqual([false]);
   });
 
