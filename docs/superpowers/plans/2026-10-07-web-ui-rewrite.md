@@ -1155,7 +1155,7 @@ git commit -m "feat(web): theme token layer — command-deck + blueprint-light (
   - `onEvent(type, handler)` — typed subscription over the WS bus: internally subscribes to `useWebSocket().onMessage` and filters `msg.type === type`. Returns unsubscribe.
   - This is a merge of today's `useExecute` + login/session handling + the WS event bus facade — ONE foundation instead of every composable rolling its own (spec §3.3). `useWebSocket`/`useAuth` remain as the transport/session primitives underneath; `useLegionApi` is the only thing feature composables import.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/web/src/composables/useLegionApi.test.ts` (mock `fetch` with `vi.stubGlobal`, reuse the mocking pattern from `useExecute.test.ts`):
 
@@ -1234,12 +1234,12 @@ describe('useLegionApi.onEvent', () => {
 
 (Executor note: fill the last test's dispatch section by copying the WebSocket mock harness from `packages/web/src/composables/useWebSocket.test.ts` — that file already contains a working happy-dom WS stub; import/reuse its helper rather than writing a new one.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run test --workspace=packages/web -- src/composables/useLegionApi.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```typescript
 import { computed, ref, type Ref } from 'vue';
@@ -1308,12 +1308,12 @@ export function useLegionApi() {
 
 (Adjust `isAuthenticated` exposure to whatever feature composables need; keep the returned surface stable — later tasks import exactly `{ execute, login, logout, onEvent, connected }`.)
 
-- [ ] **Step 4: Verify no regressions in existing composable tests**
+- [x] **Step 4: Verify no regressions in existing composable tests**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS — existing `useExecute`/`useAuth`/`useWebSocket` tests still green (this task ADDS the foundation; consumers migrate in Task 7+, and `useExecute` is deleted in Task 21 once nothing imports it).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/web/src/composables/useLegionApi.ts packages/web/src/composables/useLegionApi.test.ts
