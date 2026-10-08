@@ -3,6 +3,8 @@ import { nextTick, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import MessagePart from './MessagePart.vue';
+import ForkControls from './ForkControls.vue';
+import MessageActions from './MessageActions.vue';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
@@ -99,7 +101,14 @@ watch(
           :key="m.id"
           :message="m"
           @open="(tool, payload) => emit('open', tool, payload)"
-        />
+        >
+          <template v-if="conversationId" #actions="{ message: m }">
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              <ForkControls :conversation-id="conversationId" :message="m" @switched="load" />
+              <MessageActions :conversation-id="conversationId" :message="m" @mutated="load" />
+            </div>
+          </template>
+        </MessagePart>
         <div v-if="isStreaming" data-test="streaming-part" class="flex flex-col gap-2">
           <MessagePart
             v-if="streamingReasoning || streamingText"
