@@ -24,6 +24,7 @@ const MANAGEMENT_TOOLS = [
   'set_credential',
   'create_user',
   'modify_user',
+  'set_approval_authority',
   'set_participant_middleware',
   'approval_response',
   // runtime / config tools (registered by WebConnector layer)
