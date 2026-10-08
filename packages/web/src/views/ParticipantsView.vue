@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useParticipantSelection } from './useParticipantSelection.js';
 import ParticipantsList from './ParticipantsList.vue';
+import TopologyMap from './TopologyMap.vue';
 import AgentEditor from './AgentEditor.vue';
 import UserEditor from './UserEditor.vue';
 
 const { byId, load } = useParticipants();
 const { selectedId, select } = useParticipantSelection();
+
+const viewMode = ref<'list' | 'map'>('list');
 
 const selected = computed(() => (selectedId.value ? byId(selectedId.value) : undefined));
 
@@ -50,8 +53,29 @@ function onRetired(): void {
 
 <template>
   <div class="flex h-full min-h-0">
-    <div class="w-72 shrink-0 border-r border-line">
-      <ParticipantsList @select="select" />
+    <div class="flex w-72 shrink-0 flex-col border-r border-line">
+      <div class="flex border-b border-line text-xs" role="tablist">
+        <button
+          type="button"
+          data-test="view-list"
+          class="flex-1 py-1.5"
+          :class="viewMode === 'list' ? 'bg-surface text-ink' : 'text-muted'"
+          @click="viewMode = 'list'"
+        >
+          List
+        </button>
+        <button
+          type="button"
+          data-test="view-map"
+          class="flex-1 py-1.5"
+          :class="viewMode === 'map' ? 'bg-surface text-ink' : 'text-muted'"
+          @click="viewMode = 'map'"
+        >
+          Map
+        </button>
+      </div>
+      <TopologyMap v-if="viewMode === 'map'" class="min-h-0 flex-1" @select="select" />
+      <ParticipantsList v-else class="min-h-0 flex-1" @select="select" />
     </div>
     <div class="min-h-0 min-w-0 flex-1 overflow-y-auto">
       <div
