@@ -1699,7 +1699,7 @@ git commit -m "feat(web): useConversations + useParticipants state composables (
   - `ConversationList` — props none (reads the composable directly); emits `select(id)`. Rows: title/name, participant avatars (initials), last-activity relative time, unread dot, pending-approval marker (⚠ count when that conversation has pending approvals — from `useApprovals().pendingByConversation`), sorted by recent activity; search input on top (writes `useConversations().filter.value.search`); "＋ New conversation" pinned at the bottom (emits `select(null)` → route `/chat`).
   - ChatView wires `select` → `router.push('/chat/' + id)` (or `/chat` for null).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `ConversationList.test.ts`:
 
@@ -1774,12 +1774,12 @@ describe('ConversationList', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/chat/ConversationList.test.ts`
 Expected: FAIL — component not found.
 
-- [ ] **Step 3: Implement ConversationList + ChatView**
+- [x] **Step 3: Implement ConversationList + ChatView**
 
 Implementation notes (component code follows standard SFC + composable patterns established in Tasks 5–8; the list reads `useConversations().conversations` (already search-filtered + status-filtered) and sorts client-side by `updatedAt` desc):
 
@@ -1789,12 +1789,12 @@ Implementation notes (component code follows standard SFC + composable patterns 
 - `ChatView.vue` mobile drawer: `drawerOpen` ref; hamburger `@click` in view header; `<aside>` classes `max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:-translate-x-full` + `max-md:translate-x-0` when open; backdrop click closes. Desktop: static column. (Spec §3.2.)
 - ChatView template until Tasks 10/13 land: center column shows `<div data-test="thread-placeholder" />`, dock column omitted.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS — list tests green; suite green (ConversationsView test deleted with the view). `npm run build --workspace=packages/web` — succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
