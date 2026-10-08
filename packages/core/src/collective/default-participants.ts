@@ -22,6 +22,8 @@ const MANAGEMENT_TOOLS = [
   'set_tool_policy',
   'remove_tool_policy',
   'set_credential',
+  'create_user',
+  'modify_user',
   'set_participant_middleware',
   'approval_response',
   // runtime / config tools (registered by WebConnector layer)
