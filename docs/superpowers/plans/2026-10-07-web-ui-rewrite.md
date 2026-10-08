@@ -739,7 +739,7 @@ git commit -m "feat(runtime): list_pending_approvals tool (spec §7)"
   - `save_mcp_sources { servers: MCPServerConfig[] }` → `ToolResult{ status: 'success', data: { saved: number } }` — validates then persists the FULL list (full-replacement semantics, matching `save_routing`). Validation errors: not an array; entry without `name`; entry with neither `command` nor `url`; entry with both; duplicate names. Takes effect on process restart (no live reload) — say so in the tool description.
   - `RuntimeToolDeps` gains `getMCPServers: () => Promise<MCPServerConfig[]>` and `saveMCPServers: (servers: MCPServerConfig[]) => Promise<void>` (closure-injected, mirroring `saveSystemRouting`/`saveWorkspaceRouting` — keeps file IO out of the tool module).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `packages/runtime/src/server/runtime-tools.test.ts` (extend the existing deps fixture with `getMCPServers`/`saveMCPServers` in-memory closures):
 
@@ -814,12 +814,12 @@ describe('mcp source tools', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run packages/runtime/src/server/runtime-tools.test.ts`
 Expected: FAIL — the two tool names are not found in the returned array.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `runtime-tools.ts` extend `RuntimeToolDeps` with the two closures and add to the returned array:
 
@@ -905,12 +905,12 @@ In `LegionProcess.ts`, extend the `createRuntimeTools({...})` call with:
 
 and add `'list_mcp_sources'` + `'save_mcp_sources'` to `RUNTIME_TOOL_NAMES`. Caveat to note in the Config page copy (Task 20): if `.legion/config.local.json` also declares `mcpServers`, it shadows config.json at load — the UI should warn when local overrides exist (detectable: saved list ≠ next `list_mcp_sources` after reload).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run packages/runtime/src/server/runtime-tools.test.ts`
 Expected: PASS (all, including the 6 new). Then `npm run typecheck` — 0 errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/runtime/src/server/runtime-tools.ts packages/runtime/src/server/runtime-tools.test.ts \
