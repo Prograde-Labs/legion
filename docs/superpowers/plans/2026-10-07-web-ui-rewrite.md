@@ -2535,7 +2535,7 @@ git commit -m "feat(web): user editor + user management rules (spec §6.1, §7)"
   - **Decision (planner's recommendation, Chris can veto at plan-approve time):** build with plain SVG + a small force-simulation helper hand-rolled (~60 lines, simple repulsion + spring relaxation in a `requestAnimationFrame` loop) rather than adding D3/cytoscape (spec §3.4 "zero extra dependencies" spirit). Node count in a collective is small (tens); a full graph lib is overkill. If layout proves unstable in review, revisit with a stable circular layout fallback (deterministic, no physics): type-grouped arcs around a center hub.
   - Connectors: the config shape (`WorkspaceConfig.connectors`) is loaded by the process but not yet exposed via any tool. **Within scope:** render connectors only if the data is already reachable; otherwise omit the connector node type and record it in "Open questions for Chris" (do NOT add a seventh backend tool).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `TopologyMap.test.ts`:
 
@@ -2581,23 +2581,23 @@ describe('TopologyMap', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm run test --workspace=packages/web -- src/views/TopologyMap.test.ts`
 Expected: FAIL — component not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Node positions: deterministic circular layout (type-grouped) as the default; the physics helper is optional polish behind the same interface — ship the deterministic layout first, keep the review checkpoint for whether to add simulation.
 - Edge store: module-scoped `Map<edgeKey, lastSeen>`; `watch_activity` subscription via `useLegionApi().onEvent`-equivalent through the existing `useToolStream('watch_activity', …)` chunk handler (same consumption pattern as `ConversationsView.vue:150` today); prune entries older than 5s on a 1s interval; render `<line>` per live edge with opacity = age decay.
 - MCP nodes from `list_mcp_sources` (safe if Task 4 landed; if executing before Task 4, stub empty and note it).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run test --workspace=packages/web`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages/web/src
