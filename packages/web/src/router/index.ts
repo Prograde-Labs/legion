@@ -3,17 +3,11 @@ import { useAuth } from '../composables/useAuth.js';
 
 const routes = [
   { path: '/', redirect: '/chat' },
-  // Task 9 replaces this with the real ChatView — old ConversationsView for now.
-  {
-    path: '/chat',
-    component: () => import('../views/ConversationsView.vue'),
-    meta: { requiresAuth: true },
-  },
+  { path: '/chat', component: () => import('../chat/ChatView.vue'), meta: { requiresAuth: true } },
   {
     // Approvals badge deep-links to /chat/:id from AppShell badgeClick().
-    // TODO(task-9): ChatView replaces this alias.
     path: '/chat/:id',
-    component: () => import('../views/ConversationsView.vue'),
+    component: () => import('../chat/ChatView.vue'),
     meta: { requiresAuth: true },
   },
   { path: '/login', component: () => import('../views/LoginView.vue') },
@@ -35,22 +29,6 @@ const routes = [
   {
     path: '/config',
     component: () => import('../views/ConfigView.vue'),
-    meta: { requiresAuth: true },
-  },
-  // Legacy route kept until Task 9 replaces ConversationsView with ChatView.
-  {
-    path: '/conversations',
-    component: () => import('../views/ConversationsView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/conversations/new',
-    component: () => import('../views/ConversationsView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/conversations/:id',
-    component: () => import('../views/ConversationsView.vue'),
     meta: { requiresAuth: true },
   },
 ];
