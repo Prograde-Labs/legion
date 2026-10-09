@@ -85,6 +85,27 @@ describe('AgentEditor', () => {
     });
   });
 
+  it('save sends middleware via set_participant_middleware (modify_agent has no middleware param)', async () => {
+    const fetchMock = stubFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
+        'Agent A',
+      ),
+    );
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'set_participant_middleware',
+      );
+      expect(call).toBeDefined();
+      const args = JSON.parse(String(call![1]?.body)).args;
+      expect(args.participantId).toBe('agent-a');
+      expect(Array.isArray(args.middleware)).toBe(true);
+    });
+  });
+
   it('retire hidden for protected participants', async () => {
     vi.stubGlobal(
       'fetch',

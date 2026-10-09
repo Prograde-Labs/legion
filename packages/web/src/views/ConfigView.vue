@@ -167,7 +167,7 @@ async function deleteProvider(name: string) {
         </div>
       </section>
 
-      <!-- MCP sources: coming with Task 19 (spec §6.3 part 2) -->
+      <!-- MCP sources editor (spec §6.3 part 2; Task 19) -->
       <section>
         <h2 class="text-xs font-semibold text-ink mb-1">MCP sources</h2>
         <McpSourcesEditor />

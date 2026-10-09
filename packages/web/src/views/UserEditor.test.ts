@@ -78,6 +78,26 @@ describe('UserEditor', () => {
     });
   });
 
+  it('save persists approval authority via set_approval_authority (modify_user has no authority param)', async () => {
+    const fetchMock = stubFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    // The shared editor loads authority from get_participant (null here → unchecked);
+    // toggle the wildcard on so the saved payload carries it.
+    await wrapper.find('[data-test="wildcard"]').setValue(true);
+    await wrapper.find('form').trigger('submit');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'set_approval_authority',
+      );
+      expect(call).toBeDefined();
+      const args = JSON.parse(String(call![1]?.body)).args;
+      expect(args.participantId).toBe('alice');
+      expect(args.authority).toEqual({ tools: '*' });
+    });
+  });
+
   it('password fields enforce min 8 + match before calling set_credential', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);
@@ -90,14 +110,14 @@ describe('UserEditor', () => {
         ([, init]) => JSON.parse(String(init?.body)).tool === 'set_credential',
       ),
     ).toBe(false);
-    // wait for the first save to complete (it clears password fields when done)
-    // so it cannot race-wipe the values typed below before the second submit reads them.
+    // wait for the first save to fully complete (its tail clears the password
+    // fields) so it cannot race-wipe the values typed below before the second
+    // submit reads them. modify_user-seen is NOT enough — the save tail runs
+    // several awaits past it.
     await vi.waitFor(() => {
-      expect(
-        fetchMock.mock.calls.some(
-          ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_user',
-        ),
-      ).toBe(true);
+      expect((wrapper.find('input[name="new-password"]').element as HTMLInputElement).value).toBe(
+        '',
+      );
     });
     await wrapper.find('input[name="new-password"]').setValue('long-enough-pass');
     await wrapper.find('input[name="confirm-password"]').setValue('long-enough-pass');

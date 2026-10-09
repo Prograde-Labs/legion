@@ -131,6 +131,10 @@ async function save(): Promise<void> {
       if (newPassword.value.length >= 8 && newPassword.value === confirmPassword.value) {
         await execute('set_credential', { participantId: id, secret: newPassword.value });
       }
+      await execute('set_approval_authority', {
+        participantId: id,
+        authority: authority.value ?? { tools: {} },
+      });
       emit('saved', id);
     } else {
       await execute('modify_user', {
@@ -145,6 +149,13 @@ async function save(): Promise<void> {
           secret: newPassword.value,
         });
       }
+      // modify_user has no authority parameter — approval authority goes through
+      // set_approval_authority (final-review B2 fix; mirrors AgentEditor's
+      // saveAuthority payload shape).
+      await execute('set_approval_authority', {
+        participantId: props.participantId,
+        authority: authority.value ?? { tools: {} },
+      });
       emit('saved', props.participantId);
     }
     newPassword.value = '';

@@ -34,6 +34,16 @@ describe('McpSourcesEditor', () => {
     expect(wrapper.text()).toContain('stdio');
   });
 
+  it('warns that a config.local.json mcpServers override shadows saved changes (OQ3)', async () => {
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(McpSourcesEditor);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="mcp-card"]').length).toBe(1));
+    const warning = wrapper.find('[data-test="config-local-shadow-warning"]');
+    expect(warning.exists()).toBe(true);
+    expect(warning.text()).toContain('config.local.json');
+    expect(warning.text()).toContain('shadow');
+  });
+
   it('add creates a blank card; save sends the full list', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);

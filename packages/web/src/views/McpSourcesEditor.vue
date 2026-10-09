@@ -199,6 +199,10 @@ async function save(): Promise<void> {
         Save MCP sources
       </button>
       <p class="text-xs text-faint">Changes take effect after process restart.</p>
+      <p data-test="config-local-shadow-warning" class="text-xs text-warning">
+        Note: if a config.local.json file in the workspace overrides mcpServers, its values shadow
+        these saved changes on the next boot.
+      </p>
     </template>
     <p v-else class="text-xs text-faint">Loading MCP sources…</p>
   </div>

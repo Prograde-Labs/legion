@@ -116,6 +116,13 @@ async function save(): Promise<void> {
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
       });
+      // modify_agent/create_agent have no middleware parameter — middleware goes
+      // through set_participant_middleware (final-review B2 fix; same two-phase
+      // save as the legacy ParticipantSlideOver: non-atomic, both retryable).
+      await execute('set_participant_middleware', {
+        participantId: result.id,
+        middleware: middleware.value,
+      });
       emit('saved', result.id);
     } else {
       await execute('modify_agent', {
@@ -125,6 +132,10 @@ async function save(): Promise<void> {
         model: { model: modelText.value },
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
+      });
+      await execute('set_participant_middleware', {
+        participantId: props.participantId,
+        middleware: middleware.value,
       });
       emit('saved', props.participantId);
     }
