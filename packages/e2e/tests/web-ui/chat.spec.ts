@@ -55,5 +55,17 @@ test.describe('Chat UI', () => {
     await expect(page.locator('.md-content').last()).toContainText('mock response', {
       timeout: 15_000,
     });
+
+    // Second send in the SAME conversation (final-review C1/I1 regression): the
+    // non-draft path must start the communicate stream — both the new user
+    // message and the fresh reply appear without any navigation.
+    await page.locator('[data-test="composer-input"]').fill('second message');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-test="msg"]').last()).toContainText('second message', {
+      timeout: 15_000,
+    });
+    await expect(page.locator('.md-content').last()).toContainText('mock response', {
+      timeout: 15_000,
+    });
   });
 });
