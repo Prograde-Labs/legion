@@ -36,6 +36,7 @@ import {
   communicateTool,
   approvalResponseTool,
   managementTools,
+  userTools,
   fileTools,
   processTools,
   // Streaming / subscription tools
@@ -227,6 +228,9 @@ export class LegionProcess {
     for (const tool of managementTools) {
       toolRegistry.register(tool);
     }
+    for (const tool of userTools) {
+      toolRegistry.register(tool);
+    }
     for (const tool of fileTools) {
       toolRegistry.register(tool);
     }
@@ -253,7 +257,13 @@ export class LegionProcess {
       saveSystemRouting,
       saveWorkspaceRouting,
       pendingApprovalRegistry,
-      getMCPServers: () => Promise.resolve(structuredClone(mergedConfig.mcpServers ?? [])),
+      // Read live workspace state, not the startup snapshot: save_mcp_sources
+      // writes .legion/config.json, and list_mcp_sources must read back what
+      // was saved (spec §6 read-back contract).
+      getMCPServers: async () => {
+        const config = await loadWorkspaceConfig(workspaceRoot);
+        return config.mcpServers ?? [];
+      },
       saveMCPServers: async (servers: MCPServerConfig[]) => {
         const configPath = join(workspaceRoot, '.legion', 'config.json');
         const current = await loadWorkspaceConfig(workspaceRoot);
@@ -348,6 +358,7 @@ export class LegionProcess {
       serviceManager,
       processManager,
       middlewareRegistry,
+      credentials,
     });
 
     await webConnector.start(connectorContext);
@@ -663,6 +674,7 @@ interface ConnectorContextDeps {
   serviceManager: ServiceManager;
   processManager: ProcessManager;
   middlewareRegistry: MiddlewareRegistry;
+  credentials: FileCredentialStore;
 }
 
 /** Build the `ConnectorContext` passed to every connector's `start()`. */
@@ -682,6 +694,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
     serviceManager,
     processManager,
     middlewareRegistry,
+    credentials,
   } = deps;
 
   return {
@@ -704,6 +717,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        credentialStore: credentials,
       };
       return router.send({
         senderId: msg.senderId,
@@ -794,6 +808,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        credentialStore: credentials,
         cancelStream: opts?.cancelStream,
       };
 
@@ -878,6 +893,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        credentialStore: credentials,
         signal: opts?.signal,
         cancelStream: opts?.cancelStream,
       };

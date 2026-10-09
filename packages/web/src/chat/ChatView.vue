@@ -77,6 +77,16 @@ const recipientId = ref<string | null>(null);
 const isDraft = computed(() => !route.params.id);
 
 const { participants } = useParticipants();
+
+// Recipient options read the shared participants store; fetch it on first mount
+// (the same store feeds the participants view, so this is a no-op if already loaded).
+onMounted(
+  () =>
+    void useParticipants()
+      .load()
+      .catch(() => {}),
+);
+
 const recipientOptions = computed(() =>
   participants.value
     .filter((p) => p.type === 'agent' && p.status !== 'retired')

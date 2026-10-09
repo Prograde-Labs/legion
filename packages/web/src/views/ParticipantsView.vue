@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useParticipantSelection } from './useParticipantSelection.js';
 import ParticipantsList from './ParticipantsList.vue';
@@ -9,6 +9,10 @@ import UserEditor from './UserEditor.vue';
 
 const { byId, load } = useParticipants();
 const { selectedId, select } = useParticipantSelection();
+
+// Initial population of the shared participants store: the list, recipient
+// picker, and participant editors all read from it, but nothing else fetches.
+onMounted(() => void load().catch(() => {}));
 
 const viewMode = ref<'list' | 'map'>('list');
 
