@@ -2925,7 +2925,7 @@ git commit -m "chore(web): remove legacy console remnants; token-conformance swe
 
 Key flows (each test asserts against stable `data-test` attributes planted in Tasks 7–20):
 
-- [ ] **Step 1: `chat.spec.ts` — login → chat → send → tool chip**
+- [x] **Step 1: `chat.spec.ts` — login → chat → send → tool chip**
 
 ```typescript
 import { test, expect } from '../../fixtures/index.js';
@@ -2954,34 +2954,34 @@ test.describe('Chat UI', () => {
 
 (Executor note: verify what participants global-setup seeds — if no mock agent exists, create one via `ApiClient` `execute('create_agent', …)` with a systemPrompt that echoes, or extend the fixture. Do not depend on a live LLM.)
 
-- [ ] **Step 2: `dock.spec.ts` — tool chip opens dock tab**
+- [x] **Step 2: `dock.spec.ts` — tool chip opens dock tab**
 
 Arrange a conversation containing a tool call via API (`communicate` with an agent whose tools include a mock MCP tool, or seed a message directly through `execute('get_conversation')`-visible state). UI: open that conversation → click its tool chip → dock opens with the tab titled by the registry → close works.
 
-- [ ] **Step 3: `forks.spec.ts` — edit creates a sibling; arrows navigate**
+- [x] **Step 3: `forks.spec.ts` — edit creates a sibling; arrows navigate**
 
 In a seeded conversation: hover last user message → Edit → change text → save → pager `‹ 1/2 ›` appears → click `›` → original content shows. Asserts `edit_message` → `alternates` → `switch_branch` round trip through real backend.
 
-- [ ] **Step 4: `approvals.spec.ts` — approve/reject round trip**
+- [x] **Step 4: `approvals.spec.ts` — approve/reject round trip**
 
 Arrange: agent with `tools: { shell: 'requires_approval' }` prompted to run a command. UI: nav badge shows 1 → click badge → deep-links to the conversation → inline ApprovalCard visible → Approve → badge clears → the tool runs (its result chip appears). Repeat variant with Reject.
 
-- [ ] **Step 5: `participants-users.spec.ts` — user CRUD**
+- [x] **Step 5: `participants-users.spec.ts` — user CRUD**
 
 Via UI: Participants → New user → name + password → save → appears in list; open user → set tool policy → save; retire guard checks: self (operator) retire disabled; new user retire works. Password change on own account via avatar → Account slide-over → change password → logout → login with the new password.
 
-- [ ] **Step 6: `config-mcp.spec.ts` — MCP round trip**
+- [x] **Step 6: `config-mcp.spec.ts` — MCP round trip**
 
 Config → MCP section: existing list renders → Add server (name `e2e-mcp`, command `echo`) → Save → success + banner → reload page → server persists (`list_mcp_sources` reads back). Invalid case: duplicate name → client-side error, no network call (assert via `page.on('request')` filter).
 
-- [ ] **Step 7: Run the suite**
+- [x] **Step 7: Run the suite**
 
 Prereqs: `npm install && npm run build && npx playwright install chromium` (RAM check first — see Global Constraints).
 
 Run: `npm run test:e2e`
 Expected: all specs pass (existing API/auth specs unaffected).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A packages/e2e
