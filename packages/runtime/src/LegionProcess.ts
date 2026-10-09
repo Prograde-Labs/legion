@@ -37,6 +37,7 @@ import {
   approvalResponseTool,
   managementTools,
   userTools,
+  setApprovalAuthorityTool,
   fileTools,
   processTools,
   // Streaming / subscription tools
@@ -231,6 +232,7 @@ export class LegionProcess {
     for (const tool of userTools) {
       toolRegistry.register(tool);
     }
+    toolRegistry.register(setApprovalAuthorityTool);
     for (const tool of fileTools) {
       toolRegistry.register(tool);
     }
