@@ -25,6 +25,11 @@ onMounted(
       .catch(() => {}),
 );
 
+// Sidebar (spec §4.1): nothing else loads the conversation list — without this
+// the list is empty at boot and the non-draft reply-recipient derivation (which
+// reads the active conversation's participants) has no data to work with.
+onMounted(() => void store.load().catch(() => {}));
+
 const drawerOpen = ref(false);
 
 // Route param -> shared activeId
