@@ -2999,7 +2999,7 @@ git commit -m "test(e2e): chat-first UI journey specs (spec §8)"
 - Consumes: all tasks.
 - Produces: the five gates green on the finished branch.
 
-- [ ] **Step 1: Run the full gate, in order**
+- [x] **Step 1: Run the full gate, in order**
 
 ```bash
 free -h   # ensure MemAvailable > 4 GiB before the suite
@@ -3012,11 +3012,11 @@ npm run build && npx playwright install chromium && npm run test:e2e
 
 Expected: all five green. Any failure → fix in the owning task's scope, re-run the gate from the top.
 
-- [ ] **Step 2: Spec coverage cross-check**
+- [x] **Step 2: Spec coverage cross-check**
 
 Walk spec §3–§8 against the merged tree: shell (§3.1) ✓ Task 7 · layout/mobile (§3.2) ✓ Tasks 7/9 · state composables (§3.3) ✓ Tasks 6/8/12 · theming (§3.4) ✓ Task 5 · chat list/thread/renderers/forks/composer/approvals/streaming (§4) ✓ Tasks 9–12/20 · dock (§5) ✓ Task 13 · participants+users+topology (§6.1) ✓ Tasks 14–16 · processes (§6.2) ✓ Task 17 · config+MCP (§6.3) ✓ Tasks 18–19 · six tools (§7) ✓ Tasks 1–4 · tests (§8) ✓ Tasks 22–23. Record the checklist output in the task event log.
 
-- [ ] **Step 3: Commit the ticked plan**
+- [x] **Step 3: Commit the ticked plan**
 
 ```bash
 git add docs/superpowers/plans/2026-10-07-web-ui-rewrite.md
