@@ -128,6 +128,9 @@ function onSent(conversationId: string | null): void {
   // back doesn't return to the empty /chat draft.
   if (isDraft.value && conversationId) {
     void router.replace(`/chat/${conversationId}`);
+    // The sidebar list was loaded before this conversation existed; refresh so
+    // it appears and the reply-recipient derivation can find it.
+    void store.load();
   }
 }
 
