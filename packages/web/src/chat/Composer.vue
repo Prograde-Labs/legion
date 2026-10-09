@@ -14,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   sent: [conversationId: string | null];
   stop: [];
+  streamSend: [payload: { to: string | null; message: string }];
 }>();
 
 const { execute } = useLegionApi();
@@ -65,6 +66,15 @@ function onKeydown(event: KeyboardEvent): void {
 async function send(): Promise<void> {
   const message = draft.value.trim();
   if (!message || !props.recipientId) return;
+  // Existing conversation: hand off to Thread.send → the streaming communicate
+  // POST (final-review C1/I1 fix). Executing communicate here as well would
+  // send the message twice — the streaming POST is the send.
+  if (props.conversationId) {
+    draft.value = '';
+    mentionQuery.value = null;
+    emit('streamSend', { to: props.recipientId, message });
+    return;
+  }
   let sentConversationId: string | null = props.conversationId ?? null;
   try {
     // Draft sends (conversationId undefined) create the conversation server-side;

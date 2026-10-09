@@ -114,16 +114,34 @@ const stream = useToolStream('communicate', () => pendingArgs, {
 });
 
 // stream:done / stream:error are lifecycle chunks consumed inside useToolStream
-// (they never reach onChunk), so surface its error ref here; cleared on the
-// next iteration_start above.
+// (they never reach onChunk), so surface its terminal state here: error ref on
+// failure; done watch resets isStreaming and reloads the thread so the sent
+// message + final reply render. Cleared on the next iteration_start above.
+watch(stream.done, (isDone) => {
+  if (isDone) {
+    isStreaming.value = false;
+    void load();
+  }
+});
 watch(stream.error, (err) => {
-  if (err) streamError.value = err;
+  if (err) {
+    streamError.value = err;
+    isStreaming.value = false;
+  }
 });
 
-// Step 3d: ChatView's Composer Stop glue calls this to cancel the in-flight
-// communicate stream (useToolStream.cancel()).
+// Step 3d + final-review C1/I1 fix: ChatView drives sends through the exposed
+// send() — it populates pendingArgs and starts the streaming communicate POST
+// (start() IS the send; Composer hands off instead of executing itself).
+// `streaming` covers both the POST window (stream.active) and the chunk window
+// (isStreaming) so Composer's Stop button is visible the whole time.
 defineExpose({
   cancelStream: (): Promise<void> => stream.cancel(),
+  send: async (to: string, message: string): Promise<void> => {
+    pendingArgs = { to, message };
+    await stream.start();
+  },
+  streaming: computed(() => stream.active.value || isStreaming.value),
 });
 
 watch(

@@ -11,6 +11,7 @@ import { useConversations } from '../composables/useConversations.js';
 import { useReadState } from '../composables/useReadState.js';
 import { useApprovals } from '../composables/useApprovals.js';
 import { useParticipants } from '../composables/useParticipants.js';
+import { useAuth } from '../composables/useAuth.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -93,27 +94,44 @@ const recipientOptions = computed(() =>
     .map((p) => ({ value: p.id, label: p.name || p.id })),
 );
 
-// Composer Stop flag; Thread owns its internal isStreaming (not cross-wired in
-// this slice — 12c keeps the two states independent).
-const streaming = ref(false);
-const branchLabel = ref<string | undefined>(undefined);
-
 // Thread exposes cancelStream (step 3d) so Composer's Stop also cancels the
-// in-flight communicate stream via useToolStream.cancel().
+// in-flight communicate stream via useToolStream.cancel(); send/streaming
+// (final-review C1/I1 fix) route non-draft sends through the streaming POST.
 const threadRef = ref<InstanceType<typeof Thread> | null>(null);
 
+// Composer Stop flag; driven by Thread's exposed streaming state (final-review
+// C1/I1 fix) — true from the streaming POST until done/error/cancel.
+const streaming = computed(() => threadRef.value?.streaming ?? false);
+
+function onStreamSend(payload: { to: string | null; message: string }): void {
+  if (payload.to) void threadRef.value?.send(payload.to, payload.message);
+}
+const branchLabel = ref<string | undefined>(undefined);
+
+// Non-draft conversations have no recipient picker (draft-only), so derive the
+// reply target from the active conversation's participants: prefer an agent,
+// fall back to the first participant that isn't the current user. Null until
+// the conversations list loads — Composer's send is a no-op without one.
+const auth = useAuth();
+const conversationRecipient = computed<string | null>(() => {
+  if (isDraft.value) return recipientId.value;
+  const conv = store.conversations.value.find((c) => c.id === activeId.value);
+  const others = (conv?.participants ?? []).filter((p) => p !== auth.participantId.value);
+  const agent = others.find((p) => useParticipants().byId(p)?.type === 'agent');
+  return agent ?? others[0] ?? null;
+});
+
 function onSent(conversationId: string | null): void {
+  // Only draft sends emit `sent` now — non-draft sends go through
+  // @stream-send → Thread.send (streaming POST). First send on a draft:
+  // communicate created the conversation server-side; replace (not push) so
+  // back doesn't return to the empty /chat draft.
   if (isDraft.value && conversationId) {
-    // First send on a draft: communicate created the conversation server-side;
-    // replace (not push) so back doesn't return to the empty /chat draft.
     void router.replace(`/chat/${conversationId}`);
-    return;
   }
-  // Thread reloads via its own stream:done path
 }
 
 async function onStop(): Promise<void> {
-  streaming.value = false;
   await threadRef.value?.cancelStream();
 }
 
@@ -181,11 +199,12 @@ function onDockJump(messageId: string): void {
       </div>
       <Composer
         :conversation-id="activeId"
-        :recipient-id="recipientId"
+        :recipient-id="conversationRecipient"
         :branch-label="branchLabel"
         :streaming="streaming"
         @sent="onSent"
         @stop="onStop"
+        @stream-send="onStreamSend"
       />
     </div>
     <!-- Right dock edge toggle (desktop affordance; dock covers full screen on mobile) -->

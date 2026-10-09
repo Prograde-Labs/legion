@@ -24,7 +24,7 @@ describe('Composer', () => {
     localStorage.setItem('legion-expires-at', String(Math.floor(Date.now() / 1000) + 3600));
   });
 
-  it('Enter sends; Shift+Enter inserts a newline', async () => {
+  it('non-draft Enter hands off via streamSend; no communicate execute', async () => {
     const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
     const wrapper = mount(Composer, {
@@ -33,13 +33,40 @@ describe('Composer', () => {
     const area = wrapper.find('textarea');
     await area.setValue('hello');
     await area.trigger('keydown.enter', { key: 'Enter', shiftKey: false });
-    await flushPromises(); // emit('sent') fires after execute()'s fetch + json microtasks
-    expect(wrapper.emitted('sent')?.length).toBe(1);
+    await flushPromises();
+    // Handoff, not a send: Thread.send owns the (streaming) communicate call.
+    expect(wrapper.emitted('streamSend')?.[0]?.[0]).toEqual({ to: 'agent-a', message: 'hello' });
+    expect(wrapper.emitted('sent')).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(area.element.value).toBe('');
     // Shift+Enter does NOT send
     await area.setValue('line1');
     await area.trigger('keydown.enter', { key: 'Enter', shiftKey: true });
-    expect(wrapper.emitted('sent')?.length).toBe(1);
+    expect(wrapper.emitted('streamSend')?.length).toBe(1);
+  });
+
+  it('draft Enter executes communicate and emits sent with the new conversation id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: { status: 'success', data: { conversationId: 'new-conv' } },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Composer, {
+      props: { conversationId: null, recipientId: 'agent-a' },
+    });
+    const area = wrapper.find('textarea');
+    await area.setValue('first!');
+    await area.trigger('keydown.enter', { key: 'Enter', shiftKey: false });
+    await flushPromises();
+    expect(wrapper.emitted('sent')?.[0]?.[0]).toBe('new-conv');
+    expect(wrapper.emitted('streamSend')).toBeUndefined();
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { tool: string };
+    expect(body.tool).toBe('communicate');
+    expect(area.element.value).toBe('');
   });
 
   it('@ opens the mention list filtered to agents; selecting inserts the name', async () => {
