@@ -114,16 +114,18 @@ function onStreamSend(payload: { to: string | null; message: string }): void {
 const branchLabel = ref<string | undefined>(undefined);
 
 // Non-draft conversations have no recipient picker (draft-only), so derive the
-// reply target from the active conversation's participants: prefer an agent,
-// fall back to the first participant that isn't the current user. Null until
-// the conversations list loads — Composer's send is a no-op without one.
+// reply target: prefer the sidebar list's participants for the active
+// conversation, fall back to the thread's own loaded messages (works before the
+// list catches up after a draft→/chat/:id transition). Null until either source
+// has data — Composer's send is a no-op without one.
 const auth = useAuth();
 const conversationRecipient = computed<string | null>(() => {
   if (isDraft.value) return recipientId.value;
   const conv = store.conversations.value.find((c) => c.id === activeId.value);
   const others = (conv?.participants ?? []).filter((p) => p !== auth.participantId.value);
   const agent = others.find((p) => useParticipants().byId(p)?.type === 'agent');
-  return agent ?? others[0] ?? null;
+  if (agent || others[0]) return agent ?? others[0] ?? null;
+  return threadRef.value?.threadRecipient ?? null;
 });
 
 function onSent(conversationId: string | null): void {

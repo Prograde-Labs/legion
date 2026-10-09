@@ -7,6 +7,7 @@ import ForkControls from './ForkControls.vue';
 import MessageActions from './MessageActions.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import { useApprovals, type PendingApproval } from '../composables/useApprovals.js';
+import { useAuth } from '../composables/useAuth.js';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
@@ -25,6 +26,7 @@ const emit = defineEmits<{ open: [tool: string, payload: Record<string, unknown>
 const { execute } = useLegionApi();
 
 const approvals = useApprovals();
+const auth = useAuth();
 
 interface ConversationResponse {
   id: string;
@@ -147,6 +149,20 @@ defineExpose({
     await stream.start();
   },
   streaming: computed(() => stream.active.value || isStreaming.value),
+  // Reply target for the CURRENT thread, derived from its own loaded messages
+  // (last non-user message's recipientId == this conversation's other party).
+  // ChatView uses this when the sidebar list hasn't loaded the conversation yet.
+  threadRecipient: computed<string | null>(() => {
+    const self = auth?.participantId?.value;
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const m = messages.value[i];
+      const sender = m.senderId;
+      if (sender && sender !== self) return sender;
+      const recipient = m.recipientId;
+      if (recipient && recipient !== self) return recipient;
+    }
+    return null;
+  }),
 });
 
 watch(
