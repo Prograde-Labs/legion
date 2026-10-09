@@ -88,9 +88,14 @@ const tailApprovals = computed(() =>
     : [],
 );
 
-// Live tokens: stream the communicate tool the carried-over way. Task 12 wires
-// send/stop; this task renders loaded + streamed state correctly.
-let pendingArgs: { to: string; message: string } = { to: '', message: '' };
+// Live tokens: stream the communicate tool the carried-over way. Final-review
+// C1/I1 fix: ChatView drives sends through the exposed send(); conversationId
+// is required here or the backend creates a NEW conversation instead of
+// appending to the viewed one.
+let pendingArgs: { to: string; message: string; conversationId?: string } = {
+  to: '',
+  message: '',
+};
 const stream = useToolStream('communicate', () => pendingArgs, {
   cancelOnUnmount: false,
   onChunk: (chunk: StreamChunk) => {
@@ -138,7 +143,7 @@ watch(stream.error, (err) => {
 defineExpose({
   cancelStream: (): Promise<void> => stream.cancel(),
   send: async (to: string, message: string): Promise<void> => {
-    pendingArgs = { to, message };
+    pendingArgs = { to, message, conversationId: props.conversationId ?? undefined };
     await stream.start();
   },
   streaming: computed(() => stream.active.value || isStreaming.value),

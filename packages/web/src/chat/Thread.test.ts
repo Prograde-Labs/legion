@@ -129,7 +129,7 @@ describe('Thread', () => {
     expect((init.headers as Record<string, string>)['X-Stream-Connection']).toBe('conn-1');
     expect(JSON.parse(String(init.body))).toEqual({
       tool: 'communicate',
-      args: { to: 'agent-a', message: 'do the thing' },
+      args: { to: 'agent-a', message: 'do the thing', conversationId: 'c1' },
     });
 
     // Chunks stream in: typing indicator visible, then cleared + reload on done.

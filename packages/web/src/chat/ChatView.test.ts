@@ -186,7 +186,7 @@ describe('ChatView draft flow', () => {
     expect(streamCalls.length).toBe(1);
     expect(JSON.parse(String(streamCalls[0][1].body))).toEqual({
       tool: 'communicate',
-      args: { to: 'agent-a', message: 'second message' },
+      args: { to: 'agent-a', message: 'second message', conversationId: 'conv-1' },
     });
     const plainCommunicate = fetchMock.mock.calls.filter((call) => {
       const headers = ((call[1] as RequestInit | undefined)?.headers ?? {}) as Record<
