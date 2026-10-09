@@ -29,6 +29,9 @@ function stubExecute(conversationId: string): ReturnType<typeof vi.fn> {
     if (tool === 'communicate') data = { conversationId };
     else if (tool === 'get_conversation') data = { id: conversationId, messages: [] };
     else if (tool === 'list_pending_approvals') data = [];
+    // ChatView loads participants on mount (e2e product fix); without this the
+    // stub's default {} branch makes participants.value a non-array.
+    else if (tool === 'list_participants') data = AGENTS;
     return Promise.resolve(
       new Response(JSON.stringify({ result: { status: 'success', data } }), { status: 200 }),
     );
