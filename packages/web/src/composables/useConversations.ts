@@ -1,5 +1,7 @@
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useLegionApi } from './useLegionApi.js';
+import { useToolStream } from './useToolStream.js';
+import { useWebSocket } from './useWebSocket.js';
 import type { ConversationMeta } from '@legion-collective/types';
 
 const conversations = ref<ConversationMeta[]>([]);
@@ -9,6 +11,8 @@ const filter = ref<{ status: 'active' | 'archived' | 'all'; search: string }>({
   status: 'active',
   search: '',
 });
+
+let watchStarted = false;
 
 export function useConversations() {
   async function load(): Promise<void> {
@@ -32,6 +36,27 @@ export function useConversations() {
         c.participants.some((p) => p.toLowerCase().includes(q)),
     );
   });
+
+  // Live list (spec §4.1 sorted by recent activity): one module-scoped
+  // watch_conversations stream reloads the list on every lifecycle event —
+  // creation, message activity, status change. Started once when the socket
+  // connects; matches the legacy ConversationsView wiring this rewrite replaced.
+  if (!watchStarted) {
+    watchStarted = true;
+    const ws = useWebSocket();
+    const stream = useToolStream('watch_conversations', () => ({ status: filter.value.status }), {
+      cancelOnUnmount: false,
+      onChunk: () => void load(),
+    });
+    watch(
+      () => ws.getConnectionId(),
+      (id) => {
+        if (id) void stream.start();
+      },
+      { immediate: true },
+    );
+  }
+
   return {
     conversations: visible,
     loading,
