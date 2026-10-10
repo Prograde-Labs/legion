@@ -57,13 +57,12 @@ test.describe('Chat UI', () => {
     });
 
     // Second send in the SAME conversation (final-review C1/I1 regression): the
-    // non-draft path must start the communicate stream — both the new user
-    // message and the fresh reply appear without any navigation.
+    // non-draft path must render both the new user message and the fresh reply
+    // without any navigation. The reply lands as the last article once the
+    // stream completes.
     await page.locator('[data-test="composer-input"]').fill('second message');
     await page.keyboard.press('Enter');
-    await expect(page.locator('[data-test="msg"]').last()).toContainText('second message', {
-      timeout: 15_000,
-    });
+    await expect(page.locator('[data-test="msg"]', { hasText: 'second message' })).toBeVisible();
     await expect(page.locator('.md-content').last()).toContainText('mock response', {
       timeout: 15_000,
     });
