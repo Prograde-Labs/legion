@@ -7,6 +7,6 @@ function fmt(v: unknown) {
 </script>
 <template>
   <pre
-    class="text-[10px] font-mono text-navy-400 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap"
+    class="text-[10px] font-mono text-muted p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap"
     >{{ fmt(result ?? args) }}</pre>
 </template>

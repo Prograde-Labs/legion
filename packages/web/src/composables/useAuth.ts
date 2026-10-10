@@ -62,5 +62,5 @@ export function useAuth() {
     return token.value;
   }
 
-  return { isAuthenticated, participantId, login, logout, getToken };
+  return { isAuthenticated, participantId, expiresAt, login, logout, getToken };
 }

@@ -25,52 +25,52 @@ async function submit() {
 </script>
 
 <template>
-  <div class="bg-navy-950 min-h-screen flex items-center justify-center">
+  <div class="flex min-h-screen items-center justify-center bg-bg">
     <div class="w-80">
-      <div class="text-center mb-8">
+      <div class="mb-8 text-center">
         <div
-          class="w-10 h-10 bg-cyan-400 rounded-lg inline-flex items-center justify-center text-navy-950 font-black text-xl mb-3"
+          class="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-accent font-black text-on-accent"
         >
           L
         </div>
-        <h1 class="text-slate-100 text-xl font-bold">Legion</h1>
-        <p class="text-navy-400 text-xs mt-1">Management console</p>
+        <h1 class="text-xl font-bold text-ink">Legion</h1>
+        <p class="mt-1 text-xs text-muted">Management console</p>
       </div>
-      <div class="bg-navy-800 border border-navy-600 rounded-xl p-7">
+      <div class="rounded-xl border border-line bg-surface p-7">
         <form @submit.prevent="submit" class="space-y-4">
           <div>
-            <label class="text-navy-400 text-xs uppercase tracking-wider font-semibold block mb-1"
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted"
               >Name</label
             >
             <input
               v-model="name"
               type="text"
               autocomplete="username"
-              class="w-full bg-navy-900 border border-navy-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/40"
+              class="w-full rounded-md border border-line bg-surface-raised px-3 py-2 text-sm text-ink outline-none focus:border-accent/40"
             />
           </div>
           <div>
-            <label class="text-navy-400 text-xs uppercase tracking-wider font-semibold block mb-1"
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted"
               >Password</label
             >
             <input
               v-model="password"
               type="password"
               autocomplete="current-password"
-              class="w-full bg-navy-900 border border-navy-600 rounded-md px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400/40"
+              class="w-full rounded-md border border-line bg-surface-raised px-3 py-2 text-sm text-ink outline-none focus:border-accent/40"
             />
-            <p v-if="error" class="text-red-400 text-xs mt-1">{{ error }}</p>
+            <p v-if="error" class="mt-1 text-xs text-danger">{{ error }}</p>
           </div>
           <button
             type="submit"
             :disabled="loading"
-            class="w-full bg-cyan-400 text-navy-950 font-bold text-sm py-2.5 rounded-md mt-2 hover:opacity-90 disabled:opacity-50"
+            class="mt-2 w-full rounded-md bg-accent py-2.5 text-sm font-bold text-on-accent hover:opacity-90 disabled:opacity-50"
           >
             {{ loading ? 'Signing in…' : 'Sign in' }}
           </button>
         </form>
       </div>
-      <p class="text-center text-navy-600 text-xs mt-4 leading-relaxed">
+      <p class="mt-4 text-center text-xs leading-relaxed text-faint">
         First run? The bootstrap password was<br />printed to process stdout on startup.
       </p>
     </div>

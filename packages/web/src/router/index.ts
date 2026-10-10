@@ -2,26 +2,18 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import { useAuth } from '../composables/useAuth.js';
 
 const routes = [
+  { path: '/', redirect: '/chat' },
+  { path: '/chat', component: () => import('../chat/ChatView.vue'), meta: { requiresAuth: true } },
+  {
+    // Approvals badge deep-links to /chat/:id from AppShell badgeClick().
+    path: '/chat/:id',
+    component: () => import('../chat/ChatView.vue'),
+    meta: { requiresAuth: true },
+  },
   { path: '/login', component: () => import('../views/LoginView.vue') },
-  { path: '/', redirect: '/participants' },
   {
     path: '/participants',
     component: () => import('../views/ParticipantsView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/conversations',
-    component: () => import('../views/ConversationsView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/conversations/new',
-    component: () => import('../views/ConversationsView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/conversations/:id',
-    component: () => import('../views/ConversationsView.vue'),
     meta: { requiresAuth: true },
   },
   {
@@ -32,11 +24,6 @@ const routes = [
   {
     path: '/processes/:id',
     component: () => import('../views/ProcessesView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/events',
-    component: () => import('../views/EventStreamView.vue'),
     meta: { requiresAuth: true },
   },
   {

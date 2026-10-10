@@ -1,10 +1,12 @@
 import type {
+  MCPServerConfig,
   ProviderConfig,
   ProviderModel,
   RoutingConfig,
   ToolResult,
 } from '@legion-collective/types';
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
+import type { PendingApprovalRegistry } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   systemStore: SystemProviderStore;
@@ -12,11 +14,22 @@ interface RuntimeToolDeps {
   workspaceRouting: RoutingConfig;
   saveSystemRouting: (routing: RoutingConfig) => Promise<void>;
   saveWorkspaceRouting: (routing: RoutingConfig) => Promise<void>;
+  pendingApprovalRegistry: PendingApprovalRegistry;
+  getMCPServers: () => Promise<MCPServerConfig[]>;
+  saveMCPServers: (servers: MCPServerConfig[]) => Promise<void>;
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
-  const { systemStore, systemRouting, workspaceRouting, saveSystemRouting, saveWorkspaceRouting } =
-    deps;
+  const {
+    systemStore,
+    systemRouting,
+    workspaceRouting,
+    saveSystemRouting,
+    saveWorkspaceRouting,
+    pendingApprovalRegistry,
+    getMCPServers,
+    saveMCPServers,
+  } = deps;
 
   return [
     {
@@ -146,6 +159,93 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
             throw new Error(`Invalid routing scope: ${String(scope)}`);
           }
           return { status: 'success', data: { scope } };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'list_pending_approvals',
+      description:
+        'List pending approval requests, optionally scoped to one conversation. ' +
+        'Drives the global pending-approvals badge.',
+      parameters: {
+        type: 'object',
+        properties: {
+          conversationId: { type: 'string', description: 'Scope to one conversation.' },
+        },
+        required: [],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          const { conversationId } = (rawArgs ?? {}) as { conversationId?: string };
+          const pending = pendingApprovalRegistry.listPending(conversationId);
+          return { status: 'success', data: pending };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'list_mcp_sources',
+      description:
+        'List MCP server declarations the process was started with (from workspace config).',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: async (): Promise<ToolResult> => {
+        try {
+          return { status: 'success', data: await getMCPServers() };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'save_mcp_sources',
+      description:
+        'Replace ALL MCP server declarations in the workspace config. Takes effect after restart.',
+      parameters: {
+        type: 'object',
+        properties: {
+          servers: {
+            type: 'array',
+            description:
+              'Full replacement list of MCPServerConfig entries (name required; command for stdio or url for HTTP).',
+            items: { type: 'object' },
+          },
+        },
+        required: ['servers'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          const { servers } = rawArgs as { servers: unknown };
+          if (!Array.isArray(servers)) throw new Error('servers must be an array');
+          const seen = new Set<string>();
+          const validated: MCPServerConfig[] = servers.map((entry, index) => {
+            const server = entry as Partial<MCPServerConfig>;
+            if (typeof server.name !== 'string' || server.name.trim().length === 0) {
+              throw new Error(`servers[${index}].name must be a non-empty string`);
+            }
+            if (seen.has(server.name)) {
+              throw new Error(`duplicate MCP server name: ${server.name}`);
+            }
+            seen.add(server.name);
+            if (server.command !== undefined && server.url !== undefined) {
+              throw new Error(
+                `servers[${index}] (${server.name}): command and url are mutually exclusive`,
+              );
+            }
+            if (server.command === undefined && server.url === undefined) {
+              throw new Error(
+                `servers[${index}] (${server.name}): needs either command (stdio) or url (HTTP)`,
+              );
+            }
+            return server as MCPServerConfig;
+          });
+          await saveMCPServers(validated);
+          return { status: 'success', data: { saved: validated.length } };
         } catch (err) {
           return toErrorResult(err);
         }

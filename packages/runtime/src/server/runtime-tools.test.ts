@@ -1,5 +1,6 @@
 import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
 import { describe, expect, it } from 'vitest';
+import { PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
 import { createRuntimeTools } from './runtime-tools.js';
 
 type ProviderStub = { listModels?: () => Promise<ProviderModel[]> };
@@ -41,6 +42,9 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
       Object.keys(workspaceRouting).forEach((k) => delete workspaceRouting[k]);
       Object.assign(workspaceRouting, routing);
     },
+    pendingApprovalRegistry: makeApprovalRegistry(),
+    getMCPServers: async () => [],
+    saveMCPServers: async () => {},
     ...overrides,
   };
 }
@@ -49,6 +53,15 @@ function tool(tools: ReturnType<typeof createRuntimeTools>, name: string) {
   const found = tools.find((t) => t.name === name);
   if (!found) throw new Error(`Tool not found: ${name}`);
   return found;
+}
+
+function makeApprovalRegistry(): PendingApprovalRegistry {
+  return new PendingApprovalRegistry();
+}
+
+function makeContext(): ToolContext {
+  // Tools under test never read the context; a stub keeps the fixture light.
+  return {} as unknown as ToolContext;
 }
 
 describe('runtime tools', () => {
@@ -61,6 +74,9 @@ describe('runtime tools', () => {
       'list_models',
       'get_routing',
       'save_routing',
+      'list_pending_approvals',
+      'list_mcp_sources',
+      'save_mcp_sources',
     ]);
     expect(tools.some((t) => t.name === 'set_credential_with_meta')).toBe(false);
     expect(tools.some((t) => t.name === 'list_credentials')).toBe(false);
@@ -233,5 +249,120 @@ describe('runtime tools', () => {
         workspace: { models: { local: ['workspace-provider'] } },
       },
     });
+  });
+});
+
+describe('list_pending_approvals', () => {
+  it('returns pending approvals across conversations', async () => {
+    const registry = makeApprovalRegistry(); // fixture helper you add, e.g. MemoryStorage-backed
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    await registry.create({
+      conversationId: 'conv-2',
+      requesterId: 'agent-b',
+      tool: 'shell',
+      args: {},
+    });
+    const tools = createRuntimeTools(makeDeps({ pendingApprovalRegistry: registry }));
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    const result = await tool.execute({}, makeContext());
+    expect(result.status).toBe('success');
+    expect((result.data as unknown[]).length).toBe(2);
+  });
+
+  it('filters by conversationId', async () => {
+    const registry = makeApprovalRegistry();
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    await registry.create({
+      conversationId: 'conv-2',
+      requesterId: 'agent-b',
+      tool: 'shell',
+      args: {},
+    });
+    const tools = createRuntimeTools(makeDeps({ pendingApprovalRegistry: registry }));
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    const result = await tool.execute({ conversationId: 'conv-1' }, makeContext());
+    expect(result.status).toBe('success');
+    const data = result.data as Array<{ conversationId: string }>;
+    expect(data.length).toBe(1);
+    expect(data[0].conversationId).toBe('conv-1');
+  });
+});
+
+describe('mcp source tools', () => {
+  it('list_mcp_sources returns the configured servers', async () => {
+    const servers = [{ name: 'fs', command: 'npx', args: ['-y', '@mcp/fs'] }];
+    const tools = createRuntimeTools(makeDeps({ getMCPServers: async () => servers }));
+    const tool = tools.find((t) => t.name === 'list_mcp_sources')!;
+    const result = await tool.execute({}, makeContext());
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual(servers);
+  });
+
+  it('save_mcp_sources persists a valid full list', async () => {
+    let stored: unknown[] = [];
+    const tools = createRuntimeTools(makeDeps({ saveMCPServers: async (s) => void (stored = s) }));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      {
+        servers: [
+          { name: 'fs', command: 'npx' },
+          { name: 'http-one', url: 'http://localhost:3000/mcp' },
+        ],
+      },
+      makeContext(),
+    );
+    expect(result.status).toBe('success');
+    expect(stored.length).toBe(2);
+  });
+
+  it('save_mcp_sources rejects entries without name', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute({ servers: [{ command: 'npx' }] }, makeContext());
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('name');
+  });
+
+  it('save_mcp_sources rejects entries with both command and url', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      { servers: [{ name: 'x', command: 'npx', url: 'http://x' }] },
+      makeContext(),
+    );
+    expect(result.status).toBe('error');
+  });
+
+  it('save_mcp_sources rejects duplicate names', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      {
+        servers: [
+          { name: 'x', command: 'a' },
+          { name: 'x', command: 'b' },
+        ],
+      },
+      makeContext(),
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('duplicate');
+  });
+
+  it('save_mcp_sources rejects non-array payloads', async () => {
+    const tools = createRuntimeTools(makeDeps({}));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute({ servers: 'nope' }, makeContext());
+    expect(result.status).toBe('error');
   });
 });

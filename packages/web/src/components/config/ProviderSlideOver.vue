@@ -2,14 +2,14 @@
 import { ref, watch } from 'vue';
 import type { ProviderConfig } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
-import { useExecute } from '../../composables/useExecute.js';
+import { useLegionApi } from '../../composables/useLegionApi.js';
 
 const props = defineProps<{
   open: boolean;
   provider: ProviderConfig | null;
 }>();
 const emit = defineEmits<{ close: []; saved: [] }>();
-const { execute } = useExecute();
+const { execute } = useLegionApi();
 
 const name = ref('');
 const type = ref<ProviderConfig['type']>('openai-compatible');
@@ -63,23 +63,23 @@ async function save() {
   >
     <div class="p-5 space-y-4">
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+        <label class="text-[10px] uppercase tracking-widest text-muted font-semibold block mb-1"
           >Name</label
         >
         <input
           v-model="name"
           :readonly="!!provider"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
+          class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink font-mono outline-none"
         />
-        <p class="text-[10px] text-navy-500 mt-1">Cannot change after creation.</p>
+        <p class="text-[10px] text-faint mt-1">Cannot change after creation.</p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+        <label class="text-[10px] uppercase tracking-widest text-muted font-semibold block mb-1"
           >Type</label
         >
         <select
           v-model="type"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100"
+          class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink"
         >
           <option>openai-compatible</option>
           <option>anthropic</option>
@@ -88,40 +88,40 @@ async function save() {
         </select>
       </div>
       <div v-if="type === 'openai-compatible'">
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+        <label class="text-[10px] uppercase tracking-widest text-muted font-semibold block mb-1"
           >Base URL</label
         >
         <input
           v-model="baseUrl"
           placeholder="https://api.openai.com/v1"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
+          class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink font-mono outline-none"
         />
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+        <label class="text-[10px] uppercase tracking-widest text-muted font-semibold block mb-1"
           >API Key</label
         >
         <input
           v-model="apiKey"
           type="password"
           :placeholder="apiKeyPlaceholder || 'sk-...'"
-          class="w-full bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 font-mono outline-none"
+          class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink font-mono outline-none"
         />
-        <p v-if="provider?.apiKey" class="text-[10px] text-navy-500 mt-1">
+        <p v-if="provider?.apiKey" class="text-[10px] text-faint mt-1">
           Leave blank to keep existing key.
         </p>
       </div>
       <div>
-        <label class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold block mb-1"
+        <label class="text-[10px] uppercase tracking-widest text-muted font-semibold block mb-1"
           >Priority</label
         >
         <input
           v-model.number="priority"
           type="number"
           min="1"
-          class="w-20 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-sm text-slate-100 outline-none"
+          class="w-20 bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink outline-none"
         />
-        <p class="text-[10px] text-navy-500 mt-1">
+        <p class="text-[10px] text-faint mt-1">
           Lower number = higher priority (used for auto-routing).
         </p>
       </div>
@@ -130,14 +130,14 @@ async function save() {
       <div class="flex justify-end gap-2 px-5 py-3">
         <button
           @click="emit('close')"
-          class="text-xs px-3 py-1.5 border border-navy-600 text-navy-400 rounded"
+          class="text-xs px-3 py-1.5 border border-line text-muted rounded"
         >
           Cancel
         </button>
         <button
           @click="save"
           :disabled="saving"
-          class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50"
+          class="text-xs px-3 py-1.5 bg-accent text-on-accent font-bold rounded disabled:opacity-50"
         >
           {{ saving ? 'Saving…' : 'Save' }}
         </button>

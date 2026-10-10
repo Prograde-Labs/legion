@@ -18,6 +18,8 @@ export * from './tools/Tool.js';
 export * from './tools/ToolRegistry.js';
 export * from './tools/file-tools.js';
 export * from './tools/management-tools.js';
+export * from './tools/user-tools.js';
+export * from './tools/approval-authority-tool.js';
 export * from './auth/AuthEngine.js';
 export * from './auth/ApprovalLog.js';
 export * from './auth/PendingApprovalRegistry.js';

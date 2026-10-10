@@ -36,6 +36,8 @@ import {
   communicateTool,
   approvalResponseTool,
   managementTools,
+  userTools,
+  setApprovalAuthorityTool,
   fileTools,
   processTools,
   // Streaming / subscription tools
@@ -59,6 +61,7 @@ import {
 import type {
   ConversationData,
   LocalConfig,
+  MCPServerConfig,
   RoutingConfig,
   SystemConfig,
   ToolResult,
@@ -226,6 +229,10 @@ export class LegionProcess {
     for (const tool of managementTools) {
       toolRegistry.register(tool);
     }
+    for (const tool of userTools) {
+      toolRegistry.register(tool);
+    }
+    toolRegistry.register(setApprovalAuthorityTool);
     for (const tool of fileTools) {
       toolRegistry.register(tool);
     }
@@ -251,6 +258,20 @@ export class LegionProcess {
       workspaceRouting,
       saveSystemRouting,
       saveWorkspaceRouting,
+      pendingApprovalRegistry,
+      // Read live workspace state, not the startup snapshot: save_mcp_sources
+      // writes .legion/config.json, and list_mcp_sources must read back what
+      // was saved (spec §6 read-back contract).
+      getMCPServers: async () => {
+        const config = await loadWorkspaceConfig(workspaceRoot);
+        return config.mcpServers ?? [];
+      },
+      saveMCPServers: async (servers: MCPServerConfig[]) => {
+        const configPath = join(workspaceRoot, '.legion', 'config.json');
+        const current = await loadWorkspaceConfig(workspaceRoot);
+        current.mcpServers = servers;
+        await writeJsonFile(configPath, current);
+      },
     });
     for (const tool of runtimeTools) {
       toolRegistry.register(tool);
@@ -339,6 +360,7 @@ export class LegionProcess {
       serviceManager,
       processManager,
       middlewareRegistry,
+      credentials,
     });
 
     await webConnector.start(connectorContext);
@@ -406,6 +428,9 @@ const RUNTIME_TOOL_NAMES = [
   'list_models',
   'get_routing',
   'save_routing',
+  'list_pending_approvals',
+  'list_mcp_sources',
+  'save_mcp_sources',
   'list_middleware',
   'list_skills',
 ] as const;
@@ -651,6 +676,7 @@ interface ConnectorContextDeps {
   serviceManager: ServiceManager;
   processManager: ProcessManager;
   middlewareRegistry: MiddlewareRegistry;
+  credentials: FileCredentialStore;
 }
 
 /** Build the `ConnectorContext` passed to every connector's `start()`. */
@@ -670,6 +696,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
     serviceManager,
     processManager,
     middlewareRegistry,
+    credentials,
   } = deps;
 
   return {
@@ -692,6 +719,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        credentialStore: credentials,
       };
       return router.send({
         senderId: msg.senderId,
@@ -782,6 +810,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        credentialStore: credentials,
         cancelStream: opts?.cancelStream,
       };
 
@@ -866,6 +895,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        credentialStore: credentials,
         signal: opts?.signal,
         cancelStream: opts?.cancelStream,
       };

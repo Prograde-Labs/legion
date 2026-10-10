@@ -1,0 +1,18 @@
+/* Blueprint-light — overrides the same variables, never introduces new names. */
+[data-theme='blueprint-light'] {
+  --color-bg: #fafbfc;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f1f4f8;
+  --color-border: #dde3ea;
+  --color-border-strong: rgba(8, 145, 178, 0.35);
+  --color-text: #1a2332;
+  --color-text-muted: #5c6b7f;
+  --color-text-faint: #90a0b2;
+  --color-accent: #0891b2;
+  --color-accent-strong: #06a5c9;
+  --color-accent-soft: rgba(8, 145, 178, 0.1);
+  --color-on-accent: #ffffff;
+  --color-danger: #dc2626;
+  --color-warning: #b45309;
+  --color-success: #16a34a;
+}

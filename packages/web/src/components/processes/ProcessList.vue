@@ -29,12 +29,10 @@ const sorted = computed(() =>
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div
-      class="flex items-center justify-between px-3 py-2.5 border-b border-navy-800 flex-shrink-0"
-    >
-      <span class="text-xs uppercase tracking-wider text-slate-500">Processes</span>
+    <div class="flex items-center justify-between px-3 py-2.5 border-b border-line flex-shrink-0">
+      <span class="text-xs uppercase tracking-wider text-faint">Processes</span>
       <button
-        class="text-xs px-2 py-0.5 rounded bg-cyan-800 text-cyan-200 hover:bg-cyan-700"
+        class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent hover:brightness-110"
         @click="router.push('/processes')"
       >
         + New
@@ -46,26 +44,26 @@ const sorted = computed(() =>
       <div
         v-for="p in sorted"
         :key="p.id"
-        class="px-3 py-2.5 cursor-pointer border-b border-navy-900 hover:bg-navy-850 transition-colors"
+        class="px-3 py-2.5 cursor-pointer border-b border-line hover:bg-surface-raised transition-colors"
         :class="[
-          p.id === activeId ? 'bg-navy-800 border-l-2 border-l-cyan-600' : '',
+          p.id === activeId ? 'bg-surface border-l-2 border-l-accent' : '',
           p.status !== 'running' && p.status !== 'starting' ? 'opacity-50' : '',
         ]"
         @click="router.push(`/processes/${p.id}`)"
       >
         <div class="flex items-center gap-2 min-w-0">
           <ProcessStatusDot :status="p.status" />
-          <span class="text-xs text-slate-200 font-mono truncate flex-1">
+          <span class="text-xs text-ink font-mono truncate flex-1">
             {{ p.name ?? p.command }}
           </span>
         </div>
-        <div class="mt-0.5 pl-4 text-[10px] text-navy-500 truncate">
+        <div class="mt-0.5 pl-4 text-[10px] text-faint truncate">
           {{ elapsed(p) }}
           <span v-if="p.exitCode !== null"> · exit {{ p.exitCode }}</span>
         </div>
       </div>
 
-      <div v-if="sorted.length === 0" class="px-3 py-6 text-xs text-navy-600 text-center">
+      <div v-if="sorted.length === 0" class="px-3 py-6 text-xs text-faint text-center">
         No processes yet
       </div>
     </div>

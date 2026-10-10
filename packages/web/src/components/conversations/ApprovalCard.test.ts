@@ -4,8 +4,8 @@ import ApprovalCard from './ApprovalCard.vue';
 
 const mockExecute = vi.fn().mockResolvedValue({ status: 'success' });
 
-vi.mock('../../composables/useExecute.js', () => ({
-  useExecute: () => ({
+vi.mock('../../composables/useLegionApi.js', () => ({
+  useLegionApi: () => ({
     execute: mockExecute,
   }),
 }));

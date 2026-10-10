@@ -90,33 +90,33 @@ async function onDelete(): Promise<void> {
     <!-- Loading state -->
     <div
       v-if="!handle && !error"
-      class="flex-1 flex items-center justify-center text-navy-600 text-xs"
+      class="flex-1 flex items-center justify-center text-faint text-xs"
     >
       Loading…
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="flex-1 flex items-center justify-center text-red-400 text-xs">
+    <div v-else-if="error" class="flex-1 flex items-center justify-center text-danger text-xs">
       {{ error }}
     </div>
 
     <!-- Detail view -->
     <template v-else-if="handle">
       <!-- Header bar -->
-      <div class="flex items-center gap-3 px-4 py-2.5 border-b border-navy-700 flex-shrink-0">
+      <div class="flex items-center gap-3 px-4 py-2.5 border-b border-line flex-shrink-0">
         <ProcessStatusDot :status="handle.status" />
-        <span class="text-xs font-semibold text-slate-100 font-mono truncate">
+        <span class="text-xs font-semibold text-ink font-mono truncate">
           {{ handle.name ?? handle.command }}
-          <span v-if="handle.args.length" class="text-navy-400 font-normal">
+          <span v-if="handle.args.length" class="text-faint font-normal">
             {{ handle.args.join(' ') }}</span
           >
         </span>
-        <span class="text-[10px] text-navy-500">pid {{ handle.pid }}</span>
-        <span class="text-[10px] text-navy-500">{{ elapsed }}</span>
+        <span class="text-[10px] text-faint">pid {{ handle.pid }}</span>
+        <span class="text-[10px] text-faint">{{ elapsed }}</span>
         <span
           v-if="handle.exitCode !== null"
           class="text-[10px]"
-          :class="handle.exitCode === 0 ? 'text-green-400' : 'text-red-400'"
+          :class="handle.exitCode === 0 ? 'text-success' : 'text-danger'"
         >
           exit {{ handle.exitCode }}
         </span>
@@ -127,8 +127,8 @@ async function onDelete(): Promise<void> {
             class="text-xs px-3 py-1 rounded border transition-colors"
             :class="
               isRunning
-                ? 'border-red-500/40 text-red-400 hover:bg-red-950/30'
-                : 'border-navy-700 text-navy-600 cursor-not-allowed'
+                ? 'border-danger/40 text-danger hover:bg-danger/10'
+                : 'border-line text-faint cursor-not-allowed'
             "
             @click="onStop"
           >
@@ -139,8 +139,8 @@ async function onDelete(): Promise<void> {
             class="text-xs px-3 py-1 rounded border transition-colors"
             :class="
               !isRunning
-                ? 'border-navy-600 text-navy-400 hover:text-slate-300 hover:border-navy-500'
-                : 'border-navy-800 text-navy-700 cursor-not-allowed'
+                ? 'border-line text-muted hover:text-ink hover:border-line-strong'
+                : 'border-line text-faint cursor-not-allowed'
             "
             @click="onDelete"
           >
@@ -155,17 +155,17 @@ async function onDelete(): Promise<void> {
       <!-- Stdin footer — only when running -->
       <div
         v-if="isRunning"
-        class="flex items-center gap-2 px-4 py-2.5 border-t border-navy-700 flex-shrink-0"
+        class="flex items-center gap-2 px-4 py-2.5 border-t border-line flex-shrink-0"
       >
         <input
           v-model="stdinInput"
           placeholder="stdin…"
-          class="flex-1 bg-navy-950 border border-navy-700 rounded px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-400/50 font-mono"
+          class="flex-1 bg-bg border border-line rounded px-3 py-1.5 text-xs text-ink outline-none focus:border-accent/50 font-mono"
           @keydown.enter="onSend"
         />
         <button
           :disabled="!stdinInput || sending"
-          class="text-xs px-3 py-1.5 rounded border border-navy-600 text-navy-300 hover:text-slate-200 hover:border-navy-500 disabled:opacity-40"
+          class="text-xs px-3 py-1.5 rounded border border-line text-muted hover:text-ink hover:border-line-strong disabled:opacity-40"
           @click="onSend"
         >
           Send

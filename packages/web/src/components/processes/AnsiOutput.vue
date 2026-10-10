@@ -51,20 +51,12 @@ onUnmounted(() => {
   <div class="relative flex-1 min-h-0 overflow-hidden">
     <pre
       ref="preEl"
-      class="h-full overflow-y-auto m-0 rounded"
-      style="
-        background: #0a111e;
-        font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace;
-        font-size: 11.5px;
-        line-height: 1.65;
-        padding: 14px 16px;
-        color: #cbd5e1;
-      "
+      class="h-full overflow-y-auto m-0 rounded bg-bg text-ink font-mono text-[11.5px] leading-relaxed px-4 py-3.5"
       v-html="renderedHtml"
     />
     <button
       v-if="!atBottom"
-      class="absolute bottom-3 right-3 text-[10px] px-2 py-1 rounded bg-navy-700 text-slate-300 hover:bg-navy-600 border border-navy-600"
+      class="absolute bottom-3 right-3 text-[10px] px-2 py-1 rounded bg-surface-raised text-muted hover:text-ink border border-line"
       @click="scrollToBottom"
     >
       ↓ scroll to bottom
