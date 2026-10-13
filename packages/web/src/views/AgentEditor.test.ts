@@ -21,7 +21,8 @@ function stubFetch(): ReturnType<typeof vi.fn> {
   return vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}'));
     if (body.tool === 'get_participant') return toolResponse('get_participant', AGENT);
-    if (body.tool === 'list_tools') return toolResponse('list_tools', ['communicate', 'file_read']);
+    if (body.tool === 'list_tools')
+      return toolResponse('list_tools', { tools: ['communicate', 'file_read'], callerPolicy: {} });
     if (body.tool === 'list_models')
       return toolResponse('list_models', [{ provider: 'openai', model: 'gpt-4o' }]);
     return toolResponse(body.tool, {});
@@ -113,7 +114,8 @@ describe('AgentEditor', () => {
         const body = JSON.parse(String(init?.body ?? '{}'));
         if (body.tool === 'get_participant')
           return toolResponse('get_participant', { ...AGENT, protected: true });
-        if (body.tool === 'list_tools') return toolResponse('list_tools', []);
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: [], callerPolicy: {} });
         if (body.tool === 'list_models') return toolResponse('list_models', []);
         return toolResponse(body.tool, {});
       }),

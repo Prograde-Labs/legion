@@ -22,7 +22,8 @@ function stubFetch(participant: unknown = USER): ReturnType<typeof vi.fn> {
   return vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}'));
     if (body.tool === 'get_participant') return toolResponse('get_participant', participant);
-    if (body.tool === 'list_tools') return toolResponse('list_tools', ['communicate', 'file_read']);
+    if (body.tool === 'list_tools')
+      return toolResponse('list_tools', { tools: ['communicate', 'file_read'], callerPolicy: {} });
     return toolResponse('other', {});
   });
 }

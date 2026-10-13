@@ -78,8 +78,8 @@ async function load(): Promise<void> {
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   }
-  void execute<string[]>('list_tools', {})
-    .then((tools) => {
+  void execute<{ tools: string[]; callerPolicy: Record<string, string> }>('list_tools', {})
+    .then(({ tools }) => {
       availableTools.value = tools;
       overrides.value = [
         ...overrides.value.filter((o) => tools.includes(o.tool) || o.enabled),
