@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useParticipants } from '../composables/useParticipants.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 import { useParticipantSelection } from './useParticipantSelection.js';
 import ParticipantsList from './ParticipantsList.vue';
 import TopologyMap from './TopologyMap.vue';
@@ -12,7 +13,12 @@ const { selectedId, select } = useParticipantSelection();
 
 // Initial population of the shared participants store: the list, recipient
 // picker, and participant editors all read from it, but nothing else fetches.
-onMounted(() => void load().catch(() => {}));
+// Gate the mount call (Task 11): without list_participants access, don't send
+// the request at all — it would be denied and silently swallowed below.
+onMounted(() => {
+  if (useToolAccess().can('list_participants') === 'hidden') return;
+  void load().catch(() => {});
+});
 
 const viewMode = ref<'list' | 'map'>('list');
 

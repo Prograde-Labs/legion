@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 
 interface McpServer {
   name: string;
@@ -26,7 +27,7 @@ async function load(): Promise<void> {
   try {
     servers.value = await execute<McpServer[]>('list_mcp_sources', {});
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    error.value = friendlyToolError(err);
   } finally {
     loaded.value = true;
   }
@@ -99,7 +100,7 @@ async function save(): Promise<void> {
     saved.value = `Saved ${result.saved} server(s). Changes take effect after process restart.`;
     await load();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    error.value = friendlyToolError(err);
   } finally {
     busy.value = false;
   }

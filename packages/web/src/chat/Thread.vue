@@ -10,6 +10,7 @@ import { useApprovals, type PendingApproval } from '../composables/useApprovals.
 import { useAuth } from '../composables/useAuth.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
 import { useParticipants } from '../composables/useParticipants.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
@@ -66,7 +67,7 @@ async function load(): Promise<void> {
     if (seq !== loadSeq) return;
     messages.value = data.messages;
   } catch (err) {
-    if (seq === loadSeq) error.value = err instanceof Error ? err.message : String(err);
+    if (seq === loadSeq) error.value = friendlyToolError(err);
   } finally {
     if (seq === loadSeq) loading.value = false;
   }
@@ -105,7 +106,7 @@ async function compact(): Promise<void> {
     });
     await load();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    error.value = friendlyToolError(err);
   } finally {
     compacting.value = false;
     compactConfirm.value = false;
@@ -179,7 +180,7 @@ watch(stream.done, (isDone) => {
 });
 watch(stream.error, (err) => {
   if (err) {
-    streamError.value = err;
+    streamError.value = friendlyToolError(err);
     isStreaming.value = false;
   }
 });

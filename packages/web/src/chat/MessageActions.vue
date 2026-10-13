@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 
 const props = defineProps<{
   conversationId: string;
@@ -46,7 +47,7 @@ async function run(action: () => Promise<unknown>): Promise<void> {
     confirmingPrune.value = false;
     emit('mutated');
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    error.value = friendlyToolError(err);
   } finally {
     busy.value = false;
   }

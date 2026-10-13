@@ -6,6 +6,7 @@ import RoutingEditor from '../components/config/RoutingEditor.vue';
 import McpSourcesEditor from './McpSourcesEditor.vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 
 const { execute } = useLegionApi();
 const toolAccess = useToolAccess();
@@ -30,7 +31,7 @@ async function load() {
     workspaceRouting.value = routing.workspace ?? {};
     loadError.value = null;
   } catch (err) {
-    loadError.value = err instanceof Error ? err.message : String(err);
+    loadError.value = friendlyToolError(err);
   }
 }
 

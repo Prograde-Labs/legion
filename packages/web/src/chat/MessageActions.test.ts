@@ -102,4 +102,19 @@ describe('MessageActions', () => {
     const w = mount(MessageActions, { props: { conversationId: 'c1', message } });
     expect(w.find('[data-test="actions-toggle"]').exists()).toBe(false);
   });
+
+  it('shows friendly text when edit_message is denied', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('hidden')));
+    const w = mount(MessageActions, { props: { conversationId: 'c1', message } });
+    await w.find('[data-test="actions-toggle"]').trigger('click');
+    await w.find('[data-test="action-edit"]').trigger('click');
+    await w.find('[data-test="edit-textarea"]').setValue('rewritten');
+    await w.find('[data-test="edit-save"]').trigger('click');
+    await flushPromises();
+    expect(w.find('[data-test="actions-error"]').text()).toBe(
+      'You do not have access to this action.',
+    );
+    expect(w.text()).not.toContain('hidden');
+    expect(w.emitted('mutated')).toBeUndefined();
+  });
 });
