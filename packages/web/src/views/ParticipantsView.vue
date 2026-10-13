@@ -1,26 +1,47 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { useNarrowViewport } from '../composables/useNarrowViewport.js';
 import { useParticipantSelection } from './useParticipantSelection.js';
 import ParticipantsList from './ParticipantsList.vue';
 import TopologyMap from './TopologyMap.vue';
 import AgentEditor from './AgentEditor.vue';
 import UserEditor from './UserEditor.vue';
 
-const { byId, load } = useParticipants();
+const { byId, load, participants } = useParticipants();
 const { selectedId, select } = useParticipantSelection();
+const { isNarrow } = useNarrowViewport();
+
+const toolAccess = useToolAccess();
 
 // Initial population of the shared participants store: the list, recipient
 // picker, and participant editors all read from it, but nothing else fetches.
 // Gate the mount call (Task 11): without list_participants access, don't send
 // the request at all — it would be denied and silently swallowed below.
+//
+// Deep-link/hard-reload gap (Task 12): App.vue's refreshToolAccess resolves
+// AFTER this view mounts, so can() fails closed ('hidden') at mount even for
+// authorized callers — they saw an empty list. Watching the access map
+// re-triggers load() once the policy lands; on normal in-app navigation the
+// map is already populated, so the watcher stays quiet (no double-load).
 onMounted(() => {
-  if (useToolAccess().can('list_participants') === 'hidden') return;
+  if (toolAccess.can('list_participants') === 'hidden') return;
+  void load().catch(() => {});
+});
+watch(toolAccess.access, (access) => {
+  if (Object.keys(access).length === 0) return;
+  if (toolAccess.can('list_participants') === 'hidden') return;
+  if (participants.value.length > 0) return; // first load already ran
   void load().catch(() => {});
 });
 
 const viewMode = ref<'list' | 'map'>('list');
+
+// Single-pane mobile layout: below the md breakpoint only one pane shows at a
+// time — the list until something is selected, then the detail (with a back
+// button). Wide viewports keep the master-detail split.
+const mobileDetail = computed(() => isNarrow.value && selectedId.value !== null);
 
 const selected = computed(() => (selectedId.value ? byId(selectedId.value) : undefined));
 
@@ -63,7 +84,11 @@ function onRetired(): void {
 
 <template>
   <div class="flex h-full min-h-0">
-    <div class="flex w-72 shrink-0 flex-col border-r border-line">
+    <div
+      v-if="!mobileDetail"
+      data-test="participants-list-pane"
+      class="flex w-72 shrink-0 flex-col border-r border-line"
+    >
       <div class="flex border-b border-line text-xs" role="tablist">
         <button
           type="button"
@@ -87,7 +112,20 @@ function onRetired(): void {
       <TopologyMap v-if="viewMode === 'map'" class="min-h-0 flex-1" @select="select" />
       <ParticipantsList v-else class="min-h-0 flex-1" @select="select" />
     </div>
-    <div class="min-h-0 min-w-0 flex-1 overflow-y-auto">
+    <div
+      v-if="!isNarrow || mobileDetail"
+      data-test="participant-detail-pane"
+      class="min-h-0 min-w-0 flex-1 overflow-y-auto"
+    >
+      <button
+        v-if="isNarrow"
+        type="button"
+        data-test="mobile-back"
+        class="mb-2 rounded border border-line px-2 py-1 text-xs text-muted hover:bg-surface"
+        @click="select(null)"
+      >
+        ← Back to list
+      </button>
       <div
         v-if="detailKind === 'none'"
         data-test="participant-empty"
