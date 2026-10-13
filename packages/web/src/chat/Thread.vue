@@ -21,7 +21,10 @@ const props = defineProps<{
   highlight?: { outboundMessageId?: string; replyMessageId?: string } | null;
 }>();
 
-const emit = defineEmits<{ open: [tool: string, payload: Record<string, unknown>] }>();
+const emit = defineEmits<{
+  open: [tool: string, payload: Record<string, unknown>];
+  created: [conversationId: string];
+}>();
 
 const { execute } = useLegionApi();
 
@@ -127,6 +130,12 @@ const stream = useToolStream('communicate', () => pendingArgs, {
 watch(stream.done, (isDone) => {
   if (isDone) {
     isStreaming.value = false;
+    // Draft send (no conversationId prop): the communicate result carries the
+    // server-created conversation id (same shape useConversation unwraps) —
+    // bubble it up so ChatView can replace the draft route with the real one.
+    const result = stream.result.value as { data?: { conversationId?: string } } | null;
+    const newConvId = result?.data?.conversationId;
+    if (newConvId && !props.conversationId) emit('created', newConvId);
     void load();
   }
 });
@@ -196,15 +205,17 @@ watch(
         <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">
           <div
             :data-highlight="
-              highlight &&
-              (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)
+              (highlight &&
+                (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)) ||
+              (m.recipientId && m.recipientId === highlight?.outboundMessageId)
                 ? 'true'
                 : undefined
             "
             :class="{
               'ring-1 ring-accent':
-                highlight &&
-                (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId),
+                (highlight &&
+                  (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)) ||
+                (m.recipientId && m.recipientId === highlight?.outboundMessageId),
             }"
           >
             <MessagePart :message="m" @open="(tool, payload) => emit('open', tool, payload)">
@@ -234,6 +245,28 @@ watch(
           @resolved="onResolved(a.approvalId)"
         />
         <div v-if="isStreaming" data-test="streaming-part" class="flex flex-col gap-2">
+          <!--
+            Draft send (no conversationId prop): persisting via load() waits for
+            the whole tool loop, so show the outbound user message immediately —
+            same shape the persisted copy will have — followed by the streaming
+            reply. The outbound id is echoed by ChatView as highlight, matching
+            the server-rendered message.
+          -->
+          <MessagePart
+            v-if="!props.conversationId && pendingArgs.message"
+            :message="{
+              id: 'streaming-outbound',
+              parentId: null,
+              conversationId: 'streaming',
+              senderId: auth?.participantId?.value ?? 'user',
+              recipientId: pendingArgs.to,
+              role: 'user',
+              content: pendingArgs.message,
+              timestamp: new Date().toISOString(),
+              status: 'active',
+            }"
+            :highlight="props.highlight?.outboundMessageId === 'streaming-outbound'"
+          />
           <MessagePart
             v-if="streamingReasoning || streamingText"
             :message="{
@@ -248,6 +281,7 @@ watch(
               timestamp: new Date().toISOString(),
               status: 'active',
             }"
+            :highlight="props.highlight?.replyMessageId === 'streaming'"
             streaming
           />
         </div>

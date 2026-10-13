@@ -57,15 +57,8 @@ describe('Composer', () => {
     expect(wrapper.emitted('streamSend')?.length).toBe(1);
   });
 
-  it('draft Enter executes communicate and emits sent with the new conversation id', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          result: { status: 'success', data: { conversationId: 'new-conv' } },
-        }),
-        { status: 200 },
-      ),
-    );
+  it('draft Enter hands off via streamSend; no communicate execute', async () => {
+    const fetchMock = okFetch();
     vi.stubGlobal('fetch', fetchMock);
     const wrapper = mount(Composer, {
       props: { conversationId: null, recipientId: 'agent-a' },
@@ -74,10 +67,13 @@ describe('Composer', () => {
     await area.setValue('first!');
     await area.trigger('keydown.enter', { key: 'Enter', shiftKey: false });
     await flushPromises();
-    expect(wrapper.emitted('sent')?.[0]?.[0]).toBe('new-conv');
-    expect(wrapper.emitted('streamSend')).toBeUndefined();
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { tool: string };
-    expect(body.tool).toBe('communicate');
+    // Draft sends stream through Thread.send like every other send (the first
+    // message of a new conversation must stream too). Composer never executes
+    // communicate itself; the created conversation id arrives via Thread's
+    // `created` emit, not a Composer `sent` event.
+    expect(wrapper.emitted('streamSend')?.[0]?.[0]).toEqual({ to: 'agent-a', message: 'first!' });
+    expect(wrapper.emitted('sent')).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(area.element.value).toBe('');
   });
 

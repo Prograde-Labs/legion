@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 
 // FakeWS harness transcribed from composables/useToolStream.test.ts: Thread's
 // stream path reads connectionId/token from useWebSocket/useAuth and registers
@@ -176,5 +176,61 @@ describe('Thread', () => {
     mocks.streamChunkHandler?.({ type: 'stream:done', result: null });
     await pending;
     await vi.waitFor(() => expect(vm.streaming).toBe(false));
+  });
+
+  it('emits created with the server conversation id after a draft send completes', async () => {
+    // Draft mount: conversationId null, so the only fetch is the streaming POST.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ streamId: 's3' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: null } });
+    await flushPromises();
+
+    await (wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }).send(
+      'agent-a',
+      'hello',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body))).toEqual({
+      tool: 'communicate',
+      args: { to: 'agent-a', message: 'hello' },
+    });
+
+    // Terminal chunk carries the full ToolResult; the created id is in its data.
+    mocks.streamChunkHandler?.({
+      type: 'stream:done',
+      result: { status: 'success', data: { conversationId: 'new-conv' } },
+    });
+    await flushPromises();
+    expect(wrapper.emitted('created')?.[0]).toEqual(['new-conv']);
+  });
+
+  it('does not emit created for an existing conversation', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ streamId: 's4', conversationId: 'c1' }), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    const pending = (
+      wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }
+    ).send('agent-a', 'again');
+    mocks.streamChunkHandler?.({
+      type: 'stream:done',
+      result: { status: 'success', data: { conversationId: 'c1' } },
+    });
+    await pending;
+    await flushPromises();
+    expect(wrapper.emitted('created')).toBeUndefined();
   });
 });

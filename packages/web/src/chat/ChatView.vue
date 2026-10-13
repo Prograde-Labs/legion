@@ -76,9 +76,9 @@ watch(
 );
 
 // Draft mode (spec §4.4): no route id means a new conversation. The recipient
-// picker lists active agents; the first communicate (Composer @sent) creates
-// the conversation server-side and the new id arrives with the sent event,
-// at which point the route replaces /chat → /chat/<id>.
+// picker lists active agents; the first send streams through Thread (always
+// mounted), the conversation is created server-side, and the new id arrives
+// via Thread's `created` emit — the route then replaces /chat → /chat/<id>.
 const recipientId = ref<string | null>(null);
 const isDraft = computed(() => !route.params.id);
 
@@ -99,14 +99,22 @@ const recipientOptions = computed(() =>
     .map((p) => ({ value: p.id, label: p.name || p.id })),
 );
 
-// Thread exposes cancelStream (step 3d) so Composer's Stop also cancels the
-// in-flight communicate stream via useToolStream.cancel(); send/streaming
-// (final-review C1/I1 fix) route non-draft sends through the streaming POST.
+// Thread exposes send/cancelStream/streaming: every send — draft and existing —
+// routes through Thread's streaming communicate POST (Thread is mounted in
+// draft mode too, so the first send of a new conversation streams), and
+// Composer's Stop cancels the in-flight stream via useToolStream.cancel().
 const threadRef = ref<InstanceType<typeof Thread> | null>(null);
 
 // Composer Stop flag; driven by Thread's exposed streaming state (final-review
 // C1/I1 fix) — true from the streaming POST until done/error/cancel.
 const streaming = computed(() => threadRef.value?.streaming ?? false);
+
+// While a draft send streams, Thread renders the outbound user message with
+// highlight styling (matching what load() renders after the reload once the
+// server persists it — keeps the first send visually consistent mid-stream).
+const draftHighlight = computed(() =>
+  isDraft.value && streaming.value ? { outboundMessageId: 'streaming-outbound' } : null,
+);
 
 function onStreamSend(payload: { to: string | null; message: string }): void {
   if (payload.to) void threadRef.value?.send(payload.to, payload.message);
@@ -128,15 +136,14 @@ const conversationRecipient = computed<string | null>(() => {
   return threadRef.value?.threadRecipient ?? null;
 });
 
-function onSent(conversationId: string | null): void {
-  // Only draft sends emit `sent` now — non-draft sends go through
-  // @stream-send → Thread.send (streaming POST). First send on a draft:
-  // communicate created the conversation server-side; replace (not push) so
-  // back doesn't return to the empty /chat draft.
-  if (isDraft.value && conversationId) {
+// Thread emits `created` after a draft send's streaming communicate completes:
+// the communicate result carried the server-created conversation id. Replace
+// (not push) so back doesn't return to the empty /chat draft; refresh the
+// sidebar list (loaded before this conversation existed) so it appears and the
+// reply-recipient derivation can find it.
+function onCreated(conversationId: string): void {
+  if (isDraft.value) {
     void router.replace(`/chat/${conversationId}`);
-    // The sidebar list was loaded before this conversation existed; refresh so
-    // it appears and the reply-recipient derivation can find it.
     void store.load();
   }
 }
@@ -194,8 +201,17 @@ function onDockJump(messageId: string): void {
         </button>
         <span class="text-sm text-muted">Conversations</span>
       </header>
-      <Thread v-if="!isDraft" ref="threadRef" :conversation-id="activeId" @open="onChipOpen" />
-      <div v-else class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+      <Thread
+        ref="threadRef"
+        :conversation-id="activeId"
+        :highlight="draftHighlight"
+        @open="onChipOpen"
+        @created="onCreated"
+      />
+      <div
+        v-if="isDraft && !streaming"
+        class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center"
+      >
         <p class="text-sm text-muted">Start a new conversation — pick a recipient.</p>
         <div class="w-64" data-test="recipient-picker">
           <SearchableCombobox
@@ -212,7 +228,6 @@ function onDockJump(messageId: string): void {
         :recipient-id="conversationRecipient"
         :branch-label="branchLabel"
         :streaming="streaming"
-        @sent="onSent"
         @stop="onStop"
         @stream-send="onStreamSend"
       />

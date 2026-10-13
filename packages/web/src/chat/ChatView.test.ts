@@ -130,6 +130,7 @@ describe('ChatView draft flow', () => {
     await router.push('/chat');
     await router.isReady();
     const wrapper = mount(ChatView, { global: { plugins: [router] } });
+    await flushPromises();
     // Pick the draft recipient through the picker (send is a no-op without one).
     const pickerInput = wrapper.find('[data-test="recipient-picker"] input');
     await pickerInput.trigger('focus'); // opens the option list
@@ -140,9 +141,57 @@ describe('ChatView draft flow', () => {
       .find('[data-test="composer"] textarea')
       .trigger('keydown.enter', { key: 'Enter' });
     await flushPromises();
+    // The first send streams through Thread's communicate POST — the same path
+    // as any other send. The server-created id only arrives with the terminal
+    // stream result, so feed the terminal chunk to the FakeWS handler.
+    const streamCalls = fetchMock.mock.calls.filter((call) => {
+      const headers = ((call[1] as RequestInit | undefined)?.headers ?? {}) as Record<
+        string,
+        string
+      >;
+      return headers['X-Stream-Connection'] !== undefined;
+    }) as Array<[string, RequestInit]>;
+    expect(streamCalls.length).toBe(1);
+    expect(JSON.parse(String(streamCalls[0][1].body))).toEqual({
+      tool: 'communicate',
+      args: { to: 'agent-a', message: 'hello' },
+    });
+    mocks.streamChunkHandler?.({
+      type: 'stream:done',
+      result: { status: 'success', data: { conversationId: 'new-conv' } },
+    });
+    await flushPromises();
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/chat/new-conv'));
     // The draft conversation id becomes the active one.
     expect(useConversations().activeId.value).toBe('new-conv');
+  });
+
+  it('streams the first send of a draft conversation (root-cause regression)', async () => {
+    const fetchMock = stubExecute('new-conv');
+    vi.stubGlobal('fetch', fetchMock);
+    const router = makeRouter();
+    await router.push('/chat');
+    await router.isReady();
+    const wrapper = mount(ChatView, { global: { plugins: [router] } });
+    await flushPromises();
+    const pickerInput = wrapper.find('[data-test="recipient-picker"] input');
+    await pickerInput.trigger('focus'); // opens the option list
+    await pickerInput.setValue('agent');
+    await wrapper.findAll('[data-test="recipient-picker"] [data-option]')[0].trigger('mousedown');
+    await wrapper.find('[data-test="composer"] textarea').setValue('hello');
+    await wrapper
+      .find('[data-test="composer"] textarea')
+      .trigger('keydown.enter', { key: 'Enter' });
+    await flushPromises();
+    // FakeWS delivers a text_delta for the communicate stream: the reply must
+    // render live in the (now always-mounted) Thread instead of the first
+    // message falling back to a non-streaming execute.
+    mocks.streamChunkHandler?.({ type: 'text_delta', delta: 'hi there' });
+    await flushPromises();
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="streaming-part"]').exists()).toBe(true),
+    );
+    expect(wrapper.find('[data-test="streaming-part"]').text()).toContain('hi there');
   });
 
   it('non-draft send routes through the streaming path, not a plain communicate execute', async () => {

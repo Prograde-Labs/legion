@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useLegionApi } from '../composables/useLegionApi.js';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useCoarsePointer } from '../composables/useCoarsePointer.js';
@@ -13,12 +12,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  sent: [conversationId: string | null];
   stop: [];
   streamSend: [payload: { to: string | null; message: string }];
 }>();
 
-const { execute } = useLegionApi();
 const { participants } = useParticipants();
 const auth = useAuth();
 const { isCoarse } = useCoarsePointer();
@@ -70,30 +67,14 @@ function onKeydown(event: KeyboardEvent): void {
 async function send(): Promise<void> {
   const message = draft.value.trim();
   if (!message || !props.recipientId) return;
-  // Existing conversation: hand off to Thread.send → the streaming communicate
-  // POST (final-review C1/I1 fix). Executing communicate here as well would
-  // send the message twice — the streaming POST is the send.
-  if (props.conversationId) {
-    draft.value = '';
-    mentionQuery.value = null;
-    emit('streamSend', { to: props.recipientId, message });
-    return;
-  }
-  let sentConversationId: string | null = props.conversationId ?? null;
-  try {
-    // Draft sends (conversationId undefined) create the conversation server-side;
-    // the tool returns its id (communicate → data.conversationId).
-    const data = await execute<{ conversationId?: string }>('communicate', {
-      to: props.recipientId,
-      message,
-      conversationId: props.conversationId ?? undefined,
-    });
-    sentConversationId = data?.conversationId ?? sentConversationId;
-  } finally {
-    draft.value = '';
-    mentionQuery.value = null;
-  }
-  emit('sent', sentConversationId);
+  // ALL sends — draft and existing — hand off to Thread.send → the streaming
+  // communicate POST (ChatView wires @stream-send). Composer never executes
+  // communicate itself; for a draft the server-created conversation id
+  // arrives with the terminal stream result and bubbles up via Thread's
+  // `created` emit, so no `sent` event exists here anymore.
+  draft.value = '';
+  mentionQuery.value = null;
+  emit('streamSend', { to: props.recipientId, message });
 }
 </script>
 
