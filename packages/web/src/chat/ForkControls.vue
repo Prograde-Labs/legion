@@ -23,6 +23,7 @@ const siblings = computed(() => [
 ]);
 
 async function go(delta: number): Promise<void> {
+  if (!canSwitch.value) return;
   const next = (index.value + delta + siblings.value.length) % siblings.value.length;
   if (next === index.value) return;
   index.value = next;
@@ -34,6 +35,7 @@ async function go(delta: number): Promise<void> {
 }
 
 async function jump(alternateId: string): Promise<void> {
+  if (!canSwitch.value) return;
   const target = siblings.value.findIndex((s) => s.id === alternateId);
   if (target < 0) return;
   index.value = target;
@@ -77,6 +79,7 @@ async function jump(alternateId: string): Promise<void> {
       :class="{ 'pointer-events-none opacity-60': !canSwitch }"
       :title="alt.content"
       :aria-disabled="!canSwitch"
+      :tabindex="canSwitch ? 0 : -1"
       @click="jump(alt.id)"
     >
       ⎇ {{ alt.content.slice(0, 24) }}

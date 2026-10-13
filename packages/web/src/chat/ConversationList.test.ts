@@ -173,4 +173,29 @@ describe('ConversationList', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(wrapper.findAll('[data-test="conv-row"]').length).toBe(2);
   });
+
+  it('shows a delete error surface when delete_conversation fails and keeps the row', async () => {
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    );
+    // execute() throws Error(result.error) for status:'error' responses — the
+    // real failure shape of a policy-refused or backend-refused delete.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ result: { status: 'error', error: 'not authorized' } }), {
+          status: 200,
+        }),
+      ),
+    );
+    const wrapper = mount(ConversationList);
+    await wrapper.findAll('[data-test="conv-delete"]')[0].trigger('click');
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-test="conv-delete-error"]').exists()).toBe(true);
+    });
+    expect(wrapper.find('[data-test="conv-delete-error"]').text()).toContain('not authorized');
+    // Honest state: the server refused the delete, so the row stays visible.
+    expect(wrapper.findAll('[data-test="conv-row"]').length).toBe(2);
+  });
 });

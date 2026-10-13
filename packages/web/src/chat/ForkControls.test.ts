@@ -61,4 +61,21 @@ describe('ForkControls', () => {
     expect((chip.element as HTMLButtonElement).disabled).toBe(false);
     expect(chip.attributes('aria-disabled')).toBe('true');
   });
+
+  it('ignores keyboard activation of chips without switch_branch access', async () => {
+    mockCan((t) => (t === 'switch_branch' ? 'hidden' : 'auto'));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(ForkControls, { props: { conversationId: 'c1', message } });
+    const chip = wrapper.find('[data-test="branch-chip"]');
+    // Inert chips must not sit in the tab order (keyboard users tab past them).
+    expect(chip.attributes('tabindex')).toBe('-1');
+    // Enter on a focused button synthesizes a click in real browsers; happy-dom
+    // fires neither automatically, so simulate both halves of the sequence.
+    await chip.trigger('keydown', { key: 'Enter' });
+    await chip.trigger('click');
+    await flushPromises();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(wrapper.emitted('switched')).toBeUndefined();
+  });
 });

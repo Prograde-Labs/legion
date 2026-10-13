@@ -15,15 +15,22 @@ const { execute } = useLegionApi();
 const toolAccess = useToolAccess();
 const canDelete = computed(() => toolAccess.can('delete_conversation') === 'auto');
 const deletingId = ref<string | null>(null);
+// Destructive-action failures must be visible: the row stays (honest state),
+// but the user who confirmed the delete gets feedback (mirrors MessageActions'
+// actions-error convention).
+const deleteError = ref<string | null>(null);
 
 async function removeConversation(id: string): Promise<void> {
   if (!window.confirm('Delete conversation?')) return;
   deletingId.value = id;
+  deleteError.value = null;
   try {
     await execute('delete_conversation', { conversationId: id });
     // Drop the row immediately; the watch_conversations stream reconciles the
     // full list on the next lifecycle event.
     store.remove(id);
+  } catch (err) {
+    deleteError.value = err instanceof Error ? err.message : String(err);
   } finally {
     deletingId.value = null;
   }
@@ -74,6 +81,14 @@ function onSearch(event: Event): void {
       @input="onSearch"
     />
     <div class="min-h-0 flex-1 overflow-y-auto">
+      <div
+        v-if="deleteError"
+        data-test="conv-delete-error"
+        role="alert"
+        class="border-b border-line px-3 py-2 text-xs text-danger"
+      >
+        {{ deleteError }}
+      </div>
       <div
         v-for="c in sorted"
         :key="c.id"
