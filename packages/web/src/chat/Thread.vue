@@ -205,17 +205,15 @@ watch(
         <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">
           <div
             :data-highlight="
-              (highlight &&
-                (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)) ||
-              (m.recipientId && m.recipientId === highlight?.outboundMessageId)
+              highlight &&
+              (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)
                 ? 'true'
                 : undefined
             "
             :class="{
               'ring-1 ring-accent':
-                (highlight &&
-                  (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)) ||
-                (m.recipientId && m.recipientId === highlight?.outboundMessageId),
+                highlight &&
+                (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId),
             }"
           >
             <MessagePart :message="m" @open="(tool, payload) => emit('open', tool, payload)">
@@ -249,8 +247,8 @@ watch(
             Draft send (no conversationId prop): persisting via load() waits for
             the whole tool loop, so show the outbound user message immediately —
             same shape the persisted copy will have — followed by the streaming
-            reply. The outbound id is echoed by ChatView as highlight, matching
-            the server-rendered message.
+            reply. The highlight prop drives the optimistic outbound's ring only;
+            after load() the persisted copy renders unhighlighted.
           -->
           <MessagePart
             v-if="!props.conversationId && pendingArgs.message"

@@ -109,9 +109,10 @@ const threadRef = ref<InstanceType<typeof Thread> | null>(null);
 // C1/I1 fix) — true from the streaming POST until done/error/cancel.
 const streaming = computed(() => threadRef.value?.streaming ?? false);
 
-// While a draft send streams, Thread renders the outbound user message with
-// highlight styling (matching what load() renders after the reload once the
-// server persists it — keeps the first send visually consistent mid-stream).
+// While a draft send streams, Thread renders the optimistic outbound user
+// message with highlight styling (the highlight prop feeds that optimistic
+// MessagePart's own check — persisted messages match highlights by id, so after
+// the post-done reload the persisted copy renders unhighlighted).
 const draftHighlight = computed(() =>
   isDraft.value && streaming.value ? { outboundMessageId: 'streaming-outbound' } : null,
 );

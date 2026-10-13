@@ -233,4 +233,41 @@ describe('Thread', () => {
     await flushPromises();
     expect(wrapper.emitted('created')).toBeUndefined();
   });
+
+  it('highlights persisted messages by id only, never by recipientId', async () => {
+    // Outbound copy of a freshly-persisted draft send (senderId = self,
+    // recipientId = the agent). Highlighting matches by message id ONLY: an
+    // outboundMessageId sitting in the recipient id-space must not ring the
+    // message (the removed carry-across clause compared recipientId against
+    // ChatView's literal 'streaming-outbound', which is never a real id).
+    const chain = [
+      {
+        id: 'mo',
+        role: 'user',
+        content: 'hello agent',
+        senderId: 'user-1',
+        recipientId: 'agent-a',
+        timestamp: '2026-10-08T01:00:00Z',
+        status: 'complete',
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: chain } } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, {
+      props: { conversationId: 'c1', highlight: { outboundMessageId: 'agent-a' } },
+    });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+    expect(wrapper.find('[data-highlight="true"]').exists()).toBe(false);
+
+    // The id-match contract is unchanged: a real message id still rings.
+    await wrapper.setProps({ highlight: { outboundMessageId: 'mo' } });
+    expect(wrapper.find('[data-highlight="true"]').exists()).toBe(true);
+  });
 });
