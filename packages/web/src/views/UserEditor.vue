@@ -4,6 +4,7 @@ import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
 import { useParticipants } from '../composables/useParticipants.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 import ToolPolicyEditor, {
   type ToolOverride,
 } from '../components/participants/ToolPolicyEditor.vue';
@@ -76,7 +77,7 @@ async function load(): Promise<void> {
     const a = p['approvalAuthority'] as { tools?: Record<string, boolean> | '*' } | null;
     authority.value = a ?? null;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    error.value = friendlyToolError(err);
   }
   void execute<{ tools: string[]; callerPolicy: Record<string, string> }>('list_tools', {})
     .then(({ tools }) => {
@@ -206,7 +207,7 @@ async function retire(): Promise<void> {
   <form class="mx-auto flex max-w-2xl flex-col gap-3 p-4 text-sm" @submit.prevent="save">
     <div
       v-if="error"
-      data-test="user-error"
+      data-test="editor-error"
       class="rounded border border-line px-2 py-1 text-xs text-danger"
     >
       {{ error }}

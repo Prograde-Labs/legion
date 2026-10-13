@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 import ToolPolicyEditor, {
   type ToolOverride,
 } from '../components/participants/ToolPolicyEditor.vue';
@@ -87,7 +88,7 @@ async function load(): Promise<void> {
     authorityModel.value =
       authority?.tools === '*' ? { tools: '*' } : { tools: authority?.tools ?? {} };
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    error.value = friendlyToolError(err);
   }
   void execute<{ tools: string[]; callerPolicy: Record<string, string> }>('list_tools', {})
     .then(({ tools }) => {
@@ -204,7 +205,7 @@ const groupedModels = computed(() => {
   <div class="mx-auto flex max-w-2xl flex-col gap-3 p-4 text-sm">
     <div
       v-if="error"
-      data-test="agent-error"
+      data-test="editor-error"
       class="rounded border border-line px-2 py-1 text-xs text-danger"
     >
       {{ error }}

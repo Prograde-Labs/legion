@@ -71,6 +71,74 @@ describe('UserEditor', () => {
     );
   });
 
+  it('hydrates name, operator flag and tool override policies for an existing user', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...USER,
+            name: 'Alice Prime',
+            operator: true,
+            tools: { communicate: 'auto', file_read: 'requires_approval' },
+            approvalAuthority: { tools: { communicate: true } },
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', {
+            tools: ['communicate', 'file_read', 'list_tools'],
+            callerPolicy: {},
+          });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('input[name="name"]').element as HTMLInputElement).value).toBe(
+        'Alice Prime',
+      ),
+    );
+    expect((wrapper.find('input[name="operator"]').element as HTMLInputElement).checked).toBe(true);
+    // Every tool from get_participant's map plus the full list_tools roster renders
+    // as an override row; hydrated policies start enabled.
+    const rows = wrapper.findAll('[data-tool-row]');
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    const checked = rows.filter(
+      (r) => (r.find('input[type="checkbox"]').element as HTMLInputElement).checked,
+    );
+    expect(checked.length).toBe(2);
+    expect(rows[1].text()).toContain('file_read');
+    expect(rows[1].text()).toContain('require approval');
+    // Approval authority hydrates too — communicate allowed, wildcard off.
+    expect((wrapper.find('[data-test="wildcard"]').element as HTMLInputElement).checked).toBe(
+      false,
+    );
+    expect(
+      (wrapper.find('[data-test="tool-communicate"]').element as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it('shows a friendly message when get_participant is denied', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return new Response(JSON.stringify({ result: { status: 'error', error: 'hidden' } }), {
+            status: 200,
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(true));
+    const banner = wrapper.find('[data-test="editor-error"]').text();
+    expect(banner).not.toContain('hidden');
+    expect(banner).toContain('access');
+  });
+
   it('save calls modify_user with full-replacement tools', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);

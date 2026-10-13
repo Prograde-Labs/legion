@@ -35,7 +35,7 @@ test.describe('Participants & users', () => {
     const initiallyChecked = await firstCheckbox.isChecked();
     await firstCheckbox.click();
     await page.locator('[data-test="save"]').click();
-    await expect(page.locator('[data-test="user-error"]')).toHaveCount(0);
+    await expect(page.locator('[data-test="editor-error"]')).toHaveCount(0);
     // Force an editor reload: visit another participant, then back.
     await page.locator('[data-test="participant-row"]').first().click();
     await row.click();
@@ -49,7 +49,7 @@ test.describe('Participants & users', () => {
     // Successful retire closes the editor; the chat-first participants list
     // keeps the row (dimmed StatusDot) rather than dropping it, so prove the
     // retirement at the source of truth instead of asserting row visibility.
-    await expect(page.locator('[data-test="user-error"]')).toHaveCount(0);
+    await expect(page.locator('[data-test="editor-error"]')).toHaveCount(0);
     await expect
       .poll(async () => {
         const participant = data<{ status?: string }>(
