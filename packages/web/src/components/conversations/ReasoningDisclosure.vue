@@ -10,19 +10,17 @@ defineProps<{ content: string; streaming: boolean }>();
     v-if="streaming"
     data-reasoning
     data-streaming-reasoning
-    class="mb-2 rounded border border-line bg-surface/60 px-2.5 py-2 text-slate-400"
+    class="mb-2 rounded border border-line bg-surface/60 px-2.5 py-2 text-muted"
   >
-    <div class="mb-1 text-xs font-medium text-cyan-500">Reasoning</div>
+    <div class="mb-1 text-xs font-medium text-accent">Reasoning</div>
     <MarkdownContent :content="content" class="text-xs leading-relaxed" />
   </div>
   <details
     v-else
     data-reasoning
-    class="mb-2 rounded border border-line bg-surface/60 px-2.5 py-2 text-slate-400"
+    class="mb-2 rounded border border-line bg-surface/60 px-2.5 py-2 text-muted"
   >
-    <summary class="cursor-pointer select-none text-xs font-medium text-cyan-500">
-      Reasoning
-    </summary>
+    <summary class="cursor-pointer select-none text-xs font-medium text-accent">Reasoning</summary>
     <MarkdownContent :content="content" class="mt-2 text-xs leading-relaxed" />
   </details>
 </template>

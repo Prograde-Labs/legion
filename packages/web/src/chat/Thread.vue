@@ -116,6 +116,9 @@ const stream = useToolStream('communicate', () => pendingArgs, {
     } else if (chunk.type === 'text_delta') {
       isStreaming.value = true;
       streamingText.value += chunk.delta;
+    } else if (chunk.type === 'reasoning_delta') {
+      isStreaming.value = true;
+      streamingReasoning.value += chunk.delta;
     } else if (chunk.type === 'stream:done' || chunk.type === 'stream:error') {
       isStreaming.value = false;
       void load();

@@ -148,6 +148,51 @@ describe('Thread', () => {
     await vi.waitFor(() => expect((wrapper.vm as { streaming?: boolean }).streaming).toBe(false));
   });
 
+  it('accumulates reasoning deltas into the streaming part', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await (wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }).send(
+      'agent-a',
+      'think then reply',
+    );
+
+    mocks.streamChunkHandler?.({ type: 'iteration_start' });
+    mocks.streamChunkHandler?.({ type: 'reasoning_delta', delta: 'step 1 ' });
+    mocks.streamChunkHandler?.({ type: 'reasoning_delta', delta: 'step 2' });
+
+    // Live reasoning accumulates in the streaming part's forced-open disclosure:
+    // streamingReasoning flows into MessagePart's reasoning prop, and the
+    // `streaming` flag renders ReasoningDisclosure's open (non-details) branch
+    // marked data-streaming-reasoning.
+    await vi.waitFor(() =>
+      expect(
+        wrapper
+          .get('[data-test="streaming-part"]')
+          .find('[data-reasoning][data-streaming-reasoning]')
+          .exists(),
+      ).toBe(true),
+    );
+    expect(
+      wrapper
+        .get('[data-test="streaming-part"]')
+        .find('[data-reasoning][data-streaming-reasoning]')
+        .text(),
+    ).toContain('step 1 step 2');
+  });
+
   it('exposes streaming=true while chunks arrive and cancelStream for Stop', async () => {
     const fetchMock = vi
       .fn()
