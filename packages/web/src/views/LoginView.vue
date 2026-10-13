@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 
 const name = ref('');
 const password = ref('');
@@ -15,6 +16,9 @@ async function submit() {
   loading.value = true;
   try {
     await login(name.value, password.value);
+    void useToolAccess()
+      .refresh()
+      .catch(() => {});
     await router.push('/participants');
   } catch {
     error.value = 'Incorrect name or password.';
