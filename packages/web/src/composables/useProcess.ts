@@ -1,12 +1,12 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import type { Ref } from 'vue';
-import { useExecute } from './useExecute.js';
+import { useLegionApi } from './useLegionApi.js';
 import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
 import type { ProcessHandle } from '@legion-collective/types';
 
 export function useProcess(processId: string) {
-  const { execute } = useExecute();
+  const { execute } = useLegionApi();
   const ws = useWebSocket();
 
   const handle: Ref<ProcessHandle | null> = ref(null);

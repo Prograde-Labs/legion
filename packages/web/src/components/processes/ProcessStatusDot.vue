@@ -4,14 +4,13 @@ import type { ProcessStatus } from '@legion-collective/types';
 defineProps<{ status: ProcessStatus }>();
 
 const colours: Record<ProcessStatus, string> = {
-  running: 'bg-cyan-400 animate-pulse',
-  starting: 'bg-amber-400',
-  exited: 'bg-slate-500',
-  killed: 'bg-red-400',
-  abandoned: 'bg-navy-500',
+  running: 'bg-accent animate-pulse',
+  starting: 'bg-warning',
+  exited: 'bg-faint',
+  killed: 'bg-danger',
+  abandoned: 'bg-faint',
 };
 </script>
-
 <template>
-  <span :class="['inline-block w-2 h-2 rounded-full', colours[status] ?? 'bg-navy-500']" />
+  <span :class="['inline-block w-2 h-2 rounded-full', colours[status] ?? 'bg-faint']" />
 </template>

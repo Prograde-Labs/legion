@@ -1543,12 +1543,48 @@ describe('remove_tool_policy', () => {
 });
 
 describe('list_tools', () => {
-  it('returns registered tool names', async () => {
+  it('returns registered tool names plus the caller policy map', async () => {
     const deps = await buildTestDeps({});
-    const result = await invokeManagementTool('list_tools', {}, deps);
-    const tools = (result as { status: string; data: string[] }).data;
-    expect(Array.isArray(tools)).toBe(true);
-    expect(tools).toContain('list_tools');
+    const result = (await invokeManagementTool('list_tools', {}, deps)) as {
+      status: string;
+      data: { tools: string[]; callerPolicy: Record<string, string> };
+    };
+    expect(Array.isArray(result.data.tools)).toBe(true);
+    expect(result.data.tools).toContain('list_tools');
+    // Seeded operator maps every management tool to 'auto'.
+    expect(result.data.callerPolicy['list_tools']).toBe('auto');
+    expect(result.data.callerPolicy['create_agent']).toBe('auto');
+    expect(Object.values(result.data.callerPolicy).every((p) => p === 'auto')).toBe(true);
+  });
+
+  it('returns the registry tool list plus the caller policy map', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.update('operator', {
+      tools: { communicate: 'auto', edit_message: 'requires_approval' },
+    });
+    const result = (await invokeManagementTool('list_tools', {}, deps)) as {
+      status: string;
+      data: { tools: string[]; callerPolicy: Record<string, string> };
+    };
+    expect(result.status).toBe('success');
+    expect(result.data.tools).toContain('list_tools');
+    expect(result.data.tools).toContain('edit_message');
+    expect(result.data.callerPolicy).toEqual({
+      communicate: 'auto',
+      edit_message: 'requires_approval',
+    });
+  });
+
+  it('returns an empty callerPolicy when the participant has no tools map', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.update('operator', { tools: {} });
+    const result = (await invokeManagementTool('list_tools', {}, deps)) as {
+      status: string;
+      data: { tools: string[]; callerPolicy: Record<string, string> };
+    };
+    expect(result.status).toBe('success');
+    expect(result.data.tools).toContain('list_tools');
+    expect(result.data.callerPolicy).toEqual({});
   });
 });
 

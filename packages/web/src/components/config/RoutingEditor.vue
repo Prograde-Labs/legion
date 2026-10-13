@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { RoutingConfig } from '@legion-collective/types';
-import { useExecute } from '../../composables/useExecute.js';
+import { useLegionApi } from '../../composables/useLegionApi.js';
 
 const props = defineProps<{
   scope: 'system' | 'workspace';
@@ -9,7 +9,7 @@ const props = defineProps<{
   providerNames: string[];
 }>();
 const emit = defineEmits<{ saved: [] }>();
-const { execute } = useExecute();
+const { execute } = useLegionApi();
 
 const rows = ref<Array<{ model: string; providers: string[] }>>(
   Object.entries(props.routing.models ?? {}).map(([model, providers]) => ({ model, providers })),
@@ -85,44 +85,44 @@ async function save() {
     <div
       v-for="(row, rowIndex) in rows"
       :key="row.model"
-      class="border border-navy-700 rounded p-3 space-y-2"
+      class="border border-line rounded p-3 space-y-2"
     >
       <div class="flex items-center justify-between">
-        <span class="font-mono text-xs text-slate-100">{{ row.model }}</span>
-        <button @click="removeRow(rowIndex)" class="text-[10px] text-red-400 hover:text-red-300">
+        <span class="font-mono text-xs text-ink">{{ row.model }}</span>
+        <button @click="removeRow(rowIndex)" class="text-[10px] text-danger hover:brightness-110">
           Remove
         </button>
       </div>
       <div class="space-y-1">
         <div v-for="(prov, provIndex) in row.providers" :key="prov" class="flex items-center gap-1">
-          <span class="text-[10px] text-navy-400 w-4">{{ provIndex + 1 }}.</span>
+          <span class="text-[10px] text-muted w-4">{{ provIndex + 1 }}.</span>
           <span
-            class="flex-1 text-[10px] font-mono bg-cyan-400/10 border border-cyan-400/20 text-cyan-400 px-2 py-0.5 rounded"
+            class="flex-1 text-[10px] font-mono bg-accent-soft border border-accent/20 text-accent px-2 py-0.5 rounded"
           >
             {{ prov }}
           </span>
           <button
             @click="moveProviderUp(rowIndex, provIndex)"
             :disabled="provIndex === 0"
-            class="text-[10px] text-navy-400 hover:text-slate-200 disabled:opacity-30 px-1"
+            class="text-[10px] text-muted hover:text-ink disabled:opacity-30 px-1"
           >
             ↑
           </button>
           <button
             @click="moveProviderDown(rowIndex, provIndex)"
             :disabled="provIndex === row.providers.length - 1"
-            class="text-[10px] text-navy-400 hover:text-slate-200 disabled:opacity-30 px-1"
+            class="text-[10px] text-muted hover:text-ink disabled:opacity-30 px-1"
           >
             ↓
           </button>
           <button
             @click="removeProvider(rowIndex, provIndex)"
-            class="text-[10px] text-red-400 hover:text-red-300 px-1"
+            class="text-[10px] text-danger hover:brightness-110 px-1"
           >
             ×
           </button>
         </div>
-        <p v-if="row.providers.length === 0" class="text-[10px] text-navy-600 italic">
+        <p v-if="row.providers.length === 0" class="text-[10px] text-faint italic">
           No providers — add one below.
         </p>
       </div>
@@ -134,7 +134,7 @@ async function save() {
             (e.target as HTMLSelectElement).value = '';
           }
         "
-        class="w-full bg-navy-900 border border-navy-600 rounded px-2 py-1 text-[10px] text-navy-400"
+        class="w-full bg-bg border border-line rounded px-2 py-1 text-[10px] text-muted"
       >
         <option value="">+ Add provider…</option>
         <option v-for="p in availableForRow(rowIndex)" :key="p" :value="p">{{ p }}</option>
@@ -146,12 +146,9 @@ async function save() {
         v-model="newModelId"
         placeholder="model-id (e.g. claude-sonnet-4-5)"
         @keyup.enter="addRow"
-        class="flex-1 bg-navy-900 border border-navy-600 rounded px-3 py-1.5 text-xs text-slate-100 font-mono outline-none"
+        class="flex-1 bg-bg border border-line rounded px-3 py-1.5 text-xs text-ink font-mono outline-none"
       />
-      <button
-        @click="addRow"
-        class="text-xs px-3 py-1.5 border border-navy-600 text-cyan-400 rounded"
-      >
+      <button @click="addRow" class="text-xs px-3 py-1.5 border border-line text-accent rounded">
         + Add model
       </button>
     </div>
@@ -160,7 +157,7 @@ async function save() {
       <button
         @click="save"
         :disabled="saving"
-        class="text-xs px-3 py-1.5 bg-cyan-400 text-navy-950 font-bold rounded disabled:opacity-50"
+        class="text-xs px-3 py-1.5 bg-accent text-on-accent font-bold rounded disabled:opacity-50"
       >
         {{ saving ? 'Saving…' : `Save ${scope} routing` }}
       </button>
