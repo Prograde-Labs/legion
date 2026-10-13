@@ -39,4 +39,46 @@ describe('useToolAccess', () => {
     await expect(useToolAccess().refresh()).rejects.toThrow('boom');
     expect(useToolAccess().can('communicate')).toBe('hidden');
   });
+  it('reset() clears loaded policies so can() fails closed until the next identity refresh', async () => {
+    executeMock.mockResolvedValue({
+      tools: ['communicate'],
+      callerPolicy: { communicate: 'auto' },
+    });
+    await useToolAccess().refresh(); // identity A
+    expect(useToolAccess().can('communicate')).toBe('auto');
+    useToolAccess().reset(); // logout flips isAuthenticated false → App.vue calls reset()
+    expect(useToolAccess().can('communicate')).toBe('hidden'); // B must not inherit A's policy
+    executeMock.mockResolvedValue({
+      tools: ['communicate'],
+      callerPolicy: { communicate: 'requires_approval' },
+    });
+    await useToolAccess().refresh(); // identity B logs in
+    expect(useToolAccess().can('communicate')).toBe('requires_approval');
+  });
+  it('drops a refresh response that was in flight across a reset (stale identity cannot land)', async () => {
+    let resolveA!: (value: {
+      tools: string[];
+      callerPolicy: Record<string, 'auto' | 'requires_approval'>;
+    }) => void;
+    executeMock.mockImplementation(
+      () =>
+        new Promise<{
+          tools: string[];
+          callerPolicy: Record<string, 'auto' | 'requires_approval'>;
+        }>((resolve) => {
+          resolveA = resolve;
+        }),
+    );
+    const pending = useToolAccess().refresh(); // identity A refresh in flight
+    useToolAccess().reset(); // logout before the response lands
+    resolveA({ tools: ['communicate'], callerPolicy: { communicate: 'auto' } });
+    await pending;
+    expect(useToolAccess().can('communicate')).toBe('hidden'); // stays fail closed after logout
+    executeMock.mockResolvedValue({
+      tools: ['communicate'],
+      callerPolicy: { communicate: 'auto' },
+    });
+    await useToolAccess().refresh(); // next identity's successful refresh
+    expect(useToolAccess().can('communicate')).toBe('auto');
+  });
 });
