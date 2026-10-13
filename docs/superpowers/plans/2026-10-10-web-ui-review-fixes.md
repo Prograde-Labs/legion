@@ -25,17 +25,20 @@
 - `list_tools` (as of plan-writing) returns a flat array of tool-name strings.
 
 ---
+
 ## Cluster A — Tool-visibility gating (plan tasks 1-4)
 
 ### Task 1: list_tools returns the caller's tool policy
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts` (listToolsTool at :851-863)
 - Modify: `packages/core/src/tools/management-tools.test.ts` (extend)
 - Modify: `packages/web/src/views/AgentEditor.vue:81`, `packages/web/src/views/UserEditor.vue:70` (list_tools consumers — shape change)
 - Modify: `packages/web/src/views/TopologyMap.vue:26` (consumer — uses list_mcp_sources, verify only)
 
 **Interfaces:**
+
 - Consumes: `ToolContext.participant` (packages/core/src/tools/Tool.ts:92-96 — the executing principal, carries its own `tools` policy map) and `ToolContext.toolRegistry.listAll(): string[]` (packages/core/src/tools/ToolRegistry.ts:52).
 - Produces: `list_tools` returns `{ tools: string[], callerPolicy: Record<string, 'auto' | 'requires_approval'> }` — **breaking shape change** (was a flat string array). ALL in-repo consumers updated in this task (grep verified: AgentEditor.vue:81 and UserEditor.vue:70 are the only `.then((tools) =>` list_tools consumers in web; Composer.vue:39-45 toolHints reads `auth.tools`, not this tool).
 
@@ -72,7 +75,7 @@ it('returns an empty callerPolicy when the participant has no tools map', async 
 (Adapt `mkContext`/`mkParticipant`/`mkRegistryWith` to the file's actual fixture helpers — read its existing list_tools coverage first and extend rather than duplicate.)
 
 - [ ] **Step 2: Verify FAIL** — `npx vitest run packages/core/src/tools/management-tools.test.ts`
-Expected: FAIL — current data is a plain string array.
+      Expected: FAIL — current data is a plain string array.
 
 - [ ] **Step 3: Implement** — replace the execute body (management-tools.ts:858-862):
 
@@ -114,10 +117,12 @@ git commit -m "feat(core): list_tools returns caller tool policy for UI gating"
 ### Task 2: useToolAccess composable
 
 **Files:**
+
 - Create: `packages/web/src/composables/useToolAccess.ts`
 - Create: `packages/web/src/composables/useToolAccess.test.ts`
 
 **Interfaces:**
+
 - Consumes: `useLegionApi().execute<T>(tool, args)` (existing pattern — read useLegionApi.ts for the exact execute signature and how the token is attached). `list_tools` new return from Task 1.
 - Produces: `useToolAccess(): { can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'; refresh: () => Promise<void>; access: Ref<Record<string, 'auto' | 'requires_approval'>> }` — module-level singleton state (same pattern as useAuth/useParticipants: refs at module scope, function returns handles).
 
@@ -201,34 +206,38 @@ git commit -m "feat(web): useToolAccess composable for tool-visibility gating"
 ### Task 3: Gating sweep — hide every affordance the caller cannot invoke
 
 **Files (all verified present):**
+
 - Modify: `packages/web/src/shell/AppShell.vue` (nav), `packages/web/src/chat/ConversationList.vue` (delete), `packages/web/src/chat/MessageActions.vue` (edit/generate/prune), `packages/web/src/chat/ForkControls.vue` (switch_branch), `packages/web/src/views/ConfigView.vue` (list/save/delete provider), `packages/web/src/views/ProcessesView.vue` (start/stop process), `packages/web/src/views/McpSourcesEditor.vue` (list/save mcp sources), `packages/web/src/views/ParticipantsView.vue` (+ list/create affordances), `packages/web/src/views/AgentEditor.vue` + `UserEditor.vue` (save/retire/set_credential buttons), `packages/web/src/panels/DockPanel.vue` (open affordances)
 - Create: `packages/web/src/components/common/ApprovalBadge.vue`
 - Test: extend `MessageActions.test.ts`, `ConversationList.test.ts`, `McpSourcesEditor` tests (files verified to exist for the first two; check McpSourcesEditor's — create if missing)
 
 **Interfaces:**
+
 - Consumes: `useToolAccess().can()` (Task 2).
 - Produces: `ApprovalBadge` — props `{}`; renders `<span data-test="approval-badge" class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">needs approval</span>` (token classes; `bg-warning/15` opacity modifier — verify Tailwind config exposes the `warning` color, else use `text-warning border-warning/40 border`).
 
 - [ ] **Step 1: Read each component and map affordance → tool.** Verified mapping to encode (from recon):
 
-| Component | Affordance | Tool |
-|---|---|---|
-| ConversationList | per-conversation delete button (ADD — currently missing, fixes feedback #5) | `delete_conversation` |
-| MessageActions | Edit / Re-run / Prune menu items | `edit_message` / `generate` / `prune_message` |
-| ForkControls | branch switch buttons | `switch_branch` |
-| ConfigView | provider list/save/delete | `list_providers` / `save_provider` / `delete_provider` |
-| ProcessesView | start/stop/view process forms | `start_process` / `stop_process` / `list_processes` |
-| McpSourcesEditor | editor + save | `list_mcp_sources` / `save_mcp_sources` |
-| ParticipantsView + editors | create/edit/retire affordances | `create_agent` / `modify_agent` / `retire_agent` / `create_user` / `modify_user` / `set_credential` |
-| AppShell | nav entries Chat/Participants/Processes/Config | keep visible (read-mostly views degrade gracefully); gate only actions inside views |
-| DockPanel | open/inspect affordances | keep (chip inspect is always allowed) |
+| Component                  | Affordance                                                                  | Tool                                                                                                |
+| -------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| ConversationList           | per-conversation delete button (ADD — currently missing, fixes feedback #5) | `delete_conversation`                                                                               |
+| MessageActions             | Edit / Re-run / Prune menu items                                            | `edit_message` / `generate` / `prune_message`                                                       |
+| ForkControls               | branch switch buttons                                                       | `switch_branch`                                                                                     |
+| ConfigView                 | provider list/save/delete                                                   | `list_providers` / `save_provider` / `delete_provider`                                              |
+| ProcessesView              | start/stop/view process forms                                               | `start_process` / `stop_process` / `list_processes`                                                 |
+| McpSourcesEditor           | editor + save                                                               | `list_mcp_sources` / `save_mcp_sources`                                                             |
+| ParticipantsView + editors | create/edit/retire affordances                                              | `create_agent` / `modify_agent` / `retire_agent` / `create_user` / `modify_user` / `set_credential` |
+| AppShell                   | nav entries Chat/Participants/Processes/Config                              | keep visible (read-mostly views degrade gracefully); gate only actions inside views                 |
+| DockPanel                  | open/inspect affordances                                                    | keep (chip inspect is always allowed)                                                               |
 
 - [ ] **Step 2: Write failing tests** (one pattern, three components):
 
 ```ts
 // MessageActions.test.ts
 it('hides menu actions the caller cannot invoke', async () => {
-  vi.mocked(useToolAccess).mockReturnValue({ can: (t: string) => (t === 'edit_message' ? 'auto' : 'hidden') } as never);
+  vi.mocked(useToolAccess).mockReturnValue({
+    can: (t: string) => (t === 'edit_message' ? 'auto' : 'hidden'),
+  } as never);
   const w = mountMessageActions();
   await w.find('[data-test="actions-toggle"]').trigger('click');
   expect(w.find('[data-test="action-edit"]').exists()).toBe(true);
@@ -256,11 +265,13 @@ git commit -m "feat(web): gate UI affordances by caller tool policy"
 ### Task 4: No navbar on the login screen
 
 **Files:**
+
 - Modify: `packages/web/src/shell/AppShell.vue` (nav element :28; auth state via useAuth :12)
 - Modify: `packages/web/src/App.vue` (:19 renders AppShell unconditionally)
 - Test: `packages/web/src/shell/AppShell.test.ts` (create if absent)
 
 **Interfaces:**
+
 - Consumes: `useAuth()` — read the composable for the exact authenticated flag (`participantId` + token expiry; useAuth.ts:36-37 already computes a valid-session notion — reuse or expose it).
 - Produces: login route renders bare.
 
@@ -291,16 +302,19 @@ git commit -m "fix(web): hide navigation chrome on the login screen"
 ```
 
 ---
+
 ## Cluster C — Chat rendering & streaming (plan tasks 5-9)
 
 ### Task 5: Composer send button + pointer-aware Enter behavior
 
 **Files:**
+
 - Create: `packages/web/src/composables/useCoarsePointer.ts`
 - Modify: `packages/web/src/chat/Composer.vue` (keydown handler at :59-64; template actions row :130-140; textarea placeholder :125)
 - Test: `packages/web/src/chat/Composer.test.ts` (exists — extend)
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `useCoarsePointer(): { isCoarse: Ref<boolean> }` — reused by Task 12 (mobile single-pane). Composer template gains `data-test="composer-send"` button.
 
@@ -354,7 +368,7 @@ it('always renders the send button', () => {
 ```
 
 - [ ] **Step 3: Run to verify FAIL** — `npm run test --workspace=packages/web -- Composer`
-Expected: FAIL (`composer-send` not found; coarse Enter emits streamSend).
+      Expected: FAIL (`composer-send` not found; coarse Enter emits streamSend).
 
 - [ ] **Step 4: Implement** — Composer.vue script: import `useCoarsePointer`, `const { isCoarse } = useCoarsePointer();`; replace onKeydown:
 
@@ -407,12 +421,14 @@ git commit -m "feat(web): composer send button + pointer-aware enter behavior"
 ### Task 6: FIX — streaming on first send in a brand-new conversation
 
 **Files:**
+
 - Modify: `packages/web/src/chat/ChatView.vue` (:197 draft-mode `v-else`; onStreamSend :111-113; onSent :131-142)
 - Modify: `packages/web/src/chat/Composer.vue` (:66-93 `send()` — draft branch uses non-streaming `execute`)
 - Modify: `packages/web/src/chat/Thread.vue` (send() exposed at :147-150 — must emit the created conversation id)
 - Test: `packages/web/src/chat/ChatView.test.ts` (extend; FakeWS harness already there)
 
 **Interfaces:**
+
 - Consumes: Thread's exposed `send()` (existing).
 - Produces: Thread emits `created: [conversationId: string]` after a draft send completes; Composer emits ONLY `streamSend` (draft branch removed); ChatView replaces the route on `created`.
 
@@ -434,14 +450,17 @@ it('streams the first send of a draft conversation', async () => {
 ```
 
 - [ ] **Step 2: Verify FAIL** — `npm run test --workspace=packages/web -- ChatView`
-Expected: FAIL — no `streaming-part` renders (non-streaming execute path; Thread not mounted).
+      Expected: FAIL — no `streaming-part` renders (non-streaming execute path; Thread not mounted).
 
 - [ ] **Step 3: Implement**
 
 3a. Thread.vue — emit created id (script setup, near the done watch at :127):
 
 ```ts
-const emit = defineEmits<{ open: [tool: string, payload: Record<string, unknown>]; created: [conversationId: string] }>();
+const emit = defineEmits<{
+  open: [tool: string, payload: Record<string, unknown>];
+  created: [conversationId: string];
+}>();
 ```
 
 extend the existing `watch(stream.done, …)` (:127-132):
@@ -475,13 +494,11 @@ async function send(): Promise<void> {
 3c. ChatView.vue — render Thread in draft mode too and handle `created` (replace :197-209 region): keep the recipient-picker block but mount Thread above it when streaming starts. Simplest correct structure:
 
 ```html
-<Thread
-  ref="threadRef"
-  :conversation-id="activeId"
-  @open="onChipOpen"
-  @created="onCreated"
-/>
-<div v-if="isDraft && !streaming" class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+<Thread ref="threadRef" :conversation-id="activeId" @open="onChipOpen" @created="onCreated" />
+<div
+  v-if="isDraft && !streaming"
+  class="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center"
+>
   <!-- existing recipient-picker block, unchanged -->
 </div>
 ```
@@ -510,12 +527,14 @@ git commit -m "fix(web): stream first message of a new conversation"
 ### Task 7: Live-stream reasoning into the reasoning disclosure
 
 **Files:**
+
 - Modify: `packages/web/src/chat/Thread.vue` (chunk handler :104-119 — handles `text_delta` but drops `reasoning_delta`)
 - Modify: `packages/web/src/chat/MessagePart.vue` (:35-39 renders ReasoningDisclosure only when `message.reasoning` — fine; no change expected unless streaming prop needs forcing)
 - Modify: `packages/web/src/components/conversations/ReasoningDisclosure.vue` (raw `text-slate-400`/`text-cyan-500` classes → tokens; auto-open while streaming)
 - Test: `packages/web/src/chat/Thread.test.ts` (FakeWS harness exists)
 
 **Interfaces:**
+
 - Consumes: `StreamChunk` union already includes `reasoning_delta` (`chunk.delta`) and `message_snapshot` (`chunk.reasoning`) — see useConversation.ts:130-142 for the reference handling.
 - Produces: streaming message part carries live `reasoning` so `ReasoningDisclosure` renders it open.
 
@@ -535,7 +554,7 @@ it('accumulates reasoning deltas into the streaming part', async () => {
 ```
 
 - [ ] **Step 2: Verify FAIL** — `npm run test --workspace=packages/web -- Thread`
-Expected: FAIL — reasoning text never accumulates (no `data-streaming-reasoning` node: `streamingReasoning` stays '').
+      Expected: FAIL — reasoning text never accumulates (no `data-streaming-reasoning` node: `streamingReasoning` stays '').
 
 - [ ] **Step 3: Implement** — Thread.vue chunk handler gains one branch (after the `text_delta` case at :113-115):
 
@@ -559,12 +578,14 @@ git commit -m "feat(web): live-stream reasoning into the reasoning disclosure"
 ### Task 8: Role-styled chat bubbles + compaction renderer
 
 **Files:**
+
 - Modify: `packages/web/src/theme/tokens.css` AND `packages/web/src/theme/light.css` (add bubble tokens to BOTH)
 - Modify: `packages/web/src/chat/MessagePart.vue` (bubble wrapper + summary-type branch)
 - Create: `packages/web/src/chat/CompactionNotice.vue`
 - Test: `packages/web/src/chat/MessagePart.test.ts` (create if absent — check; MessagePart.vue currently has none listed in the dir listing, so create)
 
 **Interfaces:**
+
 - Consumes: `MessageData.role` (`'user' | 'assistant' | …`), `MessageData.type` (`'message' | 'summary'` — packages/types/src/conversation.ts:6).
 - Produces: `CompactionNotice` component (`props: { message: MessageData }`, renders summary content muted/centered).
 
@@ -572,7 +593,7 @@ git commit -m "feat(web): live-stream reasoning into the reasoning disclosure"
 
 ```css
 /* tokens.css (dark) */
---color-bubble-user: #1f2a3a;      /* pick from the dark surface ramp */
+--color-bubble-user: #1f2a3a; /* pick from the dark surface ramp */
 --color-bubble-assistant: #1a1d23; /* near-surface, distinct from user */
 /* light.css */
 --color-bubble-user: #dbe7ff;
@@ -589,9 +610,13 @@ it('renders user messages right-aligned in a user bubble', () => {
   expect(w.find('[data-test="msg"]').classes()).toContain('items-end');
   expect(w.find('[data-test="bubble"]').classes()).toContain('bg-bubble-user');
 });
-it('renders assistant messages left-aligned in an assistant bubble', () => { /* mirror: items-start + bg-bubble-assistant */ });
+it('renders assistant messages left-aligned in an assistant bubble', () => {
+  /* mirror: items-start + bg-bubble-assistant */
+});
 it('renders summary messages as CompactionNotice', () => {
-  const w = mount(MessagePart, { props: { message: mkMsg({ type: 'summary', content: 'compacted 10 messages' }) } });
+  const w = mount(MessagePart, {
+    props: { message: mkMsg({ type: 'summary', content: 'compacted 10 messages' }) },
+  });
   expect(w.findComponent(CompactionNotice).exists()).toBe(true);
 });
 ```
@@ -615,7 +640,7 @@ it('renders summary messages as CompactionNotice', () => {
     >
       <MarkdownContent v-if="message.content" … />
     </div>
-    <div v-if="toolPairs.length" … ><!-- tool chips unchanged, outside the bubble --></div>
+    <div v-if="toolPairs.length" …><!-- tool chips unchanged, outside the bubble --></div>
   </template>
   <slot name="actions" :message="message" />
 </article>
@@ -630,7 +655,10 @@ import MarkdownContent from '../components/MarkdownContent.vue';
 defineProps<{ message: MessageData }>();
 </script>
 <template>
-  <div data-test="compaction-notice" class="mx-auto max-w-md rounded border border-line bg-surface/60 px-3 py-2 text-center text-xs text-muted">
+  <div
+    data-test="compaction-notice"
+    class="mx-auto max-w-md rounded border border-line bg-surface/60 px-3 py-2 text-center text-xs text-muted"
+  >
     <div class="font-medium">Conversation compacted</div>
     <MarkdownContent v-if="message.content" :content="message.content" class="mt-1 text-left" />
   </div>
@@ -650,10 +678,12 @@ git commit -m "feat(web): role-styled chat bubbles and compaction renderer"
 ### Task 9: Compact-conversation action in the thread header
 
 **Files:**
+
 - Modify: `packages/web/src/chat/Thread.vue` (header actions row — add above the messages scroll region :189-194)
 - Test: `packages/web/src/chat/Thread.test.ts`
 
 **Interfaces:**
+
 - Consumes: `compact_conversation` tool — args `{ conversationId: string, messageIds: string[], agentId?: string, instruction?: string }` (packages/core/src/tools/automation-tools.ts:46-78; manual compaction requires an `agentId` summarizer). `useToolAccess().can()` from Cluster A Task 2 — **cross-cluster dependency**: `can(tool): 'auto' | 'requires_approval' | 'hidden'`.
 - Produces: nothing downstream.
 
@@ -666,8 +696,10 @@ it('compacts the active conversation from the thread header', async () => {
   await w.find('[data-test="compact-btn"]').trigger('click');
   expect(w.find('[data-test="compact-confirm"]').exists()).toBe(true);
   await w.find('[data-test="compact-confirm"]').trigger('click');
-  expect(executeMock).toHaveBeenCalledWith('compact_conversation',
-    expect.objectContaining({ conversationId: 'c1', agentId: expect.any(String) }));
+  expect(executeMock).toHaveBeenCalledWith(
+    'compact_conversation',
+    expect.objectContaining({ conversationId: 'c1', agentId: expect.any(String) }),
+  );
 });
 it('hides the compact action when access is not auto', () => {
   vi.mocked(useToolAccess).mockReturnValue({ can: () => 'hidden' });
@@ -709,7 +741,10 @@ async function compact(): Promise<void> {
 Template (new header row above the messages region :194):
 
 ```html
-<div v-if="conversationId && canCompact" class="flex items-center justify-end gap-2 border-b border-line px-4 py-1.5">
+<div
+  v-if="conversationId && canCompact"
+  class="flex items-center justify-end gap-2 border-b border-line px-4 py-1.5"
+>
   <button
     v-if="!compactConfirm"
     type="button"
@@ -722,8 +757,21 @@ Template (new header row above the messages region :194):
   </button>
   <template v-else>
     <span class="text-xs text-muted">Compact history via summarizer?</span>
-    <button type="button" data-test="compact-confirm" class="rounded bg-accent px-2 py-0.5 text-xs text-on-accent" @click="compact()">Yes</button>
-    <button type="button" class="rounded px-2 py-0.5 text-xs text-muted" @click="compactConfirm = false">Cancel</button>
+    <button
+      type="button"
+      data-test="compact-confirm"
+      class="rounded bg-accent px-2 py-0.5 text-xs text-on-accent"
+      @click="compact()"
+    >
+      Yes
+    </button>
+    <button
+      type="button"
+      class="rounded px-2 py-0.5 text-xs text-muted"
+      @click="compactConfirm = false"
+    >
+      Cancel
+    </button>
   </template>
 </div>
 ```
@@ -739,6 +787,7 @@ git commit -m "feat(web): compact-conversation action in thread header"
 ```
 
 ---
+
 ## Clusters D+E — forms, mobile, drawer (plan tasks 10-13)
 
 > Recon finding (context for the executor): AgentEditor.vue:51-98 and UserEditor.vue:40-81
@@ -752,11 +801,13 @@ git commit -m "feat(web): compact-conversation action in thread header"
 ### Task 10: Editor-form hydration regression tests + friendly load errors
 
 **Files:**
+
 - Test: `packages/web/src/views/AgentEditor.test.ts` (exists — extend)
 - Test: `packages/web/src/views/UserEditor.test.ts` (exists — extend)
 - Modify: `packages/web/src/views/AgentEditor.vue` (:78-80 error assignment), `packages/web/src/views/UserEditor.vue` (:67-69) — error display via Task 11's helper (cross-cluster dependency: `friendlyToolError`)
 
 **Interfaces:**
+
 - Consumes: `get_participant` result shape (full participant config), `list_tools` (string[]). `friendlyToolError(err): string` from Task 11.
 - Produces: regression-proof editor hydration.
 
@@ -767,8 +818,12 @@ it('hydrates name, system prompt and tool overrides for an existing agent', asyn
   executeMock.mockImplementation(async (tool: string) => {
     if (tool === 'get_participant')
       return {
-        id: 'assistant', name: 'Assistant', type: 'agent', status: 'active',
-        systemPrompt: 'You are helpful.', maxIterations: 25,
+        id: 'assistant',
+        name: 'Assistant',
+        type: 'agent',
+        status: 'active',
+        systemPrompt: 'You are helpful.',
+        maxIterations: 25,
         model: { model: 'GLM-5.3-Flash-EXL3' },
         tools: { communicate: 'auto', file_read: 'requires_approval' },
       };
@@ -779,8 +834,12 @@ it('hydrates name, system prompt and tool overrides for an existing agent', asyn
   });
   const w = mount(AgentEditor, { props: { participantId: 'assistant' } });
   await flushPromises();
-  expect((w.find('input[data-test="agent-name"]').element as HTMLInputElement).value).toBe('Assistant');
-  expect((w.find('textarea[data-test="agent-system-prompt"]').element as HTMLTextAreaElement).value).toBe('You are helpful.');
+  expect((w.find('input[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
+    'Assistant',
+  );
+  expect(
+    (w.find('textarea[data-test="agent-system-prompt"]').element as HTMLTextAreaElement).value,
+  ).toBe('You are helpful.');
   const overrides = w.findAll('[data-test="tool-override-row"]');
   expect(overrides.length).toBeGreaterThanOrEqual(3);
 });
@@ -797,7 +856,7 @@ it('shows a friendly message when get_participant is denied', async () => {
 
 - [ ] **Step 2: Verify FAIL** — `npm run test --workspace=packages/web -- AgentEditor UserEditor` (friendly-error test fails: banner shows raw 'hidden'; data-test attrs may be missing).
 - [ ] **Step 3: Implement** — in both editors' load() catch:
-  `error.value = friendlyToolError(err);` (import from `../composables/friendlyToolError.js`, Task 11). Add `data-test="editor-error"` to the existing error banner element in both templates (find the `v-if="error"` element).
+      `error.value = friendlyToolError(err);` (import from `../composables/friendlyToolError.js`, Task 11). Add `data-test="editor-error"` to the existing error banner element in both templates (find the `v-if="error"` element).
 - [ ] **Step 4: Verify PASS** — same run + full web suite.
 - [ ] **Step 5: Commit**
 
@@ -809,12 +868,14 @@ git commit -m "test(web): lock editor hydration with regressions; friendly denie
 ### Task 11: No unauthorized calls; map residual 'hidden' errors to quiet no-ops
 
 **Files:**
+
 - Create: `packages/web/src/composables/friendlyToolError.ts`
 - Create: `packages/web/src/composables/friendlyToolError.test.ts`
 - Modify: `packages/web/src/chat/Thread.vue` (:62, :190-193 error + streamError rendering), `packages/web/src/chat/MessageActions.vue` (:38 error assignment)
 - Modify: `packages/web/src/views/ParticipantsView.vue` (:15 mount-load already swallows — keep, plus gate the mount call via Task 2's `useToolAccess`)
 
 **Interfaces:**
+
 - Consumes: `useToolAccess().can()` (Task 2).
 - Produces: `friendlyToolError(err: unknown): string` — maps a denied tool result to human text: literal `'hidden'` (or whitespace variants) → `'You do not have access to this action.'`; anything else passes through unchanged.
 
@@ -869,11 +930,13 @@ git commit -m "fix(web): no unauthorized calls; map hidden tool errors to quiet 
 ### Task 12: Mobile single-pane participants
 
 **Files:**
+
 - Create: `packages/web/src/composables/useNarrowViewport.ts`
 - Modify: `packages/web/src/views/ParticipantsView.vue` (master-detail template :58-146)
 - Test: `packages/web/src/views/ParticipantsView.test.ts` (create if absent)
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `useNarrowViewport(): { isNarrow: Ref<boolean> }` — matchMedia('(max-width: 767px)'), listener-managed like useCoarsePointer (Task 5).
 
@@ -938,10 +1001,12 @@ git commit -m "feat(web): single-pane participants layout on narrow viewports"
 ### Task 13: FIX — subchat drawer renders empty
 
 **Files:**
+
 - Modify: `packages/web/src/panels/CommunicatePanel.vue` (:9 conversation-id resolution)
 - Test: `packages/web/src/panels/DockPanel.test.ts` (exists — extend with a CommunicatePanel case)
 
 **Interfaces:**
+
 - Consumes: ToolCallChip payload contract `{ tool, args, result }` (MessagePart.vue:46-50) — `args` = communicate args `{to, message, conversationId?}`, `result` = ToolResult `{status, data: {conversationId}}` for a completed communicate.
 - Produces: resolved conversation id for the embedded Thread.
 
@@ -953,16 +1018,25 @@ git commit -m "feat(web): single-pane participants layout on narrow viewports"
 it('resolves the subchat conversation id from args or result', async () => {
   executeMock.mockImplementation(async (tool: string, args: Record<string, unknown>) => {
     if (tool === 'get_conversation')
-      return { id: args['conversationId'], messages: [mkMsg({ id: 'm1', content: 'subchat line' })] };
+      return {
+        id: args['conversationId'],
+        messages: [mkMsg({ id: 'm1', content: 'subchat line' })],
+      };
     return undefined;
   });
   const w = mountDockWithPanel({
     kind: 'communicate',
-    payload: { tool: 'communicate', args: { to: 'researcher', message: 'go' },
-               result: { status: 'success', data: { conversationId: 'sub-1' } } },
+    payload: {
+      tool: 'communicate',
+      args: { to: 'researcher', message: 'go' },
+      result: { status: 'success', data: { conversationId: 'sub-1' } },
+    },
   });
   await flushPromises();
-  expect(executeMock).toHaveBeenCalledWith('get_conversation', expect.objectContaining({ conversationId: 'sub-1' }));
+  expect(executeMock).toHaveBeenCalledWith(
+    'get_conversation',
+    expect.objectContaining({ conversationId: 'sub-1' }),
+  );
   expect(w.text()).toContain('subchat line');
 });
 it('shows a placeholder when no conversation id can be resolved', () => {
@@ -1005,15 +1079,18 @@ git commit -m "fix(web): subchat drawer renders the forked conversation"
 ```
 
 ---
+
 ## Final gate — full test pass, redeploy, live verification (plan task 14)
 
 ### Task 14: Final gate, image rebuild + redeploy, live smoke, reduced-access proof
 
 **Files:**
+
 - Modify: none (ops + verification task)
 - Ephemeral: test-user credentials reported to Chris in the completion message, never committed
 
 **Interfaces:**
+
 - Consumes: everything from tasks 1–13 (merged plan). `useToolAccess.can()` gating live in the deployed bundle. `list_tools` caller-policy return from task 1.
 - Produces: deployed `legion:collective-git` image containing the fixed UI; a reduced-access user `limited-tester` proving gating; pushed `web-ui-rewrite`.
 
