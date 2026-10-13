@@ -16,6 +16,8 @@
   --color-danger: #ff6b6b;
   --color-warning: #ffb454;
   --color-success: #4ade80;
+  --color-bubble-user: #14203a;
+  --color-bubble-assistant: #0d1424;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --radius-sm: 4px;
@@ -40,6 +42,8 @@
   --color-danger: var(--color-danger);
   --color-warning: var(--color-warning);
   --color-success: var(--color-success);
+  --color-bubble-user: var(--color-bubble-user);
+  --color-bubble-assistant: var(--color-bubble-assistant);
   --font-mono: var(--font-mono);
   --font-sans: var(--font-sans);
   --radius-sm: var(--radius-sm);

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import type { MessageData } from '@legion-collective/types';
 import MarkdownContent from '../components/MarkdownContent.vue';
 import ReasoningDisclosure from '../components/conversations/ReasoningDisclosure.vue';
+import CompactionNotice from './CompactionNotice.vue';
 import ToolCallChip from './ToolCallChip.vue';
 import { lookupRenderer } from '../renderers/registry.js';
 
@@ -31,36 +32,50 @@ function chipStatus(result?: ToolCallResult): 'running' | 'done' | 'error' {
 </script>
 
 <template>
-  <article data-test="msg" class="flex flex-col gap-2">
-    <ReasoningDisclosure
-      v-if="message.reasoning"
-      :content="message.reasoning"
-      :streaming="streaming ?? false"
-    />
-    <MarkdownContent v-if="message.content" :content="message.content" class="md-content" />
-    <div v-if="toolPairs.length" class="flex flex-col gap-1.5">
-      <div v-for="pair in toolPairs" :key="pair.call.id" class="flex flex-col gap-1">
-        <ToolCallChip
-          :tool="pair.call.name"
-          :status="chipStatus(pair.result)"
-          :payload="{
-            tool: pair.call.name,
-            args: pair.call.arguments,
-            result: pair.result?.result,
-          }"
-          @open="(tool, payload) => emit('open', tool, payload)"
-        />
-        <details v-if="pair.result" class="rounded-md border border-line bg-surface px-2 py-1.5">
-          <summary class="cursor-pointer text-xs text-faint">Result</summary>
-          <component
-            :is="lookupRenderer(pair.call.name)"
-            :tool="pair.call.name"
-            :args="pair.call.arguments"
-            :result="pair.result.result"
-          />
-        </details>
+  <article
+    data-test="msg"
+    class="flex flex-col gap-2"
+    :class="message.role === 'user' ? 'items-end' : 'items-start'"
+  >
+    <CompactionNotice v-if="message.type === 'summary'" :message="message" />
+    <template v-else>
+      <ReasoningDisclosure
+        v-if="message.reasoning"
+        :content="message.reasoning"
+        :streaming="streaming ?? false"
+      />
+      <div
+        v-if="message.content"
+        data-test="bubble"
+        class="max-w-[85%] rounded-lg px-3 py-2"
+        :class="message.role === 'user' ? 'bg-bubble-user' : 'bg-bubble-assistant'"
+      >
+        <MarkdownContent :content="message.content" class="md-content" />
       </div>
-    </div>
+      <div v-if="toolPairs.length" class="flex flex-col gap-1.5">
+        <div v-for="pair in toolPairs" :key="pair.call.id" class="flex flex-col gap-1">
+          <ToolCallChip
+            :tool="pair.call.name"
+            :status="chipStatus(pair.result)"
+            :payload="{
+              tool: pair.call.name,
+              args: pair.call.arguments,
+              result: pair.result?.result,
+            }"
+            @open="(tool, payload) => emit('open', tool, payload)"
+          />
+          <details v-if="pair.result" class="rounded-md border border-line bg-surface px-2 py-1.5">
+            <summary class="cursor-pointer text-xs text-faint">Result</summary>
+            <component
+              :is="lookupRenderer(pair.call.name)"
+              :tool="pair.call.name"
+              :args="pair.call.arguments"
+              :result="pair.result.result"
+            />
+          </details>
+        </div>
+      </div>
+    </template>
     <slot name="actions" :message="message" />
   </article>
 </template>
