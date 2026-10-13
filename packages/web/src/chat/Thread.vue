@@ -8,6 +8,8 @@ import MessageActions from './MessageActions.vue';
 import ApprovalCard from './ApprovalCard.vue';
 import { useApprovals, type PendingApproval } from '../composables/useApprovals.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
@@ -30,6 +32,8 @@ const { execute } = useLegionApi();
 
 const approvals = useApprovals();
 const auth = useAuth();
+const toolAccess = useToolAccess();
+const { participants } = useParticipants();
 
 interface ConversationResponse {
   id: string;
@@ -75,6 +79,37 @@ function approvalsFor(message: MessageWithAlternates): PendingApproval[] {
       p.conversationId === props.conversationId &&
       (message.toolCalls ?? []).some((tc) => tc.name === p.tool),
   );
+}
+
+// Compact action (review feedback #11): manual compaction from the thread
+// header, gated by the tool-access gate (Task 2) like MessageActions/ForkControls.
+const canCompact = computed(() => toolAccess.can('compact_conversation') === 'auto');
+const compacting = ref(false);
+const compactConfirm = ref(false);
+// Manual compaction needs an agentId summarizer. Follow the auto-compaction
+// middleware's choice: the first active agent participant. Without one, the
+// request still goes out WITHOUT agentId — the backend rejects agentId-less
+// manual compaction ("Summary agent did not complete") and the raw error text
+// surfaces via the compact-error banner (Task 11 humanizes residual errors).
+async function compact(): Promise<void> {
+  if (!props.conversationId) return;
+  compacting.value = true;
+  error.value = null;
+  try {
+    const agent = participants.value.find((p) => p.type === 'agent' && p.status !== 'retired');
+    const messageIds = messages.value.map((m) => m.id);
+    await execute('compact_conversation', {
+      conversationId: props.conversationId,
+      messageIds,
+      ...(agent ? { agentId: agent.id } : {}),
+    });
+    await load();
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    compacting.value = false;
+    compactConfirm.value = false;
+  }
 }
 
 function onResolved(approvalId: string): void {
@@ -199,9 +234,52 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div v-if="error" class="px-4 py-2 text-sm text-danger">{{ error }}</div>
+    <div v-if="error" data-test="thread-error" class="px-4 py-2 text-sm text-danger">
+      {{ error }}
+    </div>
     <div v-if="streamError" data-test="stream-error" class="px-4 py-2 text-sm text-danger">
       {{ streamError }}
+    </div>
+    <!--
+      Compact action (review feedback #11): manual compaction of the whole
+      active chain through an agent summarizer. Hidden in draft mode (no
+      conversationId) and unless the tool-access gate returns 'auto'.
+    -->
+    <div
+      v-if="conversationId && canCompact"
+      class="flex items-center justify-end gap-2 border-b border-line px-4 py-1.5"
+    >
+      <button
+        v-if="!compactConfirm"
+        type="button"
+        data-test="compact-btn"
+        class="rounded px-2 py-0.5 text-xs text-muted hover:bg-surface"
+        :disabled="compacting"
+        @click="compactConfirm = true"
+      >
+        Compact
+      </button>
+      <template v-else>
+        <span class="text-xs text-muted">Compact history via summarizer?</span>
+        <button
+          type="button"
+          data-test="compact-confirm"
+          class="rounded bg-accent px-2 py-0.5 text-xs text-on-accent"
+          :disabled="compacting"
+          @click="compact()"
+        >
+          Yes
+        </button>
+        <button
+          type="button"
+          data-test="compact-cancel"
+          class="rounded px-2 py-0.5 text-xs text-muted"
+          :disabled="compacting"
+          @click="compactConfirm = false"
+        >
+          Cancel
+        </button>
+      </template>
     </div>
     <div ref="tailEl" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <div class="mx-auto flex max-w-3xl flex-col gap-4">

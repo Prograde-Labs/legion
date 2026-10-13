@@ -28,7 +28,34 @@ vi.mock('../composables/useAuth.js', () => ({
   useAuth: () => ({ getToken: () => mocks.token }),
 }));
 
+// Compact action is gated by Cluster A's tool-access gate (Task 2 cross-cluster
+// dependency): same vi.mock pattern as MessageActions.test.ts / ForkControls.test.ts.
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
 import Thread from './Thread.vue';
+import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
+import type { BaseParticipant } from '@legion-collective/types';
+
+const AGENTS: BaseParticipant[] = [
+  {
+    id: 'user-1',
+    name: 'operator',
+    type: 'user',
+    tools: {},
+  },
+  {
+    id: 'agent-a',
+    name: 'Agent A',
+    type: 'agent',
+    tools: {},
+    status: 'active',
+  },
+];
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 const CHAIN = [
   {
@@ -79,6 +106,9 @@ describe('Thread', () => {
     mocks.token = 'tok';
     mocks.streamChunkHandler = null;
     mocks.streamUnregister.mockReset();
+    mockCan(() => 'auto');
+    useParticipants().__resetForTests();
+    useParticipants().__setParticipantsForTests(AGENTS);
     stubFetch();
   });
 
@@ -314,5 +344,93 @@ describe('Thread', () => {
     // The id-match contract is unchanged: a real message id still rings.
     await wrapper.setProps({ highlight: { outboundMessageId: 'mo' } });
     expect(wrapper.find('[data-highlight="true"]').exists()).toBe(true);
+  });
+
+  it('compacts the active conversation from the thread header', async () => {
+    // Fresh Response per call — a shared mockResolvedValue Response's body is
+    // single-read (res.json() disturbs it), so each fetch needs its own.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ result: { status: 'success', data: {} } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: [] } } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await wrapper.find('[data-test="compact-btn"]').trigger('click');
+    expect(wrapper.find('[data-test="compact-confirm"]').exists()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // confirm step comes first — no API call yet
+
+    await wrapper.find('[data-test="compact-confirm"]').trigger('click');
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledTimes(3); // compact POST + post-compact reload
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/execute?stream=false');
+    const body = JSON.parse(String(init.body));
+    expect(body.tool).toBe('compact_conversation');
+    expect(body.args.conversationId).toBe('c1');
+    expect(body.args.messageIds).toEqual(['m1', 'm2']);
+    expect(body.args.agentId).toBe('agent-a');
+    // Third call reloads the thread after compaction.
+    const [reloadUrl, reloadInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(reloadUrl).toBe('/api/execute?stream=false');
+    expect(JSON.parse(String(reloadInit.body)).tool).toBe('get_conversation');
+    expect(wrapper.find('[data-test="compact-btn"]').exists()).toBe(true); // confirm UI reset
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(false));
+  });
+
+  it('hides the compact action when access is not auto', async () => {
+    mockCan(() => 'hidden');
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+    expect(wrapper.find('[data-test="compact-btn"]').exists()).toBe(false);
+  });
+
+  it('compacts without an agentId and surfaces the backend error when no active agent exists', async () => {
+    useParticipants().__resetForTests(); // no participants → no agent summarizer
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      // compact POST returns a tool error (backend rejects agentId-less manual
+      // compaction) — the raw error must surface in the thread error banner.
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'error', error: 'Summary agent did not complete' } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await wrapper.find('[data-test="compact-btn"]').trigger('click');
+    await wrapper.find('[data-test="compact-confirm"]').trigger('click');
+    await flushPromises();
+
+    const body = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body));
+    expect(body.args.agentId).toBeUndefined();
+    expect(body.args.messageIds).toEqual(['m1', 'm2']);
+    expect(wrapper.find('[data-test="thread-error"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="thread-error"]').text()).toContain(
+      'Summary agent did not complete',
+    );
   });
 });
