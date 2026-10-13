@@ -9,7 +9,7 @@ import AccountSlideOver from './AccountSlideOver.vue';
 
 const router = useRouter();
 const { logout } = useLegionApi();
-const { participantId } = useAuth();
+const { isAuthenticated, participantId } = useAuth();
 const { pendingCount, oldest } = useApprovals();
 const accountOpen = ref(false);
 const menuOpen = ref(false);
@@ -25,7 +25,8 @@ function onLogout(): void {
 </script>
 <template>
   <div class="flex h-screen flex-col bg-bg text-ink">
-    <nav class="flex items-center gap-1 border-b border-line px-3 py-2">
+    <!-- Login screen renders bare (review fix): no nav chrome, no account slideover trigger. -->
+    <nav v-if="isAuthenticated" class="flex items-center gap-1 border-b border-line px-3 py-2">
       <RouterLink to="/chat" class="px-3 py-1.5 rounded-md text-sm hover:bg-surface">
         <span aria-hidden="true">💬</span><span class="ml-1.5 max-md:hidden">Chat</span>
       </RouterLink>
@@ -77,7 +78,7 @@ function onLogout(): void {
       </div>
     </nav>
     <main class="min-h-0 flex-1"><RouterView /></main>
-    <AccountSlideOver v-model:open="accountOpen" />
+    <AccountSlideOver v-if="isAuthenticated" v-model:open="accountOpen" />
   </div>
 </template>
 <style scoped>
