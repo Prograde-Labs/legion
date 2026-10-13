@@ -6,7 +6,15 @@ const props = defineProps<{ payload: Record<string, unknown> }>();
 
 const emit = defineEmits<{ jump: [messageId: string] }>();
 
-const conversationId = ref<string>(String(props.payload['conversationId'] ?? ''));
+// Chip payload contract (MessagePart): { tool, args, result }. The NEW
+// sub-conversation id arrives in result.data.conversationId — args carries a
+// conversationId only when the side-conversation already existed. Resolve from
+// either so the embedded Thread gets a real id instead of mounting empty.
+const args = (props.payload['args'] as { conversationId?: string } | undefined) ?? {};
+const result = props.payload['result'] as { data?: { conversationId?: string } } | null;
+const conversationId = ref<string>(
+  String(args.conversationId ?? result?.data?.conversationId ?? ''),
+);
 const highlight = ref({
   outboundMessageId: props.payload['outboundMessageId'] as string | undefined,
   replyMessageId: props.payload['replyMessageId'] as string | undefined,
@@ -28,7 +36,10 @@ const highlight = ref({
       </button>
     </div>
     <div class="min-h-0 flex-1">
-      <Thread :conversation-id="conversationId" :highlight="highlight" />
+      <Thread v-if="conversationId" :conversation-id="conversationId" :highlight="highlight" />
+      <div v-else data-test="subchat-empty" class="p-6 text-sm text-faint">
+        No sub-conversation yet — this message did not spawn one.
+      </div>
     </div>
   </div>
 </template>
