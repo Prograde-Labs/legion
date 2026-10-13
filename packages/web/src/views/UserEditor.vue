@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 import { useParticipants } from '../composables/useParticipants.js';
 import ToolPolicyEditor, {
   type ToolOverride,
@@ -15,6 +16,16 @@ const emit = defineEmits<{ saved: [id: string]; retired: [] }>();
 const { execute } = useLegionApi();
 const auth = useAuth();
 const { participants } = useParticipants();
+const toolAccess = useToolAccess();
+// Save covers create (new) or modify (existing); credential and authority writes
+// are separate tools invoked inside save() and by their own affordances.
+const canSave = computed(() =>
+  props.participantId === 'new'
+    ? toolAccess.can('create_user') === 'auto'
+    : toolAccess.can('modify_user') === 'auto',
+);
+const canSetCredential = computed(() => toolAccess.can('set_credential') === 'auto');
+const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
 
 const name = ref('');
 const operator = ref(false);
@@ -229,7 +240,7 @@ async function retire(): Promise<void> {
       <span class="text-xs text-faint">Approval authority</span>
       <ApprovalAuthorityEditor v-model="authority" :available-tools="availableTools" />
     </div>
-    <div class="flex flex-col gap-1">
+    <div v-if="canSetCredential" class="flex flex-col gap-1">
       <span class="text-xs text-faint">Password (leave empty to keep unchanged)</span>
       <input
         v-model="newPassword"
@@ -249,6 +260,7 @@ async function retire(): Promise<void> {
     </div>
     <div class="flex items-center gap-2">
       <button
+        v-if="canSave"
         type="submit"
         data-test="save"
         :disabled="busy || !passwordValid"
@@ -257,7 +269,7 @@ async function retire(): Promise<void> {
         Save
       </button>
       <button
-        v-if="participantId !== 'new' && !isProtected"
+        v-if="canRetire && participantId !== 'new' && !isProtected"
         type="button"
         data-test="retire"
         :disabled="busy || retireDisabled"

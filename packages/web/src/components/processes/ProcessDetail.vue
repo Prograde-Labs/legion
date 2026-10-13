@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useProcess } from '../../composables/useProcess.js';
+import { useToolAccess } from '../../composables/useToolAccess.js';
 import ProcessStatusDot from './ProcessStatusDot.vue';
 import AnsiOutput from './AnsiOutput.vue';
 
@@ -8,6 +9,10 @@ const props = defineProps<{ processId: string }>();
 const emit = defineEmits<{ deleted: [] }>();
 
 const { handle, chunks, error, stop, send, del } = useProcess(props.processId);
+const toolAccess = useToolAccess();
+const canStop = computed(() => toolAccess.can('stop_process') === 'auto');
+const canDelete = computed(() => toolAccess.can('delete_process') === 'auto');
+const canWrite = computed(() => toolAccess.can('write_process_input') === 'auto');
 
 // Elapsed timer
 const now = ref(Date.now());
@@ -123,6 +128,7 @@ async function onDelete(): Promise<void> {
 
         <div class="ml-auto flex items-center gap-2">
           <button
+            v-if="canStop"
             :disabled="!isRunning || stopping"
             class="text-xs px-3 py-1 rounded border transition-colors"
             :class="
@@ -135,6 +141,7 @@ async function onDelete(): Promise<void> {
             {{ stopping ? 'Stopping…' : '■ Stop' }}
           </button>
           <button
+            v-if="canDelete"
             :disabled="isRunning || deleting"
             class="text-xs px-3 py-1 rounded border transition-colors"
             :class="
@@ -152,9 +159,9 @@ async function onDelete(): Promise<void> {
       <!-- Terminal output -->
       <AnsiOutput :chunks="chunks" class="flex-1 min-h-0" />
 
-      <!-- Stdin footer — only when running -->
+      <!-- Stdin footer — only when running and the caller may write input -->
       <div
-        v-if="isRunning"
+        v-if="isRunning && canWrite"
         class="flex items-center gap-2 px-4 py-2.5 border-t border-line flex-shrink-0"
       >
         <input

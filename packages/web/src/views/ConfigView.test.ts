@@ -2,6 +2,13 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import ConfigView from './ConfigView.vue';
+import { useToolAccess } from '../composables/useToolAccess.js';
+
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 // useLegionApi reads the auth token from localStorage-backed refs seeded at module
 // init — seed at hoist time (before the module graph initializes).
@@ -17,6 +24,7 @@ const router = createRouter({
 });
 
 beforeEach(() => {
+  mockCan(() => 'auto');
   localStorage.clear();
   vi.unstubAllGlobals();
   const exp = Math.floor(Date.now() / 1000) + 3600;
@@ -59,6 +67,26 @@ describe('ConfigView theming', () => {
     const wrapper = mount(ConfigView, { global: { plugins: [router] } });
     expect(wrapper.text()).toContain('Providers');
     expect(wrapper.text()).toContain('Model routing');
+    wrapper.unmount();
+  });
+
+  it('hides provider save/delete affordances without write access', async () => {
+    mockCan((t) => (t === 'list_providers' || t === 'get_routing' ? 'auto' : 'hidden'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ result: { status: 'success', data: [] } }), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Providers'));
+    expect(wrapper.text()).not.toContain('+ Add provider');
+    // Read-only table header row (no providers) still renders.
+    expect(wrapper.text()).toContain('No providers configured');
     wrapper.unmount();
   });
 });

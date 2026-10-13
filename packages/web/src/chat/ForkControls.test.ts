@@ -1,6 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import ForkControls from './ForkControls.vue';
+import { useToolAccess } from '../composables/useToolAccess.js';
+
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 const message = {
   id: 'm1',
@@ -10,6 +17,7 @@ const message = {
 
 describe('ForkControls', () => {
   beforeEach(() => {
+    mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
     localStorage.setItem('legion-token', 'tok');
@@ -40,5 +48,17 @@ describe('ForkControls', () => {
       props: { conversationId: 'c1', message: { id: 'm1', content: 'x' } },
     });
     expect(wrapper.find('[data-test="fork-pager"]').exists()).toBe(false);
+  });
+
+  it('hides pager buttons and disables chips without switch_branch access', () => {
+    mockCan((t) => (t === 'switch_branch' ? 'hidden' : 'auto'));
+    const wrapper = mount(ForkControls, { props: { conversationId: 'c1', message } });
+    expect(wrapper.find('[data-test="fork-prev"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="fork-next"]').exists()).toBe(false);
+    // Position stays readable; chips render inert.
+    expect(wrapper.find('[data-test="fork-pager"]').text()).toBe('1/2');
+    const chip = wrapper.find('[data-test="branch-chip"]');
+    expect((chip.element as HTMLButtonElement).disabled).toBe(false);
+    expect(chip.attributes('aria-disabled')).toBe('true');
   });
 });

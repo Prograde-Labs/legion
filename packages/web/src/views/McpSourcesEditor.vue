@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 
 interface McpServer {
   name: string;
@@ -10,6 +11,10 @@ interface McpServer {
 }
 
 const { execute } = useLegionApi();
+const toolAccess = useToolAccess();
+// save_mcp_sources is the write this editor exists for: without it the cards
+// render read-only and every mutating affordance (add/remove/save) is hidden.
+const canEdit = computed(() => toolAccess.can('save_mcp_sources') === 'auto');
 
 const servers = ref<McpServer[]>([]);
 const loaded = ref(false);
@@ -107,6 +112,7 @@ async function save(): Promise<void> {
       <div class="flex items-center gap-2">
         <h3 class="text-sm font-medium text-ink">MCP sources</h3>
         <button
+          v-if="canEdit"
           type="button"
           data-test="add-server"
           class="ml-auto rounded bg-accent-soft px-2 py-1 text-xs text-accent"
@@ -157,7 +163,9 @@ async function save(): Promise<void> {
             HTTP
           </label>
           <button
+            v-if="canEdit"
             type="button"
+            data-test="mcp-remove"
             class="text-xs text-faint hover:text-danger"
             @click="servers.splice(index, 1)"
           >
@@ -190,6 +198,7 @@ async function save(): Promise<void> {
         </template>
       </div>
       <button
+        v-if="canEdit"
         type="button"
         data-test="mcp-save"
         :disabled="busy"
@@ -198,7 +207,7 @@ async function save(): Promise<void> {
       >
         Save MCP sources
       </button>
-      <p class="text-xs text-faint">Changes take effect after process restart.</p>
+      <p v-if="canEdit" class="text-xs text-faint">Changes take effect after process restart.</p>
       <p data-test="config-local-shadow-warning" class="text-xs text-warning">
         Note: if a config.local.json file in the workspace overrides mcpServers, its values shadow
         these saved changes on the next boot.

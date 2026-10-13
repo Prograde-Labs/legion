@@ -3,12 +3,18 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { nextTick } from 'vue';
 
 const executeMock = vi.fn();
+const canMock = vi.fn(() => 'auto' as 'auto' | 'requires_approval' | 'hidden');
 vi.mock('../../composables/useLegionApi.js', () => ({
   useLegionApi: () => ({ execute: executeMock }),
 }));
 
+vi.mock('../../composables/useToolAccess.js', () => ({
+  useToolAccess: () => ({ can: canMock }),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
+  canMock.mockReturnValue('auto');
   vi.resetModules();
 });
 
@@ -109,6 +115,15 @@ describe('ProcessStartForm', () => {
     expect(w.text()).toContain('spawn ENOENT');
     // Form still present
     expect(w.find('input[placeholder*="command"]').exists()).toBe(true);
+  });
+
+  it('renders a permission note instead of the form without start_process access', async () => {
+    const { default: ProcessStartForm } = await import('./ProcessStartForm.vue');
+    canMock.mockReturnValue('hidden');
+    const w = mount(ProcessStartForm);
+    expect(w.find('input[placeholder*="command"]').exists()).toBe(false);
+    expect(w.find('button[type="submit"]').exists()).toBe(false);
+    expect(w.find('[data-test="start-denied"]').exists()).toBe(true);
   });
 
   it('splits args string on spaces', async () => {

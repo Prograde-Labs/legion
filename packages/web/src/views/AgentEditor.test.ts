@@ -1,6 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import AgentEditor from './AgentEditor.vue';
+import { useToolAccess } from '../composables/useToolAccess.js';
+
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 const AGENT = {
   id: 'agent-a',
@@ -36,6 +43,7 @@ function seedToken(): void {
 
 describe('AgentEditor', () => {
   beforeEach(() => {
+    mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
     seedToken();
@@ -123,5 +131,15 @@ describe('AgentEditor', () => {
     const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
     await vi.waitFor(() => wrapper.find('[data-test="agent-name"]').exists());
     expect(wrapper.find('[data-test="agent-retire"]').exists()).toBe(false);
+  });
+
+  it('hides save/retire/authority affordances without the matching tool access', async () => {
+    mockCan((t) => (t === 'get_participant' || t === 'list_tools' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() => wrapper.find('[data-test="agent-name"]').exists());
+    expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="agent-retire"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="authority-save"]').exists()).toBe(false);
   });
 });

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useLegionApi } from '../../composables/useLegionApi.js';
+import { useToolAccess } from '../../composables/useToolAccess.js';
 import type { ProcessHandle } from '@legion-collective/types';
 
 const emit = defineEmits<{ started: [id: string] }>();
 
 const { execute } = useLegionApi();
+const toolAccess = useToolAccess();
+const canStart = computed(() => toolAccess.can('start_process') === 'auto');
 
 const command = ref('');
 const argsStr = ref('');
@@ -49,7 +52,15 @@ async function onSubmit(): Promise<void> {
     <div class="w-full max-w-lg">
       <h2 class="text-sm font-semibold text-ink mb-5">Start a process</h2>
 
-      <div class="space-y-3">
+      <div
+        v-if="!canStart"
+        data-test="start-denied"
+        class="rounded border border-line bg-surface px-3 py-2 text-xs text-faint"
+      >
+        You do not have permission to start processes on this collective.
+      </div>
+
+      <div v-else class="space-y-3">
         <div>
           <label class="block text-[10px] uppercase tracking-wider text-faint mb-1">Command</label>
           <input

@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router';
 import { computed } from 'vue';
 import type { ProcessHandle } from '@legion-collective/types';
 import ProcessStatusDot from './ProcessStatusDot.vue';
+import { useToolAccess } from '../../composables/useToolAccess.js';
 
 const props = defineProps<{
   processes: ProcessHandle[];
@@ -10,6 +11,8 @@ const props = defineProps<{
 }>();
 
 const router = useRouter();
+const toolAccess = useToolAccess();
+const canStart = computed(() => toolAccess.can('start_process') === 'auto');
 
 function elapsed(p: ProcessHandle): string {
   const start = new Date(p.startedAt).getTime();
@@ -32,6 +35,7 @@ const sorted = computed(() =>
     <div class="flex items-center justify-between px-3 py-2.5 border-b border-line flex-shrink-0">
       <span class="text-xs uppercase tracking-wider text-faint">Processes</span>
       <button
+        v-if="canStart"
         class="text-xs px-2 py-0.5 rounded bg-accent-soft text-accent hover:brightness-110"
         @click="router.push('/processes')"
       >

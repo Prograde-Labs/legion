@@ -2,6 +2,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import UserEditor from './UserEditor.vue';
 import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
+
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 const USER = {
   id: 'alice',
@@ -46,6 +53,7 @@ function waitLoaded(wrapper: ReturnType<typeof mount>): Promise<void> {
 
 describe('UserEditor', () => {
   beforeEach(() => {
+    mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
     seedAuth();
@@ -151,5 +159,15 @@ describe('UserEditor', () => {
     expect(retire.exists()).toBe(true);
     expect((retire.element as HTMLButtonElement).disabled).toBe(true);
     expect(retire.attributes('title')).toContain('cannot retire yourself');
+  });
+
+  it('hides save/retire and the password section without the matching tool access', async () => {
+    mockCan((t) => (t === 'get_participant' || t === 'list_tools' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    expect(wrapper.find('[data-test="save"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="retire"]').exists()).toBe(false);
+    expect(wrapper.find('input[name="new-password"]').exists()).toBe(false);
   });
 });

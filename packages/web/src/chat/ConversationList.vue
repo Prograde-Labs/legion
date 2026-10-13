@@ -1,14 +1,33 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useConversations } from '../composables/useConversations.js';
 import { useApprovals } from '../composables/useApprovals.js';
 import { useReadState } from '../composables/useReadState.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useLegionApi } from '../composables/useLegionApi.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 
 const store = useConversations();
 const approvals = useApprovals();
 const { isUnread } = useReadState();
 const { participantId } = useAuth();
+const { execute } = useLegionApi();
+const toolAccess = useToolAccess();
+const canDelete = computed(() => toolAccess.can('delete_conversation') === 'auto');
+const deletingId = ref<string | null>(null);
+
+async function removeConversation(id: string): Promise<void> {
+  if (!window.confirm('Delete conversation?')) return;
+  deletingId.value = id;
+  try {
+    await execute('delete_conversation', { conversationId: id });
+    // Drop the row immediately; the watch_conversations stream reconciles the
+    // full list on the next lifecycle event.
+    store.remove(id);
+  } finally {
+    deletingId.value = null;
+  }
+}
 
 const emit = defineEmits<{ select: [id: string | null] }>();
 
@@ -55,15 +74,17 @@ function onSearch(event: Event): void {
       @input="onSearch"
     />
     <div class="min-h-0 flex-1 overflow-y-auto">
-      <button
+      <div
         v-for="c in sorted"
         :key="c.id"
-        type="button"
         data-test="conv-row"
         :data-id="c.id"
         :data-pending="approvals.pendingByConversation.value.has(c.id) ? 'true' : 'false'"
-        class="flex w-full flex-col gap-0.5 border-b border-line px-3 py-2 text-left hover:bg-surface"
+        class="flex w-full cursor-pointer flex-col gap-0.5 border-b border-line px-3 py-2 text-left hover:bg-surface"
+        role="button"
+        tabindex="0"
         @click="emit('select', c.id)"
+        @keydown.enter="emit('select', c.id)"
       >
         <div class="flex items-center justify-between gap-2">
           <span class="truncate text-sm font-medium text-ink">{{ c.title ?? c.id }}</span>
@@ -80,6 +101,18 @@ function onSearch(event: Event): void {
             class="size-2 shrink-0 rounded-full bg-accent"
             aria-hidden="true"
           />
+          <button
+            v-if="canDelete"
+            type="button"
+            data-test="conv-delete"
+            :disabled="deletingId === c.id"
+            class="shrink-0 rounded px-1 text-xs text-faint hover:text-danger disabled:opacity-50"
+            :aria-label="`Delete conversation ${c.title ?? c.id}`"
+            title="Delete conversation"
+            @click.stop="removeConversation(c.id)"
+          >
+            🗑
+          </button>
         </div>
         <div class="flex items-center gap-1 text-xs text-muted">
           <span
@@ -90,7 +123,7 @@ function onSearch(event: Event): void {
           >
           <span class="truncate">{{ c.participants.join(', ') }}</span>
         </div>
-      </button>
+      </div>
     </div>
     <button
       type="button"

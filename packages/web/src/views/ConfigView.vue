@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { ProviderConfig, RoutingConfig } from '@legion-collective/types';
 import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import RoutingEditor from '../components/config/RoutingEditor.vue';
 import McpSourcesEditor from './McpSourcesEditor.vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 
 const { execute } = useLegionApi();
+const toolAccess = useToolAccess();
+const canSaveProvider = computed(() => toolAccess.can('save_provider') === 'auto');
+const canDeleteProvider = computed(() => toolAccess.can('delete_provider') === 'auto');
 
 const providers = ref<ProviderConfig[]>([]);
 const systemRouting = ref<RoutingConfig>({});
@@ -74,6 +78,7 @@ async function deleteProvider(name: string) {
             all workspaces.
           </p>
           <button
+            v-if="canSaveProvider"
             @click="openProvider(null)"
             class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-line text-accent rounded"
           >
@@ -119,8 +124,18 @@ async function deleteProvider(name: string) {
                 {{ p.apiKey ? '••••' + p.apiKey.slice(-4) : '—' }}
               </td>
               <td class="px-3 py-2.5 text-right space-x-3">
-                <button @click="openProvider(p)" class="text-muted hover:text-ink">Edit</button>
-                <button @click="deleteProvider(p.name)" class="text-danger hover:brightness-110">
+                <button
+                  v-if="canSaveProvider"
+                  @click="openProvider(p)"
+                  class="text-muted hover:text-ink"
+                >
+                  Edit
+                </button>
+                <button
+                  v-if="canDeleteProvider"
+                  @click="deleteProvider(p.name)"
+                  class="text-danger hover:brightness-110"
+                >
                   Delete
                 </button>
               </td>

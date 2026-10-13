@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 
 const props = defineProps<{
   conversationId: string;
@@ -10,6 +11,7 @@ const props = defineProps<{
 const emit = defineEmits<{ mutated: [] }>();
 
 const { execute } = useLegionApi();
+const toolAccess = useToolAccess();
 
 const open = ref(false);
 const editing = ref(false);
@@ -17,6 +19,15 @@ const draft = ref('');
 const confirmingPrune = ref(false);
 const busy = ref(false);
 const error = ref<string | null>(null);
+
+// The affordance exists only when at least one gated tool is invokable; the
+// menu items are gated individually so a partial policy shows a partial menu.
+const visible = computed(
+  () =>
+    toolAccess.can('edit_message') === 'auto' ||
+    toolAccess.can('generate') === 'auto' ||
+    toolAccess.can('prune_message') === 'auto',
+);
 
 // Menu toggle doubles as the error-dismiss: closing the menu clears a stale
 // error (mirrors ApprovalCard's clear-on-next-action pattern).
@@ -74,7 +85,7 @@ function prune(): void {
 </script>
 
 <template>
-  <div class="relative inline-flex items-center gap-1" data-test="message-actions">
+  <div v-if="visible" class="relative inline-flex items-center gap-1" data-test="message-actions">
     <button
       type="button"
       data-test="actions-toggle"
@@ -89,7 +100,7 @@ function prune(): void {
       class="absolute left-0 top-6 z-10 w-44 rounded-md border border-line bg-surface-raised py-1 text-xs"
     >
       <button
-        v-if="!editing"
+        v-if="!editing && toolAccess.can('edit_message') === 'auto'"
         type="button"
         data-test="action-edit"
         class="block w-full px-2 py-1 text-left hover:bg-surface"
@@ -98,7 +109,7 @@ function prune(): void {
         Edit as new branch
       </button>
       <button
-        v-if="!editing"
+        v-if="!editing && toolAccess.can('generate') === 'auto'"
         type="button"
         data-test="action-rerun"
         :disabled="busy"
@@ -108,7 +119,7 @@ function prune(): void {
         Re-run
       </button>
       <button
-        v-if="!editing"
+        v-if="!editing && toolAccess.can('prune_message') === 'auto'"
         type="button"
         data-test="action-prune"
         class="block w-full px-2 py-1 text-left text-danger hover:bg-surface"

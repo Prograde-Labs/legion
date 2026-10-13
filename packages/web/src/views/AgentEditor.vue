@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 import ToolPolicyEditor, {
   type ToolOverride,
 } from '../components/participants/ToolPolicyEditor.vue';
@@ -15,6 +16,16 @@ const emit = defineEmits<{ saved: [id: string]; retired: [] }>();
 
 const { execute } = useLegionApi();
 const auth = useAuth();
+const toolAccess = useToolAccess();
+// Save covers create (new) or modify (existing); retire and authority-save are
+// separate affordances with their own tools.
+const canSave = computed(() =>
+  props.participantId === 'new'
+    ? toolAccess.can('create_agent') === 'auto'
+    : toolAccess.can('modify_agent') === 'auto',
+);
+const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
+const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
 
 const name = ref('');
 const modelText = ref('');
@@ -264,6 +275,7 @@ const groupedModels = computed(() => {
       <span class="text-xs text-faint">Approval authority</span>
       <ApprovalAuthorityEditor v-model="authorityModel" :available-tools="availableTools" />
       <button
+        v-if="canSetAuthority"
         type="button"
         data-test="authority-save"
         :disabled="busy"
@@ -275,6 +287,7 @@ const groupedModels = computed(() => {
     </div>
     <div class="flex items-center gap-2">
       <button
+        v-if="canSave"
         type="button"
         data-test="agent-save"
         :disabled="busy"
@@ -284,7 +297,7 @@ const groupedModels = computed(() => {
         Save
       </button>
       <button
-        v-if="loaded && participantId !== 'new' && !loaded?.['protected']"
+        v-if="canRetire && loaded && participantId !== 'new' && !loaded?.['protected']"
         type="button"
         data-test="agent-retire"
         :disabled="busy || participantId === auth.participantId.value"

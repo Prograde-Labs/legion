@@ -66,6 +66,11 @@ export function useConversations() {
     select(id: string | null) {
       activeId.value = id;
     },
+    remove(id: string) {
+      // Optimistic row drop after a successful delete_conversation call; the
+      // watch_conversations stream reconciles the full list on the next event.
+      conversations.value = conversations.value.filter((c) => c.id !== id);
+    },
     __resetForTests() {
       conversations.value = [];
       loading.value = false;

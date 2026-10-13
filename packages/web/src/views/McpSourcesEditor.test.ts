@@ -1,6 +1,13 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import McpSourcesEditor from './McpSourcesEditor.vue';
+import { useToolAccess } from '../composables/useToolAccess.js';
+
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 const MCP = [{ name: 'fs', command: 'npx', args: ['-y', 'fs-mcp'] }];
 
@@ -20,6 +27,7 @@ function stubFetch(): ReturnType<typeof vi.fn> {
 
 describe('McpSourcesEditor', () => {
   beforeEach(() => {
+    mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
     localStorage.setItem('legion-token', 'tok');
@@ -84,5 +92,25 @@ describe('McpSourcesEditor', () => {
       fetchMock.mock.calls.some((c) => JSON.parse(String(c[1]?.body)).tool === 'save_mcp_sources'),
     ).toBe(false);
     expect(wrapper.text()).toContain('duplicate');
+  });
+
+  it('hides editor + save affordances without save_mcp_sources access', async () => {
+    mockCan((t) => (t === 'save_mcp_sources' ? 'hidden' : 'auto'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(McpSourcesEditor);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="mcp-card"]').length).toBe(1));
+    expect(wrapper.find('[data-test="add-server"]').exists()).toBe(false);
+    expect(wrapper.find('button[data-test="mcp-save"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="mcp-remove"]').exists()).toBe(false);
+    // Read-only rendering stays.
+    expect(wrapper.text()).toContain('fs');
+  });
+
+  it('hides save but keeps read-only list without save access', async () => {
+    mockCan((t) => (t === 'save_mcp_sources' ? 'hidden' : 'auto'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(McpSourcesEditor);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="mcp-card"]').length).toBe(1));
+    expect(wrapper.find('button[data-test="mcp-save"]').exists()).toBe(false);
   });
 });

@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useParticipants } from '../composables/useParticipants.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 import TypeBadge from '../components/common/TypeBadge.vue';
 import StatusDot from '../components/common/StatusDot.vue';
 
 const emit = defineEmits<{ select: [id: string | null] }>();
 
 const { participants } = useParticipants();
+const toolAccess = useToolAccess();
+const canCreateAgent = computed(() => toolAccess.can('create_agent') === 'auto');
+const canCreateUser = computed(() => toolAccess.can('create_user') === 'auto');
 const search = ref('');
 
 const filtered = computed(() => {
@@ -49,6 +53,7 @@ function modelLabel(p: { type: string; model?: { model?: string } }): string {
       </button>
     </div>
     <button
+      v-if="canCreateAgent"
       type="button"
       data-test="new-agent"
       class="border-t border-line px-3 py-2 text-left text-sm text-accent hover:bg-surface"
@@ -57,6 +62,7 @@ function modelLabel(p: { type: string; model?: { model?: string } }): string {
       ＋ New agent
     </button>
     <button
+      v-if="canCreateUser"
       type="button"
       data-test="new-user"
       class="border-t border-line px-3 py-2 text-left text-sm text-accent hover:bg-surface"

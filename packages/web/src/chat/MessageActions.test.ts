@@ -1,8 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import MessageActions from './MessageActions.vue';
+import { useToolAccess } from '../composables/useToolAccess.js';
+
+vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
 
 const message = { id: 'm1', content: 'hello world' };
+
+function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
+  vi.mocked(useToolAccess).mockReturnValue({ can } as never);
+}
 
 function okFetch(): ReturnType<typeof vi.fn> {
   return vi
@@ -14,6 +21,7 @@ function okFetch(): ReturnType<typeof vi.fn> {
 
 describe('MessageActions', () => {
   beforeEach(() => {
+    mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
     localStorage.setItem('legion-token', 'tok');
@@ -76,5 +84,22 @@ describe('MessageActions', () => {
     await flushPromises();
     expect(wrapper.find('[data-test="actions-error"]').text()).toContain('locked');
     expect(wrapper.emitted('mutated')).toBeUndefined();
+  });
+
+  it('hides menu actions the caller cannot invoke', async () => {
+    mockCan((t) => (t === 'edit_message' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', okFetch());
+    const w = mount(MessageActions, { props: { conversationId: 'c1', message } });
+    await w.find('[data-test="actions-toggle"]').trigger('click');
+    expect(w.find('[data-test="action-edit"]').exists()).toBe(true);
+    expect(w.find('[data-test="action-rerun"]').exists()).toBe(false);
+    expect(w.find('[data-test="action-prune"]').exists()).toBe(false);
+  });
+
+  it('hides the whole affordance when no gated tool is accessible', () => {
+    mockCan(() => 'hidden');
+    vi.stubGlobal('fetch', okFetch());
+    const w = mount(MessageActions, { props: { conversationId: 'c1', message } });
+    expect(w.find('[data-test="actions-toggle"]').exists()).toBe(false);
   });
 });
