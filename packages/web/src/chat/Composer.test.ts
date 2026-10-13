@@ -16,6 +16,18 @@ function okFetch(): ReturnType<typeof vi.fn> {
     );
 }
 
+/** happy-dom provides matchMedia (always matches=false); override to control pointer modality. */
+function stubCoarsePointer(coarse: boolean): void {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn().mockImplementation(() => ({
+      matches: coarse,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  );
+}
+
 describe('Composer', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -91,5 +103,51 @@ describe('Composer', () => {
       props: { conversationId: 'c1', recipientId: 'agent-a', branchLabel: 'branch-x' },
     });
     expect(wrapper.find('[data-test="branch-indicator"]').text()).toContain('branch-x');
+  });
+
+  it('always renders the send button', () => {
+    const wrapper = mount(Composer, {
+      props: { conversationId: 'c1', recipientId: 'agent-a' },
+    });
+    expect(wrapper.find('[data-test="composer-send"]').exists()).toBe(true);
+  });
+
+  it('sends on Enter with fine pointer', async () => {
+    stubCoarsePointer(false);
+    const wrapper = mount(Composer, {
+      props: { conversationId: 'c1', recipientId: 'agent-a' },
+    });
+    const area = wrapper.find('[data-test="composer-input"]');
+    await area.setValue('hi');
+    await area.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('streamSend')).toBeTruthy();
+  });
+
+  it('inserts newline on Enter with coarse pointer', async () => {
+    stubCoarsePointer(true);
+    const wrapper = mount(Composer, {
+      props: { conversationId: 'c1', recipientId: 'agent-a' },
+    });
+    const input = wrapper.find('[data-test="composer-input"]');
+    await input.setValue('line1');
+    await input.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('streamSend')).toBeFalsy();
+    // happy-dom does not simulate the textarea's native Enter default action
+    // (probed: value never changes even with no handler), so the newline
+    // insertion itself is untestable here — assert instead that the handler
+    // leaves Enter alone (no preventDefault), which is what produces the
+    // newline in a real browser.
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    input.element.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('send button click emits streamSend', async () => {
+    const wrapper = mount(Composer, {
+      props: { conversationId: 'c1', recipientId: 'agent-a' },
+    });
+    await wrapper.find('[data-test="composer-input"]').setValue('hello');
+    await wrapper.find('[data-test="composer-send"]').trigger('click');
+    expect(wrapper.emitted('streamSend')?.[0]?.[0]).toEqual({ to: 'agent-a', message: 'hello' });
   });
 });

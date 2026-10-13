@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useCoarsePointer } from '../composables/useCoarsePointer.js';
 
 const props = defineProps<{
   conversationId: string | null;
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 const { execute } = useLegionApi();
 const { participants } = useParticipants();
 const auth = useAuth();
+const { isCoarse } = useCoarsePointer();
 
 const draft = ref('');
 const mentionQuery = ref<string | null>(null);
@@ -57,7 +59,9 @@ function pickMention(id: string): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key !== 'Enter') return;
+  if (isCoarse.value) return; // touch: Enter is a newline; button sends
+  if (!event.shiftKey) {
     event.preventDefault();
     send();
   }
@@ -122,7 +126,9 @@ async function send(): Promise<void> {
       :value="draft"
       rows="2"
       data-test="composer-input"
-      placeholder="Message…  (@ to mention, Enter to send)"
+      :placeholder="
+        isCoarse ? 'Message…  (@ to mention)' : 'Message…  (@ to mention, Enter to send)'
+      "
       class="w-full resize-none rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-faint"
       @input="onInput"
       @keydown="onKeydown"
@@ -136,6 +142,15 @@ async function send(): Promise<void> {
         @click="emit('stop')"
       >
         Stop
+      </button>
+      <button
+        type="button"
+        data-test="composer-send"
+        class="rounded bg-accent px-3 py-1 text-xs font-medium text-on-accent disabled:opacity-50"
+        :disabled="!draft.trim() || streaming"
+        @click="send()"
+      >
+        Send
       </button>
     </div>
   </div>
