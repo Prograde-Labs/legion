@@ -361,4 +361,38 @@ describe.skipIf(!LIVE)('LegionProcess (integration)', () => {
     expect(result.status).toBe('success');
     expect(typeof conversationId).toBe('string');
   });
+
+  it('boots a workspace with a broken external connector entry and starts the healthy one', async () => {
+    await mkdir(join(workspaceRoot, 'ext-conn'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, 'ext-conn', 'index.mjs'),
+      `export function connector(options, deps) {
+  return {
+    name: options?.name ?? 'ext',
+    start: async () => {},
+    deliver: async () => {},
+    stop: async () => {},
+  };
+}
+`,
+    );
+    await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.json'),
+      JSON.stringify({
+        version: '2',
+        server: { port: 0, host: '127.0.0.1' },
+        connectors: [
+          { name: 'broken', module: './nonexistent.mjs' },
+          { name: 'ext', module: './ext-conn/index.mjs' },
+        ],
+      }),
+    );
+
+    process_ = await LegionProcess.start(workspaceRoot);
+
+    expect(process_.connectors.get('web')).toBeDefined();
+    expect(process_.connectors.get('ext')).toBeDefined();
+    expect(process_.connectors.get('broken')).toBeUndefined();
+  });
 });
