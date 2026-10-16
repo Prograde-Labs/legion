@@ -14,6 +14,8 @@ export * from './collective/Collective.js';
 export * from './collective/default-participants.js';
 export * from './credentials/CredentialStore.js';
 export * from './credentials/FileCredentialStore.js';
+export * from './secrets/SecretStore.js';
+export * from './secrets/FileSecretStore.js';
 export * from './tools/Tool.js';
 export * from './tools/ToolRegistry.js';
 export * from './tools/file-tools.js';
