@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion — a multi-agent collective framework</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,420;9..144,560&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --bg:#fbfaf7; --ink:#1a1815; --dim:#6b6558; --hair:#e3dfd4; --hair2:#d4cfc0;
+    --accent:#3b5bdb; --code-bg:#14120e; --code-ink:#d8d2c2;
+  }
+  html { scroll-behavior:smooth; }
+  body { background:var(--bg); color:var(--ink); font-family:"Inter",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(59,91,219,.16); }
+  .mono { font-family:"JetBrains Mono",monospace; }
+  .wrap { max-width:1000px; margin:0 auto; padding:0 28px; }
+  .prose { max-width:720px; }
+
+  /* nav */
+  nav { position:sticky; top:0; z-index:40; background:rgba(251,250,247,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--hair); }
+  nav .wrap { display:flex; justify-content:space-between; align-items:center; height:58px; }
+  .logo { font-weight:600; font-size:15px; letter-spacing:.02em; text-decoration:none; color:var(--ink); }
+  .logo span { color:var(--accent); }
+  nav .links { display:flex; gap:26px; }
+  nav .links a { color:var(--dim); text-decoration:none; font-size:13.5px; }
+  nav .links a:hover { color:var(--ink); }
+
+  /* hero */
+  .hero { padding:76px 0 64px; border-bottom:1px solid var(--hair); }
+  .eyebrow { font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--dim); letter-spacing:.04em; margin-bottom:22px; }
+  .eyebrow b { color:var(--accent); font-weight:500; }
+  h1 { font-family:"Fraunces",serif; font-weight:560; font-size:clamp(40px,5.4vw,64px); line-height:1.05; letter-spacing:-.015em; max-width:820px; }
+  .hero .lede { margin:26px 0 0; font-size:19px; line-height:1.6; color:#3d3830; max-width:680px; }
+  .hero .lede p + p { margin-top:14px; }
+  .hero .lede em { font-style:normal; background:linear-gradient(transparent 62%, rgba(59,91,219,.18) 0); }
+  .cta-row { display:flex; gap:12px; margin-top:34px; flex-wrap:wrap; }
+  .btn { display:inline-flex; align-items:center; gap:8px; font-size:14.5px; font-weight:500; padding:12px 22px; border-radius:6px; text-decoration:none; transition:all .15s; }
+  .btn.pri { background:var(--ink); color:#fff; }
+  .btn.pri:hover { background:#000; transform:translateY(-1px); }
+  .btn.sec { color:var(--ink); border:1px solid var(--hair2); background:#fff; }
+  .btn.sec:hover { border-color:var(--ink); }
+
+  /* section scaffolding */
+  section { padding:64px 0; border-bottom:1px solid var(--hair); }
+  .slab { display:flex; align-items:baseline; gap:16px; margin-bottom:8px; }
+  .slab .n { font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--accent); }
+  h2 { font-family:"Fraunces",serif; font-weight:560; font-size:clamp(26px,3.2vw,36px); letter-spacing:-.01em; }
+  .sec-lede { color:var(--dim); font-size:15.5px; line-height:1.65; max-width:640px; margin:10px 0 36px; }
+
+  /* principles */
+  .principles { counter-reset:pr; display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--hair2); border-radius:10px; overflow:hidden; background:#fff; }
+  @media (max-width:820px){ .principles { grid-template-columns:1fr; } }
+  .pr { padding:24px 26px; border-bottom:1px solid var(--hair); position:relative; }
+  .pr:nth-child(odd) { border-right:1px solid var(--hair); }
+  .pr:nth-last-child(-n+2) { border-bottom:none; }
+  @media (max-width:820px){ .pr { border-right:none !important; } .pr:nth-last-child(-n+2){ border-bottom:1px solid var(--hair);} .pr:last-child{border-bottom:none;} }
+  .pr h3 { font-size:15.5px; font-weight:600; margin-bottom:8px; }
+  .pr h3 code { font-family:"JetBrains Mono",monospace; font-size:.9em; background:#f1efe8; border:1px solid var(--hair); padding:1px 6px; border-radius:4px; }
+  .pr p { color:var(--dim); font-size:13.5px; line-height:1.6; }
+
+  /* concepts */
+  .concepts { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  @media (max-width:900px){ .concepts { grid-template-columns:1fr; } }
+  .cx { background:#fff; border:1px solid var(--hair2); border-radius:10px; padding:22px 22px 20px; transition:border-color .15s, transform .15s; }
+  .cx:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .cx .k { font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.08em; color:var(--accent); display:block; margin-bottom:10px; }
+  .cx h3 { font-size:15.5px; font-weight:600; margin-bottom:7px; }
+  .cx p { color:var(--dim); font-size:13px; line-height:1.6; }
+
+  /* participants table */
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--hair2); border-radius:10px; overflow:hidden; }
+  .tbl-wrap { border-radius:10px; overflow:auto; border:1px solid var(--hair2); background:#fff; }
+  .tbl-wrap table { border:none; }
+  th { text-align:left; font-family:"JetBrains Mono",monospace; font-size:11.5px; letter-spacing:.06em; color:var(--dim); font-weight:500; padding:12px 18px; background:#f6f4ee; border-bottom:1px solid var(--hair2); }
+  td { padding:13px 18px; font-size:14px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  td code { font-family:"JetBrains Mono",monospace; font-size:.88em; background:#f1efe8; border:1px solid var(--hair); padding:1px 6px; border-radius:4px; white-space:nowrap; }
+  td .d { color:var(--dim); font-size:13px; }
+
+  /* quickstart */
+  .qs { display:grid; grid-template-columns:1fr 1fr; gap:36px; align-items:start; }
+  @media (max-width:860px){ .qs { grid-template-columns:1fr; } }
+  .term { background:var(--code-bg); border-radius:10px; overflow:hidden; box-shadow:0 12px 40px rgba(20,18,14,.18); }
+  .term-bar { display:flex; gap:7px; padding:12px 16px; border-bottom:1px solid #2a2620; }
+  .term-bar i { width:10px; height:10px; border-radius:50%; background:#3d382f; }
+  .term-bar span { margin-left:8px; font-family:"JetBrains Mono",monospace; font-size:11.5px; color:#8a8272; }
+  .term pre { padding:20px; font-family:"JetBrains Mono",monospace; font-size:13.5px; line-height:1.8; color:var(--code-ink); overflow-x:auto; }
+  .term .p { color:#7d90e8; } .term .c { color:#6e675a; } .term .out { color:#9a927f; }
+  .qs ol { margin:0; padding-left:0; list-style:none; counter-reset:qs; }
+  .qs ol li { counter-increment:qs; padding:14px 0 14px 44px; position:relative; border-bottom:1px solid var(--hair); color:#3d3830; font-size:14.5px; line-height:1.6; }
+  .qs ol li:last-child { border-bottom:none; }
+  .qs ol li::before { content:counter(qs); position:absolute; left:0; top:14px; width:26px; height:26px; border:1px solid var(--hair2); border-radius:50%; display:grid; place-items:center; font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--accent); background:#fff; }
+  .qs code { font-family:"JetBrains Mono",monospace; font-size:.88em; background:#f1efe8; border:1px solid var(--hair); padding:1px 5px; border-radius:4px; }
+
+  /* architecture */
+  .arch { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  @media (max-width:900px){ .arch { grid-template-columns:repeat(2,1fr); } }
+  .pkg { background:#fff; border:1px solid var(--hair2); border-radius:8px; padding:16px; }
+  .pkg .name { font-family:"JetBrains Mono",monospace; font-size:12.5px; font-weight:500; color:var(--accent); display:block; margin-bottom:6px; }
+  .pkg p { font-size:12px; color:var(--dim); line-height:1.5; }
+  .arch-note { margin-top:14px; font-family:"JetBrains Mono",monospace; font-size:12px; color:var(--dim); }
+
+  /* sdk */
+  .sdk-grid { display:grid; grid-template-columns:1fr 1fr; gap:36px; align-items:center; }
+  @media (max-width:860px){ .sdk-grid { grid-template-columns:1fr; } }
+  .sdk-grid .prose p { color:#3d3830; font-size:15px; line-height:1.7; margin-bottom:14px; }
+  .kw { color:#c792ea; } .str { color:#a5e88b; } .fn { color:#82d2ff; } .cm { color:#6e675a; }
+
+  /* footer */
+  footer { padding:44px 0 60px; }
+  footer .wrap { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; color:var(--dim); font-size:13.5px; }
+  footer a { color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hair2); }
+  footer a:hover { border-color:var(--accent); color:var(--accent); }
+  .f-links { display:flex; gap:22px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#">Legion<span>◆</span></a>
+    <div class="links">
+      <a href="#philosophy">Design principles</a>
+      <a href="#concepts">Concepts</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">legion-v2 · <b>Apache-2.0</b> · Node.js ≥ 20 · TypeScript</div>
+    <h1>A multi-agent collective framework</h1>
+    <div class="lede">
+      <p>An always-on process that hosts AI agents, automated services, and human users who communicate by sending messages to each other.</p>
+      <p>Legion is <em>not a chat app you start and stop</em>. It is a persistent process that external channels connect to simultaneously. Agents run autonomously, services react to events, and humans reach in through connectors — a web browser, Teams, Slack — to direct, approve, or monitor.</p>
+    </div>
+    <div class="cta-row">
+      <a class="btn pri" href="#quickstart">Get started</a>
+      <a class="btn sec" href="#">View on GitHub</a>
+    </div>
+  </div>
+</header>
+
+<section id="philosophy">
+  <div class="wrap">
+    <div class="slab"><span class="n">01</span><h2>Design principles</h2></div>
+    <p class="sec-lede">The whole framework follows from a short list of commitments. They're enforced in the code, not just stated.</p>
+    <div class="principles">
+      <div class="pr"><h3>One process, one collective</h3><p>No routing, auth, or delivery logic branches on participant <code>type</code> — type only describes the internal driver.</p></div>
+      <div class="pr"><h3><code>communicate</code> is the hub</h3><p>Sync calls block until a response; fire-and-forget names a <code>replyTo</code> participant. The MessageRouter replaces any "session" concept.</p></div>
+      <div class="pr"><h3>Conversations are branching trees</h3><p>A keyed map of messages; the active chain is reconstructed by walking <code>parentId</code>. Edit, re-run, prune, compact — historical nodes remain recoverable.</p></div>
+      <div class="pr"><h3>AuthEngine is a pure predicate</h3><p>It answers <code>auto</code>, <code>requires_approval</code>, or <code>hidden</code>. Approval bubbles up the call chain to an authorized approver; it fails closed if none exists.</p></div>
+      <div class="pr"><h3>Management is ordinary tool calls</h3><p><code>create_agent</code>, <code>retire_agent</code>, policy edits — tools gated by the caller's policy. No separate permission layer.</p></div>
+      <div class="pr"><h3>Connectors and MCP are not participants</h3><p>Connectors are channels; MCP servers are tool sources. Core knows nothing about identity providers.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="concepts">
+  <div class="wrap">
+    <div class="slab"><span class="n">02</span><h2>Key concepts</h2></div>
+    <p class="sec-lede">Six nouns carry the entire model.</p>
+    <div class="concepts">
+      <div class="cx"><span class="k">PARTICIPANTS</span><h3>Agents, services, users, mocks</h3><p>Each has tool policies and approval-authority profiles. Every participant talks to every other through the same model.</p></div>
+      <div class="cx"><span class="k">CONVERSATIONS</span><h3>Persistent, branching threads</h3><p>Stored as key-value maps with full edit, prune, and compaction history.</p></div>
+      <div class="cx"><span class="k">COMMUNICATE</span><h3>The messaging mechanism</h3><p>Synchronous calls and fire-and-forget async dispatch via <span class="mono" style="font-size:.9em">replyTo</span>.</p></div>
+      <div class="cx"><span class="k">AUTHENGINE</span><h3>Policy resolution</h3><p>Tools absent from a participant's tools map are hidden from the LLM entirely. Approval requests bubble until they reach authority — or fail closed.</p></div>
+      <div class="cx"><span class="k">CONNECTORS</span><h3>Channels to the outside</h3><p>They bridge participants to external entities. Authentication is connector-internal.</p></div>
+      <div class="cx"><span class="k">MCP TOOL SOURCES</span><h3>External tool registries</h3><p>Declared in workspace config; tools register as <span class="mono" style="font-size:.9em">mcp__&lt;server&gt;__&lt;tool&gt;</span>.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="participants">
+  <div class="wrap">
+    <div class="slab"><span class="n">03</span><h2>Participant types</h2></div>
+    <p class="sec-lede">Four drivers, one message model.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:110px">Type</th><th style="width:230px">Driver</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>agent</code></td><td class="d">LLM agentic loop</td><td>Calls tools, receives results, repeats until done</td></tr>
+          <tr><td><code>service</code></td><td class="d">Code module — <code>LegionService</code> interface</td><td>Reactive code-backed participant</td></tr>
+          <tr><td><code>user</code></td><td class="d">None — connector-driven</td><td>A human user reached through a connector</td></tr>
+          <tr><td><code>mock</code></td><td class="d">Scripted responses</td><td>Deterministic responses for testing</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <div class="slab"><span class="n">04</span><h2>Quick start</h2></div>
+    <p class="sec-lede">Prerequisite: Node.js 20 or later.</p>
+    <div class="qs">
+      <div class="term">
+        <div class="term-bar"><i></i><i></i><i></i><span>quickstart</span></div>
+        <pre><span class="p">$</span> npm install
+<span class="p">$</span> npm run build
+<span class="p">$</span> npm start
+
+<span class="c"># first launch seeds a workspace (.legion/),</span>
+<span class="c"># creates a bootstrap operator, and starts</span>
+<span class="c"># the web server on http://127.0.0.1:3000</span>
+<span class="out">bootstrap operator password: 9f3a-c2…</span></pre>
+      </div>
+      <ol>
+        <li><b>Install and build</b> — standard npm workspaces; <code>npm start</code> runs the compiled runtime from <code>packages/runtime</code>.</li>
+        <li><b>Log in as the operator</b> — a random password is printed to stdout on first launch. Set <code>LEGION_BOOTSTRAP_PASSWORD</code> for deterministic provisioning.</li>
+        <li><b>Open the console</b> — the web UI at <code>:3000</code> is the management surface: participants, conversations, approvals, tool policies.</li>
+        <li><b>Wire a provider</b> — API keys belong in <code>~/.config/legion/config.json</code> or environment variables, never in workspace files.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="wrap">
+    <div class="slab"><span class="n">05</span><h2>Architecture</h2></div>
+    <p class="sec-lede">A TypeScript monorepo — npm workspaces, pure ESM, strict mode.</p>
+    <div class="arch">
+      <div class="pkg"><span class="name">types</span><p>Shared TypeScript type definitions: tools, conversations, participants, config, events</p></div>
+      <div class="pkg"><span class="name">core</span><p>The engine: runtimes, tools, auth, conversations, services, providers, storage</p></div>
+      <div class="pkg"><span class="name">runtime</span><p>Process entry point, Fastify HTTP server, WebSocket connector</p></div>
+      <div class="pkg"><span class="name">web</span><p>Vue 3 + Vite + Tailwind workspace management console</p></div>
+      <div class="pkg"><span class="name">e2e</span><p>Playwright end-to-end tests against a live server</p></div>
+    </div>
+    <div class="arch-note">import direction: types ← core ← runtime / web — never the reverse</div>
+  </div>
+</section>
+
+<section id="sdk">
+  <div class="wrap">
+    <div class="slab"><span class="n">06</span><h2>Service SDK</h2></div>
+    <p class="sec-lede">Any npm module can be a Legion service.</p>
+    <div class="sdk-grid">
+      <div class="prose">
+        <p>Export a <code class="mono" style="font-size:.9em">LegionService</code> object and register it in the workspace config. Services are participants like any other.</p>
+        <p>They get scoped storage, a <code class="mono" style="font-size:.9em">communicate()</code> method, and <code class="mono" style="font-size:.9em">callTool()</code> with auth enforcement.</p>
+        <p><a href="#" style="color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(59,91,219,.4)">Full SDK reference →</a></p>
+      </div>
+      <div class="term">
+        <div class="term-bar"><i></i><i></i><i></i><span>my-service.ts</span></div>
+        <pre><span class="kw">import type</span> { LegionService } <span class="kw">from</span> <span class="str">'@legion/core'</span>;
+
+<span class="kw">export const</span> <span class="fn">service</span>: LegionService = {
+  <span class="kw">async</span> <span class="fn">start</span>(ctx) { <span class="cm">/* ... */</span> },
+  <span class="kw">async</span> <span class="fn">stop</span>() { <span class="cm">/* ... */</span> },
+  <span class="kw">async</span> <span class="fn">onMessage</span>(msg, ctx) { <span class="cm">/* optional */</span> },
+};</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Legion — Apache-2.0 · Prograde Labs</span>
+    <div class="f-links">
+      <a href="#">GitHub</a><a href="#">Documentation</a><a href="#">Discussions</a><a href="#quickstart">Quick start</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

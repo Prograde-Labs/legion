@@ -97,7 +97,7 @@ function isLoadedLanguage(
 function renderPlainCodeBlock(code: string, lang: string): string {
   const langClass = lang ? ` class="language-${escapeHtml(lang)}"` : '';
 
-  return `<pre class="shiki github-dark" style="background-color:#24292e;color:#e1e4e8" tabindex="0"><code${langClass}>${escapeHtml(code)}</code></pre>\n`;
+  return `<pre class="shiki github-dark" style="background-color:var(--color-bg);color:var(--color-text)" tabindex="0"><code${langClass}>${escapeHtml(code)}</code></pre>\n`;
 }
 
 const SANITIZE_OPTIONS = {

@@ -61,14 +61,12 @@ function toggleApproval(tool: string) {
 
 <template>
   <div class="space-y-1 p-5">
-    <p class="text-[10px] uppercase tracking-widest text-navy-400 font-semibold mb-3">
-      Tool access
-    </p>
+    <p class="text-[10px] uppercase tracking-widest text-muted font-semibold mb-3">Tool access</p>
     <div
       v-for="{ tool, override } in rows"
       :key="tool"
       data-tool-row
-      class="flex items-center gap-2 py-1.5 border-b border-navy-900"
+      class="flex items-center gap-2 py-1.5 border-b border-line"
     >
       <input
         type="checkbox"
@@ -77,10 +75,7 @@ function toggleApproval(tool: string) {
         class="accent-cyan-400"
       />
       <span
-        :class="[
-          'flex-1 font-mono text-xs',
-          override?.enabled ? 'text-slate-100' : 'text-navy-500',
-        ]"
+        :class="['flex-1 font-mono text-xs', override?.enabled ? 'text-slate-100' : 'text-faint']"
       >
         {{ tool }}
       </span>
@@ -91,13 +86,13 @@ function toggleApproval(tool: string) {
           'text-[9px] px-2 py-0.5 rounded border transition-colors',
           override.requireApproval
             ? 'bg-amber-400/10 border-amber-400/30 text-amber-400'
-            : 'border-navy-600 text-navy-500',
+            : 'border-line text-faint',
         ]"
       >
         require approval
       </button>
     </div>
-    <p v-if="availableTools.length === 0" class="text-[10px] text-navy-600 italic py-2">
+    <p v-if="availableTools.length === 0" class="text-[10px] text-faint italic py-2">
       No tools registered.
     </p>
   </div>

@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion — a multi-agent collective framework</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --bg:#101216; --panel:#15181d; --panel2:#191d23; --ink:#d6dae2; --dim:#8a919e; --faint:#5c6470;
+    --hair:#262b33; --hair2:#333a44; --accent:#ff7847; --accent-dim:rgba(255,120,71,.14);
+    --code-bg:#0c0e11;
+  }
+  html { scroll-behavior:smooth; }
+  body { background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(255,120,71,.25); }
+  .mono { font-family:"IBM Plex Mono",monospace; }
+  a { color:inherit; }
+
+  /* layout: fixed sidebar + content column */
+  .shell { display:grid; grid-template-columns:232px 1fr; min-height:100vh; }
+  @media (max-width:940px){ .shell { grid-template-columns:1fr; } .side { display:none; } }
+
+  /* sidebar */
+  .side { border-right:1px solid var(--hair); position:sticky; top:0; height:100vh; padding:28px 22px; display:flex; flex-direction:column; }
+  .side .brand { font-family:"IBM Plex Mono",monospace; font-weight:500; font-size:15px; letter-spacing:.06em; text-decoration:none; margin-bottom:6px; }
+  .side .brand i { font-style:normal; color:var(--accent); }
+  .side .ver { font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--faint); letter-spacing:.08em; margin-bottom:34px; }
+  .side nav { display:flex; flex-direction:column; gap:2px; }
+  .side nav a { display:flex; gap:10px; align-items:baseline; text-decoration:none; color:var(--dim); font-size:13.5px; padding:7px 10px; border-radius:5px; transition:all .12s; }
+  .side nav a .n { font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--faint); width:18px; }
+  .side nav a:hover { color:var(--ink); background:var(--panel2); }
+  .side nav a.on { color:var(--ink); background:var(--panel2); }
+  .side nav a.on .n { color:var(--accent); }
+  .side .status { margin-top:auto; font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--faint); letter-spacing:.08em; border-top:1px solid var(--hair); padding-top:16px; }
+  .side .status b { color:#5bd98a; font-weight:500; }
+  .side .status .bar { height:2px; background:var(--hair); margin-top:10px; position:relative; overflow:hidden; border-radius:1px; }
+  .side .status .bar i { position:absolute; left:0; top:0; bottom:0; width:0%; background:var(--accent); transition:width .1s linear; }
+
+  /* content */
+  .main { min-width:0; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; padding:16px 40px; border-bottom:1px solid var(--hair); position:sticky; top:0; background:rgba(16,18,22,.92); backdrop-filter:blur(8px); z-index:30; }
+  @media (max-width:940px){ .topbar { padding:14px 22px; } }
+  .crumbs { font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--dim); letter-spacing:.04em; }
+  .crumbs b { color:var(--ink); font-weight:500; }
+  .topbar .acts { display:flex; gap:10px; }
+  .chip { font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--dim); text-decoration:none; border:1px solid var(--hair2); padding:5px 11px; border-radius:4px; transition:all .12s; letter-spacing:.04em; }
+  .chip:hover { color:var(--ink); border-color:var(--dim); }
+  .chip.acc { color:var(--accent); border-color:rgba(255,120,71,.4); }
+  .chip.acc:hover { background:var(--accent-dim); }
+
+  .content { max-width:820px; padding:56px 40px 90px; }
+  @media (max-width:940px){ .content { padding:40px 22px 70px; } }
+
+  /* hero */
+  .eyebrow { font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--dim); letter-spacing:.12em; margin-bottom:20px; }
+  .eyebrow em { font-style:normal; color:var(--accent); }
+  h1 { font-size:clamp(38px,5vw,56px); font-weight:600; letter-spacing:-.02em; line-height:1.05; margin-bottom:22px; }
+  .overview { font-size:17px; line-height:1.7; color:#b4bac6; max-width:660px; }
+  .overview p + p { margin-top:14px; }
+  .overview b { color:var(--ink); font-weight:500; }
+  .cta-row { display:flex; gap:12px; margin-top:32px; }
+  .btn { font-family:"IBM Plex Mono",monospace; font-size:13px; letter-spacing:.04em; text-decoration:none; padding:12px 22px; border-radius:6px; transition:all .15s; }
+  .btn.pri { background:var(--accent); color:#16100c; font-weight:500; }
+  .btn.pri:hover { filter:brightness(1.12); }
+  .btn.sec { border:1px solid var(--hair2); color:var(--ink); }
+  .btn.sec:hover { border-color:var(--dim); }
+
+  section { padding:52px 0 8px; }
+  .slab { display:flex; align-items:baseline; gap:14px; margin-bottom:10px; padding-top:26px; border-top:1px solid var(--hair); }
+  .slab .n { font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--accent); letter-spacing:.1em; }
+  h2 { font-size:24px; font-weight:600; letter-spacing:-.01em; }
+  .sec-lede { color:var(--dim); font-size:14.5px; line-height:1.65; margin:6px 0 28px; max-width:620px; }
+
+  /* principles list */
+  .plist { border:1px solid var(--hair); border-radius:8px; overflow:hidden; }
+  .pli { display:grid; grid-template-columns:44px 240px 1fr; gap:18px; padding:16px 20px; background:var(--panel); border-bottom:1px solid var(--hair); align-items:baseline; }
+  .pli:last-child { border-bottom:none; }
+  @media (max-width:760px){ .pli { grid-template-columns:44px 1fr; } .pli p { grid-column:2; } }
+  .pli .n { font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--faint); }
+  .pli h3 { font-size:14px; font-weight:600; }
+  .pli h3 code { font-family:"IBM Plex Mono",monospace; font-size:.88em; color:var(--accent); background:var(--accent-dim); padding:1px 6px; border-radius:4px; }
+  .pli p { color:var(--dim); font-size:13px; line-height:1.65; }
+
+  /* concepts */
+  .cx-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:760px){ .cx-grid { grid-template-columns:1fr; } }
+  .cx { background:var(--panel); border:1px solid var(--hair); border-radius:8px; padding:18px 20px; transition:border-color .15s; }
+  .cx:hover { border-color:var(--hair2); }
+  .cx .k { font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.1em; color:var(--accent); display:block; margin-bottom:8px; }
+  .cx h3 { font-size:14.5px; font-weight:600; margin-bottom:6px; }
+  .cx p { color:var(--dim); font-size:13px; line-height:1.6; }
+  .cx code { font-family:"IBM Plex Mono",monospace; font-size:.88em; color:var(--ink); background:var(--panel2); border:1px solid var(--hair); padding:0 5px; border-radius:3px; }
+
+  /* quickstart */
+  .qs { display:grid; grid-template-columns:1.15fr 0.85fr; gap:28px; align-items:start; }
+  @media (max-width:820px){ .qs { grid-template-columns:1fr; } }
+  .term { background:var(--code-bg); border:1px solid var(--hair); border-radius:8px; overflow:hidden; }
+  .term-bar { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--hair); }
+  .term-bar span { font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--faint); letter-spacing:.08em; }
+  .copy { font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--dim); background:none; border:1px solid var(--hair2); border-radius:4px; padding:3px 9px; cursor:pointer; transition:all .12s; }
+  .copy:hover { color:var(--ink); border-color:var(--dim); }
+  .copy.done { color:#5bd98a; border-color:rgba(91,217,138,.4); }
+  .term pre { padding:16px; font-family:"IBM Plex Mono",monospace; font-size:13px; line-height:1.85; color:#c4cad6; overflow-x:auto; }
+  .p { color:var(--accent); } .c { color:#667080; } .out { color:#8f97a6; }
+  .env { border:1px solid var(--hair); border-radius:8px; overflow:hidden; }
+  .env h4 { font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.1em; color:var(--dim); padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--hair); font-weight:500; }
+  .env .row { display:grid; grid-template-columns:190px 1fr; gap:14px; padding:11px 16px; border-bottom:1px solid var(--hair); font-size:13px; align-items:start; }
+  .env .row:last-child { border-bottom:none; }
+  .env code { font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--accent); }
+  .env .d { color:var(--dim); line-height:1.55; }
+
+  /* api table */
+  .tbl-wrap { border:1px solid var(--hair); border-radius:8px; overflow:hidden; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); }
+  th { text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.08em; color:var(--dim); font-weight:500; padding:11px 16px; background:var(--panel2); border-bottom:1px solid var(--hair); }
+  td { padding:11px 16px; font-size:13px; border-bottom:1px solid var(--hair); vertical-align:top; color:#b4bac6; }
+  tr:last-child td { border-bottom:none; }
+  td code { font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--accent); background:var(--accent-dim); padding:1px 6px; border-radius:4px; white-space:nowrap; }
+
+  /* architecture */
+  .arch { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+  @media (max-width:900px){ .arch { grid-template-columns:repeat(2,1fr); } }
+  .pkg { background:var(--panel); border:1px solid var(--hair); border-radius:8px; padding:14px 15px; }
+  .pkg .name { font-family:"IBM Plex Mono",monospace; font-size:12.5px; font-weight:500; color:var(--ink); display:block; margin-bottom:6px; }
+  .pkg .name::before { content:"@legion/"; color:var(--faint); font-weight:400; }
+  .pkg p { font-size:12px; color:var(--dim); line-height:1.55; }
+  .arch-note { margin-top:12px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--dim); }
+  .arch-note b { color:var(--accent); font-weight:500; }
+
+  /* sdk */
+  .kw { color:#c792ea; } .str { color:#a5e88b; } .fn { color:#82d2ff; } .cm { color:#667080; }
+
+  footer { border-top:1px solid var(--hair); margin-top:40px; padding:26px 40px 40px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--faint); letter-spacing:.06em; }
+  footer a { color:var(--dim); text-decoration:none; }
+  footer a:hover { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="side">
+    <a class="brand" href="#">LEGI<i>◆</i>N</a>
+    <div class="ver">v2 · APACHE-2.0</div>
+    <nav id="sidenav">
+      <a href="#overview" class="on"><span class="n">00</span>Overview</a>
+      <a href="#principles"><span class="n">01</span>Design principles</a>
+      <a href="#concepts"><span class="n">02</span>Key concepts</a>
+      <a href="#quickstart"><span class="n">03</span>Quick start</a>
+      <a href="#api"><span class="n">04</span>Management API</a>
+      <a href="#architecture"><span class="n">05</span>Architecture</a>
+      <a href="#sdk"><span class="n">06</span>Service SDK</a>
+    </nav>
+    <div class="status">
+      <span>PROCESS <b>READY</b> · :3000</span>
+      <div class="bar"><i id="progress"></i></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="crumbs">Prograde-Labs / <b>legion</b></span>
+      <div class="acts">
+        <a class="chip" href="#">docs</a>
+        <a class="chip" href="#">issues</a>
+        <a class="chip acc" href="#">★ GitHub</a>
+      </div>
+    </div>
+
+    <div class="content">
+      <div id="overview">
+        <div class="eyebrow">OPEN SOURCE · <em>APACHE-2.0</em> · NODE ≥ 20 · TYPESCRIPT · VUE 3</div>
+        <h1>A multi-agent collective framework</h1>
+        <div class="overview">
+          <p>An always-on process that hosts AI agents, automated services, and human users who communicate by sending messages to each other.</p>
+          <p>Legion is <b>not a chat app you start and stop</b>. It is a persistent process that external channels connect to simultaneously. Agents run autonomously, services react to events, and humans reach in through connectors (web browser, Teams, Slack) to direct, approve, or monitor. Any participant can talk to any other — a web user logged into the browser UI, an external integration, and an AI agent mid-task all participate through the same model.</p>
+        </div>
+        <div class="cta-row">
+          <a class="btn pri" href="#quickstart">Quick start</a>
+          <a class="btn sec" href="#">View source</a>
+        </div>
+      </div>
+
+      <section id="principles">
+        <div class="slab"><span class="n">01</span><h2>Design principles</h2></div>
+        <p class="sec-lede">The guiding philosophy of the framework. Each one is enforced in the code, not just stated.</p>
+        <div class="plist">
+          <div class="pli"><span class="n">1</span><h3>One process, one collective</h3><p>No routing, auth, or delivery logic branches on participant <code>type</code>; type only describes the internal driver.</p></div>
+          <div class="pli"><span class="n">2</span><h3><code>communicate</code> is the hub</h3><p>Sync calls block until response; fire-and-forget names a <code>replyTo</code> participant. The MessageRouter replaces any "session" concept.</p></div>
+          <div class="pli"><span class="n">3</span><h3>Conversations are branching trees, not arrays</h3><p>Messages link by <code>parentId</code>; the active chain is reconstructed from the head. Edit and re-run, prune, compact — historical nodes remain recoverable.</p></div>
+          <div class="pli"><span class="n">4</span><h3>AuthEngine is a pure predicate</h3><p>It answers <code>auto</code>, <code>requires_approval</code>, or <code>hidden</code>. Approval bubbles up the call chain to an authorized approver or boundary connector; it fails closed if none is found.</p></div>
+          <div class="pli"><span class="n">5</span><h3>Management actions are ordinary tool calls</h3><p><code>create_agent</code>, <code>retire_agent</code>, and policy edits are tools gated by the acting participant's policy — no separate permission layer.</p></div>
+          <div class="pli"><span class="n">6</span><h3>MCP servers are tool sources, not participants</h3><p>Declared in workspace config; tools register as <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> in the global registry.</p></div>
+          <div class="pli"><span class="n">7</span><h3>Connectors are channels, not participants</h3><p>Boundary connectors map external identities to participants. Core knows nothing about identity providers.</p></div>
+        </div>
+      </section>
+
+      <section id="concepts">
+        <div class="slab"><span class="n">02</span><h2>Key concepts</h2></div>
+        <p class="sec-lede">Six nouns carry the entire model.</p>
+        <div class="cx-grid">
+          <div class="cx"><span class="k">PARTICIPANTS</span><h3>Agents, services, users, mocks</h3><p>Each has tool policies and approval-authority profiles. Any participant can talk to any other through the same model.</p></div>
+          <div class="cx"><span class="k">CONVERSATIONS</span><h3>Persistent branching threads</h3><p>Stored as key-value maps with full edit, prune, and compaction history.</p></div>
+          <div class="cx"><span class="k">COMMUNICATE TOOL</span><h3>The messaging mechanism</h3><p>Synchronous calls and fire-and-forget async dispatch via <code>replyTo</code>.</p></div>
+          <div class="cx"><span class="k">AUTHENGINE</span><h3>Policy resolution</h3><p>Tools absent from a participant's tools map are hidden from the LLM entirely. Approval requests bubble up the caller chain or fail closed.</p></div>
+          <div class="cx"><span class="k">CONNECTORS</span><h3>Channels to the outside</h3><p>They bridge participants to external entities (web, Teams, Slack). Authentication is connector-internal.</p></div>
+          <div class="cx"><span class="k">MCP TOOL SOURCES</span><h3>External tool registries</h3><p>Declared in workspace config; tools register namespaced into the global registry.</p></div>
+        </div>
+      </section>
+
+      <section id="quickstart">
+        <div class="slab"><span class="n">03</span><h2>Quick start</h2></div>
+        <p class="sec-lede">Prerequisite: Node.js 20 or later. First launch seeds a workspace, creates a bootstrap operator, and starts the web server.</p>
+        <div class="qs">
+          <div class="term">
+            <div class="term-bar"><span>shell</span><button class="copy" id="copyBtn">copy</button></div>
+            <pre id="qsCmds"><span class="p">$</span> npm install
+<span class="p">$</span> npm run build
+<span class="p">$</span> npm start
+
+<span class="c"># web server on http://127.0.0.1:3000 —</span>
+<span class="c"># a random operator password prints to stdout</span>
+<span class="out">bootstrap operator password: 9f3a-c2…</span></pre>
+          </div>
+          <div class="env">
+            <h4>ENVIRONMENT VARIABLES</h4>
+            <div class="row"><code>LEGION_WORKSPACE</code><span class="d">Override the workspace root directory</span></div>
+            <div class="row"><code>LEGION_BOOTSTRAP_PASSWORD</code><span class="d">Set a deterministic password for the bootstrap operator (Docker / scripted provisioning)</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="api">
+        <div class="slab"><span class="n">04</span><h2>Management API</h2></div>
+        <p class="sec-lede">The web connector exposes an authenticated tool-execution gateway — every collective operation is a tool call. No bespoke CRUD endpoints.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Route</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>POST /api/auth/login</code></td><td>Verify password, establish session (JWT)</td></tr>
+              <tr><td><code>POST /api/execute</code></td><td>Execute a named tool as the authenticated participant</td></tr>
+              <tr><td><code>GET /ws</code></td><td>Live event stream via WebSocket (authenticated)</td></tr>
+              <tr><td><code>GET /api/health</code></td><td>Process liveness check (unauthenticated)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <div class="slab"><span class="n">05</span><h2>Architecture</h2></div>
+        <p class="sec-lede">A TypeScript monorepo — npm workspaces, pure ESM.</p>
+        <div class="arch">
+          <div class="pkg"><span class="name">types</span><p>Shared TypeScript types: tools, conversations, participants, config, events</p></div>
+          <div class="pkg"><span class="name">core</span><p>The engine: runtimes, tools, auth, conversations, services, providers, storage</p></div>
+          <div class="pkg"><span class="name">runtime</span><p>Process entry point, Fastify HTTP server, WebSocket connector</p></div>
+          <div class="pkg"><span class="name">web</span><p>Vue 3 + Vite + Tailwind workspace management console</p></div>
+          <div class="pkg"><span class="name">e2e</span><p>Playwright end-to-end tests against a live server</p></div>
+        </div>
+        <div class="arch-note">import direction: <b>types ← core ← runtime / web</b> — never the reverse</div>
+      </section>
+
+      <section id="sdk">
+        <div class="slab"><span class="n">06</span><h2>Service SDK</h2></div>
+        <p class="sec-lede">Any npm module can be a Legion service by exporting a <span class="mono" style="font-size:.9em">LegionService</span> object. Services get scoped storage, a communicate() method, and callTool() with auth enforcement.</p>
+        <div class="term">
+          <div class="term-bar"><span>my-service.ts</span><button class="copy">copy</button></div>
+          <pre><span class="kw">import type</span> { LegionService } <span class="kw">from</span> <span class="str">'@legion/core'</span>;
+
+<span class="kw">export const</span> <span class="fn">service</span>: LegionService = {
+  <span class="kw">async</span> <span class="fn">start</span>(ctx) { <span class="cm">/* ... */</span> },
+  <span class="kw">async</span> <span class="fn">stop</span>() { <span class="cm">/* ... */</span> },
+  <span class="kw">async</span> <span class="fn">onMessage</span>(msg, ctx) { <span class="cm">/* optional */</span> },
+};</pre>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      <span>LEGION · APACHE-2.0 · PROGRADE LABS</span>
+      <span><a href="#">GITHUB</a> · <a href="#">DOCS</a> · <a href="#">DISCUSSIONS</a></span>
+    </footer>
+  </div>
+</div>
+
+<script>
+  // scroll progress in the sidebar status bar
+  const bar = document.getElementById('progress');
+  addEventListener('scroll', ()=>{
+    const max = document.documentElement.scrollHeight - innerHeight;
+    bar.style.width = (max > 0 ? (scrollY/max)*100 : 0) + '%';
+  }, {passive:true});
+
+  // sidebar active section tracking
+  const links = [...document.querySelectorAll('#sidenav a')];
+  const io = new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if (e.isIntersecting){
+        links.forEach(l=>l.classList.toggle('on', l.getAttribute('href') === '#'+e.target.id));
+      }
+    });
+  }, {rootMargin:'-30% 0px -60% 0px'});
+  document.querySelectorAll('section[id], #overview').forEach(s=>io.observe(s));
+
+  // copy buttons
+  document.querySelectorAll('.copy').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const pre = btn.closest('.term').querySelector('pre');
+      navigator.clipboard.writeText(pre.innerText.replace(/^❯?\s?\$/gm,'').trim()).then(()=>{
+        btn.textContent = 'copied ✓'; btn.classList.add('done');
+        setTimeout(()=>{ btn.textContent = 'copy'; btn.classList.remove('done'); }, 1600);
+      });
+    });
+  });
+</script>
+</body>
+</html>

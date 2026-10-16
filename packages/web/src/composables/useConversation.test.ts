@@ -81,8 +81,8 @@ const conversationResponse = {
   subThreads: {},
 };
 
-vi.mock('./useExecute.js', () => ({
-  useExecute: vi.fn(() => ({ execute: executeMock })),
+vi.mock('./useLegionApi.js', () => ({
+  useLegionApi: vi.fn(() => ({ execute: executeMock })),
 }));
 
 beforeEach(() => {

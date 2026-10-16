@@ -1,6 +1,6 @@
 import { ref, onUnmounted, getCurrentInstance } from 'vue';
 import type { Ref } from 'vue';
-import { useExecute } from './useExecute.js';
+import { useLegionApi } from './useLegionApi.js';
 import type { ProcessHandle } from '@legion-collective/types';
 
 const processes: Ref<ProcessHandle[]> = ref([]);
@@ -10,7 +10,7 @@ let consumerCount = 0;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 async function refresh(): Promise<void> {
-  const { execute } = useExecute();
+  const { execute } = useLegionApi();
   loading.value = true;
   try {
     processes.value = await execute<ProcessHandle[]>('list_processes', { status: 'all' });

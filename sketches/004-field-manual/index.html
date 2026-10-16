@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion — Field Manual, Edition II</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,560;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  :root {
+    --paper:#f2efe7; --paper2:#eceade; --ink:#17140e; --ink2:#57503f;
+    --hair:#d8d2c0; --accent:#e8491d; --accent-ink:#c23a12;
+    --feed-bg:#17140e; --feed-ink:#e8e2d2;
+  }
+  html { scroll-behavior:smooth; }
+  body { background:var(--paper); color:var(--ink); font-family:"Inter",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  .mono { font-family:"IBM Plex Mono",monospace; }
+  .serif { font-family:"Fraunces",serif; }
+  .wrap { max-width:1240px; margin:0 auto; padding:0 32px; }
+
+  /* film grain */
+  body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:99; opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E"); }
+
+  /* ---------- masthead ---------- */
+  .mast { border-bottom:2px solid var(--ink); }
+  .mast .wrap { display:flex; justify-content:space-between; align-items:center; padding:18px 32px; font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.14em; }
+  .mast .brand { font-weight:600; }
+  .mast .brand em { font-style:normal; color:var(--accent); }
+  .mast .meta { display:flex; gap:26px; color:var(--ink2); }
+  .mast .meta b { color:var(--ink); font-weight:500; }
+  @media (max-width:760px){ .mast .meta span:nth-child(2){display:none} }
+
+  /* ---------- hero ---------- */
+  .hero-grid { display:grid; grid-template-columns: 1fr 380px; gap:56px; padding:64px 0 72px; align-items:start; }
+  @media (max-width:980px){ .hero-grid { grid-template-columns:1fr; } }
+  .doc-label { font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.26em; color:var(--ink2); display:flex; gap:14px; align-items:center; margin-bottom:26px; }
+  .doc-label::before { content:""; width:34px; height:1px; background:var(--ink); }
+  h1 { font-family:"Fraunces",serif; font-weight:560; font-size:clamp(44px,5.6vw,76px); line-height:1.02; letter-spacing:-.015em; }
+  h1 .strike { position:relative; color:var(--ink2); }
+  h1 .strike::after { content:""; position:absolute; left:-2%; right:-2%; top:54%; height:.055em; background:var(--accent); transform:rotate(-1.2deg); }
+  .hero .lede { margin:28px 0 0; font-size:18px; line-height:1.65; color:var(--ink2); max-width:560px; }
+  .hero .lede b { color:var(--ink); font-weight:600; }
+
+  /* onboarding ticket */
+  .ticket { margin-top:38px; border:1.5px solid var(--ink); background:#faf8f1; box-shadow:6px 6px 0 var(--ink); max-width:560px; }
+  .ticket-head { display:flex; justify-content:space-between; padding:10px 16px; border-bottom:1.5px solid var(--ink); font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.2em; }
+  .ticket-head b { color:var(--accent-ink); }
+  .ticket-body { padding:18px 16px; }
+  .ticket-row { display:flex; gap:10px; }
+  .ticket input { flex:1; font-family:"IBM Plex Mono",monospace; font-size:14px; padding:12px 14px; border:1.5px solid var(--ink); background:#fff; color:var(--ink); outline:none; }
+  .ticket input:focus { border-color:var(--accent); }
+  .ticket button { font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600; letter-spacing:.08em; padding:0 22px; border:1.5px solid var(--ink); background:var(--accent); color:#fff; cursor:pointer; transition:transform .08s, box-shadow .12s; box-shadow:3px 3px 0 var(--ink); }
+  .ticket button:hover { transform:translate(-1px,-1px); box-shadow:4px 4px 0 var(--ink); }
+  .ticket button:active { transform:translate(2px,2px); box-shadow:0 0 0 var(--ink); }
+  .stamp { margin-top:14px; display:none; align-items:center; gap:12px; font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.1em; color:var(--ink2); }
+  .stamp .seal { border:2.5px solid var(--accent); color:var(--accent-ink); padding:7px 12px; font-weight:600; font-size:12px; letter-spacing:.18em; transform:rotate(-4deg); animation:thump .38s cubic-bezier(.2,2.4,.4,1) both; }
+  @keyframes thump { from { transform:rotate(-14deg) scale(2.2); opacity:0; } to { transform:rotate(-4deg) scale(1); opacity:1; } }
+  .stamp.show { display:flex; }
+
+  /* ---------- live rail ---------- */
+  .rail { position:sticky; top:24px; }
+  .console { background:var(--feed-bg); color:var(--feed-ink); border:1.5px solid var(--ink); box-shadow:6px 6px 0 var(--ink); }
+  .console-head { display:flex; justify-content:space-between; padding:11px 14px; border-bottom:1px solid #2c2820; font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.18em; color:#8d8672; }
+  .console-head .live { color:#ffb454; }
+  .console-head .live::before { content:"●"; margin-right:6px; animation:blink 1.6s infinite; }
+  @keyframes blink { 50%{opacity:.25} }
+  .feed { height:336px; overflow:hidden; padding:6px 0; }
+  .fmsg { padding:8px 14px; margin:4px 8px; border-left:2px solid #2c2820; animation:rise .3s ease both; font-size:12.5px; line-height:1.55; font-family:"IBM Plex Mono",monospace; }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; } }
+  .fmsg .who { font-weight:600; letter-spacing:.04em; }
+  .fmsg .when { float:right; color:#6d6656; font-size:10.5px; }
+  .fmsg.agent .who { color:#7ee787; } .fmsg.service .who { color:#ffb454; }
+  .fmsg.visitor .who { color:#79c0ff; } .fmsg.visitor { border-left-color:#79c0ff; }
+  .fmsg.sys { color:#6d6656; font-size:11px; letter-spacing:.12em; border-left-color:transparent; }
+  .ask { margin:10px 8px 8px; border:1.5px solid #ffb454; padding:10px 12px; font-size:12px; display:none; }
+  .ask.show { display:block; animation:rise .3s ease both; }
+  .ask .q { color:#ffb454; font-weight:600; margin-bottom:8px; letter-spacing:.06em; }
+  .ask .btns { display:flex; gap:8px; }
+  .ask button { flex:1; font-family:"IBM Plex Mono",monospace; font-size:11.5px; padding:7px 0; cursor:pointer; background:none; }
+  .ask .yes { border:1.5px solid #7ee787; color:#7ee787; }
+  .ask .yes:hover { background:#7ee787; color:#17140e; }
+  .ask .no { border:1.5px solid #8d8672; color:#8d8672; }
+  .treebox { border-top:1px solid #2c2820; }
+  .treebox .lbl { padding:8px 14px 2px; font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.2em; color:#8d8672; }
+  #tree { display:block; width:100%; height:110px; }
+
+  /* ---------- manual sections ---------- */
+  .manual { border-top:2px solid var(--ink); }
+  .entry { display:grid; grid-template-columns:150px 1fr; gap:40px; padding:44px 0; border-bottom:1px solid var(--hair); }
+  .entry.vis { animation:entry .6s ease both; }
+  @keyframes entry { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:none; } }
+  @media (max-width:760px){ .entry { grid-template-columns:1fr; gap:12px; } }
+  .entry .no { font-family:"Fraunces",serif; font-size:30px; font-weight:300; color:var(--accent-ink); }
+  .entry .no small { display:block; font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.22em; color:var(--ink2); margin-top:6px; }
+  .entry h2 { font-family:"Fraunces",serif; font-weight:560; font-size:clamp(24px,3vw,34px); letter-spacing:-.01em; margin-bottom:12px; }
+  .entry p { color:var(--ink2); font-size:15.5px; line-height:1.7; max-width:600px; }
+  .entry code { font-family:"IBM Plex Mono",monospace; font-size:.88em; background:var(--paper2); border:1px solid var(--hair); padding:1px 6px; }
+  .entry .marginal { margin-top:14px; font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink2); border-left:2px solid var(--accent); padding-left:12px; }
+
+  /* ---------- colophon ---------- */
+  .colo { border-top:2px solid var(--ink); margin-top:0; }
+  .colo .wrap { display:flex; justify-content:space-between; align-items:center; padding:26px 32px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.14em; color:var(--ink2); flex-wrap:wrap; gap:10px; }
+  .colo a { color:var(--ink); text-decoration:none; border-bottom:1px solid var(--accent); }
+  .cta-band { border-top:2px solid var(--ink); background:var(--ink); color:var(--paper); }
+  .cta-band .wrap { padding:56px 32px; display:flex; justify-content:space-between; align-items:center; gap:30px; flex-wrap:wrap; }
+  .cta-band h2 { font-family:"Fraunces",serif; font-weight:560; font-size:clamp(28px,4vw,44px); }
+  .cta-band .mono { color:#b7ae98; }
+  .cta-band a { font-family:"IBM Plex Mono",monospace; font-size:13px; letter-spacing:.1em; text-decoration:none; border:1.5px solid var(--paper); padding:15px 30px; color:var(--paper); transition:all .15s; box-shadow:4px 4px 0 var(--accent); }
+  .cta-band a:hover { background:var(--paper); color:var(--ink); box-shadow:0 0 0 var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="mast">
+  <div class="wrap">
+    <span class="brand">LEGI<em>◆</em>N — FIELD MANUAL</span>
+    <div class="meta">
+      <span>EDITION <b>II</b></span>
+      <span>LOCAL TIME <b id="clock">--:--:--</b></span>
+      <span>PARTICIPANTS ONLINE <b id="pcount">4</b></span>
+      <span><b>APACHE-2.0</b></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap hero-grid">
+  <div>
+    <div class="doc-label">A PERSISTENT PROCESS · NOT A CHAT APP</div>
+    <h1>A collective is<br><span class="strike">a chat log.</span><br>An organism.</h1>
+    <p class="lede">Legion hosts <b>agents, services, and humans</b> as equal participants in one always-on process. They message, delegate, and approve through a single model. You're looking at one now — <b>the rail on the right is live.</b> Register below and it will notice you.</p>
+
+    <div class="ticket">
+      <div class="ticket-head"><span>PARTICIPANT REGISTRATION</span><b>FORM 1-A</b></div>
+      <div class="ticket-body">
+        <div class="ticket-row">
+          <input id="callsign" placeholder="choose a callsign…" maxlength="18" spellcheck="false">
+          <button id="regBtn">REGISTER</button>
+        </div>
+        <div class="stamp" id="stamp">
+          <span class="seal" id="sealText">REGISTERED</span>
+          <span id="stampNote">via browser connector · welcome to the collective</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="rail">
+    <div class="console">
+      <div class="console-head"><span>COLLECTIVE FEED</span><span class="live">LIVE</span></div>
+      <div class="feed" id="feed"></div>
+      <div class="ask" id="ask">
+        <div class="q">◆ APPROVAL REQUESTED — addressed to <span id="askWho">you</span></div>
+        <div style="color:#b7ae98;margin-bottom:9px" id="askWhat">deploy workspace-v2 → production (tool: deploy_service)</div>
+        <div class="btns"><button class="yes" id="askYes">APPROVE</button><button class="no" id="askNo">DENY</button></div>
+      </div>
+      <div class="treebox">
+        <div class="lbl">CONVERSATION TREE — GROWING</div>
+        <canvas id="tree"></canvas>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="manual">
+  <div class="wrap">
+    <div class="entry">
+      <div class="no">§1<small>THE HUB</small></div>
+      <div><h2>One verb: <code>communicate</code></h2>
+        <p>Every participant talks through the same call — synchronous, blocking until an answer, or fire-and-forget with a <code>replyTo</code>. There is no session layer, no special routing for humans. The router cannot tell your cursor from an agent's loop.</p>
+        <div class="marginal">marginalia: the feed on the right uses this exact primitive — everything you saw is one mechanism.</div>
+      </div>
+    </div>
+    <div class="entry">
+      <div class="no">§2<small>MEMORY SHAPE</small></div>
+      <div><h2>Conversations are trees</h2>
+        <p>Messages link by <code>parentId</code>; the active chain is walked from the head. Edit and re-run forks a branch. Prune excludes without destroying. Compact summarizes a range. History is never lost — it grows.</p>
+        <div class="marginal">watch the tree under the feed: forks are edits, dissolves are prunes.</div>
+      </div>
+    </div>
+    <div class="entry">
+      <div class="no">§3<small>FAILURE POSTURE</small></div>
+      <div><h2>Authority fails closed</h2>
+        <p><code>AuthEngine</code> is a pure predicate: <code>auto</code>, <code>requires_approval</code>, or <code>hidden</code>. Requests needing authority bubble up the caller chain to an authorized approver — possibly a human at a boundary connector — or nothing happens.</p>
+        <div class="marginal">that approval card in the rail? it bubbled all the way to your browser. deny it and watch the collective adapt.</div>
+      </div>
+    </div>
+    <div class="entry">
+      <div class="no">§4<small>ADMINISTRATION</small></div>
+      <div><h2>Management is just tool calls</h2>
+        <p><code>create_agent</code>, <code>retire_agent</code>, policy edits — ordinary authorized tools over one gateway. No CRUD surface to secure, no second permission system to drift out of sync.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cta-band">
+  <div class="wrap">
+    <div>
+      <h2>Assemble your own.</h2>
+      <div class="mono">NODE 20+ · ONE PROCESS · ANY PROVIDERS</div>
+    </div>
+    <a href="#">READ THE MANUAL →</a>
+  </div>
+</div>
+<div class="colo">
+  <div class="wrap">
+    <span>LEGION · PROGRADE LABS</span>
+    <span><a href="#">GITHUB</a> · <a href="#">DOCS</a> · <a href="#">DISCUSSIONS</a></span>
+  </div>
+</div>
+
+<script>
+  // ---------- clock ----------
+  const clock = document.getElementById('clock');
+  setInterval(()=>{ clock.textContent = new Date().toLocaleTimeString('en-GB'); }, 1000);
+  clock.textContent = new Date().toLocaleTimeString('en-GB');
+
+  // ---------- conversation tree canvas ----------
+  const tc = document.getElementById('tree'), tx = tc.getContext('2d');
+  let nodes = [], W2, H2;
+  function tresize(){ W2 = tc.width = tc.offsetWidth * devicePixelRatio; H2 = tc.height = 110 * devicePixelRatio; }
+  tresize(); addEventListener('resize', tresize);
+  const root = { x:.06, y:.5, born:performance.now(), parent:null, dead:false };
+  nodes.push(root);
+  function grow(from){
+    const n = { parent:from, born:performance.now(), dead:false,
+      x: Math.min(.97, from.x + .11 + Math.random()*.05),
+      y: Math.max(.1, Math.min(.9, from.y + (Math.random()*.5 - .25))) };
+    nodes.push(n); return n;
+  }
+  function drawTree(t){
+    tx.clearRect(0,0,W2,H2);
+    for (const n of nodes){
+      if (n.parent){
+        const px = n.parent.x*W2, py = n.parent.y*H2, gx = n.x*W2, gy = n.y*H2;
+        const p = Math.min(1,(t-n.born)/900);
+        const e = 1-Math.pow(1-p,3);
+        tx.strokeStyle = n.dead ? 'rgba(120,110,90,.15)' : 'rgba(232,73,29,'+(.28+.3*e)+')';
+        tx.lineWidth = 1.2*devicePixelRatio;
+        tx.beginPath(); tx.moveTo(px,py);
+        tx.bezierCurveTo(px+(gx-px)*.5, py, px+(gx-px)*.5, gy, px+(gx-px)*e, py+(gy-py)*e);
+        tx.stroke();
+        const age = Math.min(1,(t-n.born)/900);
+        tx.fillStyle = n.dead ? 'rgba(120,110,90,.2)' : '#e8e2d2';
+        tx.beginPath(); tx.arc(gx*age+px*(1-age), gy*age+py*(1-age), (n===head?3.2:2.2)*devicePixelRatio, 0, 7); tx.fill();
+        if (n===head && !n.dead){
+          const r = (4+2*Math.sin(t/300))*devicePixelRatio;
+          tx.strokeStyle='rgba(232,73,29,.8)'; tx.beginPath(); tx.arc(gx,gy,r,0,7); tx.stroke();
+        }
+      } else {
+        tx.fillStyle='#e8e2d2'; tx.beginPath(); tx.arc(n.x*W2, n.y*H2, 2.6*devicePixelRatio, 0, 7); tx.fill();
+      }
+    }
+    requestAnimationFrame(drawTree);
+  }
+  let head = root;
+  requestAnimationFrame(drawTree);
+
+  // ---------- feed + visitor participation ----------
+  const feed = document.getElementById('feed');
+  const F = (cls, who, text) => {
+    const d = document.createElement('div'); d.className = 'fmsg '+cls;
+    const when = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    if (cls==='sys'){ d.textContent = '── '+text+' ──'; }
+    else { d.innerHTML = '<span class="who"></span><span class="when">'+when+'</span><br>';
+      d.querySelector('.who').textContent = who; d.appendChild(document.createTextNode(text)); }
+    feed.appendChild(d);
+    while (feed.scrollHeight > feed.clientHeight + 10 && feed.firstChild) feed.firstChild.remove();
+  };
+  let visitor = null, asked = false;
+  const script = [
+    ['service','ci-watch','nightly index rebuild → phase 2/4'],
+    ['agent','archivist','indexed 41,203 documents. anomaly: 3 orphans'],
+    ['agent','archivist','@scout reviewing orphan cluster — probable duplicate import'],
+    ['agent','scout','confirmed: duplicates of import batch #88. proposing merge'],
+    ['sys','' ,'scout → archivist: merge requires elevated write (policy)'],
+  ];
+  let si = 0;
+  function tick(){
+    if (si < script.length){ const [c,w,t] = script[si++]; F(c,w,t); if(si===2) grow(head); if(si===4){ head=grow(head); } }
+    else if (visitor && !asked){
+      asked = true;
+      F('agent','scout', visitor + ', you have boundary authority — routing approval to you');
+      setTimeout(()=>{ document.getElementById('askWho').textContent = visitor; document.getElementById('ask').classList.add('show'); }, 700);
+    } else {
+      const idle = [['service','sentinel','collective nominal · '+ (visitor? '5':'4') +' participants'],['agent','archivist','compaction: pruning stale branch (recoverable)'],['sys','','auto-compaction agent merged range [12–19] → summary node']];
+      const [c,w,t] = idle[(si++) % idle.length]; F(c,w,t); grow(head);
+      if (Math.random()<.3){ nodes.forEach(n=>{ if(Math.random()<.18) n.dead=true; }); }
+    }
+  }
+  F('sys','','collective online · 4 participants');
+  grow(head); head = grow(head); grow(head); grow(head); // pre-seed so the tree never looks empty
+  tick(); const feedTimer = setInterval(tick, 3400);
+
+  // ---------- onboarding ----------
+  const visitorName = () => visitor;
+  document.getElementById('regBtn').addEventListener('click', ()=>{
+    const v = document.getElementById('callsign').value.trim() || 'visitor-' + Math.floor(Math.random()*900+100);
+    if (visitor) return;
+    visitor = v;
+    const seal = document.getElementById('sealText'); seal.textContent = 'REGISTERED';
+    document.getElementById('stampNote').textContent = 'participant "'+v+'" · via browser connector · boundary authority granted';
+    document.getElementById('stamp').classList.add('show');
+    document.getElementById('pcount').textContent = '5';
+    F('sys','','connector: browser — new participant "'+v+'"');
+    setTimeout(()=> F('visitor', v, 'joined the collective'), 600);
+    setTimeout(()=> F('agent','scout','welcome, ' + v + '. catching you up: index rebuild at phase 2'), 1600);
+    setTimeout(()=> F('agent','archivist','hello ' + v + ' — 41k documents, 3 anomalies. nothing you need to lose sleep over'), 2900);
+  });
+  document.getElementById('callsign').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('regBtn').click(); });
+
+  const answer = (yes) => {
+    const ask = document.getElementById('ask'); ask.classList.remove('show');
+    if (visitor) F('visitor', visitor, yes ? 'approved: merge duplicate import batch #88' : 'denied: merge — requesting alternative');
+    setTimeout(()=> F('agent','scout', yes ? 'merge executed. orphans resolved ✓' : 'understood — quarantining instead, no writes'), 900);
+    head = grow(head);
+    setTimeout(()=> head = grow(head), 800);
+  };
+  document.getElementById('askYes').addEventListener('click', ()=>answer(true));
+  document.getElementById('askNo').addEventListener('click', ()=>answer(false));
+
+  // ---------- scroll reveals ----------
+  const io = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting) e.target.classList.add('vis'); }),{threshold:.15});
+  document.querySelectorAll('.entry').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>

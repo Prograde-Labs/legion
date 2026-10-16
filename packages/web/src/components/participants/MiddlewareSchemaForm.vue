@@ -117,7 +117,7 @@ function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
 <template>
   <div class="space-y-3">
     <div v-for="[name, node] in fields" :key="name">
-      <label class="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-navy-400">
+      <label class="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-muted">
         {{ fieldLabel(name, node) }}
       </label>
       <MiddlewareSchemaForm
@@ -132,7 +132,7 @@ function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
         v-else-if="node.format === 'credential-reference'"
         :data-field="fieldPath(name)"
         :value="objectValue[name] ?? ''"
-        class="w-full rounded border border-navy-600 bg-navy-950 px-2 py-1.5 text-xs text-slate-200"
+        class="w-full rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
         @change="update(name, node, ($event.target as HTMLSelectElement).value)"
       >
         <option value="">Select credential...</option>
@@ -144,7 +144,7 @@ function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
         v-else-if="node.enum"
         :data-field="fieldPath(name)"
         :value="objectValue[name] ?? ''"
-        class="w-full rounded border border-navy-600 bg-navy-950 px-2 py-1.5 text-xs text-slate-200"
+        class="w-full rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
         @change="update(name, node, ($event.target as HTMLSelectElement).value)"
       >
         <option v-for="option in node.enum" :key="option" :value="option">{{ option }}</option>
@@ -164,7 +164,7 @@ function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
         :max="node.maximum"
         :step="node.type === 'integer' ? 1 : 'any'"
         :value="objectValue[name] ?? ''"
-        class="w-full rounded border border-navy-600 bg-navy-950 px-2 py-1.5 text-xs text-slate-200"
+        class="w-full rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
         @input="update(name, node, ($event.target as HTMLInputElement).value)"
       />
       <input
@@ -176,13 +176,13 @@ function update(name: string, node: MiddlewareSchemaNode, raw: JSONValue) {
             ? (objectValue[name] as string[]).join(', ')
             : (objectValue[name] ?? '')
         "
-        class="w-full rounded border border-navy-600 bg-navy-950 px-2 py-1.5 text-xs text-slate-200"
+        class="w-full rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
         @input="update(name, node, ($event.target as HTMLInputElement).value)"
       />
       <p v-else class="text-xs text-amber-400">
         {{ fieldLabel(name, node) }} uses unsupported schema type {{ node.type }}
       </p>
-      <p v-if="node.description" class="mt-1 text-[10px] text-navy-500">{{ node.description }}</p>
+      <p v-if="node.description" class="mt-1 text-[10px] text-faint">{{ node.description }}</p>
     </div>
     <template v-if="!path">
       <p v-for="error in errors" :key="error" class="text-[10px] text-red-400">{{ error }}</p>

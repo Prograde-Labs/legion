@@ -15,7 +15,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      use: {
+        browserName: 'chromium',
+        // Container /dev/shm is small (1G); without this the renderer host
+        // intermittently crashes under memory pressure ("Target crashed").
+        launchOptions: { args: ['--disable-dev-shm-usage'] },
+      },
     },
   ],
 });

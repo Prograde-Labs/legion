@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion — The Grove</title>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,500;1,300&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  :root { --bg:#0a0f0c; --ink:#dcebe0; --dim:#7d9384; --teal:#5cffd4; --moss:#9dd66b; --warm:#ffc163; --line:#1c2b21; }
+  html { scroll-behavior:smooth; }
+  body { background:var(--bg); color:var(--ink); font-family:"Spectral",serif; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  .mono { font-family:"IBM Plex Mono",monospace; }
+  .wrap { max-width:1240px; margin:0 auto; padding:0 30px; }
+
+  nav { display:flex; justify-content:space-between; align-items:center; padding:22px 0; }
+  .logo { font-family:"IBM Plex Mono",monospace; font-weight:600; letter-spacing:.3em; font-size:14px; color:var(--ink); text-decoration:none; }
+  .logo i { font-style:normal; color:var(--teal); }
+  nav a.lk { font-family:"IBM Plex Mono",monospace; color:var(--dim); text-decoration:none; font-size:12px; letter-spacing:.14em; margin-left:26px; }
+  nav a.lk:hover { color:var(--teal); }
+
+  /* ---------- grove hero ---------- */
+  .hero { text-align:center; padding:34px 0 0; position:relative; }
+  .eyebrow { font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.3em; color:var(--moss); margin-bottom:18px; }
+  h1 { font-size:clamp(40px,5.8vw,72px); font-weight:300; line-height:1.08; letter-spacing:-.01em; }
+  h1 em { font-style:italic; color:var(--teal); font-weight:300; }
+  .hero p.sub { color:var(--dim); font-size:17.5px; line-height:1.7; max-width:600px; margin:20px auto 0; }
+  .hero p.sub b { color:var(--ink); font-weight:500; }
+
+  .stage { position:relative; margin:26px auto 0; max-width:1100px; }
+  #grove { display:block; width:100%; height:520px; cursor:crosshair; }
+  .hud { position:absolute; display:flex; gap:10px; left:50%; transform:translateX(-50%); bottom:14px; }
+  .hud button { font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.1em; padding:11px 20px; background:rgba(10,15,12,.85); border:1px solid var(--line); color:var(--ink); cursor:pointer; transition:all .15s; }
+  .hud button:hover { border-color:var(--teal); color:var(--teal); }
+  .hud button:disabled { opacity:.35; cursor:default; }
+  .hud button.warn:hover { border-color:var(--warm); color:var(--warm); }
+  .hud button.on { border-color:var(--warm); color:var(--warm); box-shadow:0 0 16px rgba(255,193,99,.25); }
+  .sel-tag { position:absolute; top:14px; left:50%; transform:translateX(-50%); font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.14em; color:var(--dim); background:rgba(10,15,12,.8); border:1px solid var(--line); padding:6px 12px; display:none; }
+  .sel-tag.show { display:block; }
+  .sel-tag b { color:var(--teal); font-weight:500; }
+
+  .logline { font-family:"IBM Plex Mono",monospace; text-align:center; font-size:12px; color:var(--dim); letter-spacing:.08em; margin-top:10px; min-height:18px; transition:color .3s; }
+  .logline.flash { color:var(--teal); }
+
+  .tip { position:fixed; z-index:50; pointer-events:none; background:#0e1712; border:1px solid var(--line); border-left:3px solid var(--teal); color:var(--ink); font-size:13px; line-height:1.5; padding:10px 14px; max-width:300px; display:none; box-shadow:0 8px 30px rgba(0,0,0,.5); }
+  .tip .who { font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.12em; color:var(--moss); display:block; margin-bottom:4px; }
+
+  /* ---------- chapters ---------- */
+  .chapters { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); margin:70px 0 0; }
+  @media (max-width:900px){ .chapters { grid-template-columns:1fr; } }
+  .chap { background:var(--bg); padding:36px 30px 40px; }
+  .chap .glyph { font-family:"IBM Plex Mono",monospace; font-size:22px; color:var(--teal); margin-bottom:16px; }
+  .chap h3 { font-weight:500; font-size:21px; margin-bottom:10px; }
+  .chap p { color:var(--dim); font-size:14.5px; line-height:1.7; }
+  .chap .foot { margin-top:16px; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.14em; color:var(--moss); }
+
+  .cta { text-align:center; padding:90px 0 30px; }
+  .cta h2 { font-weight:300; font-size:clamp(30px,4.4vw,48px); }
+  .cta h2 em { font-style:italic; color:var(--teal); }
+  .cta .mono { color:var(--dim); font-size:12.5px; letter-spacing:.16em; margin:16px 0 30px; }
+  .btns { display:flex; gap:14px; justify-content:center; }
+  .btn { font-family:"IBM Plex Mono",monospace; font-size:13.5px; letter-spacing:.08em; padding:15px 32px; text-decoration:none; border:1px solid var(--teal); color:var(--teal); transition:all .18s; }
+  .btn:hover { background:rgba(92,255,212,.08); box-shadow:0 0 26px rgba(92,255,212,.25); }
+  .btn.solid { background:var(--teal); color:#04120d; font-weight:600; }
+  .btn.solid:hover { box-shadow:0 0 34px rgba(92,255,212,.5); }
+  footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:40px 0 46px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.12em; color:var(--dim); border-top:1px solid var(--line); margin-top:70px; }
+  footer a { color:var(--dim); text-decoration:none; }
+  footer a:hover { color:var(--teal); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="logo" href="#">LEGI<i>◆</i>N</a>
+    <div>
+      <a class="lk" href="#chapters">HOW IT WORKS</a>
+      <a class="lk" href="#">DOCS</a>
+      <a class="lk" href="#">GITHUB</a>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <div class="eyebrow">MULTI-AGENT COLLECTIVE FRAMEWORK</div>
+    <h1>Conversation is a <em>living tree.</em></h1>
+    <p class="sub">In Legion, messages don't pile into a scrollback — they <b>grow</b>. Edit a message and a branch forks. Prune one and it dissolves, recoverable. <b>This grove is that model.</b> Click a node. Fork it. Prune it. History never dies.</p>
+  </div>
+
+  <div class="stage">
+    <canvas id="grove"></canvas>
+    <div class="sel-tag" id="selTag">SELECTED <b id="selName">—</b></div>
+    <div class="hud">
+      <button id="forkBtn" disabled>⑂ FORK BRANCH</button>
+      <button id="pruneBtn" class="warn" disabled>✂ PRUNE SUBTREE</button>
+      <button id="regrowBtn">↻ RESET GROVE</button>
+    </div>
+  </div>
+  <div class="logline" id="logline">the grove is growing on its own — an agent is editing messages upstream</div>
+
+  <div class="chapters" id="chapters">
+    <div class="chap"><div class="glyph">⑂</div><h3>Branching, not scrolling</h3><p>Every message links to a parent. Re-running an answer forks a branch; compaction folds a range into a summary node. Nothing is ever overwritten.</p><div class="foot">TRY IT — FORK ANY NODE ABOVE</div></div>
+    <div class="chap"><div class="glyph">✂</div><h3>Prune ≠ destroy</h3><p>Pruned subtrees leave the active chain but remain fully recoverable in storage. The grove shows them as ghosts until they regrow.</p><div class="foot">PRUNE, THEN WATCH THE GHOST</div></div>
+    <div class="chap"><div class="glyph">✉</div><h3>One verb for every voice</h3><p>Agents, services, and humans all speak through <span class="mono" style="font-size:.85em">communicate</span> — sync or fire-and-forget. The pulses you see traveling the branches are messages in flight.</p><div class="foot">APACHE-2.0 · NODE 20+</div></div>
+  </div>
+
+  <div class="cta">
+    <h2>Grow a collective <em>of your own.</em></h2>
+    <div class="mono">ONE PROCESS · ANY PROVIDERS · CONNECTORS FOR WEB / TEAMS / SLACK</div>
+    <div class="btns">
+      <a class="btn solid" href="#">PLANT YOURS →</a>
+      <a class="btn" href="#">READ THE DOCS</a>
+    </div>
+  </div>
+
+  <footer>
+    <span>LEGION · PROGRADE LABS</span>
+    <span><a href="#">GITHUB</a> · <a href="#">DOCS</a> · <a href="#">DISCUSSIONS</a></span>
+  </footer>
+</div>
+
+<div class="tip" id="tip"><span class="who" id="tipWho"></span><span id="tipText"></span></div>
+
+<script>
+  // ============ the grove — interactive branching conversation tree ============
+  const cv = document.getElementById('grove'), cx = cv.getContext('2d');
+  let W, H, dpr;
+  const NODES = [];
+  let selected = null, prunedCount = 0, forkCount = 0;
+  const MSGS = [
+    ['root · you',        'kick off the Q3 incident review'],
+    ['archivist · agent', 'pulling timeline from the last 90 days…'],
+    ['sentinel · service','index rebuild finished — 0 anomalies'],
+    ['archivist · agent', 'draft: root cause was config drift on node-7'],
+    ['scout · agent',     'disputing that — drift was a symptom, not cause'],
+    ['archivist · agent', 'fair. re-running the analysis with your hypothesis'],
+    ['scout · agent',     'merged both findings into one narrative ✓'],
+    ['sentinel · service','compaction available: range [2–5] → summary'],
+    ['archivist · agent', 'compacted. full branch still recoverable'],
+  ];
+  function makeNode(parent, gen){
+    const id = NODES.length;
+    const m = MSGS[id % MSGS.length];
+    const n = { id, parent, gen: parent ? parent.gen+1 : 0, msg: m[1], who: m[0],
+      born: performance.now(), dead:false, x:0, y:0, pulse: Math.random()*-40 };
+    NODES.push(n); return n;
+  }
+  function layout(){
+    // assign positions: depth → vertical, breadth spread per parent
+    const byGen = {};
+    NODES.forEach(n => { (byGen[n.gen] = byGen[n.gen] || []).push(n); });
+    const gens = Object.keys(byGen).map(Number).sort((a,b)=>a-b);
+    const maxGen = gens[gens.length-1];
+    gens.forEach(g => {
+      const arr = byGen[g];
+      arr.forEach((n,i) => {
+        n.x = (i+1)/(arr.length+1);
+        n.y = 0.93 - (g/(maxGen+0.6))*0.82;
+      });
+    });
+  }
+  function seed(){
+    NODES.length = 0; prunedCount = 0; forkCount = 0; selected = null;
+    const root = makeNode(null, 0);
+    const a = makeNode(root), b = makeNode(root), c = makeNode(root);
+    makeNode(a); makeNode(a); makeNode(b); makeNode(c);
+    makeNode(NODES[4]); makeNode(NODES[6]); makeNode(NODES[6]);
+    layout();
+  }
+  function resize(){
+    dpr = devicePixelRatio;
+    W = cv.width = cv.offsetWidth * dpr; H = cv.height = 520 * dpr;
+  }
+  resize(); addEventListener('resize', ()=>{ resize(); });
+  seed();
+
+  function edge(ax,ay,bx,by,t,alpha,col){
+    const px = ax+(bx-ax)*.5;
+    cx.strokeStyle = col.replace('$A', alpha*(t));
+    cx.lineWidth = 1.3*dpr;
+    cx.beginPath(); cx.moveTo(ax,ay);
+    cx.bezierCurveTo(px,ay,px,by,bx*t+ax*(1-t),ay+(by-ay)*t);
+    cx.stroke();
+  }
+  function draw(now){
+    cx.clearRect(0,0,W,H);
+    // ground line
+    cx.strokeStyle = 'rgba(125,147,132,.25)'; cx.lineWidth = 1*dpr;
+    cx.beginPath(); cx.moveTo(W*.04,H*.94); cx.lineTo(W*.96,H*.94); cx.stroke();
+    for (const n of NODES){
+      if (!n.parent) continue;
+      const grow = Math.min(1,(now-n.born)/1100), e = 1-Math.pow(1-grow,3);
+      const ax = n.parent.x*W, ay = n.parent.y*H, bx = n.x*W, by = n.y*H;
+      edge(ax,ay,bx,by,e, n.dead ? .10 : .34, n.dead ? 'rgba(255,193,99,$A)' : 'rgba(92,255,212,$A)');
+      // traveling pulse (message in flight)
+      n.pulse += .012; if (n.pulse > 1.4) n.pulse = -Math.random()*30;
+      if (n.pulse >= 0 && n.pulse <= 1 && !n.dead){
+        const t = e*n.pulse, px = ax+(bx-ax)*t, py = ay+(by-ay)*t;
+        cx.fillStyle = 'rgba(157,214,107,.9)';
+        cx.beginPath(); cx.arc(px,py,1.8*dpr,0,7); cx.fill();
+      }
+      if (e >= 1){
+        const r = (n===selected ? 6.5 : 4) * dpr;
+        cx.fillStyle = n.dead ? 'rgba(255,193,99,.16)' : (n===selected ? '#5cffd4' : '#dcebe0');
+        cx.beginPath(); cx.arc(bx,by,r,0,7); cx.fill();
+        if (n===selected){ cx.strokeStyle='rgba(92,255,212,.6)'; cx.lineWidth=1.2*dpr;
+          cx.beginPath(); cx.arc(bx,by,r+5*dpr+Math.sin(now/240)*1.6*dpr,0,7); cx.stroke(); }
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // auto-growth: occasionally fork from a random live node
+  setInterval(()=>{
+    if (NODES.length > 26) return;
+    const live = NODES.filter(n=>!n.dead && n.gen < 5);
+    const parent = live[Math.floor(Math.random()*live.length)];
+    if (parent){ makeNode(parent); layout(); }
+  }, 3800);
+
+  // hit-testing
+  function pick(ev){
+    const rect = cv.getBoundingClientRect();
+    const mx = (ev.clientX-rect.left)*dpr, my = (ev.clientY-rect.top)*dpr;
+    let best = null, bd = 18*dpr;
+    for (const n of NODES){ if (n.dead) continue;
+      const d = Math.hypot(n.x*W-mx, n.y*H-my);
+      if (d < bd){ bd = d; best = n; } }
+    return best;
+  }
+  cv.addEventListener('click', ev=>{
+    const n = pick(ev);
+    selected = n; updateHUD();
+    if (n) log('selected #'+n.id+' — '+n.who);
+  });
+  cv.addEventListener('mousemove', ev=>{
+    const n = pick(ev); const tip = document.getElementById('tip');
+    if (n){ tip.style.display='block'; tip.style.left=(ev.clientX+16)+'px'; tip.style.top=(ev.clientY+14)+'px';
+      document.getElementById('tipWho').textContent = n.who.toUpperCase();
+      document.getElementById('tipText').textContent = n.msg; }
+    else tip.style.display='none';
+  });
+  cv.addEventListener('mouseleave', ()=>{ document.getElementById('tip').style.display='none'; });
+
+  const forkBtn = document.getElementById('forkBtn'), pruneBtn = document.getElementById('pruneBtn');
+  function updateHUD(){
+    forkBtn.disabled = !selected; pruneBtn.disabled = !selected;
+    const tag = document.getElementById('selTag');
+    if (selected){ tag.classList.add('show'); document.getElementById('selName').textContent = '#'+selected.id+' · '+selected.who; }
+    else tag.classList.remove('show');
+  }
+  function log(t){ const el = document.getElementById('logline'); el.textContent = '▸ '+t; el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'), 1200); }
+
+  forkBtn.addEventListener('click', ()=>{
+    if (!selected) return;
+    const n = makeNode(selected); n.msg = '(edited from #'+selected.id+') '+selected.msg; layout();
+    forkCount++; log('branch forked from #'+selected.id+' — original preserved, history intact');
+  });
+  pruneBtn.addEventListener('click', ()=>{
+    if (!selected) return;
+    const subtree = [selected, ...NODES.filter(n=>{ let p=n.parent; while(p){ if(p===selected) return true; p=p.parent; } return false; })];
+    subtree.forEach(n=>n.dead=true); prunedCount += subtree.length;
+    log('pruned '+subtree.length+' node'+(subtree.length>1?'s':'')+' — marked recoverable in storage, not deleted');
+    if (selected) { selected = null; updateHUD(); }
+    // regrow a ghost after a while (compaction/recall demo)
+    setTimeout(()=>{ subtree.forEach(n=>n.dead=false); log('archivist recovered the pruned branch — nothing is ever lost'); }, 9000);
+  });
+  document.getElementById('regrowBtn').addEventListener('click', ()=>{ seed(); log('grove reset — new conversation'); });
+</script>
+</body>
+</html>

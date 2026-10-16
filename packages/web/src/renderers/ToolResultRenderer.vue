@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { lookupRenderer } from './index.js';
+import { lookupRenderer } from './registry.js';
 
 const props = defineProps<{ tool: string; args?: unknown; result?: unknown }>();
 const renderer = computed(() => lookupRenderer(props.tool));

@@ -1,0 +1,74 @@
+{
+  "records": {},
+  "middlewareActions": {
+    "[\"route-6735c13d-a804-4849-8404-d2abc294343d\",\"conv-1788237930239-18cf8\",\"assistant\",\"auto-naming-1\",\"title:conv-1788237930239-18cf8:assistant:shared\"]": {
+      "operationId": "route-6735c13d-a804-4849-8404-d2abc294343d",
+      "conversationId": "conv-1788237930239-18cf8",
+      "participantId": "assistant",
+      "instanceId": "auto-naming-1",
+      "requestId": "title:conv-1788237930239-18cf8:assistant:shared",
+      "tool": "generate_conversation_title",
+      "args": {
+        "conversationId": "conv-1788237930239-18cf8",
+        "namingParticipantId": "title-agent",
+        "middlewareInstanceId": "auto-naming-1",
+        "parentMessageId": "msg-aef1078d-7a68-4d03-ab7f-59694bd0d4db",
+        "scope": "shared",
+        "attachedParticipantId": "assistant",
+        "maximumLength": 80,
+        "guidance": "Be concise. Capture the main topic or outcome of the conversation in no more than 3 words."
+      },
+      "lifecycle": "completed",
+      "createdAt": "2026-09-01T04:45:30.285Z",
+      "result": {
+        "requestId": "title:conv-1788237930239-18cf8:assistant:shared",
+        "participantId": "assistant",
+        "instanceId": "auto-naming-1",
+        "tool": "generate_conversation_title",
+        "status": "success",
+        "result": {
+          "status": "success",
+          "data": {
+            "title": "[AgentRuntime error: no provider available for model 'qwen/qwen3.6-35b-a3b']",
+            "written": true
+          }
+        }
+      }
+    },
+    "[\"route-9f8ba7cd-009b-4906-b1df-fa8ee5fb7490\",\"conv-1788238078215-d00dc\",\"assistant\",\"auto-naming-1\",\"title:conv-1788238078215-d00dc:assistant:shared\"]": {
+      "operationId": "route-9f8ba7cd-009b-4906-b1df-fa8ee5fb7490",
+      "conversationId": "conv-1788238078215-d00dc",
+      "participantId": "assistant",
+      "instanceId": "auto-naming-1",
+      "requestId": "title:conv-1788238078215-d00dc:assistant:shared",
+      "tool": "generate_conversation_title",
+      "args": {
+        "conversationId": "conv-1788238078215-d00dc",
+        "namingParticipantId": "title-agent",
+        "middlewareInstanceId": "auto-naming-1",
+        "parentMessageId": "msg-1ea9813c-07f6-4e0a-8cdf-f41d54045b0b",
+        "scope": "shared",
+        "attachedParticipantId": "assistant",
+        "maximumLength": 80,
+        "guidance": "Be concise. Capture the main topic or outcome of the conversation in no more than 3 words."
+      },
+      "lifecycle": "completed",
+      "createdAt": "2026-09-01T04:48:00.576Z",
+      "result": {
+        "requestId": "title:conv-1788238078215-d00dc:assistant:shared",
+        "participantId": "assistant",
+        "instanceId": "auto-naming-1",
+        "tool": "generate_conversation_title",
+        "status": "success",
+        "result": {
+          "status": "success",
+          "data": {
+            "title": "[AgentRuntime error: no provider available for model 'qwen/qwen3.6-35b-a3b']",
+            "written": true
+          }
+        }
+      }
+    }
+  },
+  "genericResumes": {}
+}

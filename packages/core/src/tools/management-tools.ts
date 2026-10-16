@@ -856,12 +856,17 @@ export const modifyAgentTool: Tool = {
 
 export const listToolsTool: Tool = {
   name: 'list_tools',
-  description: 'List all tool names registered in the ToolRegistry.',
+  description:
+    'List all registered tool names plus the calling participant’s own tool policy (for UI gating).',
   parameters: { type: 'object', properties: {}, required: [] },
   async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
     const toolRegistry = context.toolRegistry;
     if (!toolRegistry) return { status: 'error', error: 'toolRegistry unavailable' };
-    return { status: 'success', data: toolRegistry.listAll() };
+    const callerPolicy: Record<string, ToolPolicy> = {};
+    for (const [tool, policy] of Object.entries(context.participant.tools ?? {})) {
+      if (policy === 'auto' || policy === 'requires_approval') callerPolicy[tool] = policy;
+    }
+    return { status: 'success', data: { tools: toolRegistry.listAll(), callerPolicy } };
   },
 };
 

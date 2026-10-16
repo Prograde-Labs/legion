@@ -6,19 +6,19 @@ const emit = defineEmits<{ close: [] }>();
   <Teleport to="body">
     <Transition name="slide">
       <div v-if="open" class="fixed inset-0 z-40 flex justify-end">
-        <div class="flex-1 bg-navy-950/60" @click="emit('close')" />
-        <div class="w-96 bg-navy-800 border-l border-navy-600 flex flex-col shadow-2xl">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-navy-600">
+        <div class="flex-1 bg-black/60" @click="emit('close')" />
+        <div class="w-96 bg-surface border-l border-line flex flex-col shadow-2xl">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-line">
             <span class="text-sm font-semibold text-slate-100">{{ title }}</span>
             <button
               @click="emit('close')"
-              class="text-navy-400 hover:text-slate-200 text-lg leading-none"
+              class="text-muted hover:text-slate-200 text-lg leading-none"
             >
               ✕
             </button>
           </div>
           <div class="flex-1 overflow-y-auto"><slot /></div>
-          <div v-if="$slots.footer" class="border-t border-navy-600 bg-navy-900">
+          <div v-if="$slots.footer" class="border-t border-line bg-bg">
             <slot name="footer" />
           </div>
         </div>

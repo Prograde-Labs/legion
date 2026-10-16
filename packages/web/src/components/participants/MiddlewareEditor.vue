@@ -107,14 +107,14 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
     <div
       v-for="(instance, index) in modelValue"
       :key="instance.id"
-      class="rounded-lg border border-navy-700 bg-navy-900 p-3"
+      class="rounded-lg border border-line bg-surface p-3"
     >
       <div class="flex items-center gap-2">
         <div>
           <div class="text-xs font-semibold text-slate-100">
             {{ definitionMap.get(instance.type)?.displayName ?? instance.type }}
           </div>
-          <div class="font-mono text-[10px] text-navy-500">{{ instance.id }}</div>
+          <div class="font-mono text-[10px] text-faint">{{ instance.id }}</div>
         </div>
         <button
           type="button"
@@ -160,17 +160,17 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
         </p>
         <pre
           :data-raw-config="instance.id"
-          class="mt-2 overflow-auto rounded bg-navy-950 p-2 text-[10px] text-slate-400"
+          class="mt-2 overflow-auto rounded bg-surface-raised p-2 text-[10px] text-slate-400"
           >{{ JSON.stringify(instance.config, null, 2) }}</pre>
       </div>
       <template v-else>
-        <label class="mt-3 block text-[10px] uppercase tracking-wider text-navy-400"
+        <label class="mt-3 block text-[10px] uppercase tracking-wider text-muted"
           >Failure mode</label
         >
         <select
           :data-failure="instance.id"
           :value="instance.failureMode ?? ''"
-          class="mt-1 rounded border border-navy-600 bg-navy-950 px-2 py-1 text-xs text-slate-200"
+          class="mt-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs text-slate-200"
           @change="setFailure(index, ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
@@ -208,7 +208,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
     <div class="flex gap-2">
       <select
         v-model="addType"
-        class="flex-1 rounded border border-navy-600 bg-navy-950 px-2 py-1.5 text-xs text-slate-200"
+        class="flex-1 rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
       >
         <option value="">Add middleware...</option>
         <option v-for="definition in definitions" :key="definition.type" :value="definition.type">

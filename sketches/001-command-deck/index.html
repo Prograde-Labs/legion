@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legion — One process. Many minds.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #05080f; --bg2: #0a101d; --panel: #0c1424;
+    --ink: #dbe7f4; --dim: #6f83a0; --line: #1b2a44;
+    --cyan: #38e1ff; --amber: #ffb454; --glow: rgba(56,225,255,.35);
+  }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  .mono { font-family: "JetBrains Mono", monospace; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- nav ---------- */
+  nav { display:flex; align-items:center; justify-content:space-between; padding:20px 0; position:relative; z-index:5; }
+  .logo { font-weight:700; letter-spacing:.35em; font-size:15px; color:var(--ink); text-decoration:none; }
+  .logo b { color: var(--cyan); }
+  nav .links { display:flex; gap:28px; }
+  nav .links a { color:var(--dim); text-decoration:none; font-size:14px; letter-spacing:.08em; }
+  nav .links a:hover { color:var(--cyan); }
+
+  /* ---------- hero ---------- */
+  header { position:relative; padding: 40px 0 30px; }
+  #net { position:absolute; inset:0; z-index:0; opacity:.85; }
+  .hero { position:relative; z-index:2; padding: 90px 0 70px; max-width: 780px; }
+  .eyebrow { font-size:12px; letter-spacing:.3em; color:var(--cyan); margin-bottom:22px; }
+  .eyebrow::before { content:"▸ "; color:var(--amber); }
+  h1 { font-size: clamp(44px, 8vw, 84px); line-height:1.02; font-weight:700; letter-spacing:-.02em; }
+  h1 .thin { color: var(--dim); font-weight:400; }
+  .hero p.sub { margin:26px 0 34px; font-size:19px; line-height:1.6; color:#a9bcd4; max-width:640px; }
+  .cta { display:inline-block; padding:14px 30px; font-size:15px; letter-spacing:.12em; text-decoration:none; margin-right:14px; border:1px solid var(--cyan); color:var(--bg); background:var(--cyan); font-weight:600; clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); transition: box-shadow .2s; }
+  .cta:hover { box-shadow: 0 0 24px var(--glow); }
+  .cta.ghost { background:transparent; color:var(--cyan); }
+  .cta.ghost:hover { background:rgba(56,225,255,.08); }
+
+  /* ---------- status ticker ---------- */
+  .ticker { border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--bg2); padding:10px 0; position:relative; z-index:2; }
+  .ticker .wrap { display:flex; gap:34px; flex-wrap:wrap; font-size:12px; letter-spacing:.14em; color:var(--dim); }
+  .ticker b { color:var(--amber); font-weight:600; }
+  .dot { display:inline-block; width:7px; height:7px; background:#41ff9c; border-radius:50%; margin-right:8px; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  /* ---------- pillars ---------- */
+  section { padding: 80px 0; }
+  .kicker { font-size:12px; letter-spacing:.3em; color:var(--amber); margin-bottom:14px; }
+  h2 { font-size: clamp(28px, 4vw, 40px); letter-spacing:-.01em; margin-bottom:14px; }
+  .lede { color:#a9bcd4; font-size:17px; line-height:1.65; max-width:640px; margin-bottom:44px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap:18px; }
+  .hud { position:relative; background:var(--panel); border:1px solid var(--line); padding:26px 24px 22px; }
+  .hud::before, .hud::after { content:""; position:absolute; width:14px; height:14px; border-color:var(--cyan); border-style:solid; }
+  .hud::before { top:-1px; left:-1px; border-width:2px 0 0 2px; }
+  .hud::after { bottom:-1px; right:-1px; border-width:0 2px 2px 0; }
+  .hud .tag { font-size:11px; letter-spacing:.2em; color:var(--dim); display:block; margin-bottom:12px; }
+  .hud h3 { font-size:18px; margin-bottom:10px; color:#eaf3ff; }
+  .hud p { font-size:14px; line-height:1.6; color:#8fa3bd; }
+  .hud:hover { border-color:#2c4368; }
+
+  /* ---------- terminal ---------- */
+  .term { background:#070d18; border:1px solid var(--line); border-radius:8px; overflow:hidden; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .term-bar { display:flex; align-items:center; gap:8px; padding:12px 16px; background:#0a1120; border-bottom:1px solid var(--line); }
+  .term-bar i { width:11px; height:11px; border-radius:50%; display:inline-block; }
+  .term-bar i:nth-child(1){background:#ff5f57}.term-bar i:nth-child(2){background:#febc2e}.term-bar i:nth-child(3){background:#28c840}
+  .term-bar span { margin-left:10px; font-size:12px; color:var(--dim); letter-spacing:.1em; }
+  .term pre { padding:24px; font-size:13.5px; line-height:1.7; color:#b6c8de; overflow-x:auto; }
+  .kw { color:#ff7ab2; } .str { color:#a5e88b; } .fn { color:var(--cyan); } .cm { color:#5a6f8c; }
+  .cursor { display:inline-block; width:8px; height:15px; background:var(--cyan); vertical-align:-2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  /* ---------- footer cta ---------- */
+  .band { border:1px solid var(--line); background: linear-gradient(180deg, var(--bg2), var(--bg)); padding:56px 40px; text-align:center; position:relative; overflow:hidden; }
+  .band::before { content:""; position:absolute; inset:0; background: radial-gradient(ellipse at 50% 120%, rgba(56,225,255,.12), transparent 60%); }
+  .band h2 { position:relative; }
+  .band p { position:relative; color:#a9bcd4; margin:12px auto 30px; max-width:520px; }
+  footer { padding:34px 0 46px; color:#54688a; font-size:13px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  footer a { color:#7d93b5; text-decoration:none; }
+  footer a:hover { color:var(--cyan); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="logo" href="#">LEGI<b>◆</b>N</a>
+    <div class="links">
+      <a href="#collective">Concepts</a>
+      <a href="#sdk">Service SDK</a>
+      <a href="#">GitHub</a>
+    </div>
+  </nav>
+</div>
+
+<header>
+  <canvas id="net"></canvas>
+  <div class="wrap">
+    <div class="hero">
+      <div class="eyebrow mono">MULTI-AGENT COLLECTIVE FRAMEWORK · APACHE-2.0</div>
+      <h1>One process.<br><span class="thin">Many minds.</span></h1>
+      <p class="sub">Legion is a persistent runtime where AI agents, code services, and humans participate as equals — messaging, delegating, and approving through one communication model. Not a chat app. A collective.</p>
+      <a class="cta" href="#">INITIALIZE →</a>
+      <a class="cta ghost" href="#">VIEW SOURCE</a>
+    </div>
+  </div>
+</header>
+
+<div class="ticker mono">
+  <div class="wrap">
+    <span><i class="dot"></i>COLLECTIVE <b>ONLINE</b></span>
+    <span>AGENTS <b>3</b></span><span>SERVICES <b>2</b></span><span>HUMANS <b>1</b></span>
+    <span>APPROVALS PENDING <b>0</b></span><span>UPTIME <b>41d 07h</b></span>
+  </div>
+</div>
+
+<section id="collective">
+  <div class="wrap">
+    <div class="kicker mono">§ CORE PRIMITIVES</div>
+    <h2>How a collective thinks</h2>
+    <p class="lede">Every participant — silicon or carbon — talks through the same hub. No routing logic branches on what you are. That single design decision is what makes the rest possible.</p>
+    <div class="grid">
+      <div class="hud"><span class="tag mono">PARTICIPANT//AGENT</span><h3>Agents run the loop</h3><p>LLM-driven participants call tools, receive results, and repeat — autonomously, for as long as the work needs.</p></div>
+      <div class="hud"><span class="tag mono">CONVERSATION//TREE</span><h3>Branching message trees</h3><p>Conversations aren't arrays. They're trees — edit, re-run, prune, compact. Every historical node stays recoverable.</p></div>
+      <div class="hud"><span class="tag mono">AUTH//FAIL-CLOSED</span><h3>Approvals bubble up</h3><p>AuthEngine is a pure predicate. Requests that need authority rise to an authorized approver — or fail closed. Never open.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="sdk">
+  <div class="wrap">
+    <div class="kicker mono">§ SERVICE SDK</div>
+    <h2>Any npm module can enlist</h2>
+    <p class="lede">Services are ordinary participants with code for brains. Export an object, get scoped storage, messaging, and tool calls with auth enforced.</p>
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>sentinel-service.ts</span></div>
+      <pre><span class="kw">import type</span> { LegionService } <span class="kw">from</span> <span class="str">'@legion/core'</span>;
+
+<span class="kw">export const</span> <span class="fn">service</span>: LegionService = {
+  <span class="kw">async</span> <span class="fn">start</span>(ctx) {
+    <span class="cm">// watch the collective, act on events</span>
+    ctx.<span class="fn">onMessage</span>(<span class="str">'deploy-finished'</span>, <span class="kw">async</span> (msg) =&gt; {
+      <span class="kw">await</span> ctx.<span class="fn">communicate</span>(<span class="str">'assistant'</span>, <span class="str">`Build ${msg.body.sha} is green ✓`</span>);
+    });
+  },
+  <span class="kw">async</span> <span class="fn">stop</span>() {},
+};<span class="cursor"></span></pre>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="band">
+      <h2>Assemble yours.</h2>
+      <p>Node 20+, one command to boot a collective. Bring your own providers, tools, and humans.</p>
+      <a class="cta" href="#">READ THE DOCS →</a>
+      <a class="cta ghost" href="#">GITHUB</a>
+    </div>
+    <footer>
+      <span>LEGION — Apache-2.0 · Prograde Labs</span>
+      <span><a href="#">GitHub</a> · <a href="#">Docs</a> · <a href="#">Discussions</a></span>
+    </footer>
+  </div>
+</section>
+
+<script>
+  // ---- collective network: participants as nodes, messages as pulses ----
+  const c = document.getElementById('net'), x = c.getContext('2d');
+  let W, H, nodes = [], pulses = [];
+  function resize(){ W = c.width = header = c.offsetWidth = document.querySelector('header').offsetWidth; H = c.height = document.querySelector('header').offsetHeight; }
+  function init(){
+    resize(); nodes = [];
+    const n = Math.min(46, Math.floor(W/26));
+    for (let i=0;i<n;i++) nodes.push({ x: Math.random()*W, y: Math.random()*H, vx:(Math.random()-.5)*.22, vy:(Math.random()-.5)*.22, r: Math.random()*1.6+.9 });
+    setInterval(()=>{ if(nodes.length<2) return;
+      const a = nodes[(Math.random()*nodes.length)|0], b = nodes[(Math.random()*nodes.length)|0];
+      if (a!==b && Math.hypot(a.x-b.x,a.y-b.y) < 260) pulses.push({a,b,t:0});
+    }, 420);
+  }
+  function frame(){
+    x.clearRect(0,0,W,H);
+    for (const p of nodes){ p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>W)p.vx*=-1; if(p.y<0||p.y>H)p.vy*=-1; }
+    x.lineWidth = 1;
+    for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++){
+      const a=nodes[i], b=nodes[j], d=Math.hypot(a.x-b.x,a.y-b.y);
+      if (d<150){ x.strokeStyle = `rgba(56,120,190,${(1-d/150)*.22})`; x.beginPath(); x.moveTo(a.x,a.y); x.lineTo(b.x,b.y); x.stroke(); }
+    }
+    pulses = pulses.filter(p=>p.t<1);
+    for (const p of pulses){
+      p.t += .016;
+      const px = p.a.x + (p.b.x-p.a.x)*p.t, py = p.a.y + (p.b.y-p.a.y)*p.t;
+      x.fillStyle = 'rgba(255,180,84,.9)'; x.beginPath(); x.arc(px,py,2,0,7); x.fill();
+      x.strokeStyle = `rgba(56,225,255,${.5*(1-p.t)})`; x.beginPath(); x.moveTo(p.a.x,p.a.y); x.lineTo(px,py); x.stroke();
+    }
+    for (const p of nodes){ x.fillStyle='rgba(120,190,255,.75)'; x.beginPath(); x.arc(p.x,p.y,p.r,0,7); x.fill(); }
+    requestAnimationFrame(frame);
+  }
+  let header;
+  init(); header = document.querySelector('header'); frame();
+  addEventListener('resize', ()=>{ resize(); });
+</script>
+</body>
+</html>

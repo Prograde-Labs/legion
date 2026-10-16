@@ -1,0 +1,371 @@
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue';
+import { useLegionApi } from '../composables/useLegionApi.js';
+import { useToolStream } from '../composables/useToolStream.js';
+import MessagePart from './MessagePart.vue';
+import ForkControls from './ForkControls.vue';
+import MessageActions from './MessageActions.vue';
+import ApprovalCard from './ApprovalCard.vue';
+import { useApprovals, type PendingApproval } from '../composables/useApprovals.js';
+import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
+import type { MessageData, StreamChunk } from '@legion-collective/types';
+
+// Shape returned by the get_conversation tool (messages already as ordered array).
+// Mirrors useConversation.ts's exported type.
+type MessageWithAlternates = MessageData & {
+  alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
+};
+
+const props = defineProps<{
+  conversationId: string | null;
+  highlight?: { outboundMessageId?: string; replyMessageId?: string } | null;
+}>();
+
+const emit = defineEmits<{
+  open: [tool: string, payload: Record<string, unknown>];
+  created: [conversationId: string];
+}>();
+
+const { execute } = useLegionApi();
+
+const approvals = useApprovals();
+const auth = useAuth();
+const toolAccess = useToolAccess();
+const { participants } = useParticipants();
+
+interface ConversationResponse {
+  id: string;
+  title?: string;
+  messages: MessageWithAlternates[];
+}
+
+const messages = ref<MessageWithAlternates[]>([]);
+const loading = ref(false);
+const error = ref<string | null>(null);
+const streamingText = ref('');
+const streamingReasoning = ref('');
+const isStreaming = ref(false);
+const streamError = ref<string | null>(null);
+const tailEl = ref<HTMLElement | null>(null);
+let loadSeq = 0;
+
+async function load(): Promise<void> {
+  if (!props.conversationId) {
+    messages.value = [];
+    return;
+  }
+  loading.value = true;
+  error.value = null;
+  const seq = ++loadSeq;
+  try {
+    const data = await execute<ConversationResponse>('get_conversation', {
+      conversationId: props.conversationId,
+    });
+    if (seq !== loadSeq) return;
+    messages.value = data.messages;
+  } catch (err) {
+    if (seq === loadSeq) error.value = friendlyToolError(err);
+  } finally {
+    if (seq === loadSeq) loading.value = false;
+  }
+}
+
+function approvalsFor(message: MessageWithAlternates): PendingApproval[] {
+  if (!props.conversationId) return [];
+  return approvals.pending.value.filter(
+    (p) =>
+      p.conversationId === props.conversationId &&
+      (message.toolCalls ?? []).some((tc) => tc.name === p.tool),
+  );
+}
+
+// Compact action (review feedback #11): manual compaction from the thread
+// header, gated by the tool-access gate (Task 2) like MessageActions/ForkControls.
+const canCompact = computed(() => toolAccess.can('compact_conversation') === 'auto');
+const compacting = ref(false);
+const compactConfirm = ref(false);
+// Manual compaction needs an agentId summarizer. Follow the auto-compaction
+// middleware's choice: the first active agent participant. Without one, the
+// request still goes out WITHOUT agentId — the backend rejects agentId-less
+// manual compaction ("Summary agent did not complete") and the raw error text
+// surfaces via the compact-error banner (Task 11 humanizes residual errors).
+async function compact(): Promise<void> {
+  if (!props.conversationId) return;
+  compacting.value = true;
+  error.value = null;
+  try {
+    const agent = participants.value.find((p) => p.type === 'agent' && p.status !== 'retired');
+    const messageIds = messages.value.map((m) => m.id);
+    await execute('compact_conversation', {
+      conversationId: props.conversationId,
+      messageIds,
+      ...(agent ? { agentId: agent.id } : {}),
+    });
+    await load();
+  } catch (err) {
+    error.value = friendlyToolError(err);
+  } finally {
+    compacting.value = false;
+    compactConfirm.value = false;
+  }
+}
+
+function onResolved(approvalId: string): void {
+  approvals.removeLocal(approvalId);
+}
+
+const inlineApprovalIds = computed(
+  () => new Set(messages.value.flatMap((m) => approvalsFor(m).map((a) => a.approvalId))),
+);
+const tailApprovals = computed(() =>
+  props.conversationId
+    ? approvals.pending.value.filter(
+        (p) =>
+          p.conversationId === props.conversationId && !inlineApprovalIds.value.has(p.approvalId),
+      )
+    : [],
+);
+
+// Live tokens: stream the communicate tool the carried-over way. Final-review
+// C1/I1 fix: ChatView drives sends through the exposed send(); conversationId
+// is required here or the backend creates a NEW conversation instead of
+// appending to the viewed one.
+let pendingArgs: { to: string; message: string; conversationId?: string } = {
+  to: '',
+  message: '',
+};
+const stream = useToolStream('communicate', () => pendingArgs, {
+  cancelOnUnmount: false,
+  onChunk: (chunk: StreamChunk) => {
+    if (chunk.type === 'iteration_start') {
+      isStreaming.value = true;
+      streamError.value = null;
+      streamingText.value = '';
+      streamingReasoning.value = '';
+    } else if (chunk.type === 'message_snapshot') {
+      isStreaming.value = true;
+      streamingText.value = chunk.content;
+      streamingReasoning.value = chunk.reasoning ?? '';
+    } else if (chunk.type === 'text_delta') {
+      isStreaming.value = true;
+      streamingText.value += chunk.delta;
+    } else if (chunk.type === 'reasoning_delta') {
+      isStreaming.value = true;
+      streamingReasoning.value += chunk.delta;
+    } else if (chunk.type === 'stream:done' || chunk.type === 'stream:error') {
+      isStreaming.value = false;
+      void load();
+    }
+  },
+});
+
+// stream:done / stream:error are lifecycle chunks consumed inside useToolStream
+// (they never reach onChunk), so surface its terminal state here: error ref on
+// failure; done watch resets isStreaming and reloads the thread so the sent
+// message + final reply render. Cleared on the next iteration_start above.
+watch(stream.done, (isDone) => {
+  if (isDone) {
+    isStreaming.value = false;
+    // Draft send (no conversationId prop): the communicate result carries the
+    // server-created conversation id (same shape useConversation unwraps) —
+    // bubble it up so ChatView can replace the draft route with the real one.
+    const result = stream.result.value as { data?: { conversationId?: string } } | null;
+    const newConvId = result?.data?.conversationId;
+    if (newConvId && !props.conversationId) emit('created', newConvId);
+    void load();
+  }
+});
+watch(stream.error, (err) => {
+  if (err) {
+    streamError.value = friendlyToolError(err);
+    isStreaming.value = false;
+  }
+});
+
+// Step 3d + final-review C1/I1 fix: ChatView drives sends through the exposed
+// send() — it populates pendingArgs and starts the streaming communicate POST
+// (start() IS the send; Composer hands off instead of executing itself).
+// `streaming` covers both the POST window (stream.active) and the chunk window
+// (isStreaming) so Composer's Stop button is visible the whole time.
+defineExpose({
+  cancelStream: (): Promise<void> => stream.cancel(),
+  send: async (to: string, message: string): Promise<void> => {
+    pendingArgs = { to, message, conversationId: props.conversationId ?? undefined };
+    await stream.start();
+  },
+  streaming: computed(() => stream.active.value || isStreaming.value),
+  // Reply target for the CURRENT thread, derived from its own loaded messages
+  // (last non-user message's recipientId == this conversation's other party).
+  // ChatView uses this when the sidebar list hasn't loaded the conversation yet.
+  threadRecipient: computed<string | null>(() => {
+    const self = auth?.participantId?.value;
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const m = messages.value[i];
+      const sender = m.senderId;
+      if (sender && sender !== self) return sender;
+      const recipient = m.recipientId;
+      if (recipient && recipient !== self) return recipient;
+    }
+    return null;
+  }),
+});
+
+watch(
+  () => props.conversationId,
+  () => void load(),
+  { immediate: true },
+);
+
+// Highlight scroll: when a highlight lands, the count watch tail scrolls it into
+// view (guarded so plain tail-scrolls stay unchanged); else plain bottom-scroll.
+watch(
+  () => messages.value.length,
+  async () => {
+    await nextTick();
+    if (tailEl.value) tailEl.value.scrollTop = tailEl.value.scrollHeight;
+    if (props.highlight?.replyMessageId) {
+      tailEl.value?.querySelector('[data-highlight="true"]')?.scrollIntoView({ block: 'center' });
+    }
+  },
+);
+</script>
+
+<template>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div v-if="error" data-test="thread-error" class="px-4 py-2 text-sm text-danger">
+      {{ error }}
+    </div>
+    <div v-if="streamError" data-test="stream-error" class="px-4 py-2 text-sm text-danger">
+      {{ streamError }}
+    </div>
+    <!--
+      Compact action (review feedback #11): manual compaction of the whole
+      active chain through an agent summarizer. Hidden in draft mode (no
+      conversationId) and unless the tool-access gate returns 'auto'.
+    -->
+    <div
+      v-if="conversationId && canCompact"
+      class="flex items-center justify-end gap-2 border-b border-line px-4 py-1.5"
+    >
+      <button
+        v-if="!compactConfirm"
+        type="button"
+        data-test="compact-btn"
+        class="rounded px-2 py-0.5 text-xs text-muted hover:bg-surface"
+        :disabled="compacting"
+        @click="compactConfirm = true"
+      >
+        Compact
+      </button>
+      <template v-else>
+        <span class="text-xs text-muted">Compact history via summarizer?</span>
+        <button
+          type="button"
+          data-test="compact-confirm"
+          class="rounded bg-accent px-2 py-0.5 text-xs text-on-accent"
+          :disabled="compacting"
+          @click="compact()"
+        >
+          Yes
+        </button>
+        <button
+          type="button"
+          data-test="compact-cancel"
+          class="rounded px-2 py-0.5 text-xs text-muted"
+          :disabled="compacting"
+          @click="compactConfirm = false"
+        >
+          Cancel
+        </button>
+      </template>
+    </div>
+    <div ref="tailEl" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div class="mx-auto flex max-w-3xl flex-col gap-4">
+        <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">
+          <div
+            :data-highlight="
+              highlight &&
+              (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId)
+                ? 'true'
+                : undefined
+            "
+            :class="{
+              'ring-1 ring-accent':
+                highlight &&
+                (m.id === highlight.outboundMessageId || m.id === highlight.replyMessageId),
+            }"
+          >
+            <MessagePart :message="m" @open="(tool, payload) => emit('open', tool, payload)">
+              <template v-if="conversationId" #actions="{ message: msg }">
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                  <ForkControls :conversation-id="conversationId" :message="msg" @switched="load" />
+                  <MessageActions
+                    :conversation-id="conversationId"
+                    :message="msg"
+                    @mutated="load"
+                  />
+                </div>
+              </template>
+            </MessagePart>
+            <ApprovalCard
+              v-for="a in approvalsFor(m)"
+              :key="a.approvalId"
+              :approval="a"
+              @resolved="onResolved(a.approvalId)"
+            />
+          </div>
+        </div>
+        <ApprovalCard
+          v-for="a in tailApprovals"
+          :key="a.approvalId"
+          :approval="a"
+          @resolved="onResolved(a.approvalId)"
+        />
+        <div v-if="isStreaming" data-test="streaming-part" class="flex flex-col gap-2">
+          <!--
+            Draft send (no conversationId prop): persisting via load() waits for
+            the whole tool loop, so show the outbound user message immediately —
+            same shape the persisted copy will have — followed by the streaming
+            reply. The highlight prop drives the optimistic outbound's ring only;
+            after load() the persisted copy renders unhighlighted.
+          -->
+          <MessagePart
+            v-if="!props.conversationId && pendingArgs.message"
+            :message="{
+              id: 'streaming-outbound',
+              parentId: null,
+              conversationId: 'streaming',
+              senderId: auth?.participantId?.value ?? 'user',
+              recipientId: pendingArgs.to,
+              role: 'user',
+              content: pendingArgs.message,
+              timestamp: new Date().toISOString(),
+              status: 'active',
+            }"
+            :highlight="props.highlight?.outboundMessageId === 'streaming-outbound'"
+          />
+          <MessagePart
+            v-if="streamingReasoning || streamingText"
+            :message="{
+              id: 'streaming',
+              parentId: null,
+              conversationId: 'streaming',
+              senderId: 'assistant',
+              recipientId: 'user',
+              role: 'assistant',
+              content: streamingText,
+              reasoning: streamingReasoning || undefined,
+              timestamp: new Date().toISOString(),
+              status: 'active',
+            }"
+            :highlight="props.highlight?.replyMessageId === 'streaming'"
+            streaming
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
