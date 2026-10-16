@@ -551,14 +551,26 @@ export async function startExternalConnectors(
     deps.runtimeDeps,
     deps.context,
   );
-  for (const { name, connector } of loaded) {
-    deps.connectorRegistry.register(connector);
-    console.log(`[legion] external connector '${name}' started`);
+  const registered: string[] = [];
+  for (const { connector } of loaded) {
+    try {
+      deps.connectorRegistry.register(connector);
+    } catch (err) {
+      // Duplicate name (e.g. an external shadowing a builtin) is a config error,
+      // not a boot failure — warn and skip so "never throws" holds (spec §4.3).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[legion] external connector '${connector.name}' could not register: ${msg} — skipped`,
+      );
+      continue;
+    }
+    console.log(`[legion] external connector '${connector.name}' started`);
+    registered.push(connector.name);
   }
   if (failures.length > 0) {
     console.warn(`[legion] ${failures.length} external connector(s) failed to load`);
   }
-  return loaded.map((l) => l.name);
+  return registered;
 }
 
 interface MiddlewareToolContextDeps {

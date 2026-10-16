@@ -64,6 +64,20 @@ export default connector;
 
 const BROKEN = 'export syntax !!!';
 
+// Fixture that self-reports the name of a connector already registered in the
+// ConnectorRegistry (e.g. the builtin 'web') — exercises the dup-name guard.
+const NAME_COLLIDER = `
+export function connector() {
+  return {
+    name: 'web',
+    start: async () => {},
+    deliver: async () => {},
+    stop: async () => {},
+  };
+}
+export default connector;
+`;
+
 function runtimeDeps(): ConnectorRuntimeDeps {
   return { collective: stubCollective, secrets: stubSecretStore };
 }
@@ -131,5 +145,45 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('1 external connector(s) failed to load'),
     );
+  });
+
+  it('warns and skips an external whose self-reported name is already registered', async () => {
+    const ws = tmpWorkspace();
+    const colliderFile = writeModule(ws, 'collider', NAME_COLLIDER);
+    const goodFile = writeModule(ws, 'good', CAPTURING);
+    const warnSpy = vi.spyOn(console, 'warn');
+
+    const registry = new ConnectorRegistry();
+    registry.register({
+      name: 'web',
+      start: async () => {},
+      deliver: async () => {},
+      stop: async () => {},
+    } as any);
+
+    const entries: ConnectorConfig[] = [
+      { name: 'web-collider', module: colliderFile }, // config name differs; connector self-reports 'web'
+      { name: 'good', module: goodFile, options: { name: 'good' } },
+    ];
+    // Must not throw — the dup-name collision is a warning, not a boot crash.
+    const names = await startExternalConnectors({
+      entries,
+      workspaceRoot: ws,
+      connectorRegistry: registry,
+      runtimeDeps: runtimeDeps(),
+      context: stubContext,
+    });
+
+    // Returned names reflect successfully registered connectors only.
+    expect(names).toEqual(['good']);
+    // The original builtin stub is still the registered 'web'.
+    expect(registry.get('web')?.name).toBe('web');
+    // The good connector is unaffected.
+    expect(registry.get('good')).toBeDefined();
+    // Collision produced a skip warning mentioning the self-reported name.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("external connector 'web' could not register"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('skipped'));
   });
 });
