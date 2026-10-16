@@ -38,6 +38,8 @@ export interface ConnectorConfig {
   name: string;
   enabled?: boolean;
   defaultParticipantId?: string;
+  /** Module spec (absolute path, workspace-relative path, or npm name) for external connectors. */
+  module?: string;
   options?: Record<string, unknown>;
 }
 
