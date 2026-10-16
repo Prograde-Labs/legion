@@ -11,6 +11,7 @@ import type {
 } from '@legion-collective/types';
 import type { Collective } from '../collective/Collective.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
+import type { SecretStore } from '../secrets/SecretStore.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { Storage } from '../storage/Storage.js';
 import type { ConversationThread } from '../conversation/ConversationThread.js';
@@ -108,6 +109,8 @@ export interface ToolContext {
   approvalContinuationSeed?: AutomationCompactionSeed;
   pendingApprovalRegistry?: PendingApprovalRegistry;
   credentialStore?: CredentialStore;
+  /** Named participant secrets (encrypted at rest, plaintext-retrievable by the host). */
+  secretStore?: SecretStore;
   conversation?: ConversationThread;
   messageRouter?: MessageRouterPort;
   conversationStore?: ConversationStore;

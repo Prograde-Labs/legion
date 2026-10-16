@@ -12,6 +12,8 @@ import type {
 } from '@legion-collective/types';
 import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
+import type { SecretStore } from '../secrets/SecretStore.js';
+import { setSecretTool, listSecretsTool } from './secret-tools.js';
 import type { Collective } from '../collective/Collective.js';
 import type { Storage } from '../storage/Storage.js';
 import type { CredentialStore } from '../credentials/CredentialStore.js';
@@ -1033,6 +1035,8 @@ export const managementTools: Tool[] = [
   listConversationsTool,
   deleteConversationTool,
   queryUsageTool,
+  setSecretTool,
+  listSecretsTool,
 ];
 
 export function createManagementTools(deps: {
@@ -1040,6 +1044,7 @@ export function createManagementTools(deps: {
   storage: Storage;
   toolRegistry: ToolRegistryLike;
   credentialStore?: CredentialStore;
+  secretStore?: SecretStore;
   conversationStore?: ConversationStore;
 }): Tool[] {
   const context = {
@@ -1048,6 +1053,7 @@ export function createManagementTools(deps: {
     storage: deps.storage,
     toolRegistry: deps.toolRegistry,
     credentialStore: deps.credentialStore,
+    secretStore: deps.secretStore,
     conversationStore: deps.conversationStore,
     workspaceRoot: '/tmp',
   } as unknown as ToolContext;
