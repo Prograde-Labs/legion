@@ -28,12 +28,14 @@
 ### Task 1: SecretStore interface + FileSecretStore (encrypt at rest, plaintext out)
 
 **Files:**
+
 - Create: `packages/core/src/secrets/SecretStore.ts`
 - Create: `packages/core/src/secrets/FileSecretStore.ts`
 - Create: `packages/core/src/secrets/FileSecretStore.test.ts`
 - Modify: `packages/core/src/index.ts` (add exports)
 
 **Interfaces:**
+
 - Consumes: existing `Storage` abstraction (`packages/core/src/storage/Storage.ts` — `readJson<T>(key)`, `writeJson(key, data)`; `FileStorage` is constructed with the `.legion` dir).
 - Produces: `interface SecretStore { getSecret(participantId: string, key: string): Promise<string | null>; setSecret(participantId: string, key: string, secret: string): Promise<void>; removeSecret(participantId: string, key: string): Promise<void>; listKeys(participantId: string): Promise<string[]> }` and `class FileSecretStore implements SecretStore { constructor(storage: Storage, keyMaterial: string) }`. Exported from `@legion/core`.
 
@@ -76,9 +78,7 @@ describe('FileSecretStore', () => {
     const dir = mkdtempSync(join(tmpdir(), 'legion-secrets-'));
     const store = new FileSecretStore(new FileStorage(dir), 'a'.repeat(32));
     await store.setSecret('worker', 'telegram-bot/my_bot', 'SUPER-PLAINTEXT-TOKEN');
-    const raw = (
-      await new FileStorage(dir).readJson<Record<string, unknown>>('secrets.json')
-    )!;
+    const raw = (await new FileStorage(dir).readJson<Record<string, unknown>>('secrets.json'))!;
     expect(JSON.stringify(raw)).not.toContain('SUPER-PLAINTEXT-TOKEN');
   });
 
@@ -133,12 +133,7 @@ AES-256-GCM: per-secret random 12-byte IV, auth tag stored alongside; scrypt der
 
 ```ts
 // packages/core/src/secrets/FileSecretStore.ts
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  scryptSync,
-} from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import type { Storage } from '../storage/Storage.js';
 import type { SecretStore } from './SecretStore.js';
 import { nowIso } from '../util/ids.js';
@@ -260,12 +255,14 @@ git commit -m "feat(core): SecretStore — encrypted-at-rest, plaintext-retrieva
 ### Task 2: set_secret / list_secrets operator tools
 
 **Files:**
+
 - Create: `packages/core/src/tools/secret-tools.ts`
 - Create: `packages/core/src/tools/secret-tools.test.ts`
 - Modify: `packages/core/src/tools/management-tools.ts` (import + append to `managementTools` array ~line 1016; add `secretStore?: SecretStore` to `createManagementTools` deps ~line 1038)
 - Modify: `packages/core/src/collective/default-participants.ts` (add both names to `MANAGEMENT_TOOLS` ~line 5)
 
 **Interfaces:**
+
 - Consumes: `SecretStore` from Task 1; `Tool`/`ToolContext` from `./Tool.js` (`ToolResult = {status, data?, error?}`).
 - Produces: `setSecretTool: Tool` (name `set_secret`), `listSecretsTool: Tool` (name `list_secrets`). Tools read `context.secretStore` — so `ToolContext` (in `packages/core/src/tools/Tool.ts`, optional members near `credentialStore?:` line ~110) gains `secretStore?: SecretStore`.
 
@@ -368,7 +365,7 @@ export const setSecretTool: Tool = {
 
 export const listSecretsTool: Tool = {
   name: 'list_secrets',
-  description: "List the secret KEY NAMES held for a participant. Values are never returned.",
+  description: 'List the secret KEY NAMES held for a participant. Values are never returned.',
   parameters: {
     type: 'object',
     properties: { participantId: { type: 'string' } },
@@ -421,6 +418,7 @@ git commit -m "feat(core): set_secret / list_secrets operator tools (values writ
 ### Task 3: External connector loader (pure module)
 
 **Files:**
+
 - Create: `packages/core/src/connectors/ConnectorRuntimeDeps.ts`
 - Create: `packages/core/src/connectors/loader.ts`
 - Create: `packages/core/src/connectors/loader.test.ts`
@@ -428,10 +426,11 @@ git commit -m "feat(core): set_secret / list_secrets operator tools (values writ
 - Modify: `packages/types/src/config.ts` (`ConnectorConfig` gains `module?: string`)
 
 **Interfaces:**
+
 - Consumes: `Connector` from `./Connector.js`; `Collective` (structural: `list()`, `get()`, `findByIdentity()`, `getOrThrow()`); `SecretStore` from Task 1.
 - Produces:
   - `export interface ConnectorRuntimeDeps { collective: CollectiveLike; secrets?: SecretStoreLike }` where `CollectiveLike`/`SecretStoreLike` are structural local interfaces (see code).
-  - `export interface LoadedConnector { name: string; connector: Connector }` 
+  - `export interface LoadedConnector { name: string; connector: Connector }`
   - `export async function loadExternalConnectors(entries: ConnectorConfig[], workspaceRoot: string, deps: ConnectorRuntimeDeps): Promise<{ loaded: LoadedConnector[]; failures: Array<{ name: string; reason: string }> }>`
   - `ConnectorConfig` (types) gains `module?: string`.
 
@@ -481,7 +480,12 @@ describe('loadExternalConnectors', () => {
       { name: 'ext', module: join(ws, 'good', 'index.mjs'), options: { name: 'ext' } },
     ];
     const { loaded, failures } = await loadExternalConnectors(entries, ws, {
-      collective: { list: () => [], get: () => undefined, findByIdentity: () => undefined, getOrThrow: () => undefined },
+      collective: {
+        list: () => [],
+        get: () => undefined,
+        findByIdentity: () => undefined,
+        getOrThrow: () => undefined,
+      },
     });
     expect(failures).toEqual([]);
     expect(loaded).toHaveLength(1);
@@ -494,11 +498,15 @@ describe('loadExternalConnectors', () => {
     writeModule(ws, 'broken', 'export syntax !!!');
     writeModule(ws, 'noexport', 'export const x = 1;');
     writeModule(ws, 'notfn', 'export function connector() { return 42; }');
-    writeModule(ws, 'throwing', `
+    writeModule(
+      ws,
+      'throwing',
+      `
       export function connector() {
         return { name: 't', start: () => { throw new Error('boom'); }, deliver: async () => {}, stop: async () => {} };
       }
-    `);
+    `,
+    );
     const entries: ConnectorConfig[] = [
       { name: 'broken', module: join(ws, 'broken', 'index.mjs') },
       { name: 'noexport', module: join(ws, 'noexport', 'index.mjs') },
@@ -506,7 +514,12 @@ describe('loadExternalConnectors', () => {
       { name: 'throwing', module: join(ws, 'throwing', 'index.mjs') },
     ];
     const { loaded, failures } = await loadExternalConnectors(entries, ws, {
-      collective: { list: () => [], get: () => undefined, findByIdentity: () => undefined, getOrThrow: () => undefined },
+      collective: {
+        list: () => [],
+        get: () => undefined,
+        findByIdentity: () => undefined,
+        getOrThrow: () => undefined,
+      },
     });
     expect(loaded).toEqual([]);
     expect(failures.map((f) => f.name)).toEqual(['broken', 'noexport', 'notfn', 'throwing']);
@@ -519,7 +532,12 @@ describe('loadExternalConnectors', () => {
       { name: 'off', module: 'does-not-matter', enabled: false },
     ];
     const { loaded, failures } = await loadExternalConnectors(entries, tmpWorkspace(), {
-      collective: { list: () => [], get: () => undefined, findByIdentity: () => undefined, getOrThrow: () => undefined },
+      collective: {
+        list: () => [],
+        get: () => undefined,
+        findByIdentity: () => undefined,
+        getOrThrow: () => undefined,
+      },
     });
     expect(loaded).toEqual([]);
     expect(failures).toEqual([]);
@@ -527,19 +545,29 @@ describe('loadExternalConnectors', () => {
 
   it('merges defaultParticipantId into factory options', async () => {
     const ws = tmpWorkspace();
-    const file = writeModule(ws, 'cap', `
+    const file = writeModule(
+      ws,
+      'cap',
+      `
       export function connector(options) {
         return { name: 'cap', captured: options, start: async () => {}, deliver: async () => {}, stop: async () => {} };
       }
-    `);
+    `,
+    );
     const entries: ConnectorConfig[] = [
       { name: 'cap', module: file, defaultParticipantId: 'fallback-user' },
     ];
     const { loaded } = await loadExternalConnectors(entries, ws, {
-      collective: { list: () => [], get: () => undefined, findByIdentity: () => undefined, getOrThrow: () => undefined },
+      collective: {
+        list: () => [],
+        get: () => undefined,
+        findByIdentity: () => undefined,
+        getOrThrow: () => undefined,
+      },
     });
-    expect((loaded[0].connector as unknown as { captured: Record<string, unknown> }).captured)
-      .toMatchObject({ defaultParticipantId: 'fallback-user' });
+    expect(
+      (loaded[0].connector as unknown as { captured: Record<string, unknown> }).captured,
+    ).toMatchObject({ defaultParticipantId: 'fallback-user' });
   });
 
   it('resolves bare npm-style specs via workspace-relative paths', async () => {
@@ -548,7 +576,12 @@ describe('loadExternalConnectors', () => {
     writeFileSync(join(ws, 'local-conn', 'index.mjs'), GOOD);
     const entries: ConnectorConfig[] = [{ name: 'local', module: './local-conn/index.mjs' }];
     const { loaded, failures } = await loadExternalConnectors(entries, ws, {
-      collective: { list: () => [], get: () => undefined, findByIdentity: () => undefined, getOrThrow: () => undefined },
+      collective: {
+        list: () => [],
+        get: () => undefined,
+        findByIdentity: () => undefined,
+        getOrThrow: () => undefined,
+      },
     });
     expect(failures).toEqual([]);
     expect(loaded).toHaveLength(1);
@@ -556,23 +589,38 @@ describe('loadExternalConnectors', () => {
 
   it('duplicate connector names: last-wins with a warning', async () => {
     const ws = tmpWorkspace();
-    const fileA = writeModule(ws, 'a', `
+    const fileA = writeModule(
+      ws,
+      'a',
+      `
       export function connector() {
         return { name: 'dup', first: true, start: async () => {}, deliver: async () => {}, stop: async () => {} };
       }
-    `);
-    const fileB = writeModule(ws, 'b', `
+    `,
+    );
+    const fileB = writeModule(
+      ws,
+      'b',
+      `
       export function connector() {
         return { name: 'dup', first: false, start: async () => {}, deliver: async () => {}, stop: async () => {} };
       }
-    `);
+    `,
+    );
     const { loaded } = await loadExternalConnectors(
       [
         { name: 'dup', module: fileA },
         { name: 'dup', module: fileB },
       ],
       ws,
-      { collective: { list: () => [], get: () => undefined, findByIdentity: () => undefined, getOrThrow: () => undefined } },
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
+      },
     );
     expect(loaded).toHaveLength(1);
     expect((loaded[0].connector as unknown as { first: boolean }).first).toBe(false);
@@ -595,13 +643,20 @@ Expected: FAIL — module not found.
  * connectors must not subscribe to the bus (design decision, spec §4.4).
  */
 export interface CollectiveLike {
-  list(): Array<{ id: string; identities?: Array<{ connector: string; externalId: string }>; status?: string }>;
-  get(participantId: string):
+  list(): Array<{
+    id: string;
+    identities?: Array<{ connector: string; externalId: string }>;
+    status?: string;
+  }>;
+  get(
+    participantId: string,
+  ):
     | { id: string; identities?: Array<{ connector: string; externalId: string }>; status?: string }
     | undefined;
-  findByIdentity(connector: string, externalId: string):
-    | { id: string; identities?: Array<{ connector: string; externalId: string }> }
-    | undefined;
+  findByIdentity(
+    connector: string,
+    externalId: string,
+  ): { id: string; identities?: Array<{ connector: string; externalId: string }> } | undefined;
   getOrThrow(participantId: string): unknown;
 }
 
@@ -634,17 +689,12 @@ export interface LoaderFailure {
   reason: string;
 }
 
-type ConnectorFactory = (
-  options: Record<string, unknown>,
-  deps: ConnectorRuntimeDeps,
-) => Connector;
+type ConnectorFactory = (options: Record<string, unknown>, deps: ConnectorRuntimeDeps) => Connector;
 
 function resolveModuleSpec(spec: string, workspaceRoot: string): string {
   if (isAbsolute(spec)) return pathToFileURL(spec).href;
   try {
-    return pathToFileURL(
-      createRequire(join(workspaceRoot, 'package.json')).resolve(spec),
-    ).href;
+    return pathToFileURL(createRequire(join(workspaceRoot, 'package.json')).resolve(spec)).href;
   } catch {
     return pathToFileURL(resolve(workspaceRoot, spec)).href;
   }
@@ -679,7 +729,12 @@ export async function loadExternalConnectors(
         ? { ...(entry.options ?? {}), defaultParticipantId: entry.defaultParticipantId }
         : (entry.options ?? {});
       const connector = (factory as ConnectorFactory)(factoryOptions, deps);
-      if (!connector || typeof connector.start !== 'function' || typeof connector.deliver !== 'function' || typeof connector.stop !== 'function') {
+      if (
+        !connector ||
+        typeof connector.start !== 'function' ||
+        typeof connector.deliver !== 'function' ||
+        typeof connector.stop !== 'function'
+      ) {
         failures.push({ name, reason: 'factory did not return a Connector (start/deliver/stop)' });
         continue;
       }
@@ -697,7 +752,9 @@ export async function loadExternalConnectors(
   const byName = new Map<string, LoadedConnector>();
   for (const entry of loaded) {
     if (byName.has(entry.connector.name)) {
-      console.warn(`[connector-loader] duplicate connector name '${entry.connector.name}' — last wins`);
+      console.warn(
+        `[connector-loader] duplicate connector name '${entry.connector.name}' — last wins`,
+      );
     }
     byName.set(entry.connector.name, entry);
   }
@@ -748,11 +805,13 @@ git commit -m "feat(core): external connector loader — module resolution, log-
 ### Task 4: Wire the loader + SecretStore into LegionProcess
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts` (step 9 block ~lines 296–344; secrets construction in step 3 area ~line 110)
 - Modify: `packages/runtime/src/LegionProcess.test.ts` if it exists, else add `packages/runtime/src/LegionProcess.loader.test.ts`
 - Modify: `packages/runtime/src/index.ts` if it re-exports for bin (verify only)
 
 **Interfaces:**
+
 - Consumes: `loadExternalConnectors`, `LoadedConnector` (Task 3); `FileSecretStore` (Task 1); `managementTools` deps (Task 2) for context threading; `buildConnectorContext` (exists, ~line 657).
 - Produces: boot-time behavior — every `mergedConfig.connectors` entry with `module` is loaded, started with the shared `ConnectorContext`, and registered; `stop()` stops them. Secret store constructed from `LEGION_SECRETS_KEY` when present.
 
@@ -765,7 +824,9 @@ const secrets = process.env.LEGION_SECRETS_KEY
   ? new FileSecretStore(storage, process.env.LEGION_SECRETS_KEY)
   : undefined;
 if (!secrets) {
-  console.warn('[legion] LEGION_SECRETS_KEY not set — participant secrets (e.g. Telegram bot tokens) unavailable');
+  console.warn(
+    '[legion] LEGION_SECRETS_KEY not set — participant secrets (e.g. Telegram bot tokens) unavailable',
+  );
 }
 ```
 
@@ -872,9 +933,11 @@ git commit -m "feat(runtime): wire external connector loader + SecretStore into 
 ### Task 5: Integration smoke (opt-in, manual verification)
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.integration.test.ts` (add one case, gated like the others)
 
 **Interfaces:**
+
 - Consumes: everything above.
 - Produces: confidence that boot with one external connector config entry registers and starts it, and a broken entry boots anyway.
 
