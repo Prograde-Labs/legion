@@ -27,14 +27,16 @@ function resolveModuleSpec(spec: string, workspaceRoot: string): string {
 }
 
 /**
- * Resolve, import, and construct every configured external connector.
- * Never throws per-entry: broken modules / bad factories / start() failures are
- * reported in `failures` so the process boots without them (log-and-skip).
+ * Resolve, import, construct, and start every configured external connector
+ * with the shared ConnectorContext. Never throws per-entry: broken modules /
+ * bad factories / start() failures are reported in `failures` so the process
+ * boots without them (log-and-skip).
  */
 export async function loadExternalConnectors(
   entries: ConnectorConfig[],
   workspaceRoot: string,
   deps: ConnectorRuntimeDeps,
+  context: ConnectorContext,
 ): Promise<{ loaded: LoadedConnector[]; failures: LoaderFailure[] }> {
   const loaded: LoadedConnector[] = [];
   const failures: LoaderFailure[] = [];
@@ -64,7 +66,7 @@ export async function loadExternalConnectors(
         failures.push({ name, reason: 'factory did not return a Connector (start/deliver/stop)' });
         continue;
       }
-      await connector.start({} as ConnectorContext); // let start-throw become a per-entry failure, not a boot kill
+      await connector.start(context); // let start-throw become a per-entry failure, not a boot kill
       loaded.push({ name, connector });
     } catch (err) {
       failures.push({ name, reason: err instanceof Error ? err.message : String(err) });

@@ -5,8 +5,21 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadExternalConnectors } from './loader.js';
-import type { Connector } from './Connector.js';
+import type { Connector, ConnectorContext } from './Connector.js';
 import type { ConnectorConfig } from '@legion-collective/types';
+
+const stubContext = {
+  submit: async () => undefined,
+  callTool: async () => undefined,
+  streamTool: async () => undefined,
+  registry: {
+    register: () => undefined,
+    getAll: () => [],
+    get: () => undefined,
+    has: () => false,
+    deregister: () => undefined,
+  },
+} as unknown as ConnectorContext;
 
 function tmpWorkspace(): string {
   return mkdtempSync(join(tmpdir(), 'legion-loader-'));
@@ -38,14 +51,19 @@ describe('loadExternalConnectors', () => {
     const entries: ConnectorConfig[] = [
       { name: 'ext', module: join(ws, 'good', 'index.mjs'), options: { name: 'ext' } },
     ];
-    const { loaded, failures } = await loadExternalConnectors(entries, ws, {
-      collective: {
-        list: () => [],
-        get: () => undefined,
-        findByIdentity: () => undefined,
-        getOrThrow: () => undefined,
+    const { loaded, failures } = await loadExternalConnectors(
+      entries,
+      ws,
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
       },
-    });
+      stubContext,
+    );
     expect(failures).toEqual([]);
     expect(loaded).toHaveLength(1);
     expect(loaded[0].name).toBe('ext');
@@ -72,14 +90,19 @@ describe('loadExternalConnectors', () => {
       { name: 'notfn', module: join(ws, 'notfn', 'index.mjs') },
       { name: 'throwing', module: join(ws, 'throwing', 'index.mjs') },
     ];
-    const { loaded, failures } = await loadExternalConnectors(entries, ws, {
-      collective: {
-        list: () => [],
-        get: () => undefined,
-        findByIdentity: () => undefined,
-        getOrThrow: () => undefined,
+    const { loaded, failures } = await loadExternalConnectors(
+      entries,
+      ws,
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
       },
-    });
+      stubContext,
+    );
     expect(loaded).toEqual([]);
     expect(failures.map((f) => f.name)).toEqual(['broken', 'noexport', 'notfn', 'throwing']);
     expect(failures.every((f) => typeof f.reason === 'string' && f.reason.length > 0)).toBe(true);
@@ -90,14 +113,19 @@ describe('loadExternalConnectors', () => {
       { name: 'web' }, // builtin — loader ignores entries without module
       { name: 'off', module: 'does-not-matter', enabled: false },
     ];
-    const { loaded, failures } = await loadExternalConnectors(entries, tmpWorkspace(), {
-      collective: {
-        list: () => [],
-        get: () => undefined,
-        findByIdentity: () => undefined,
-        getOrThrow: () => undefined,
+    const { loaded, failures } = await loadExternalConnectors(
+      entries,
+      tmpWorkspace(),
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
       },
-    });
+      stubContext,
+    );
     expect(loaded).toEqual([]);
     expect(failures).toEqual([]);
   });
@@ -116,14 +144,19 @@ describe('loadExternalConnectors', () => {
     const entries: ConnectorConfig[] = [
       { name: 'cap', module: file, defaultParticipantId: 'fallback-user' },
     ];
-    const { loaded } = await loadExternalConnectors(entries, ws, {
-      collective: {
-        list: () => [],
-        get: () => undefined,
-        findByIdentity: () => undefined,
-        getOrThrow: () => undefined,
+    const { loaded } = await loadExternalConnectors(
+      entries,
+      ws,
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
       },
-    });
+      stubContext,
+    );
     expect(
       (loaded[0].connector as unknown as { captured: Record<string, unknown> }).captured,
     ).toMatchObject({ defaultParticipantId: 'fallback-user' });
@@ -134,14 +167,19 @@ describe('loadExternalConnectors', () => {
     mkdirSync(join(ws, 'local-conn'), { recursive: true });
     writeFileSync(join(ws, 'local-conn', 'index.mjs'), GOOD);
     const entries: ConnectorConfig[] = [{ name: 'local', module: './local-conn/index.mjs' }];
-    const { loaded, failures } = await loadExternalConnectors(entries, ws, {
-      collective: {
-        list: () => [],
-        get: () => undefined,
-        findByIdentity: () => undefined,
-        getOrThrow: () => undefined,
+    const { loaded, failures } = await loadExternalConnectors(
+      entries,
+      ws,
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
       },
-    });
+      stubContext,
+    );
     expect(failures).toEqual([]);
     expect(loaded).toHaveLength(1);
   });
@@ -180,6 +218,7 @@ describe('loadExternalConnectors', () => {
           getOrThrow: () => undefined,
         },
       },
+      stubContext,
     );
     expect(loaded).toHaveLength(1);
     expect((loaded[0].connector as unknown as { first: boolean }).first).toBe(false);
