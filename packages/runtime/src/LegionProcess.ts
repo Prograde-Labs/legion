@@ -10,6 +10,7 @@ import {
   EventBus,
   FileConversationStore,
   FileCredentialStore,
+  FileSecretStore,
   FileStorage,
   RuntimeRegistry,
   MessageRouter,
@@ -32,6 +33,8 @@ import {
   loadWorkspaceMiddleware,
   registerBuiltinMiddleware,
   SkillRegistry,
+  // External connectors
+  loadExternalConnectors,
   // Global tools
   communicateTool,
   approvalResponseTool,
@@ -53,10 +56,13 @@ import {
   type WorkspaceConfig,
   type ToolContext,
   type ConnectorContext,
+  type ConnectorRuntimeDeps,
+  type SecretStore,
   type MiddlewareLogger,
   BOOTSTRAP_OPERATOR_ID,
 } from '@legion-collective/core';
 import type {
+  ConnectorConfig,
   ConversationData,
   LocalConfig,
   RoutingConfig,
@@ -108,6 +114,22 @@ export class LegionProcess {
     const storage = new FileStorage(legionRoot);
     const collective = await Collective.load(storage);
     const credentials = new FileCredentialStore(storage);
+    let secrets: FileSecretStore | undefined;
+    const secretsKey = process.env.LEGION_SECRETS_KEY;
+    if (secretsKey) {
+      try {
+        secrets = new FileSecretStore(storage.scope('secrets'), secretsKey);
+      } catch (err) {
+        console.warn(
+          `[legion] secret store unavailable: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        secrets = undefined;
+      }
+    } else {
+      console.warn(
+        '[legion] LEGION_SECRETS_KEY not set — participant secrets (e.g. Telegram bot tokens) unavailable',
+      );
+    }
     const seeded = await collective.seedDefaultsIfEmpty();
     if (seeded.length > 0) {
       const password = process.env.LEGION_BOOTSTRAP_PASSWORD ?? randomUUID();
@@ -185,6 +207,7 @@ export class LegionProcess {
           messageRouter: router,
           conversationStore: store,
           middlewareValidator: middlewareRegistry,
+          secrets,
           signal,
         }),
     });
@@ -339,9 +362,22 @@ export class LegionProcess {
       serviceManager,
       processManager,
       middlewareRegistry,
+      secrets,
     });
 
     await webConnector.start(connectorContext);
+
+    // Load and start configured external connectors (spec §4.3) — started with the
+    // same shared ConnectorContext as builtins, then registered for routing/stop().
+    if ((mergedConfig.connectors?.length ?? 0) > 0) {
+      await startExternalConnectors({
+        entries: mergedConfig.connectors ?? [],
+        workspaceRoot,
+        connectorRegistry,
+        runtimeDeps: { collective, secrets },
+        context: connectorContext,
+      });
+    }
 
     // ── Step 10: Auto-start services ─────────────────────────────────────────
     await serviceManager.autoStart();
@@ -492,6 +528,39 @@ function validateMiddlewareConfiguration(
   }
 }
 
+/** Deps for the extracted external-connector boot seam (unit-tested directly). */
+export interface StartExternalConnectorsDeps {
+  entries: ConnectorConfig[];
+  workspaceRoot: string;
+  connectorRegistry: ConnectorRegistry;
+  runtimeDeps: ConnectorRuntimeDeps;
+  context: ConnectorContext;
+}
+
+/**
+ * Load, start, and register every configured external connector. Never throws:
+ * per-entry failures are reported by the loader and logged here so the process
+ * boots without them (spec §4.3 log-and-skip).
+ */
+export async function startExternalConnectors(
+  deps: StartExternalConnectorsDeps,
+): Promise<string[]> {
+  const { loaded, failures } = await loadExternalConnectors(
+    deps.entries,
+    deps.workspaceRoot,
+    deps.runtimeDeps,
+    deps.context,
+  );
+  for (const { name, connector } of loaded) {
+    deps.connectorRegistry.register(connector);
+    console.log(`[legion] external connector '${name}' started`);
+  }
+  if (failures.length > 0) {
+    console.warn(`[legion] ${failures.length} external connector(s) failed to load`);
+  }
+  return loaded.map((l) => l.name);
+}
+
 interface MiddlewareToolContextDeps {
   participant: ToolContext['participant'];
   conversation: ConversationThread;
@@ -506,6 +575,7 @@ interface MiddlewareToolContextDeps {
   messageRouter: MessageRouter;
   conversationStore: FileConversationStore;
   middlewareValidator: MiddlewareRegistry;
+  secrets?: SecretStore;
   signal: AbortSignal;
 }
 
@@ -526,6 +596,7 @@ function buildMiddlewareToolContext(deps: MiddlewareToolContextDeps): ToolContex
     messageRouter: deps.messageRouter,
     conversationStore: deps.conversationStore,
     middlewareValidator: deps.middlewareValidator,
+    secretStore: deps.secrets,
     signal: deps.signal,
   };
 }
@@ -651,6 +722,7 @@ interface ConnectorContextDeps {
   serviceManager: ServiceManager;
   processManager: ProcessManager;
   middlewareRegistry: MiddlewareRegistry;
+  secrets?: SecretStore;
 }
 
 /** Build the `ConnectorContext` passed to every connector's `start()`. */
@@ -670,6 +742,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
     serviceManager,
     processManager,
     middlewareRegistry,
+    secrets,
   } = deps;
 
   return {
@@ -692,6 +765,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        secretStore: secrets,
       };
       return router.send({
         senderId: msg.senderId,
@@ -782,6 +856,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        secretStore: secrets,
         cancelStream: opts?.cancelStream,
       };
 
@@ -866,6 +941,7 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         conversationStore: store,
         processManager,
         middlewareValidator: middlewareRegistry,
+        secretStore: secrets,
         signal: opts?.signal,
         cancelStream: opts?.cancelStream,
       };
