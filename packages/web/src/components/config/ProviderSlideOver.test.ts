@@ -60,4 +60,17 @@ describe('ProviderSlideOver provider types', () => {
       expect(wrapper.find('[data-test="provider-error"]').text()).toContain('save failed'),
     );
   });
+
+  it('clears the error banner when the slide-over reopens', async () => {
+    execute.mockRejectedValueOnce(new Error('save failed'));
+    const wrapper = await openForm();
+    await wrapper.find('[data-test="provider-name"]').setValue('local');
+    await wrapper.find('[data-test="provider-save"]').trigger('click');
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-error"]').exists()).toBe(true),
+    );
+    await wrapper.setProps({ open: false });
+    await wrapper.setProps({ open: true });
+    expect(wrapper.find('[data-test="provider-error"]').exists()).toBe(false);
+  });
 });

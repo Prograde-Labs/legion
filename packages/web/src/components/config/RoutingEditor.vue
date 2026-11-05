@@ -13,10 +13,12 @@ const emit = defineEmits<{ saved: [] }>();
 const { execute } = useLegionApi();
 
 const rows = ref<Array<{ model: string; providers: string[] }>>([]);
+const error = ref<string | null>(null);
 
 watch(
   () => props.routing,
   (routing) => {
+    error.value = null;
     rows.value = Object.entries(routing.models ?? {}).map(([model, providers]) => ({
       model,
       providers: [...providers],
@@ -27,7 +29,6 @@ watch(
 
 const newModelId = ref('');
 const saving = ref(false);
-const error = ref<string | null>(null);
 
 function addRow() {
   const id = newModelId.value.trim();

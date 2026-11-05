@@ -147,6 +147,16 @@ describe('runtime tools', () => {
     expect(schema.properties?.type?.enum).toContain('openai-responses');
   });
 
+  it('save_provider rejects unsupported provider types', async () => {
+    const systemStore = makeSystemStore();
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(
+      tool(tools, 'save_provider').execute({ name: 'unsupported', type: 'codex', priority: 1 }),
+    ).resolves.toEqual({ status: 'error', error: expect.stringContaining('codex') });
+    expect(systemStore._store.has('unsupported')).toBe(false);
+  });
+
   it('delete_provider deletes and returns provider name', async () => {
     const systemStore = makeSystemStore([
       { name: 'local', type: 'openai-compatible', priority: 10 },

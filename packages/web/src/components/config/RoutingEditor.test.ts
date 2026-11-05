@@ -40,4 +40,19 @@ describe('RoutingEditor', () => {
       expect(wrapper.find('[data-test="routing-error"]').text()).toContain('routing failed'),
     );
   });
+
+  it('clears the error banner when the routing prop changes', async () => {
+    execute.mockRejectedValueOnce(new Error('routing failed'));
+    const wrapper = mount(RoutingEditor, {
+      props: {
+        scope: 'system',
+        routing: { models: { 'DeepSeek-V4.1-Flash-1017': ['local'] } },
+        providerNames: ['local'],
+      },
+    });
+    await wrapper.find('[data-test="routing-save"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-test="routing-error"]').exists()).toBe(true));
+    await wrapper.setProps({ routing: { models: { other: ['local'] } } });
+    expect(wrapper.find('[data-test="routing-error"]').exists()).toBe(false);
+  });
 });

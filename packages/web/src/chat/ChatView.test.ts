@@ -313,6 +313,64 @@ describe('ChatView draft flow', () => {
     expect(wrapper.find('[data-test="drawer-backdrop"]').exists()).toBe(false);
   });
 
+  it('falls back to a non-agent thread counterpart when the list is empty', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      if (headers['X-Stream-Connection']) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ streamId: 's1', conversationId: 'conv-3' }), {
+            status: 200,
+          }),
+        );
+      }
+      const tool = (JSON.parse(String(init?.body ?? '{}')) as { tool?: string }).tool ?? '';
+      let data: unknown = {};
+      if (tool === 'get_conversation')
+        data = {
+          id: 'conv-3',
+          messages: [
+            {
+              id: 'm1',
+              parentId: null,
+              conversationId: 'conv-3',
+              senderId: 'operator',
+              recipientId: 'svc-1',
+              role: 'user',
+              content: 'ping',
+              timestamp: '2026-10-09T00:00:00Z',
+              status: 'active',
+            },
+            {
+              id: 'm2',
+              parentId: 'm1',
+              conversationId: 'conv-3',
+              senderId: 'svc-1',
+              recipientId: 'operator',
+              role: 'assistant',
+              content: 'pong',
+              timestamp: '2026-10-09T00:00:01Z',
+              status: 'active',
+            },
+          ],
+        };
+      else if (tool === 'list_conversations') data = { conversations: [] };
+      else if (tool === 'list_pending_approvals') data = [];
+      else if (tool === 'list_participants')
+        data = [...AGENTS, { id: 'svc-1', name: 'Service', type: 'service', tools: {} }];
+      return Promise.resolve(
+        new Response(JSON.stringify({ result: { status: 'success', data } }), { status: 200 }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const router = makeRouter();
+    await router.push('/chat/conv-3');
+    await router.isReady();
+    const wrapper = mount(ChatView, { global: { plugins: [router] } });
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent(Composer).props('recipientId')).toBe('svc-1'),
+    );
+  });
+
   it('prefers the thread’s last counterpart for the reply target', async () => {
     const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       const headers = (init?.headers ?? {}) as Record<string, string>;

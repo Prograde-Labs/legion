@@ -25,6 +25,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return;
+    error.value = null;
     name.value = props.provider?.name ?? '';
     type.value = props.provider?.type ?? 'openai-compatible';
     baseUrl.value = props.provider?.baseUrl ?? '';

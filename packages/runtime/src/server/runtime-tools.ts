@@ -8,6 +8,14 @@ import type {
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
 import type { AuthEngine, PendingApprovalRegistry } from '@legion-collective/core';
 
+// Types SystemProviderStore can actually construct; copilot/codex throw
+// NotImplementedError and must not be persisted through save_provider.
+const SUPPORTED_PROVIDER_TYPES = new Set<ProviderConfig['type']>([
+  'openai-compatible',
+  'openai-responses',
+  'anthropic',
+]);
+
 interface RuntimeToolDeps {
   systemStore: SystemProviderStore;
   systemRouting: RoutingConfig;
@@ -67,6 +75,9 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
       execute: async (rawArgs: unknown): Promise<ToolResult> => {
         try {
           const args = rawArgs as ProviderConfig;
+          if (!SUPPORTED_PROVIDER_TYPES.has(args.type)) {
+            throw new Error(`Provider type '${String(args.type)}' is not supported`);
+          }
           await systemStore.save(args);
           return { status: 'success', data: args };
         } catch (err) {

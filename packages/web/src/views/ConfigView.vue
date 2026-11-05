@@ -52,8 +52,8 @@ const typeBadge: Record<string, string> = {
 };
 
 async function deleteProvider(name: string) {
-  if (!window.confirm(`Delete provider “${name}”?`)) return;
   deleteError.value = null;
+  if (!window.confirm(`Delete provider “${name}”?`)) return;
   try {
     await execute('delete_provider', { name });
     await load();

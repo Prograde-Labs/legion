@@ -70,6 +70,23 @@ describe('ProcessDetail action errors', () => {
     wrapper.unmount();
   });
 
+  it('shows an error banner when stdin send fails', async () => {
+    mocks.execute.mockImplementation(async (tool: string) => {
+      if (tool === 'get_process') return RUNNING_HANDLE;
+      if (tool === 'read_process_output') return { data: '', totalBytes: 0, from: 0 };
+      if (tool === 'write_process_input') throw new Error('send failed');
+      return {};
+    });
+    const wrapper = mount(ProcessDetail, { props: { processId: 'proc-1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="process-send"]').exists()).toBe(true));
+    await wrapper.find('input[placeholder="stdin…"]').setValue('hello');
+    await wrapper.find('[data-test="process-send"]').trigger('click');
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="process-error"]').text()).toContain('send failed'),
+    );
+    wrapper.unmount();
+  });
+
   it('shows an error banner when delete fails', async () => {
     mocks.execute.mockImplementation(async (tool: string) => {
       if (tool === 'get_process') return EXITED_HANDLE;

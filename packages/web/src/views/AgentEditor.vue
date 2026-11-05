@@ -336,7 +336,14 @@ const groupedModels = computed(() => {
     </div>
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>
-      <ApprovalAuthorityEditor v-model="authorityModel" :available-tools="availableTools" />
+      <ApprovalAuthorityEditor
+        v-if="participantId !== 'new'"
+        v-model="authorityModel"
+        :available-tools="availableTools"
+      />
+      <p v-else data-test="authority-new-note" class="text-xs text-muted">
+        Save the agent first, then configure approval authority.
+      </p>
       <button
         v-if="canSetAuthority && participantId !== 'new'"
         type="button"

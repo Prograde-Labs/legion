@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProcessList from '../components/processes/ProcessList.vue';
 import ProcessStartForm from '../components/processes/ProcessStartForm.vue';
@@ -9,6 +9,17 @@ import { useProcesses } from '../composables/useProcesses.js';
 const route = useRoute();
 const router = useRouter();
 const { processes, loading, error, refresh } = useProcesses();
+
+// `loading` flips on every 5s poll; only the first load should replace the list
+// with a loading placeholder. Later polls leave the (possibly empty) list visible.
+const firstLoadComplete = ref(false);
+watch(
+  loading,
+  (value) => {
+    if (!value) firstLoadComplete.value = true;
+  },
+  { immediate: true },
+);
 
 const activeId = computed(() => (route.params.id as string | undefined) ?? null);
 
@@ -28,7 +39,7 @@ async function onDeleted(): Promise<void> {
     <!-- Left: process list sidebar -->
     <div class="w-52 flex-shrink-0 border-r border-line flex flex-col">
       <ProcessList
-        v-if="!loading || processes.length > 0"
+        v-if="firstLoadComplete || !loading || processes.length > 0"
         :processes="processes"
         :active-id="activeId"
       />

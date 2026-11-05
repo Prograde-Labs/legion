@@ -124,10 +124,11 @@ function onStreamSend(payload: { to: string | null; message: string }): void {
 const branchLabel = ref<string | undefined>(undefined);
 
 // Non-draft conversations have no recipient picker (draft-only), so derive the
-// reply target: prefer the sidebar list's participants for the active
-// conversation, fall back to the thread's own loaded messages (works before the
-// list catches up after a draft→/chat/:id transition). Null until either source
-// has data — Composer's send is a no-op without one.
+// reply target: prefer the thread's last counterpart when it is an agent, then
+// the sidebar list's participants for the active conversation, and finally any
+// non-agent thread counterpart (works before the list catches up after a
+// draft→/chat/:id transition). Null until a source has data — Composer's send is
+// a no-op without one.
 const auth = useAuth();
 const conversationRecipient = computed<string | null>(() => {
   if (isDraft.value) return recipientId.value;
@@ -136,7 +137,7 @@ const conversationRecipient = computed<string | null>(() => {
   const conv = store.conversations.value.find((c) => c.id === activeId.value);
   const others = (conv?.participants ?? []).filter((p) => p !== auth.participantId.value);
   const agent = others.find((p) => useParticipants().byId(p)?.type === 'agent');
-  return agent ?? others[0] ?? null;
+  return agent ?? others[0] ?? threadRef.value?.threadRecipient ?? null;
 });
 
 // Thread emits `created` after a draft send's streaming communicate completes:

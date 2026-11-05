@@ -103,6 +103,16 @@ async function onDelete(): Promise<void> {
 
 <template>
   <div class="flex flex-col h-full min-h-0">
+    <!-- Action failures stay visible above the stream/load state branches -->
+    <div
+      v-if="actionError"
+      data-test="process-error"
+      role="alert"
+      class="border-b border-line px-4 py-2 text-xs text-danger"
+    >
+      {{ actionError }}
+    </div>
+
     <!-- Loading state -->
     <div
       v-if="!handle && !error"
@@ -118,14 +128,6 @@ async function onDelete(): Promise<void> {
 
     <!-- Detail view -->
     <template v-else-if="handle">
-      <div
-        v-if="actionError"
-        data-test="process-error"
-        role="alert"
-        class="border-b border-line px-4 py-2 text-xs text-danger"
-      >
-        {{ actionError }}
-      </div>
       <!-- Header bar -->
       <div class="flex items-center gap-3 px-4 py-2.5 border-b border-line flex-shrink-0">
         <ProcessStatusDot :status="handle.status" />
