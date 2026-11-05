@@ -212,6 +212,8 @@ Tracked as a follow-on in the roadmap, not part of this design.
 4. Telegram streaming path + level rendering.
 5. Format, typecheck, full test run; review.
 
-Legion work lands on `integration/telegram-v2-and-web-ui`. Telegram work lands on a feature branch
-in `legion-connector-telegram-v2`, branched from its trunk `connector-v2` (the connector's home
-branch), since the integration branch exists only in the legion repo.
+Legion work lands on `integration/telegram-v2-and-web-ui`. Telegram work lands on a same-named
+branch, `integration/telegram-v2-and-web-ui`, created in `legion-connector-telegram-v2` from its
+home branch `connector-v2` (the repo's stable trunk). That gives both repositories an identically
+named integration branch that can be reviewed and merged together, rather than merging the
+connector work separately.
