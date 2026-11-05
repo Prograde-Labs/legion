@@ -4,6 +4,7 @@ import type {
   MessageData,
   MessageUsage,
   MiddlewareActionResult,
+  ModelConfig,
   ToolCallData,
   ToolCallResult,
 } from '@legion-collective/types';
@@ -219,27 +220,41 @@ export class AgentRuntime implements Runtime {
     if (participant.type !== 'agent') return { kind: 'void' };
     const agent = participant as AgentConfig;
 
+    const modelId = context.modelOverride ?? agent.model.model;
+    const effectiveModel: ModelConfig =
+      context.modelOverride === undefined
+        ? agent.model
+        : { ...agent.model, model: context.modelOverride };
     let provider: Provider | null;
     let providerId: string | undefined;
     try {
-      const resolved = await this.router.resolveWithId(agent.model.model);
+      const resolved = await this.router.resolveWithId(modelId);
       provider = resolved?.provider ?? null;
       providerId = resolved?.providerId;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (context.modelOverride !== undefined) {
+        return this.withActions(
+          { kind: 'middleware_abort', error: `model override unavailable: ${modelId}` },
+          actions,
+        );
+      }
       return this.withActions(
-        {
-          kind: 'response',
-          content: `[AgentRuntime error: ${msg}]`,
-        },
+        { kind: 'response', content: `[AgentRuntime error: ${msg}]` },
         actions,
       );
     }
     if (!provider) {
+      if (context.modelOverride !== undefined) {
+        return this.withActions(
+          { kind: 'middleware_abort', error: `model override unavailable: ${modelId}` },
+          actions,
+        );
+      }
       return this.withActions(
         {
           kind: 'response',
-          content: `[AgentRuntime error: no provider available for model '${agent.model.model}']`,
+          content: `[AgentRuntime error: no provider available for model '${modelId}']`,
         },
         actions,
       );
@@ -352,7 +367,7 @@ export class AgentRuntime implements Runtime {
           return await cancellationResult();
         }
         const acc = freshAccumulator();
-        for await (const chunk of provider.stream(messages, providerTools, agent.model, {
+        for await (const chunk of provider.stream(messages, providerTools, effectiveModel, {
           signal: context.signal,
         })) {
           if (context.signal?.aborted) {
@@ -369,7 +384,7 @@ export class AgentRuntime implements Runtime {
         const response = accumulatorToResponse(acc);
 
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
-          const usage = await this.computeUsage(providerId, agent, response);
+          const usage = await this.computeUsage(providerId, agent, response, modelId);
           return this.withActions(
             {
               kind: 'response',
@@ -441,7 +456,7 @@ export class AgentRuntime implements Runtime {
           toolResults.push({ id: tc.id, name: tc.name, result });
         }
 
-        const usage = await this.computeUsage(providerId, agent, response);
+        const usage = await this.computeUsage(providerId, agent, response, modelId);
         if (context.signal?.aborted) {
           return await cancellationResult();
         }
@@ -616,11 +631,12 @@ export class AgentRuntime implements Runtime {
       usage?: ProviderUsage;
       cost?: number;
     },
+    modelId: string = agent.model.model,
   ): Promise<MessageUsage | undefined> {
     if (!response.usage || !this.usageCalculator) return undefined;
     return this.usageCalculator.compute(
       providerId ?? 'unknown',
-      agent.model.model,
+      modelId,
       response.usage,
       response.cost,
     );

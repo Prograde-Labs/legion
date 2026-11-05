@@ -472,6 +472,50 @@ describe('AgentRuntime', () => {
 
     expect(result).toEqual({ kind: 'response', content: 'no usage' });
   });
+
+  it('uses a model override for provider resolution and streaming', async () => {
+    const { context, inbound } = await makeSetup([]);
+    const defaultProvider: Provider = {
+      async *stream() {
+        yield { type: 'text_delta', delta: 'default' };
+        yield { type: 'done', stopReason: 'stop' };
+      },
+    };
+    const overrideProvider: Provider = {
+      async *stream() {
+        yield { type: 'text_delta', delta: 'override' };
+        yield { type: 'done', stopReason: 'stop' };
+      },
+    };
+    const router = new MockModelRouter(
+      new Map([
+        ['test-model', defaultProvider],
+        ['override-model', overrideProvider],
+      ]),
+    ) as ModelRouter;
+    const runtime = new AgentRuntime(
+      'agent-1',
+      router,
+      new UsageCalculator(new MockPricingSource({}), new Map()),
+    );
+
+    const result = await runtime.handle(inbound, { ...context, modelOverride: 'override-model' });
+    expect(result).toMatchObject({ kind: 'response', content: 'override' });
+  });
+
+  it('fails closed when a model override cannot be resolved', async () => {
+    const { context, inbound, router } = await makeSetup([]);
+    const runtime = new AgentRuntime(
+      'agent-1',
+      router,
+      new UsageCalculator(new MockPricingSource({}), new Map()),
+    );
+    const result = await runtime.handle(inbound, { ...context, modelOverride: 'missing-model' });
+    expect(result).toEqual({
+      kind: 'middleware_abort',
+      error: 'model override unavailable: missing-model',
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -654,7 +654,12 @@ export class MessageRouter implements MessageRouterPort {
     const runtimeContext = this.buildRuntimeContext(
       runtimeThread,
       recipient.id,
-      { ...opts.context, communicationDepth: depth, signal: streamAbort.signal },
+      {
+        ...opts.context,
+        communicationDepth: depth,
+        modelOverride: opts.model,
+        signal: streamAbort.signal,
+      },
       depth,
       lifecycleState === undefined
         ? undefined
@@ -990,7 +995,7 @@ export class MessageRouter implements MessageRouterPort {
     const runtimeContext = this.buildRuntimeContext(
       thread,
       recipient.id,
-      { ...opts.context, communicationDepth: depth },
+      { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
       depth,
       lifecycleState === undefined
         ? undefined
