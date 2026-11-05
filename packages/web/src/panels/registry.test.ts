@@ -85,6 +85,17 @@ describe('useDock', () => {
     expect(dock.activeId.value).toBe('tool-detail:a');
   });
 
+  it('starts empty when persisted tabs is not an array', () => {
+    localStorage.setItem(
+      'legion-dock-c1',
+      JSON.stringify({ tabs: { bad: true }, activeId: 'tool-detail:a', width: 500 }),
+    );
+    const dock = useDock();
+    dock.setConversation('c1');
+    expect(dock.tabs.value).toEqual([]);
+    expect(dock.activeId.value).toBeNull();
+  });
+
   it('starts empty when the persisted state is corrupted', () => {
     localStorage.setItem('legion-dock-c1', '{not json');
     const dock = useDock();

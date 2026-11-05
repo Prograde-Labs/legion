@@ -55,6 +55,31 @@ const activity = useToolStream<ActivityChunk>('watch_activity', () => ({}), {
   },
 });
 
+// Approvers who lack watch_activity get a 403 from the stream POST and therefore
+// no live approval events. Fall back to a low-frequency authoritative refresh so
+// the badge still appears without a page reload.
+const APPROVALS_FALLBACK_MS = 30_000;
+let approvalsFallbackTimer: ReturnType<typeof setInterval> | null = null;
+
+function startApprovalsFallback(): void {
+  if (approvalsFallbackTimer !== null) return;
+  void approvals.refresh().catch(() => {});
+  approvalsFallbackTimer = setInterval(() => {
+    void approvals.refresh().catch(() => {});
+  }, APPROVALS_FALLBACK_MS);
+}
+
+watch(activity.error, (err) => {
+  if (err) startApprovalsFallback();
+});
+
+onUnmounted(() => {
+  if (approvalsFallbackTimer !== null) {
+    clearInterval(approvalsFallbackTimer);
+    approvalsFallbackTimer = null;
+  }
+});
+
 // Refresh when a session appears (the shell is mounted before login too).
 watch(
   isAuthenticated,

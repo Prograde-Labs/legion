@@ -189,6 +189,66 @@ describe('AgentEditor', () => {
     });
   });
 
+  it('loads model options and middleware definitions for a new agent', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        if (body.tool === 'list_models')
+          return toolResponse('list_models', [
+            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+          ]);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: MIDDLEWARE_DEFINITIONS });
+        if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'new' } });
+    // New agents previously returned before the convenience fetches, leaving a
+    // free-text model field and no middleware picker.
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="agent-model"]').element.tagName).toBe('SELECT'),
+    );
+    expect(
+      wrapper.findAll('[data-test="agent-model"] option').map((o) => o.attributes('value')),
+    ).toContain('gpt-4o');
+    expect(calls).toContain('list_middleware');
+    expect(calls).toContain('list_skills');
+    // Credential keys remain gated to an existing participant.
+    expect(calls).not.toContain('list_secrets');
+  });
+
+  it('requires a loaded model selection before saving a new agent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'list_models')
+          return toolResponse('list_models', [
+            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+          ]);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
+        if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'new' } });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="agent-model"]').element.tagName).toBe('SELECT'),
+    );
+    expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(false);
+    await wrapper.find('[data-test="agent-model"]').setValue('gpt-4o');
+    await vi.waitFor(() => expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(true));
+  });
+
   it('shows a friendly message when get_participant is denied', async () => {
     vi.stubGlobal(
       'fetch',

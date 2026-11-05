@@ -76,7 +76,7 @@ function restore(): void {
       activeId?: string | null;
       width?: number;
     };
-    tabs.value = saved.tabs ?? [];
+    tabs.value = Array.isArray(saved.tabs) ? saved.tabs : [];
     // A stale activeId (tab closed/renamed since it was stored) would point at
     // nothing, leaving the dock blank: fall back to the first restored tab.
     const savedActive = saved.activeId ?? null;

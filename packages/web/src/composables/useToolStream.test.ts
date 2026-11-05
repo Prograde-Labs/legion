@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   streamChunkHandler: null as ((chunk: { type: string; result?: unknown }) => void) | null,
   streamChunkHandlers: [] as Array<(chunk: { type: string; result?: unknown }) => void>,
   streamUnregister: vi.fn(),
+  logout: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock('./useWebSocket.js', () => ({
@@ -24,8 +26,10 @@ vi.mock('./useWebSocket.js', () => ({
 }));
 
 vi.mock('./useAuth.js', () => ({
-  useAuth: () => ({ getToken: () => mocks.token }),
+  useAuth: () => ({ getToken: () => mocks.token, logout: mocks.logout }),
 }));
+
+vi.mock('../router/index.js', () => ({ router: { push: mocks.push } }));
 
 beforeEach(() => {
   mocks.connectionId = null;
@@ -33,6 +37,8 @@ beforeEach(() => {
   mocks.streamChunkHandler = null;
   mocks.streamChunkHandlers = [];
   mocks.streamUnregister.mockReset();
+  mocks.logout.mockReset();
+  mocks.push.mockReset();
 });
 
 describe('useToolStream', () => {
@@ -73,6 +79,33 @@ describe('useToolStream', () => {
 
     expect(transitions).toEqual([message, null, message]);
     stop();
+    wrapper.unmount();
+  });
+
+  it('logs out and redirects when the stream POST returns 401', async () => {
+    mocks.connectionId = 'connection-1';
+    mocks.token = 'expired-token';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('unauthorized', { status: 401 })),
+    );
+    const { useToolStream } = await import('./useToolStream.js');
+    let stream!: ReturnType<typeof useToolStream>;
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          stream = useToolStream('communicate');
+          return () => null;
+        },
+      }),
+    );
+
+    await stream.start();
+
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+    expect(mocks.push).toHaveBeenCalledWith('/login');
+    expect(stream.error.value).toBe('Unauthorized');
+    expect(stream.active.value).toBe(false);
     wrapper.unmount();
   });
 

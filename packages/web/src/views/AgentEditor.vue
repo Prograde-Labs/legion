@@ -34,8 +34,8 @@ const canSave = computed(() => {
   // a caller who cannot change middleware can still save (it is preserved).
   if (canSetMiddleware.value && middlewareErrors.value.length > 0) return false;
   return props.participantId === 'new'
-    ? toolAccess.can('create_agent') === 'auto' && modelText.value.trim().length > 0
-    : toolAccess.can('modify_agent') === 'auto' && modelText.value.trim().length > 0;
+    ? toolAccess.can('create_agent') === 'auto' && isModelSelectionValid()
+    : toolAccess.can('modify_agent') === 'auto' && isModelSelectionValid();
 });
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
 const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
@@ -84,45 +84,58 @@ async function load(): Promise<void> {
   middlewareErrors.value = [];
   skills.value = [];
   credentialKeys.value = [];
+  overrides.value = [];
+  middleware.value = [];
+  authorityModel.value = null;
   if (props.participantId === 'new') {
     loaded.value = null;
-    return;
+    name.value = '';
+    modelText.value = '';
+    systemPrompt.value = '';
+    maxIterations.value = 20;
+  } else {
+    try {
+      const p = await execute<Record<string, unknown>>('get_participant', {
+        id: props.participantId,
+      });
+      loaded.value = p;
+      name.value = String(p['name'] ?? '');
+      const model = p['model'] as { model?: string } | undefined;
+      modelText.value = model?.model ?? '';
+      systemPrompt.value = String(p['systemPrompt'] ?? '');
+      maxIterations.value = Number(p['maxIterations'] ?? 20);
+      const toolsMap = (p['tools'] ?? {}) as Record<string, string>;
+      overrides.value = Object.entries(toolsMap).map(([tool, policy]) => ({
+        tool,
+        source: 'built-in',
+        enabled: true,
+        requireApproval: policy === 'requires_approval',
+      }));
+      middleware.value = (p['middleware'] as MiddlewareInstanceConfig[]) ?? [];
+      // Approval authority carries both tool approvals and participant approvals;
+      // keep `participants` so saving authority round-trips it instead of erasing it.
+      const authority = p['approvalAuthority'] as {
+        tools?: Record<string, boolean> | '*';
+        participants?: string[] | '*';
+      } | null;
+      authorityModel.value = authority
+        ? {
+            tools: authority.tools === '*' ? '*' : (authority.tools ?? {}),
+            ...(authority.participants === undefined
+              ? {}
+              : { participants: authority.participants }),
+          }
+        : null;
+    } catch (err) {
+      error.value = friendlyToolError(err);
+    }
   }
-  try {
-    const p = await execute<Record<string, unknown>>('get_participant', {
-      id: props.participantId,
-    });
-    loaded.value = p;
-    name.value = String(p['name'] ?? '');
-    const model = p['model'] as { model?: string } | undefined;
-    modelText.value = model?.model ?? '';
-    systemPrompt.value = String(p['systemPrompt'] ?? '');
-    maxIterations.value = Number(p['maxIterations'] ?? 20);
-    const toolsMap = (p['tools'] ?? {}) as Record<string, string>;
-    overrides.value = Object.entries(toolsMap).map(([tool, policy]) => ({
-      tool,
-      source: 'built-in',
-      enabled: true,
-      requireApproval: policy === 'requires_approval',
-    }));
-    middleware.value = (p['middleware'] as MiddlewareInstanceConfig[]) ?? [];
-    // Approval authority carries both tool approvals and participant approvals;
-    // keep `participants` so saving authority round-trips it instead of erasing it.
-    const authority = p['approvalAuthority'] as {
-      tools?: Record<string, boolean> | '*';
-      participants?: string[] | '*';
-    } | null;
-    authorityModel.value = authority
-      ? {
-          tools: authority.tools === '*' ? '*' : (authority.tools ?? {}),
-          ...(authority.participants === undefined ? {} : { participants: authority.participants }),
-        }
-      : null;
-  } catch (err) {
-    error.value = friendlyToolError(err);
-  }
+  // Convenience lists are loaded for new AND existing agents: a new agent needs
+  // the model picker and middleware definitions too. Only credential keys stay
+  // gated to an existing participant (list_secrets needs a real target).
   void execute<{ tools: string[]; callerPolicy: Record<string, string> }>('list_tools', {})
-    .then(({ tools }) => {
+    .then((data) => {
+      const tools = Array.isArray(data?.tools) ? data.tools : [];
       availableTools.value = tools;
       overrides.value = [
         ...overrides.value.filter((o) => tools.includes(o.tool) || o.enabled),
@@ -133,10 +146,13 @@ async function load(): Promise<void> {
     })
     .catch(() => {});
   void execute<{ provider: string; model: { id: string; name?: string } }[]>('list_models', {})
-    .then((models) => (modelOptions.value = models))
+    .then((models) => (modelOptions.value = Array.isArray(models) ? models : []))
     .catch(() => {});
   void execute<{ definitions: MiddlewareDefinitionInfo[] }>('list_middleware', {})
-    .then((data) => (middlewareDefinitions.value = data.definitions))
+    .then(
+      (data) =>
+        (middlewareDefinitions.value = Array.isArray(data?.definitions) ? data.definitions : []),
+    )
     .catch(() => {});
   // Skill names feed the builtin:skills selector; credential key names feed
   // schema fields marked credential-reference. Both are convenience lists, so a
@@ -146,11 +162,14 @@ async function load(): Promise<void> {
     .catch(() => {});
   // list_secrets is self-or-operator only. An editor opened by a non-operator for
   // another participant is denied here; that must not break editing the agent.
-  void execute<{ participantId: string; keys: string[] }>('list_secrets', {
-    participantId: props.participantId,
-  })
-    .then((data) => (credentialKeys.value = data.keys ?? []))
-    .catch(() => {});
+  // New agents have no participant to list secrets for, so skip the call.
+  if (props.participantId !== 'new') {
+    void execute<{ participantId: string; keys: string[] }>('list_secrets', {
+      participantId: props.participantId,
+    })
+      .then((data) => (credentialKeys.value = data.keys ?? []))
+      .catch(() => {});
+  }
 }
 
 watch(
@@ -238,6 +257,15 @@ async function retire(): Promise<void> {
     busy.value = false;
     confirmingRetire.value = false;
   }
+}
+
+// When the provider list is known, only a listed id (or the synthetic "current"
+// group for an unknown existing model) is a valid save target. Empty options
+// mean discovery failed/unavailable, so fall back to the free-text input.
+function isModelSelectionValid(): boolean {
+  if (modelText.value.trim().length === 0) return false;
+  if (modelOptions.value.length === 0) return true;
+  return groupedModels.value.some(([, models]) => models.some((m) => m.id === modelText.value));
 }
 
 const groupedModels = computed(() => {

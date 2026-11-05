@@ -3,8 +3,6 @@ import { useAuth } from './useAuth.js';
 import { useWebSocket } from './useWebSocket.js';
 import { router } from '../router/index.js';
 
-type EventHandler = (data: unknown) => void;
-
 export function useLegionApi() {
   const auth = useAuth();
   const ws = useWebSocket();
@@ -43,18 +41,10 @@ export function useLegionApi() {
     auth.logout();
   }
 
-  function onEvent(type: string, handler: EventHandler): () => void {
-    return ws.onMessage((msg) => {
-      const typed = msg as Record<string, unknown>;
-      if (typed['type'] === type) handler(typed['data']);
-    });
-  }
-
   return {
     execute,
     login,
     logout,
-    onEvent,
     connected,
     connectionId,
     isAuthenticated: auth.isAuthenticated,

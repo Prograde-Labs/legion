@@ -61,7 +61,8 @@ export function useConversations() {
     const ws = useWebSocket();
     const stream = useToolStream('watch_conversations', () => ({ status: filter.value.status }), {
       cancelOnUnmount: false,
-      onChunk: () => void load(),
+      // A hidden/misconfigured tool must not surface as an unhandled rejection.
+      onChunk: () => void load().catch(() => {}),
     });
     watch(
       () => ws.getConnectionId(),

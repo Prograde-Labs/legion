@@ -45,9 +45,41 @@ const activityMocks = vi.hoisted(() => ({
   error: null as unknown,
 }));
 
+const conversationMocks = vi.hoisted(() => ({
+  onChunk: null as ((chunk: { type: string; data?: Record<string, unknown> }) => void) | null,
+  getArgs: null as (() => unknown) | null,
+  start: vi.fn(async () => {}),
+  cancel: vi.fn(async () => {}),
+  done: null as unknown,
+  error: null as unknown,
+}));
+
 vi.mock('../composables/useToolStream.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../composables/useToolStream.js')>();
   const { ref } = await import('vue');
+  const stubbed = (
+    mocks: typeof activityMocks,
+    getArgs: () => unknown,
+    options: { onChunk?: (chunk: StreamChunk) => void },
+  ) => {
+    const done = ref(false);
+    const error = ref<string | null>(null);
+    mocks.onChunk = (options.onChunk ?? null) as typeof mocks.onChunk;
+    mocks.getArgs = getArgs;
+    mocks.done = done;
+    mocks.error = error;
+    return {
+      start: mocks.start,
+      cancel: mocks.cancel,
+      chunks: ref([]),
+      done,
+      error,
+      active: ref(false),
+      cancelling: ref(false),
+      conversationId: ref<string | null>(null),
+      result: ref<unknown>(null),
+    };
+  };
   return {
     ...actual,
     useToolStream: (
@@ -55,24 +87,9 @@ vi.mock('../composables/useToolStream.js', async (importOriginal) => {
       getArgs: () => unknown,
       options: { onChunk?: (chunk: StreamChunk) => void } = {},
     ) => {
-      if (toolName !== 'watch_activity') return actual.useToolStream(toolName, getArgs, options);
-      const done = ref(false);
-      const error = ref<string | null>(null);
-      activityMocks.onChunk = (options.onChunk ?? null) as typeof activityMocks.onChunk;
-      activityMocks.getArgs = getArgs;
-      activityMocks.done = done;
-      activityMocks.error = error;
-      return {
-        start: activityMocks.start,
-        cancel: activityMocks.cancel,
-        chunks: ref([]),
-        done,
-        error,
-        active: ref(false),
-        cancelling: ref(false),
-        conversationId: ref<string | null>(null),
-        result: ref<unknown>(null),
-      };
+      if (toolName === 'watch_activity') return stubbed(activityMocks, getArgs, options);
+      if (toolName === 'watch_conversation') return stubbed(conversationMocks, getArgs, options);
+      return actual.useToolStream(toolName, getArgs, options);
     },
   };
 });
@@ -159,6 +176,12 @@ describe('Thread', () => {
     activityMocks.error = null;
     activityMocks.start.mockClear();
     activityMocks.cancel.mockClear();
+    conversationMocks.onChunk = null;
+    conversationMocks.getArgs = null;
+    conversationMocks.done = null;
+    conversationMocks.error = null;
+    conversationMocks.start.mockClear();
+    conversationMocks.cancel.mockClear();
     mockCan(() => 'auto');
     useParticipants().__resetForTests();
     useParticipants().__setParticipantsForTests(AGENTS);
@@ -221,6 +244,42 @@ describe('Thread', () => {
 
     await wrapper.setProps({ conversationId: 'c1' });
     expect(activityMocks.getArgs?.()).toEqual({ conversationId: 'c1' });
+  });
+
+  it('subscribes a conversation-scoped stream and reloads on message events', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    expect(conversationMocks.start).toHaveBeenCalled();
+    expect(conversationMocks.getArgs?.()).toEqual({ conversationId: 'c1' });
+
+    const loadsBefore = fetchMock.mock.calls.length;
+    conversationMocks.onChunk?.({
+      type: 'message:sent',
+      data: { conversationId: 'c1', messageId: 'm9' },
+    });
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBe(loadsBefore + 1));
+  });
+
+  it('clears the thinking indicator when switching conversations', async () => {
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+    activityMocks.onChunk?.({ type: 'iteration' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(true);
+
+    await wrapper.setProps({ conversationId: 'c2' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(false);
   });
 
   it('emits open(tool, payload) on chip click', async () => {

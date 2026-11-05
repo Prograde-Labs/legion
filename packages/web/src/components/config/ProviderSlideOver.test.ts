@@ -25,16 +25,14 @@ describe('ProviderSlideOver provider types', () => {
     expect(options).toContain('openai-responses');
   });
 
-  it('disables provider types the store cannot construct', async () => {
+  it('offers only the provider types the store can construct', async () => {
     const wrapper = await openForm();
-    const options = wrapper.findAll('select option');
-    const byValue = (value: string) =>
-      options.find((o) => (o.element as HTMLOptionElement).value === value);
-
-    expect((byValue('anthropic')?.element as HTMLOptionElement).disabled).toBe(true);
-    expect((byValue('copilot')?.element as HTMLOptionElement).disabled).toBe(true);
-    expect((byValue('codex')?.element as HTMLOptionElement).disabled).toBe(true);
-    expect((byValue('openai-responses')?.element as HTMLOptionElement).disabled).toBe(false);
+    const values = wrapper
+      .findAll('select option')
+      .map((o) => (o.element as HTMLOptionElement).value);
+    // copilot/codex throw NotImplementedError and anthropic is only a legacy
+    // mapping, so none of them are advertised for new saves.
+    expect(values).toEqual(['openai-compatible', 'openai-responses']);
   });
 
   it('shows the base URL field for openai-responses', async () => {
@@ -42,13 +40,6 @@ describe('ProviderSlideOver provider types', () => {
     const select = wrapper.get('select');
     await select.setValue('openai-responses');
     expect(wrapper.text()).toContain('Base URL');
-  });
-
-  it('hides the base URL field for anthropic (existing behavior)', async () => {
-    const wrapper = await openForm();
-    const select = wrapper.get('select');
-    await select.setValue('anthropic');
-    expect(wrapper.text()).not.toContain('Base URL');
   });
 
   it('shows an error banner when save fails', async () => {

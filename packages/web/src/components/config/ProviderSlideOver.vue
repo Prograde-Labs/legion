@@ -93,9 +93,6 @@ async function save() {
         >
           <option value="openai-compatible">openai-compatible</option>
           <option value="openai-responses">openai-responses</option>
-          <option value="anthropic" disabled>anthropic (not implemented)</option>
-          <option value="copilot" disabled>copilot (not implemented)</option>
-          <option value="codex" disabled>codex (not implemented)</option>
         </select>
       </div>
       <div v-if="type === 'openai-compatible' || type === 'openai-responses'">

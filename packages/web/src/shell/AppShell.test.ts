@@ -195,6 +195,46 @@ describe('AppShell', () => {
     expect(wrapper.findComponent({ name: 'NavBadge' }).props('count')).toBe(1);
   });
 
+  it('falls back to polling approvals when watch_activity is hidden', async () => {
+    await seedAuth();
+    serverApprovals = [
+      {
+        approvalId: 'a1',
+        conversationId: 'conv-fallback',
+        requesterId: 'agent-a',
+        tool: 'file_write',
+        args: {},
+        createdAt: '2026-10-08T00:00:00Z',
+      },
+    ];
+    // A participant without watch_activity gets a 403 from the stream POST; the
+    // shell must still surface approvals through the list_pending_approvals
+    // fallback.
+    executeFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { tool?: string };
+      if (body.tool === 'watch_activity') return new Response('hidden', { status: 403 });
+      if (body.tool === 'list_pending_approvals') {
+        return new Response(
+          JSON.stringify({ result: { status: 'success', data: serverApprovals } }),
+          {
+            status: 200,
+          },
+        );
+      }
+      return new Response(JSON.stringify({ result: { status: 'success', data: {} } }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal('fetch', executeFetch);
+    await router.push('/');
+    await router.isReady();
+    const wrapper = mount(AppShell, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent({ name: 'NavBadge' }).props('count')).toBe(1),
+    );
+  });
+
   it('ingests live approval chunks from the watch_activity stream', async () => {
     await seedAuth();
     const wrapper = await mountShellAt('/');

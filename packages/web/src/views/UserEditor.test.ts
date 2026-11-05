@@ -328,7 +328,7 @@ describe('UserEditor', () => {
     expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
 
-  it('refuses to create a user with a password when set_credential is unavailable', async () => {
+  it('hides the password section when set_credential is unavailable', async () => {
     mockCan((tool) => (tool === 'create_user' ? 'auto' : 'hidden'));
     const calls: string[] = [];
     vi.stubGlobal(
@@ -341,12 +341,14 @@ describe('UserEditor', () => {
     );
     const wrapper = mount(UserEditor, { props: { participantId: 'new' } });
     await wrapper.find('[data-test="user-name"]').setValue('New User');
-    await wrapper.find('input[name="new-password"]').setValue('long-enough-pass');
-    await wrapper.find('input[name="confirm-password"]').setValue('long-enough-pass');
+    expect(wrapper.find('input[name="new-password"]').exists()).toBe(false);
     await wrapper.find('form').trigger('submit');
     await flushPromises();
-    expect(calls).not.toContain('create_user');
-    expect(wrapper.find('[data-test="editor-error"]').text()).toContain('credential');
+    // The user is created without a credential rather than dead-ending on a
+    // field whose save would abort.
+    expect(calls).toContain('create_user');
+    expect(calls).not.toContain('set_credential');
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
 
   it('hides the operator checkbox for non-operator callers', async () => {
@@ -358,7 +360,7 @@ describe('UserEditor', () => {
     expect(wrapper.text()).toContain('Operator: yes (read-only)');
   });
 
-  it('does not send the operator flag when the caller cannot grant it', async () => {
+  it('does not send the operator flag or tools map when the caller cannot change them', async () => {
     seedParticipants(false);
     const fetchMock = stubFetch({ ...USER, operator: true });
     vi.stubGlobal('fetch', fetchMock);
@@ -370,11 +372,46 @@ describe('UserEditor', () => {
         (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_user',
       );
       expect(call).toBeDefined();
-      expect(JSON.parse(String(call![1]?.body)).args).not.toHaveProperty('operator');
+      const args = JSON.parse(String(call![1]?.body)).args;
+      expect(args).not.toHaveProperty('operator');
+      // Non-operator tool-policy mutations are rejected server-side; omit the
+      // map so the rename still succeeds and existing policies are preserved.
+      expect(args).not.toHaveProperty('tools');
     });
   });
 
-  it('refuses to create a user with a password when the caller cannot set that credential', async () => {
+  it('hides the password section for a non-operator editing another user', async () => {
+    seedParticipants(false);
+    mockCan((tool) => (tool === 'modify_user' || tool === 'set_credential' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    expect(wrapper.find('[data-test="save"]').exists()).toBe(true);
+    // set_credential would abort for another user, so do not render a field that
+    // is guaranteed to fail.
+    expect(wrapper.find('input[name="new-password"]').exists()).toBe(false);
+    expect(wrapper.find('input[name="confirm-password"]').exists()).toBe(false);
+  });
+
+  it('uses the loaded operator flag (not the edited form) for last-operator checks', async () => {
+    // Caller is an operator but retired; alice is the only active operator.
+    useParticipants().__setParticipantsForTests([
+      { id: 'operator', name: 'operator', type: 'user', status: 'retired', operator: true },
+      { id: 'alice', name: 'alice', type: 'user', status: 'active', operator: true },
+    ] as unknown as BaseParticipant[]);
+    vi.stubGlobal('fetch', stubFetch({ ...USER, operator: true }));
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    // Toggling the form value off must not make alice look like a non-operator:
+    // the persisted participant is still the last active operator.
+    await wrapper.find('input[name="operator"]').setValue(false);
+    const retire = wrapper.find('[data-test="retire"]');
+    expect(retire.exists()).toBe(true);
+    expect((retire.element as HTMLButtonElement).disabled).toBe(true);
+    expect(retire.attributes('title')).toContain('last active operator');
+  });
+
+  it('hides the password section for a non-operator creating a user', async () => {
     seedParticipants(false);
     mockCan((tool) => (tool === 'create_user' || tool === 'set_credential' ? 'auto' : 'hidden'));
     const calls: string[] = [];
@@ -388,13 +425,14 @@ describe('UserEditor', () => {
     );
     const wrapper = mount(UserEditor, { props: { participantId: 'new' } });
     await wrapper.find('[data-test="user-name"]').setValue('New User');
-    await wrapper.find('input[name="new-password"]').setValue('long-enough-pass');
-    await wrapper.find('input[name="confirm-password"]').setValue('long-enough-pass');
+    // Creating a user with a password requires an operator (a new user is never
+    // self), so the field must not be offered to a non-operator.
+    expect(wrapper.find('input[name="new-password"]').exists()).toBe(false);
     await wrapper.find('form').trigger('submit');
     await flushPromises();
-    expect(calls).not.toContain('create_user');
+    expect(calls).toContain('create_user');
     expect(calls).not.toContain('set_credential');
-    expect(wrapper.find('[data-test="editor-error"]').text()).toContain('credential');
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
 
   it('lets a non-operator change their own password', async () => {

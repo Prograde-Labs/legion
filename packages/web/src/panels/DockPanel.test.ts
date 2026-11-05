@@ -5,15 +5,12 @@ import DockPanel from './DockPanel.vue';
 import { useDock, registerPanel } from './registry.js';
 
 // CommunicatePanel embeds the real Thread, which pulls useLegionApi for
-// get_conversation (and approvals event wiring). Mock the API layer so the
-// dock-level test drives Thread through the same executeMock.
+// get_conversation. Mock the API layer so the dock-level test drives Thread
+// through the same executeMock.
 const executeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../composables/useLegionApi.js', () => ({
-  useLegionApi: () => ({
-    execute: executeMock,
-    onEvent: () => () => undefined,
-  }),
+  useLegionApi: () => ({ execute: executeMock }),
 }));
 
 function mkMsg(overrides: Partial<MessageData> = {}): MessageData {

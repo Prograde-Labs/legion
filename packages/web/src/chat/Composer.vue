@@ -35,8 +35,30 @@ const mentionList = computed(() => {
   return agents.value.filter((a) => a.id.toLowerCase().includes(q));
 });
 
+// The caller policy map contains every tool the participant may invoke,
+// including subscription internals (watch_*), cancellation, management and
+// runtime/config tools. Hints are for the human user, so show only the curated
+// set of tools that make sense to invoke from the composer. A 40-tool policy
+// must not render 40 chips.
+const USER_FACING_TOOLS = new Set([
+  'communicate',
+  'file_read',
+  'file_write',
+  'file_list',
+  'execute_command',
+  'start_process',
+  'list_processes',
+  'get_process',
+  'read_process_output',
+  'write_process_input',
+  'stop_process',
+  'delete_process',
+]);
+
 const toolHints = computed<string[]>(() =>
-  Object.keys(toolAccess.access.value).filter((tool) => toolAccess.can(tool) !== 'hidden'),
+  Object.keys(toolAccess.access.value).filter(
+    (tool) => USER_FACING_TOOLS.has(tool) && toolAccess.can(tool) !== 'hidden',
+  ),
 );
 
 function onInput(event: Event): void {

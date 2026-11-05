@@ -123,6 +123,68 @@ describe('Composer', () => {
     expect(wrapper.text()).toContain('file_read');
   });
 
+  it('shows only curated user-facing chips for a realistic 40-tool policy', () => {
+    // The caller policy map contains every tool the participant may invoke,
+    // including subscription and management internals. The composer must not
+    // render a wall of internal tool names.
+    const policy: Record<string, 'auto'> = {};
+    for (const tool of [
+      'watch_activity',
+      'watch_conversation',
+      'watch_conversations',
+      'watch_participants',
+      'watch_process',
+      'cancel_stream',
+      'list_pending_approvals',
+      'list_providers',
+      'save_provider',
+      'delete_provider',
+      'list_models',
+      'get_routing',
+      'save_routing',
+      'list_mcp_sources',
+      'save_mcp_sources',
+      'list_middleware',
+      'list_skills',
+      'list_secrets',
+      'set_secret',
+      'set_credential',
+      'create_agent',
+      'modify_agent',
+      'retire_agent',
+      'create_user',
+      'modify_user',
+      'set_tool_policy',
+      'remove_tool_policy',
+      'set_approval_authority',
+      'set_participant_middleware',
+      'approval_response',
+      'list_participants',
+      'get_participant',
+      'list_tools',
+      'list_conversations',
+      'get_conversation',
+      'modify_conversation',
+      'edit_message',
+      'prune_message',
+      'compact_conversation',
+      'generate',
+    ]) {
+      policy[tool] = 'auto';
+    }
+    policy['communicate'] = 'auto';
+    policy['file_read'] = 'auto';
+    toolAccessMock.access!.value = policy;
+
+    const wrapper = mount(Composer, {
+      props: { conversationId: null, recipientId: 'agent-a' },
+    });
+    const hints = wrapper.find('[data-test="tool-hints"]');
+    expect(hints.exists()).toBe(true);
+    const chips = hints.findAll('span').map((chip) => chip.text());
+    expect(chips).toEqual(['communicate', 'file_read']);
+  });
+
   it('renders no hint container when the caller policy is empty', () => {
     const wrapper = mount(Composer, {
       props: { conversationId: null, recipientId: 'agent-a' },

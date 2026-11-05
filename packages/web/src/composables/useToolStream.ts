@@ -1,6 +1,7 @@
 import { ref, onUnmounted, type Ref } from 'vue';
 import { useWebSocket } from './useWebSocket.js';
 import { useAuth } from './useAuth.js';
+import { router } from '../router/index.js';
 import type { StreamChunk } from '@legion-collective/types';
 
 export interface UseToolStreamOptions<TChunk extends StreamChunk> {
@@ -37,7 +38,7 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
   options: UseToolStreamOptions<TChunk> = {},
 ): UseToolStreamReturn<TChunk> {
   const ws = useWebSocket();
-  const { getToken } = useAuth();
+  const { getToken, logout } = useAuth();
 
   const chunks = ref<TChunk[]>([]) as Ref<TChunk[]>;
   const done = ref(false);
@@ -93,6 +94,14 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
       return;
     }
 
+    if (res.status === 401) {
+      // Match useLegionApi.execute: an expired/invalid session must clear the
+      // token and leave the app, not leave a stale shell showing stream errors.
+      logout();
+      void router.push('/login');
+      error.value = 'Unauthorized';
+      return;
+    }
     if (!res.ok) {
       error.value = `Execute failed: ${res.status}`;
       return;

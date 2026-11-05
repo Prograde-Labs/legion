@@ -196,11 +196,36 @@ const activityStream = useToolStream(
   },
 );
 
+// Live message delivery: watch_activity covers tool/approval activity but not
+// plain messages from other participants. A conversation-scoped
+// watch_conversation stream reloads the thread whenever a message is sent or
+// delivered, so replies arrive without a manual refresh.
+const conversationStream = useToolStream(
+  'watch_conversation',
+  () => (props.conversationId ? { conversationId: props.conversationId } : {}),
+  {
+    onChunk: (chunk) => {
+      if (chunk.type === 'message:sent' || chunk.type === 'message:delivered') {
+        void load();
+      }
+    },
+  },
+);
+
 watch(
   () => [useWebSocket().getConnectionId(), props.conversationId] as const,
   ([id, conversationId]) => {
-    if (id && conversationId) void activityStream.start().catch(() => undefined);
-    else if (!conversationId) void activityStream.cancel().catch(() => {});
+    // A conversation switch must not carry the previous thread's thinking
+    // indicator (or its quiet-period deadline) into the new conversation.
+    thinking.value = false;
+    clearThinkingTimer();
+    if (id && conversationId) {
+      void activityStream.start().catch(() => undefined);
+      void conversationStream.start().catch(() => undefined);
+    } else {
+      void activityStream.cancel().catch(() => {});
+      void conversationStream.cancel().catch(() => {});
+    }
   },
   { immediate: true },
 );

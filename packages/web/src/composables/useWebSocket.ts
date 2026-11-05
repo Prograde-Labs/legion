@@ -120,6 +120,9 @@ export function useWebSocket() {
   return {
     connect() {
       stoppedByAuth = false;
+      // A deliberate (re)connect starts a fresh backoff sequence rather than
+      // inheriting the previous session's capped delay.
+      backoff = 1000;
       connect();
     },
     disconnect() {
@@ -129,6 +132,7 @@ export function useWebSocket() {
       }
       // Intentional teardown: never schedule a reconnect afterwards.
       stoppedByAuth = true;
+      backoff = 1000;
       const socket = ws;
       ws = null;
       connectionId.value = null;

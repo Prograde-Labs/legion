@@ -128,8 +128,11 @@ const canSetCredentialForTarget = computed(
   () => canSetCredential.value && (isSelf.value || callerIsOperator.value),
 );
 const isProtected = computed(() => Boolean(loaded.value?.['protected']));
+// Use the persisted participant's flag, not the edited form value: toggling the
+// checkbox off must not make the current last operator look retireable.
+const loadedOperator = computed(() => Boolean(loaded.value?.['operator']));
 const isLastActiveOperator = computed(() => {
-  if (!operator.value) return false;
+  if (!loadedOperator.value) return false;
   const activeOperators = participants.value.filter(
     (p) => p.type === 'user' && (p as { operator?: boolean }).operator && p.status === 'active',
   );
@@ -162,8 +165,11 @@ async function save(): Promise<void> {
       await execute('create_user', {
         id,
         name: name.value,
-        tools: overridesToToolsMap(overrides.value),
-        ...(callerIsOperator.value ? { operator: operator.value } : {}),
+        // Tool-policy mutations require an operator server-side; a non-operator
+        // must omit the map so creation still succeeds with the default policies.
+        ...(callerIsOperator.value
+          ? { tools: overridesToToolsMap(overrides.value), operator: operator.value }
+          : {}),
       });
       if (
         canSetCredentialForTarget.value &&
@@ -183,8 +189,9 @@ async function save(): Promise<void> {
       await execute('modify_user', {
         id: props.participantId,
         name: name.value,
-        tools: overridesToToolsMap(overrides.value),
-        ...(callerIsOperator.value ? { operator: operator.value } : {}),
+        ...(callerIsOperator.value
+          ? { tools: overridesToToolsMap(overrides.value), operator: operator.value }
+          : {}),
       });
       if (
         canSetCredentialForTarget.value &&
@@ -283,7 +290,7 @@ async function retire(): Promise<void> {
         preserved.
       </p>
     </div>
-    <div v-if="canSave" class="flex flex-col gap-1">
+    <div v-if="canSetCredentialForTarget" class="flex flex-col gap-1">
       <span class="text-xs text-faint">Password (leave empty to keep unchanged)</span>
       <input
         v-model="newPassword"
