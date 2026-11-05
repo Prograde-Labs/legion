@@ -2,10 +2,22 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import MessageActions from './MessageActions.vue';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
+import type { BaseParticipant } from '@legion-collective/types';
 
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
 
 const message = { id: 'm1', content: 'hello world' };
+
+const PARTICIPANTS: BaseParticipant[] = [
+  {
+    id: 'agent-a',
+    name: 'Agent A',
+    type: 'agent',
+    tools: {},
+    status: 'active',
+  },
+];
 
 function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden'): void {
   vi.mocked(useToolAccess).mockReturnValue({ can } as never);
@@ -22,6 +34,8 @@ function okFetch(): ReturnType<typeof vi.fn> {
 describe('MessageActions', () => {
   beforeEach(() => {
     mockCan(() => 'auto');
+    useParticipants().__resetForTests();
+    useParticipants().__setParticipantsForTests(PARTICIPANTS);
     localStorage.clear();
     vi.unstubAllGlobals();
     localStorage.setItem('legion-token', 'tok');
@@ -65,6 +79,26 @@ describe('MessageActions', () => {
     await flushPromises(); // emit('mutated') fires after execute()'s fetch + json microtasks
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).tool).toBe('generate');
     expect(wrapper.emitted('mutated')).toBeTruthy();
+  });
+
+  it('re-run passes the message agent id to generate', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    useParticipants().__setParticipantsForTests([
+      { id: 'agent-a', name: 'Agent A', type: 'agent', tools: {}, status: 'active' },
+    ]);
+    const wrapper = mount(MessageActions, {
+      props: {
+        conversationId: 'c1',
+        message: { id: 'm1', content: 'hi', role: 'user', recipientId: 'agent-a' },
+      },
+    });
+    await wrapper.find('[data-test="actions-toggle"]').trigger('click');
+    await wrapper.find('[data-test="action-rerun"]').trigger('click');
+    await flushPromises();
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.tool).toBe('generate');
+    expect(body.args).toEqual({ conversationId: 'c1', agentId: 'agent-a' });
   });
 
   it('failed edit surfaces the tool error and does not emit mutated', async () => {

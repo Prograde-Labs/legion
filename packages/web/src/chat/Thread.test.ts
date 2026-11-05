@@ -33,8 +33,10 @@ vi.mock('../composables/useAuth.js', () => ({
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
 
 import Thread from './Thread.vue';
+import MessagePart from './MessagePart.vue';
 import { useToolAccess } from '../composables/useToolAccess.js';
 import { useParticipants } from '../composables/useParticipants.js';
+import { useApprovals } from '../composables/useApprovals.js';
 import type { BaseParticipant } from '@legion-collective/types';
 
 const AGENTS: BaseParticipant[] = [
@@ -109,6 +111,7 @@ describe('Thread', () => {
     mockCan(() => 'auto');
     useParticipants().__resetForTests();
     useParticipants().__setParticipantsForTests(AGENTS);
+    useApprovals().__setPendingForTests([]);
     stubFetch();
   });
 
@@ -127,6 +130,51 @@ describe('Thread', () => {
     await vi.waitFor(() => expect(wrapper.find('[data-test="tool-chip"]').exists()).toBe(true));
     await wrapper.find('[data-test="tool-chip"]').trigger('click');
     expect(wrapper.emitted('open')?.[0]?.[0]).toBe('mcp__filesystem__read_file');
+  });
+
+  it('attaches a pending approval to only the first matching tool call', async () => {
+    const chain = [
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: '',
+        timestamp: '2026-10-08T01:00:00Z',
+        status: 'complete',
+        toolCalls: [{ id: 'tc1', name: 'file_write', arguments: {} }],
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: '',
+        timestamp: '2026-10-08T01:00:05Z',
+        status: 'complete',
+        toolCalls: [{ id: 'tc2', name: 'file_write', arguments: {} }],
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: chain } } }),
+            { status: 200 },
+          ),
+        ),
+    );
+    useApprovals().__setPendingForTests([
+      {
+        approvalId: 'a1',
+        conversationId: 'c1',
+        requesterId: 'agent-a',
+        tool: 'file_write',
+        args: {},
+        createdAt: '2026-10-08T01:00:00Z',
+      },
+    ]);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="msg"]').length).toBe(2));
+    expect(wrapper.findAll('[data-test="approval-card"]')).toHaveLength(1);
   });
 
   it('send() issues the streaming communicate POST, streams tokens, reloads on done', async () => {
@@ -221,6 +269,38 @@ describe('Thread', () => {
         .find('[data-reasoning][data-streaming-reasoning]')
         .text(),
     ).toContain('step 1 step 2');
+  });
+
+  it('labels the streaming reply with the agent that was addressed', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await (wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }).send(
+      'agent-a',
+      'hello',
+    );
+    mocks.streamChunkHandler?.({ type: 'iteration_start' });
+    mocks.streamChunkHandler?.({ type: 'text_delta', delta: 'hi' });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="streaming-part"]').exists()).toBe(true),
+    );
+
+    const streaming = wrapper
+      .findAllComponents(MessagePart)
+      .find((part) => part.props('message').id === 'streaming');
+    expect(streaming?.props('message').senderId).toBe('agent-a');
   });
 
   it('exposes streaming=true while chunks arrive and cancelStream for Stop', async () => {

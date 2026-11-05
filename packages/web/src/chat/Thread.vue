@@ -73,13 +73,31 @@ async function load(): Promise<void> {
   }
 }
 
+// Attach each pending approval to exactly one message: the first tool call in
+// chain order whose name matches. Matching by tool name alone attached the
+// same approval to every message that called that tool.
+const approvalsByMessage = computed(() => {
+  const map = new Map<string, PendingApproval[]>();
+  if (!props.conversationId) return map;
+  const used = new Set<string>();
+  for (const message of messages.value) {
+    for (const call of message.toolCalls ?? []) {
+      const matches = approvals.pending.value.filter(
+        (pending) =>
+          pending.conversationId === props.conversationId &&
+          pending.tool === call.name &&
+          !used.has(pending.approvalId),
+      );
+      if (matches.length === 0) continue;
+      map.set(message.id, [...(map.get(message.id) ?? []), ...matches]);
+      for (const match of matches) used.add(match.approvalId);
+    }
+  }
+  return map;
+});
+
 function approvalsFor(message: MessageWithAlternates): PendingApproval[] {
-  if (!props.conversationId) return [];
-  return approvals.pending.value.filter(
-    (p) =>
-      p.conversationId === props.conversationId &&
-      (message.toolCalls ?? []).some((tc) => tc.name === p.tool),
-  );
+  return approvalsByMessage.value.get(message.id) ?? [];
 }
 
 // Compact action (review feedback #11): manual compaction from the thread
@@ -118,7 +136,10 @@ function onResolved(approvalId: string): void {
 }
 
 const inlineApprovalIds = computed(
-  () => new Set(messages.value.flatMap((m) => approvalsFor(m).map((a) => a.approvalId))),
+  () =>
+    new Set(
+      [...approvalsByMessage.value.values()].flatMap((list) => list.map((a) => a.approvalId)),
+    ),
 );
 const tailApprovals = computed(() =>
   props.conversationId
@@ -358,7 +379,7 @@ watch(
               id: 'streaming',
               parentId: null,
               conversationId: 'streaming',
-              senderId: 'assistant',
+              senderId: pendingArgs.to || 'assistant',
               recipientId: 'user',
               role: 'assistant',
               content: streamingText,

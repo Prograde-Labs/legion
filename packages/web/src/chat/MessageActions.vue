@@ -2,17 +2,25 @@
 import { computed, ref } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
 import { friendlyToolError } from '../composables/friendlyToolError.js';
 
 const props = defineProps<{
   conversationId: string;
-  message: { id: string; content?: string };
+  message: {
+    id: string;
+    content?: string;
+    role?: 'user' | 'assistant';
+    senderId?: string;
+    recipientId?: string;
+  };
 }>();
 
 const emit = defineEmits<{ mutated: [] }>();
 
 const { execute } = useLegionApi();
 const toolAccess = useToolAccess();
+const { participants, byId } = useParticipants();
 
 const open = ref(false);
 const editing = ref(false);
@@ -70,8 +78,23 @@ function saveEdit(): void {
   );
 }
 
+// Re-run needs an agentId (generate requires it). Prefer the agent this
+// message was addressed to/by; fall back to the first active agent, mirroring
+// Thread's compaction summarizer choice.
+const agentId = computed<string | null>(() => {
+  const candidate =
+    props.message.role === 'user' ? props.message.recipientId : props.message.senderId;
+  if (candidate && byId(candidate)?.type === 'agent') return candidate;
+  return participants.value.find((p) => p.type === 'agent' && p.status !== 'retired')?.id ?? null;
+});
+
 function rerun(): void {
-  void run(() => execute('generate', { conversationId: props.conversationId }));
+  const id = agentId.value;
+  if (!id) {
+    error.value = 'No agent available to re-run this message.';
+    return;
+  }
+  void run(() => execute('generate', { conversationId: props.conversationId, agentId: id }));
 }
 
 function prune(): void {
