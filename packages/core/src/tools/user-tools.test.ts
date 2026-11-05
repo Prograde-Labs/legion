@@ -2,13 +2,27 @@ import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { userTools } from './user-tools.js';
 import type { ToolContext } from './Tool.js';
-import type { UserConfig } from '@legion-collective/types';
+import type { ParticipantConfig, UserConfig } from '@legion-collective/types';
 
-async function makeContext(): Promise<{ context: ToolContext; collective: Collective }> {
+/** Caller fixture; defaults to the seeded bootstrap operator. */
+function caller(overrides: Partial<UserConfig> = {}): UserConfig {
+  return {
+    id: 'operator',
+    name: 'Operator',
+    type: 'user',
+    tools: {},
+    operator: true,
+    ...overrides,
+  };
+}
+
+async function makeContext(
+  participant: ParticipantConfig = caller(),
+): Promise<{ context: ToolContext; collective: Collective }> {
   const storage = new MemoryStorage();
   const collective = await Collective.load(storage);
   await collective.seedDefaultsIfEmpty();
-  const context = { collective } as unknown as ToolContext;
+  const context = { collective, participant } as unknown as ToolContext;
   return { context, collective };
 }
 
@@ -43,6 +57,28 @@ describe('create_user', () => {
     const user = collective.get('bob') as UserConfig;
     expect(user.operator).toBe(true);
     expect(user.tools).toEqual({ list_participants: 'auto' });
+  });
+
+  it('refuses to grant operator unless the caller is an operator', async () => {
+    const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
+    const result = await createUserTool.execute({ id: 'u2', name: 'U2', operator: true }, context);
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('operator');
+    expect(collective.get('u2')).toBeUndefined();
+  });
+
+  it('allows an operator to grant operator', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createUserTool.execute({ id: 'u2', name: 'U2', operator: true }, context);
+    expect(result.status).toBe('success');
+    expect((collective.get('u2') as UserConfig).operator).toBe(true);
+  });
+
+  it('lets a non-operator create a non-operator user', async () => {
+    const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
+    const result = await createUserTool.execute({ id: 'u2', name: 'U2' }, context);
+    expect(result.status).toBe('success');
+    expect((collective.get('u2') as UserConfig).operator).toBeUndefined();
   });
 });
 
@@ -93,5 +129,30 @@ describe('modify_user', () => {
     const { context } = await makeContext();
     const result = await modifyUserTool.execute({ id: 'ghost' }, context);
     expect(result.status).toBe('error');
+  });
+
+  it('refuses self-promotion to operator unless the caller is an operator', async () => {
+    const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
+    await createUserTool.execute({ id: 'u1', name: 'U1' }, context);
+    const result = await modifyUserTool.execute({ id: 'u1', operator: true }, context);
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('operator');
+    expect((collective.get('u1') as UserConfig).operator).toBeUndefined();
+  });
+
+  it('allows an operator to promote another user', async () => {
+    const { context, collective } = await makeContext();
+    await createUserTool.execute({ id: 'alice', name: 'Alice' }, context);
+    const result = await modifyUserTool.execute({ id: 'alice', operator: true }, context);
+    expect(result.status).toBe('success');
+    expect((collective.get('alice') as UserConfig).operator).toBe(true);
+  });
+
+  it('lets a non-operator rename a user without touching the operator flag', async () => {
+    const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
+    await createUserTool.execute({ id: 'u2', name: 'U2' }, context);
+    const result = await modifyUserTool.execute({ id: 'u2', name: 'U2 renamed' }, context);
+    expect(result.status).toBe('success');
+    expect((collective.get('u2') as UserConfig).name).toBe('U2 renamed');
   });
 });

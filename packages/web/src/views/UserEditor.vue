@@ -26,7 +26,12 @@ const canSave = computed(() =>
     : toolAccess.can('modify_user') === 'auto',
 );
 const canSetCredential = computed(() => toolAccess.can('set_credential') === 'auto');
+const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
+// Only an operator may grant the operator flag; hide the control otherwise and
+// omit the field from the write so a non-operator cannot demote an operator.
+const self = computed(() => participants.value.find((p) => p.id === auth.participantId.value));
+const canGrantOperator = computed(() => self.value?.operator === true);
 
 const name = ref('');
 const operator = ref(false);
@@ -127,6 +132,11 @@ const retireTitle = computed(() =>
 async function save(): Promise<void> {
   busy.value = true;
   error.value = null;
+  if (newPassword.value.length > 0 && !canSetCredential.value) {
+    error.value = 'You do not have permission to set credentials.';
+    busy.value = false;
+    return;
+  }
   try {
     if (props.participantId === 'new') {
       const id =
@@ -137,25 +147,35 @@ async function save(): Promise<void> {
       await execute('create_user', {
         id,
         name: name.value,
-        operator: operator.value,
         tools: overridesToToolsMap(overrides.value),
+        ...(canGrantOperator.value ? { operator: operator.value } : {}),
       });
-      if (newPassword.value.length >= 8 && newPassword.value === confirmPassword.value) {
+      if (
+        canSetCredential.value &&
+        newPassword.value.length >= 8 &&
+        newPassword.value === confirmPassword.value
+      ) {
         await execute('set_credential', { participantId: id, secret: newPassword.value });
       }
-      await execute('set_approval_authority', {
-        participantId: id,
-        authority: authority.value ?? { tools: {} },
-      });
+      if (canSetAuthority.value) {
+        await execute('set_approval_authority', {
+          participantId: id,
+          authority: authority.value ?? { tools: {} },
+        });
+      }
       emit('saved', id);
     } else {
       await execute('modify_user', {
         id: props.participantId,
         name: name.value,
-        operator: operator.value,
         tools: overridesToToolsMap(overrides.value),
+        ...(canGrantOperator.value ? { operator: operator.value } : {}),
       });
-      if (newPassword.value.length >= 8 && newPassword.value === confirmPassword.value) {
+      if (
+        canSetCredential.value &&
+        newPassword.value.length >= 8 &&
+        newPassword.value === confirmPassword.value
+      ) {
         await execute('set_credential', {
           participantId: props.participantId,
           secret: newPassword.value,
@@ -163,11 +183,13 @@ async function save(): Promise<void> {
       }
       // modify_user has no authority parameter — approval authority goes through
       // set_approval_authority (final-review B2 fix; mirrors AgentEditor's
-      // saveAuthority payload shape).
-      await execute('set_approval_authority', {
-        participantId: props.participantId,
-        authority: authority.value ?? { tools: {} },
-      });
+      // saveAuthority payload shape). Skip it when the caller cannot invoke it.
+      if (canSetAuthority.value) {
+        await execute('set_approval_authority', {
+          participantId: props.participantId,
+          authority: authority.value ?? { tools: {} },
+        });
+      }
       emit('saved', props.participantId);
     }
     newPassword.value = '';
@@ -221,10 +243,11 @@ async function retire(): Promise<void> {
         class="rounded border border-line bg-surface px-2 py-1"
       />
     </label>
-    <label class="flex items-center gap-2 text-xs">
+    <label v-if="canGrantOperator" class="flex items-center gap-2 text-xs">
       <input v-model="operator" type="checkbox" name="operator" data-test="operator" />
       Operator
     </label>
+    <p v-else class="text-xs text-muted">Operator: {{ operator ? 'yes (read-only)' : 'no' }}</p>
     <div v-if="identities.length" data-test="identities" class="flex flex-col gap-1 text-xs">
       <span class="text-faint">Identities (read-only)</span>
       <code v-for="i in identities" :key="i" class="font-mono text-muted">{{ i }}</code>
@@ -241,7 +264,7 @@ async function retire(): Promise<void> {
       <span class="text-xs text-faint">Approval authority</span>
       <ApprovalAuthorityEditor v-model="authority" :available-tools="availableTools" />
     </div>
-    <div v-if="canSetCredential" class="flex flex-col gap-1">
+    <div v-if="canSave" class="flex flex-col gap-1">
       <span class="text-xs text-faint">Password (leave empty to keep unchanged)</span>
       <input
         v-model="newPassword"

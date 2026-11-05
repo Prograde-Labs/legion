@@ -21,6 +21,12 @@ export const setSecretTool: Tool = {
       key: string;
       secret: string;
     };
+    if (participantId !== context.participant.id && context.participant.operator !== true) {
+      return {
+        status: 'error',
+        error: 'Only an operator can manage another participant’s secrets',
+      };
+    }
     const store = context.secretStore as SecretStore | undefined;
     if (!store) return { status: 'error', error: 'secretStore unavailable in context' };
     try {
@@ -42,6 +48,12 @@ export const listSecretsTool: Tool = {
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
     const { participantId } = args as { participantId: string };
+    if (participantId !== context.participant.id && context.participant.operator !== true) {
+      return {
+        status: 'error',
+        error: 'Only an operator can manage another participant’s secrets',
+      };
+    }
     const store = context.secretStore as SecretStore | undefined;
     if (!store) return { status: 'error', error: 'secretStore unavailable in context' };
     try {

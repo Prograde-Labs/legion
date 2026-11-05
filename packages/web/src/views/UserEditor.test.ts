@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import UserEditor from './UserEditor.vue';
 import { useAuth } from '../composables/useAuth.js';
+import { useParticipants } from '../composables/useParticipants.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
 
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
@@ -44,6 +45,13 @@ function seedAuth(participantId = 'operator'): void {
   useAuth().participantId.value = participantId;
 }
 
+/** Seed the roster so the editor can resolve whether the caller is an operator. */
+function seedParticipants(operator = true): void {
+  useParticipants().__setParticipantsForTests([
+    { id: 'operator', name: 'Operator', type: 'user', tools: {}, operator },
+  ]);
+}
+
 function waitLoaded(wrapper: ReturnType<typeof mount>): Promise<void> {
   // 'form' always exists; wait until get_participant data actually populated the name.
   return vi.waitFor(() =>
@@ -57,6 +65,7 @@ describe('UserEditor', () => {
     localStorage.clear();
     vi.unstubAllGlobals();
     seedAuth();
+    seedParticipants();
   });
 
   it('prefills name, operator flag and read-only identities', async () => {
@@ -237,5 +246,74 @@ describe('UserEditor', () => {
     expect(wrapper.find('[data-test="save"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="retire"]').exists()).toBe(false);
     expect(wrapper.find('input[name="new-password"]').exists()).toBe(false);
+  });
+
+  it('skips authority save when the caller lacks set_approval_authority', async () => {
+    mockCan((tool) => (tool === 'modify_user' ? 'auto' : 'hidden'));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        if (body.tool === 'get_participant') return toolResponse('get_participant', USER);
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(calls).toContain('modify_user');
+    expect(calls).not.toContain('set_approval_authority');
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
+  });
+
+  it('refuses to create a user with a password when set_credential is unavailable', async () => {
+    mockCan((tool) => (tool === 'create_user' ? 'auto' : 'hidden'));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(UserEditor, { props: { participantId: 'new' } });
+    await wrapper.find('[data-test="user-name"]').setValue('New User');
+    await wrapper.find('input[name="new-password"]').setValue('long-enough-pass');
+    await wrapper.find('input[name="confirm-password"]').setValue('long-enough-pass');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(calls).not.toContain('create_user');
+    expect(wrapper.find('[data-test="editor-error"]').text()).toContain('credential');
+  });
+
+  it('hides the operator checkbox for non-operator callers', async () => {
+    seedParticipants(false);
+    vi.stubGlobal('fetch', stubFetch({ ...USER, operator: true }));
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    expect(wrapper.find('input[name="operator"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Operator: yes (read-only)');
+  });
+
+  it('does not send the operator flag when the caller cannot grant it', async () => {
+    seedParticipants(false);
+    const fetchMock = stubFetch({ ...USER, operator: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    await wrapper.find('form').trigger('submit');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_user',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args).not.toHaveProperty('operator');
+    });
   });
 });

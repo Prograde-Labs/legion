@@ -27,6 +27,7 @@ const canSave = computed(() =>
 );
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
 const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
+const canSetMiddleware = computed(() => toolAccess.can('set_participant_middleware') === 'auto');
 
 const name = ref('');
 const modelText = ref('');
@@ -131,10 +132,14 @@ async function save(): Promise<void> {
       // modify_agent/create_agent have no middleware parameter — middleware goes
       // through set_participant_middleware (final-review B2 fix; same two-phase
       // save as the legacy ParticipantSlideOver: non-atomic, both retryable).
-      await execute('set_participant_middleware', {
-        participantId: result.id,
-        middleware: middleware.value,
-      });
+      // Skip it when the caller cannot invoke it, so save does not end in a
+      // misleading error after the participant write already landed.
+      if (canSetMiddleware.value) {
+        await execute('set_participant_middleware', {
+          participantId: result.id,
+          middleware: middleware.value,
+        });
+      }
       emit('saved', result.id);
     } else {
       await execute('modify_agent', {
@@ -145,10 +150,12 @@ async function save(): Promise<void> {
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
       });
-      await execute('set_participant_middleware', {
-        participantId: props.participantId,
-        middleware: middleware.value,
-      });
+      if (canSetMiddleware.value) {
+        await execute('set_participant_middleware', {
+          participantId: props.participantId,
+          middleware: middleware.value,
+        });
+      }
       emit('saved', props.participantId);
     }
   } catch (err) {

@@ -34,6 +34,8 @@ function stubFetch(): ReturnType<typeof vi.fn> {
       return toolResponse('list_models', [
         { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
       ]);
+    if (body.tool === 'list_middleware')
+      return toolResponse('list_middleware', { definitions: [] });
     return toolResponse(body.tool, {});
   });
 }
@@ -234,6 +236,36 @@ describe('AgentEditor', () => {
     });
   });
 
+  it('skips middleware save when the caller lacks set_participant_middleware', async () => {
+    mockCan((tool) => (tool === 'modify_agent' ? 'auto' : 'hidden'));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        if (body.tool === 'get_participant') return toolResponse('get_participant', AGENT);
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: [], callerPolicy: {} });
+        if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-model"]').element as HTMLInputElement).value).toBe(
+        'gpt-4o',
+      ),
+    );
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await flushPromises();
+    expect(calls).toContain('modify_agent');
+    expect(calls).not.toContain('set_participant_middleware');
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
+  });
+
   it('retire hidden for protected participants', async () => {
     vi.stubGlobal(
       'fetch',
@@ -244,6 +276,8 @@ describe('AgentEditor', () => {
         if (body.tool === 'list_tools')
           return toolResponse('list_tools', { tools: [], callerPolicy: {} });
         if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
         return toolResponse(body.tool, {});
       }),
     );

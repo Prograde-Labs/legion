@@ -912,6 +912,51 @@ describe('management tools', () => {
     expect(result.status).toBe('error');
   });
 
+  it('set_credential refuses another participant unless the caller is an operator', async () => {
+    const { context } = await makeContext();
+    const credentialStore = new FileCredentialStore(new MemoryStorage());
+    const ctx = {
+      ...context,
+      participant: { id: 'alice', name: 'Alice', type: 'user', tools: {}, operator: false },
+      credentialStore,
+    } as unknown as ToolContext;
+    const result = await setCredentialTool.execute(
+      { participantId: 'bob', secret: 'hunter2' },
+      ctx,
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('operator');
+    expect(await credentialStore.verify('bob', 'hunter2')).toBe(false);
+  });
+
+  it('set_credential allows a participant to set its own credential', async () => {
+    const { context } = await makeContext();
+    const credentialStore = new FileCredentialStore(new MemoryStorage());
+    const ctx = {
+      ...context,
+      participant: { id: 'alice', name: 'Alice', type: 'user', tools: {}, operator: false },
+      credentialStore,
+    } as unknown as ToolContext;
+    const result = await setCredentialTool.execute(
+      { participantId: 'alice', secret: 'hunter2' },
+      ctx,
+    );
+    expect(result.status).toBe('success');
+    expect(await credentialStore.verify('alice', 'hunter2')).toBe(true);
+  });
+
+  it('set_credential allows an operator to set another participant’s credential', async () => {
+    const { context } = await makeContext();
+    const credentialStore = new FileCredentialStore(new MemoryStorage());
+    const ctx = { ...context, credentialStore } as unknown as ToolContext;
+    const result = await setCredentialTool.execute(
+      { participantId: 'alice', secret: 'hunter2' },
+      ctx,
+    );
+    expect(result.status).toBe('success');
+    expect(await credentialStore.verify('alice', 'hunter2')).toBe(true);
+  });
+
   it('get_participant returns full config for an agent', async () => {
     const { context } = await makeContext();
     // Create an agent via the tool

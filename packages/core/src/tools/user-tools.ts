@@ -6,6 +6,10 @@ function requireCollective(context: ToolContext): NonNullable<ToolContext['colle
   return context.collective;
 }
 
+function callerIsOperator(context: ToolContext): boolean {
+  return context.participant.operator === true;
+}
+
 function toError(err: unknown): ToolResult {
   return { status: 'error', error: err instanceof Error ? err.message : String(err) };
 }
@@ -33,6 +37,9 @@ export const createUserTool: Tool = {
       operator?: boolean;
       tools?: Record<string, ToolPolicy>;
     };
+    if (operator === true && !callerIsOperator(context)) {
+      return { status: 'error', error: 'Only an operator can grant the operator flag' };
+    }
     try {
       const config: UserConfig = {
         id,
@@ -76,6 +83,9 @@ export const modifyUserTool: Tool = {
       operator?: boolean;
       tools?: Record<string, ToolPolicy>;
     };
+    if (operator === true && !callerIsOperator(context)) {
+      return { status: 'error', error: 'Only an operator can grant the operator flag' };
+    }
     try {
       const collective = requireCollective(context);
       const existing = collective.get(id);

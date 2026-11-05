@@ -781,6 +781,12 @@ export const setCredentialTool: Tool = {
   },
   async execute(args, context): Promise<ToolResult> {
     const { participantId, secret } = args as { participantId: string; secret: string };
+    if (participantId !== context.participant.id && context.participant.operator !== true) {
+      return {
+        status: 'error',
+        error: 'Only an operator can set another participant’s credential',
+      };
+    }
     if (!context.credentialStore) {
       return { status: 'error', error: 'credentialStore unavailable in context' };
     }
