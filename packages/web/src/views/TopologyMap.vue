@@ -11,6 +11,7 @@ import { useLegionApi } from '../composables/useLegionApi.js';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
+import { friendlyToolError } from '../composables/friendlyToolError.js';
 
 const emit = defineEmits<{ select: [participantId: string] }>();
 
@@ -126,6 +127,13 @@ const activityStream = useToolStream<ActivityChunk>('watch_activity', () => ({})
   },
 });
 
+// The global watch_activity feed is operator-only; non-operators get a denied
+// stream. Show a quiet note instead of leaving the map silently static.
+const liveError = ref<string | null>(null);
+watch(activityStream.error, (err) => {
+  liveError.value = err ? friendlyToolError(err) : null;
+});
+
 onMounted(() => {
   pruneTimer = setInterval(prune, 1000);
 });
@@ -173,6 +181,14 @@ function activateNode(node: TopoNode): void {
 
 <template>
   <div class="flex h-full flex-col">
+    <div
+      v-if="liveError"
+      data-test="topology-live-error"
+      class="px-2 py-1 text-xs text-muted"
+      title="Live activity requires an operator subscription; reload to refresh."
+    >
+      Live edges unavailable: {{ liveError }}
+    </div>
     <svg
       data-test="topo-svg"
       :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
 import { friendlyToolError } from '../composables/friendlyToolError.js';
 import ToolPolicyEditor, {
   type ToolOverride,
@@ -22,6 +23,12 @@ const emit = defineEmits<{ saved: [id: string]; retired: [] }>();
 const { execute } = useLegionApi();
 const auth = useAuth();
 const toolAccess = useToolAccess();
+const { participants } = useParticipants();
+// Tool-policy mutations are operator-only server-side. A non-operator with
+// create_agent/modify_agent can still save the agent, but must omit `tools` and
+// see the existing policies read-only (same treatment as UserEditor).
+const self = computed(() => participants.value.find((p) => p.id === auth.participantId.value));
+const callerIsOperator = computed(() => self.value?.operator === true);
 // Declared before `canSave`, which reads both, so the computed has no
 // forward reference to a later `const`.
 const middlewareErrors = ref<string[]>([]);
@@ -188,7 +195,9 @@ async function save(): Promise<void> {
         name: name.value,
         systemPrompt: systemPrompt.value,
         model: { model: modelText.value },
-        tools: overridesToToolsMap(overrides.value),
+        // Tool-policy changes require an operator server-side; omit the map for
+        // non-operators so creation/rename still succeeds and policies are kept.
+        ...(callerIsOperator.value ? { tools: overridesToToolsMap(overrides.value) } : {}),
         maxIterations: maxIterations.value,
       });
       // modify_agent/create_agent have no middleware parameter — middleware goes
@@ -209,7 +218,7 @@ async function save(): Promise<void> {
         name: name.value,
         systemPrompt: systemPrompt.value,
         model: { model: modelText.value },
-        tools: overridesToToolsMap(overrides.value),
+        ...(callerIsOperator.value ? { tools: overridesToToolsMap(overrides.value) } : {}),
         maxIterations: maxIterations.value,
       });
       if (canSetMiddleware.value) {
@@ -346,8 +355,12 @@ const groupedModels = computed(() => {
       <ToolPolicyEditor
         :available-tools="availableTools"
         :overrides="overrides"
+        :readonly="!callerIsOperator"
         @update:overrides="overrides = $event"
       />
+      <p v-if="!callerIsOperator" data-test="tools-readonly" class="text-xs text-muted">
+        You do not have permission to change tool policies; the existing configuration is preserved.
+      </p>
     </div>
     <div class="flex flex-col gap-1">
       <span class="text-xs text-faint">Middleware</span>

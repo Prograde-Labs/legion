@@ -346,6 +346,7 @@ describe('useToolStream', () => {
       // A non-operator without cancel_stream in their grant gets an error from
       // cancel_stream. A conversation switch must still start the new stream
       // instead of aborting start() and leaving the old stream running.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       vi.mocked(fetch)
         .mockResolvedValueOnce({
           ok: true,
@@ -380,6 +381,11 @@ describe('useToolStream', () => {
       expect(stream.active.value).toBe(true);
       expect(stream.conversationId.value).toBe('c2');
       expect(stream.error.value).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('cancel failed'),
+        expect.any(Error),
+      );
+      warnSpy.mockRestore();
       wrapper.unmount();
     });
 

@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import AgentEditor from './AgentEditor.vue';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import { useParticipants } from '../composables/useParticipants.js';
+import { useAuth } from '../composables/useAuth.js';
 
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
 
@@ -84,6 +86,7 @@ describe('AgentEditor', () => {
     mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
+    useParticipants().__resetForTests();
     seedToken();
   });
 
@@ -644,6 +647,49 @@ describe('AgentEditor', () => {
     const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
     await vi.waitFor(() => wrapper.find('[data-test="agent-name"]').exists());
     expect(wrapper.find('[data-test="agent-retire"]').exists()).toBe(false);
+  });
+
+  it('saves without a tools arg and renders policies read-only for a non-operator', async () => {
+    useParticipants().__setParticipantsForTests([
+      { id: 'user-1', name: 'User', type: 'user', status: 'active', tools: {}, operator: false },
+    ] as never);
+    useAuth().participantId.value = 'user-1';
+    mockCan((t) =>
+      t === 'modify_agent' ||
+      t === 'get_participant' ||
+      t === 'list_tools' ||
+      t === 'list_models' ||
+      t === 'list_middleware' ||
+      t === 'list_skills'
+        ? 'auto'
+        : 'hidden',
+    );
+    const fetchMock = stubFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
+        'Agent A',
+      ),
+    );
+    await vi.waitFor(() => expect(wrapper.find('[data-tool-row]').exists()).toBe(true));
+
+    // The server rejects any tools map from a non-operator, so the editor must
+    // render it read-only and omit it from the save payload.
+    expect(wrapper.find('[data-test="tools-readonly"]').text()).toContain('preserved');
+    for (const checkbox of wrapper.findAll('[data-tool-row] input')) {
+      expect((checkbox.element as HTMLInputElement).disabled).toBe(true);
+    }
+
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.tools).toBeUndefined();
+    });
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
 
   it('hides save/retire/authority affordances without the matching tool access', async () => {

@@ -45,7 +45,10 @@ export const createUserTool: Tool = {
       operator: { type: 'boolean', description: 'Grant operator flag. Default false.' },
       tools: {
         type: 'object',
-        description: 'Map of tool name to policy (auto or requires_approval). Default empty.',
+        description:
+          'Map of tool name to policy (auto or requires_approval). Merged over the ' +
+          'default read/subscription tools (approvals, conversation and activity ' +
+          'streams, cancel_stream); explicit policies override the defaults.',
       },
     },
     required: ['id', 'name'],

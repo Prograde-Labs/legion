@@ -287,6 +287,7 @@ describe('AppShell', () => {
     await flushPromises();
 
     expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
   });
 
   it('ingests live approval chunks from the watch_activity stream', async () => {

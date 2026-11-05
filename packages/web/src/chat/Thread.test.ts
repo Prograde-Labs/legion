@@ -296,6 +296,19 @@ describe('Thread', () => {
     expect(wrapper.find('[data-test="live-error"]').exists()).toBe(false);
   });
 
+  it('clears the live note when switching to a draft (no conversation)', async () => {
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    (conversationMocks.error as { value: string | null }).value = 'unauthorized';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="live-error"]').exists()).toBe(true);
+
+    await wrapper.setProps({ conversationId: null });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="live-error"]').exists()).toBe(false);
+  });
+
   it('clears the thinking indicator when switching conversations', async () => {
     const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
     await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));

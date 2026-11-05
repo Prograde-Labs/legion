@@ -102,6 +102,26 @@ describe('TopologyMap', () => {
     expect(wrapper.emitted('select')?.[1]).toEqual(['agent-a']);
   });
 
+  it('shows a non-blocking note when the activity stream is denied', async () => {
+    // The global watch_activity feed is operator-only; non-operators must see
+    // that live edges are unavailable rather than silently getting no edges.
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { tool?: string };
+      if (body.tool === 'watch_activity') return new Response('hidden', { status: 403 });
+      return new Response(JSON.stringify({ result: { status: 'success', data: MCP } }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(TopologyMap);
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="topology-live-error"]').exists()).toBe(true),
+    );
+    expect(wrapper.find('[data-test="topology-live-error"]').text()).toContain('unavailable');
+    // The map itself stays rendered.
+    expect(wrapper.find('[data-test="topo-svg"]').exists()).toBe(true);
+  });
+
   it('tool:call chunks from the activity stream add a transient edge', async () => {
     stubExecute();
     const wrapper = mount(TopologyMap);

@@ -219,6 +219,14 @@ const liveError = ref<string | null>(null);
 watch(conversationStream.error, (err) => {
   liveError.value = err ? friendlyToolError(err) : null;
 });
+// A draft has no conversation stream to deny; do not carry the note over from
+// the previous conversation.
+watch(
+  () => props.conversationId,
+  (conversationId) => {
+    if (!conversationId) liveError.value = null;
+  },
+);
 
 watch(
   () => [useWebSocket().getConnectionId(), props.conversationId] as const,
