@@ -412,7 +412,12 @@ describe('Thread', () => {
     expect((init.headers as Record<string, string>)['X-Stream-Connection']).toBe('conn-1');
     expect(JSON.parse(String(init.body))).toEqual({
       tool: 'communicate',
-      args: { to: 'agent-a', message: 'do the thing', conversationId: 'c1' },
+      args: {
+        to: 'agent-a',
+        message: 'do the thing',
+        conversationId: 'c1',
+        detail: 'full',
+      },
     });
 
     // Chunks stream in: typing indicator visible, then cleared + reload on done.
@@ -429,6 +434,56 @@ describe('Thread', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     // Exposed streaming state settled back to false.
     await vi.waitFor(() => expect((wrapper.vm as { streaming?: boolean }).streaming).toBe(false));
+  });
+
+  it('renders the tool-call timeline during a streamed communicate call', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      )
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await (wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }).send(
+      'agent-a',
+      'do the thing',
+    );
+
+    mocks.streamChunkHandler?.({ type: 'iteration_start', iteration: 0 });
+    mocks.streamChunkHandler?.({
+      type: 'tool_call_start',
+      index: 0,
+      id: 'c1',
+      name: 'search_notes',
+    });
+    mocks.streamChunkHandler?.({
+      type: 'tool_call_args_delta',
+      index: 0,
+      delta: '{"query":"legion"}',
+    });
+
+    await vi.waitFor(() => expect(wrapper.find('[data-test="tool-timeline"]').exists()).toBe(true));
+    expect(wrapper.text()).toContain('search_notes');
+    expect(wrapper.find('[data-test="tool-args"]').text()).toContain('legion');
+
+    mocks.streamChunkHandler?.({ type: 'stream:done', result: null });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="tool-timeline"]').exists()).toBe(false),
+    );
   });
 
   it('accumulates reasoning deltas into the streaming part', async () => {
@@ -554,7 +609,7 @@ describe('Thread', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body))).toEqual({
       tool: 'communicate',
-      args: { to: 'agent-a', message: 'hello' },
+      args: { to: 'agent-a', message: 'hello', detail: 'full' },
     });
 
     // Terminal chunk carries the full ToolResult; the created id is in its data.

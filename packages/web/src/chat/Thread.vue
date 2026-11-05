@@ -4,6 +4,7 @@ import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import MessagePart from './MessagePart.vue';
+import ToolTimeline from './ToolTimeline.vue';
 import ForkControls from './ForkControls.vue';
 import MessageActions from './MessageActions.vue';
 import ApprovalCard from './ApprovalCard.vue';
@@ -12,7 +13,7 @@ import { useAuth } from '../composables/useAuth.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
 import { useParticipants } from '../composables/useParticipants.js';
 import { friendlyToolError } from '../composables/friendlyToolError.js';
-import type { MessageData, StreamChunk } from '@legion-collective/types';
+import type { DetailLevel, MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
 type MessageWithAlternates = MessageData & {
@@ -49,6 +50,8 @@ const streamingText = ref('');
 const streamingReasoning = ref('');
 const isStreaming = ref(false);
 const streamError = ref<string | null>(null);
+const toolCalls = ref<Array<{ index: number; name: string; args: string }>>([]);
+const streamTimedOut = ref<number | null>(null);
 const tailEl = ref<HTMLElement | null>(null);
 let loadSeq = 0;
 
@@ -264,9 +267,15 @@ watch(isStreaming, (active) => {
 // C1/I1 fix: ChatView drives sends through the exposed send(); conversationId
 // is required here or the backend creates a NEW conversation instead of
 // appending to the viewed one.
-let pendingArgs: { to: string; message: string; conversationId?: string } = {
+let pendingArgs: {
+  to: string;
+  message: string;
+  conversationId?: string;
+  detail: DetailLevel;
+} = {
   to: '',
   message: '',
+  detail: 'full',
 };
 const stream = useToolStream('communicate', () => pendingArgs, {
   cancelOnUnmount: false,
@@ -286,6 +295,13 @@ const stream = useToolStream('communicate', () => pendingArgs, {
     } else if (chunk.type === 'reasoning_delta') {
       isStreaming.value = true;
       streamingReasoning.value += chunk.delta;
+    } else if (chunk.type === 'tool_call_start') {
+      toolCalls.value.push({ index: chunk.index, name: chunk.name, args: '' });
+    } else if (chunk.type === 'tool_call_args_delta') {
+      const call = toolCalls.value.find((entry) => entry.index === chunk.index);
+      if (call) call.args += chunk.delta;
+    } else if (chunk.type === 'call_timeout') {
+      streamTimedOut.value = chunk.timeoutMs;
     } else if (chunk.type === 'stream:done' || chunk.type === 'stream:error') {
       isStreaming.value = false;
       void load();
@@ -328,7 +344,14 @@ watch(stream.error, (err) => {
 defineExpose({
   cancelStream: (): Promise<void> => stream.cancel(),
   send: async (to: string, message: string): Promise<void> => {
-    pendingArgs = { to, message, conversationId: props.conversationId ?? undefined };
+    toolCalls.value = [];
+    streamTimedOut.value = null;
+    pendingArgs = {
+      to,
+      message,
+      conversationId: props.conversationId ?? undefined,
+      detail: 'full',
+    };
     await stream.start();
   },
   streaming: computed(() => stream.active.value || isStreaming.value),
@@ -498,6 +521,14 @@ watch(
             }"
             :highlight="props.highlight?.outboundMessageId === 'streaming-outbound'"
           />
+          <ToolTimeline :calls="toolCalls" :detail="pendingArgs.detail" />
+          <div
+            v-if="streamTimedOut !== null"
+            data-test="stream-timeout"
+            class="px-1 text-xs text-danger"
+          >
+            Stopped after {{ Math.round(streamTimedOut / 1000) }}s
+          </div>
           <MessagePart
             v-if="streamingReasoning || streamingText"
             :message="{
@@ -508,7 +539,8 @@ watch(
               recipientId: 'user',
               role: 'assistant',
               content: streamingText,
-              reasoning: streamingReasoning || undefined,
+              reasoning:
+                pendingArgs.detail === 'minimal' ? undefined : streamingReasoning || undefined,
               timestamp: new Date().toISOString(),
               status: 'active',
             }"

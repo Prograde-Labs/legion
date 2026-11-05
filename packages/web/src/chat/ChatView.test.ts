@@ -187,7 +187,7 @@ describe('ChatView draft flow', () => {
     expect(streamCalls.length).toBe(1);
     expect(JSON.parse(String(streamCalls[0][1].body))).toEqual({
       tool: 'communicate',
-      args: { to: 'agent-a', message: 'hello' },
+      args: { to: 'agent-a', message: 'hello', detail: 'full' },
     });
     mocks.streamChunkHandler?.({
       type: 'stream:done',
@@ -268,7 +268,7 @@ describe('ChatView draft flow', () => {
     expect(streamCalls.length).toBe(1);
     expect(JSON.parse(String(streamCalls[0][1].body))).toEqual({
       tool: 'communicate',
-      args: { to: 'agent-a', message: 'second message', conversationId: 'conv-1' },
+      args: { to: 'agent-a', message: 'second message', conversationId: 'conv-1', detail: 'full' },
     });
     const plainCommunicate = fetchMock.mock.calls.filter((call) => {
       const headers = ((call[1] as RequestInit | undefined)?.headers ?? {}) as Record<
