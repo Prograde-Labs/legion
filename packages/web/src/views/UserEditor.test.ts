@@ -203,6 +203,44 @@ describe('UserEditor', () => {
     });
   });
 
+  it('preserves authority participants through load, edit and save', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant')
+        return toolResponse('get_participant', {
+          ...USER,
+          approvalAuthority: { tools: { communicate: true }, participants: ['alice'] },
+        });
+      if (body.tool === 'list_tools')
+        return toolResponse('list_tools', {
+          tools: ['communicate', 'file_read'],
+          callerPolicy: {},
+        });
+      return toolResponse('other', {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="tool-file_read"]').exists()).toBe(true),
+    );
+    expect(
+      (wrapper.find('[data-test="tool-communicate"]').element as HTMLInputElement).checked,
+    ).toBe(true);
+    await wrapper.find('[data-test="tool-file_read"]').setValue(true);
+    await wrapper.find('form').trigger('submit');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([, init]) => JSON.parse(String(init?.body)).tool === 'set_approval_authority',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.authority).toEqual({
+        tools: { communicate: true, file_read: true },
+        participants: ['alice'],
+      });
+    });
+  });
+
   it('password fields enforce min 8 + match before calling set_credential', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);

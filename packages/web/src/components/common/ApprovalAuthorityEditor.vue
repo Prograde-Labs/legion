@@ -7,7 +7,9 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  'update:modelValue': [value: { tools: Record<string, boolean> | '*' }];
+  'update:modelValue': [
+    value: { tools: Record<string, boolean> | '*'; participants?: string[] | '*' },
+  ];
 }>();
 
 const isWildcard = computed(() => props.modelValue?.tools === '*');
@@ -18,12 +20,21 @@ const toolState = computed<Record<string, boolean>>(() =>
     : (props.modelValue.tools as Record<string, boolean>),
 );
 
+// Approval authority has two independent axes: `tools` (which tool outcomes this
+// participant may approve) and `participants` (which participants it may approve
+// for). Spread the incoming value so toggling tools never erases participants.
 function emitWildcard(value: boolean): void {
-  emit('update:modelValue', { tools: value ? '*' : {} });
+  emit('update:modelValue', {
+    ...(props.modelValue ?? {}),
+    tools: value ? '*' : {},
+  });
 }
 
 function emitTool(tool: string, value: boolean): void {
-  emit('update:modelValue', { tools: { ...toolState.value, [tool]: value } });
+  emit('update:modelValue', {
+    ...(props.modelValue ?? {}),
+    tools: { ...toolState.value, [tool]: value },
+  });
 }
 </script>
 

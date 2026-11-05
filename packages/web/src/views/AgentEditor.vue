@@ -8,6 +8,10 @@ import ToolPolicyEditor, {
   type ToolOverride,
 } from '../components/participants/ToolPolicyEditor.vue';
 import MiddlewareEditor from '../components/participants/MiddlewareEditor.vue';
+import type {
+  MiddlewareDefinitionInfo,
+  SkillInfo,
+} from '../components/participants/middleware-ui-types.js';
 import ApprovalAuthorityEditor from '../components/common/ApprovalAuthorityEditor.vue';
 import type { MiddlewareInstanceConfig } from '@legion-collective/types';
 
@@ -20,11 +24,15 @@ const auth = useAuth();
 const toolAccess = useToolAccess();
 // Save covers create (new) or modify (existing); retire and authority-save are
 // separate affordances with their own tools.
-const canSave = computed(() =>
-  props.participantId === 'new'
+const canSave = computed(() => {
+  // Middleware is only written through set_participant_middleware, and only when
+  // the caller can invoke it. Block save on invalid config that would be written;
+  // a caller who cannot change middleware can still save (it is preserved).
+  if (canSetMiddleware.value && middlewareErrors.value.length > 0) return false;
+  return props.participantId === 'new'
     ? toolAccess.can('create_agent') === 'auto' && modelText.value.trim().length > 0
-    : toolAccess.can('modify_agent') === 'auto' && modelText.value.trim().length > 0,
-);
+    : toolAccess.can('modify_agent') === 'auto' && modelText.value.trim().length > 0;
+});
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
 const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
 const canSetMiddleware = computed(() => toolAccess.can('set_participant_middleware') === 'auto');
@@ -37,8 +45,14 @@ const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
 const modelOptions = ref<{ provider: string; model: { id: string; name?: string } }[]>([]);
 const middleware = ref<MiddlewareInstanceConfig[]>([]);
-const middlewareDefinitions = ref<never[]>([]);
-const authorityModel = ref<{ tools?: Record<string, boolean> | '*' } | null>(null);
+const middlewareDefinitions = ref<MiddlewareDefinitionInfo[]>([]);
+const middlewareErrors = ref<string[]>([]);
+const skills = ref<SkillInfo[]>([]);
+const credentialKeys = ref<string[]>([]);
+const authorityModel = ref<{
+  tools?: Record<string, boolean> | '*';
+  participants?: string[] | '*';
+} | null>(null);
 const loaded = ref<{ protected?: boolean } | null>(null);
 const error = ref<string | null>(null);
 const busy = ref(false);
@@ -63,6 +77,11 @@ function overridesToToolsMap(list: ToolOverride[]): Record<string, 'auto' | 'req
 
 async function load(): Promise<void> {
   error.value = null;
+  // Reset lists owned by this editor so switching participants cannot show the
+  // previous participant's skills/keys or a stale middleware validation error.
+  middlewareErrors.value = [];
+  skills.value = [];
+  credentialKeys.value = [];
   if (props.participantId === 'new') {
     loaded.value = null;
     return;
@@ -85,9 +104,18 @@ async function load(): Promise<void> {
       requireApproval: policy === 'requires_approval',
     }));
     middleware.value = (p['middleware'] as MiddlewareInstanceConfig[]) ?? [];
-    const authority = p['approvalAuthority'] as { tools?: Record<string, boolean> | '*' } | null;
-    authorityModel.value =
-      authority?.tools === '*' ? { tools: '*' } : { tools: authority?.tools ?? {} };
+    // Approval authority carries both tool approvals and participant approvals;
+    // keep `participants` so saving authority round-trips it instead of erasing it.
+    const authority = p['approvalAuthority'] as {
+      tools?: Record<string, boolean> | '*';
+      participants?: string[] | '*';
+    } | null;
+    authorityModel.value = authority
+      ? {
+          tools: authority.tools === '*' ? '*' : (authority.tools ?? {}),
+          ...(authority.participants === undefined ? {} : { participants: authority.participants }),
+        }
+      : null;
   } catch (err) {
     error.value = friendlyToolError(err);
   }
@@ -105,8 +133,21 @@ async function load(): Promise<void> {
   void execute<{ provider: string; model: { id: string; name?: string } }[]>('list_models', {})
     .then((models) => (modelOptions.value = models))
     .catch(() => {});
-  void execute<{ definitions: never[] }>('list_middleware', {})
+  void execute<{ definitions: MiddlewareDefinitionInfo[] }>('list_middleware', {})
     .then((data) => (middlewareDefinitions.value = data.definitions))
+    .catch(() => {});
+  // Skill names feed the builtin:skills selector; credential key names feed
+  // schema fields marked credential-reference. Both are convenience lists, so a
+  // failed fetch leaves them empty rather than failing the whole editor.
+  void execute<{ skills: SkillInfo[] }>('list_skills', {})
+    .then((data) => (skills.value = data.skills ?? []))
+    .catch(() => {});
+  // list_secrets is self-or-operator only. An editor opened by a non-operator for
+  // another participant is denied here; that must not break editing the agent.
+  void execute<{ participantId: string; keys: string[] }>('list_secrets', {
+    participantId: props.participantId,
+  })
+    .then((data) => (credentialKeys.value = data.keys ?? []))
     .catch(() => {});
 }
 
@@ -283,8 +324,9 @@ const groupedModels = computed(() => {
       <MiddlewareEditor
         v-model="middleware"
         :definitions="middlewareDefinitions"
-        :skills="[]"
-        :credential-keys="[]"
+        :skills="skills"
+        :credential-keys="credentialKeys"
+        @validation="middlewareErrors = $event"
       />
       <p v-if="!canSetMiddleware" data-test="middleware-readonly" class="text-xs text-muted">
         You do not have permission to change middleware; the existing configuration is preserved.

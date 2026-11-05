@@ -31,6 +31,34 @@ describe('ApprovalAuthorityEditor', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ tools: '*' });
   });
 
+  it('preserves the participants field when toggling a tool', async () => {
+    const wrapper = mount(ApprovalAuthorityEditor, {
+      props: {
+        modelValue: { tools: { file_write: false }, participants: ['agent-a'] },
+        availableTools: ['file_write'],
+      },
+    });
+    await wrapper.find('[data-test="tool-file_write"]').setValue(true);
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual({
+      tools: { file_write: true },
+      participants: ['agent-a'],
+    });
+  });
+
+  it('preserves the participants field when toggling the wildcard', async () => {
+    const wrapper = mount(ApprovalAuthorityEditor, {
+      props: {
+        modelValue: { tools: {}, participants: '*' },
+        availableTools: ['file_write'],
+      },
+    });
+    await wrapper.find('[data-test="wildcard"]').setValue(true);
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual({
+      tools: '*',
+      participants: '*',
+    });
+  });
+
   it('unchecking the wildcard returns to the per-tool map', async () => {
     const wrapper = mount(ApprovalAuthorityEditor, {
       props: { modelValue: { tools: '*' }, availableTools: ['communicate'] },

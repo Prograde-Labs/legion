@@ -38,7 +38,10 @@ const name = ref('');
 const operator = ref(false);
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
-const authority = ref<{ tools?: Record<string, boolean> | '*' } | null>(null);
+const authority = ref<{
+  tools?: Record<string, boolean> | '*';
+  participants?: string[] | '*';
+} | null>(null);
 const newPassword = ref('');
 const confirmPassword = ref('');
 const loaded = ref<Record<string, unknown> | null>(null);
@@ -80,7 +83,12 @@ async function load(): Promise<void> {
       enabled: true,
       requireApproval: policy === 'requires_approval',
     }));
-    const a = p['approvalAuthority'] as { tools?: Record<string, boolean> | '*' } | null;
+    // Keep the whole authority object (including `participants`) so saving it
+    // round-trips instead of erasing the participant-approval axis.
+    const a = p['approvalAuthority'] as {
+      tools?: Record<string, boolean> | '*';
+      participants?: string[] | '*';
+    } | null;
     authority.value = a ?? null;
   } catch (err) {
     error.value = friendlyToolError(err);

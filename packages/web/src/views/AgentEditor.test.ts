@@ -20,6 +20,40 @@ const AGENT = {
   maxIterations: 20,
 };
 
+// One builtin:skills instance (renders SkillsSelector) and one schema-driven
+// instance whose credential field is required (renders credential-key options
+// and reports a validation error while empty).
+const MIDDLEWARE_DEFINITIONS = [
+  {
+    type: 'builtin:skills',
+    displayName: 'Skills',
+    defaultFailureMode: 'open',
+    configSchema: {
+      type: 'object',
+      properties: { skills: { type: 'array', items: { type: 'string' } } },
+    },
+    source: 'builtin',
+  },
+  {
+    type: 'workspace:telegram',
+    displayName: 'Telegram',
+    defaultFailureMode: 'closed',
+    configSchema: {
+      type: 'object',
+      properties: {
+        botToken: { type: 'string', title: 'Bot token', format: 'credential-reference' },
+      },
+      required: ['botToken'],
+    },
+    source: 'workspace',
+  },
+];
+
+const MIDDLEWARE = [
+  { id: 'skills-1', type: 'builtin:skills', config: { skills: [] } },
+  { id: 'telegram-1', type: 'workspace:telegram', config: {} },
+];
+
 function toolResponse(_tool: string, data: unknown): Response {
   return new Response(JSON.stringify({ result: { status: 'success', data } }), { status: 200 });
 }
@@ -299,6 +333,189 @@ describe('AgentEditor', () => {
     const note = wrapper.find('[data-test="middleware-readonly"]');
     expect(note.exists()).toBe(true);
     expect(note.text()).toContain('preserved');
+  });
+
+  it('hydrates skills and credential keys for middleware editing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', { ...AGENT, middleware: MIDDLEWARE });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: [], callerPolicy: {} });
+        if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: MIDDLEWARE_DEFINITIONS });
+        if (body.tool === 'list_skills')
+          return toolResponse('list_skills', {
+            skills: [{ name: 'brainstorming', description: 'Brainstorm', scope: 'global' }],
+            diagnostics: [],
+          });
+        if (body.tool === 'list_secrets')
+          return toolResponse('list_secrets', {
+            participantId: 'agent-a',
+            keys: ['telegram-bot/x'],
+          });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-skill-option="brainstorming"]').exists()).toBe(true),
+    );
+    const credentialOptions = wrapper
+      .find('[data-field="botToken"]')
+      .findAll('option')
+      .map((option) => option.text());
+    expect(credentialOptions).toContain('telegram-bot/x');
+  });
+
+  it('does not fail the editor when list_secrets is denied for another participant', async () => {
+    // list_secrets is self-or-operator only: an editor opened by a non-operator
+    // for another participant gets a tool error, which must stay silent here.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant') return toolResponse('get_participant', AGENT);
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: [], callerPolicy: {} });
+        if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
+        if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
+        if (body.tool === 'list_secrets')
+          return new Response(
+            JSON.stringify({
+              result: {
+                status: 'error',
+                error: 'Only an operator can manage another participant secrets',
+              },
+            }),
+            { status: 200 },
+          );
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-model"]').element as HTMLInputElement).value).toBe(
+        'gpt-4o',
+      ),
+    );
+    await flushPromises();
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(true);
+  });
+
+  it('blocks save while middleware config fails validation', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...AGENT,
+            middleware: [{ id: 'telegram-1', type: 'workspace:telegram', config: {} }],
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: [], callerPolicy: {} });
+        if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: MIDDLEWARE_DEFINITIONS });
+        if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
+        if (body.tool === 'list_secrets')
+          return toolResponse('list_secrets', { keys: ['telegram-bot/x'] });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-model"]').element as HTMLInputElement).value).toBe(
+        'gpt-4o',
+      ),
+    );
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Bot token is required'));
+    expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(false);
+    // Fixing the field clears the validation error and re-enables save.
+    await wrapper.find('[data-field="botToken"]').setValue('telegram-bot/x');
+    await vi.waitFor(() => expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(true));
+  });
+
+  it('keeps save available for invalid middleware the caller cannot change', async () => {
+    mockCan((tool) => (tool === 'modify_agent' ? 'auto' : 'hidden'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...AGENT,
+            middleware: [{ id: 'telegram-1', type: 'workspace:telegram', config: {} }],
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: [], callerPolicy: {} });
+        if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: MIDDLEWARE_DEFINITIONS });
+        if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
+        if (body.tool === 'list_secrets') return toolResponse('list_secrets', { keys: [] });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-model"]').element as HTMLInputElement).value).toBe(
+        'gpt-4o',
+      ),
+    );
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Bot token is required'));
+    // Middleware cannot be written by this caller, so its invalid config is
+    // preserved rather than dead-ending the agent edit.
+    expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(true);
+  });
+
+  it('preserves authority participants through load, edit and save', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant')
+        return toolResponse('get_participant', {
+          ...AGENT,
+          approvalAuthority: { tools: { communicate: true }, participants: ['agent-a'] },
+        });
+      if (body.tool === 'list_tools')
+        return toolResponse('list_tools', {
+          tools: ['communicate', 'file_read'],
+          callerPolicy: {},
+        });
+      if (body.tool === 'list_models') return toolResponse('list_models', []);
+      if (body.tool === 'list_middleware')
+        return toolResponse('list_middleware', { definitions: [] });
+      if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
+      if (body.tool === 'list_secrets') return toolResponse('list_secrets', { keys: [] });
+      return toolResponse(body.tool, {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="tool-file_read"]').exists()).toBe(true),
+    );
+    expect(
+      (wrapper.find('[data-test="tool-communicate"]').element as HTMLInputElement).checked,
+    ).toBe(true);
+    await wrapper.find('[data-test="tool-file_read"]').setValue(true);
+    await wrapper.find('[data-test="authority-save"]').trigger('click');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([, init]) => JSON.parse(String(init?.body)).tool === 'set_approval_authority',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.authority).toEqual({
+        tools: { communicate: true, file_read: true },
+        participants: ['agent-a'],
+      });
+    });
   });
 
   it('retire hidden for protected participants', async () => {
