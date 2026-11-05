@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import SlideOver from '../components/common/SlideOver.vue';
 import { useAuth } from '../composables/useAuth.js';
 import { useLegionApi } from '../composables/useLegionApi.js';
+import { useTheme, type ThemeName } from '../theme/useTheme.js';
 
 defineProps<{ open: boolean }>();
 const emit = defineEmits<{ 'update:open': [boolean] }>();
@@ -11,6 +12,7 @@ const emit = defineEmits<{ 'update:open': [boolean] }>();
 const router = useRouter();
 const { participantId, expiresAt } = useAuth();
 const { execute, logout } = useLegionApi();
+const { theme, setTheme } = useTheme();
 
 const newPassword = ref('');
 const confirmPassword = ref('');
@@ -53,6 +55,10 @@ async function submit(): Promise<void> {
   }
 }
 
+function onThemeChange(event: Event): void {
+  setTheme((event.target as HTMLSelectElement).value as ThemeName);
+}
+
 function onLogout(): void {
   logout();
   void router.push('/login');
@@ -71,6 +77,19 @@ function onLogout(): void {
           {{ expiryLabel }}
         </p>
       </section>
+
+      <label class="block space-y-1">
+        <span>Theme</span>
+        <select
+          data-test="theme-select"
+          :value="theme"
+          class="w-full rounded-md border border-line bg-surface px-2 py-1.5"
+          @change="onThemeChange"
+        >
+          <option value="command-deck">Command deck (dark)</option>
+          <option value="blueprint-light">Blueprint (light)</option>
+        </select>
+      </label>
 
       <form class="space-y-3" @submit.prevent="submit">
         <h3 class="font-semibold">Change password</h3>

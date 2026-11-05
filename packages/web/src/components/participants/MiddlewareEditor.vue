@@ -111,7 +111,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
     >
       <div class="flex items-center gap-2">
         <div>
-          <div class="text-xs font-semibold text-slate-100">
+          <div class="text-xs font-semibold text-ink">
             {{ definitionMap.get(instance.type)?.displayName ?? instance.type }}
           </div>
           <div class="font-mono text-[10px] text-faint">{{ instance.id }}</div>
@@ -127,7 +127,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
         <button type="button" :disabled="index === modelValue.length - 1" @click="move(index, 1)">
           ↓
         </button>
-        <label class="ml-auto text-xs text-slate-400">
+        <label class="ml-auto text-xs text-muted">
           <input
             :data-enabled="instance.id"
             type="checkbox"
@@ -140,7 +140,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
         <button
           type="button"
           :data-remove="instance.id"
-          class="text-xs text-red-400"
+          class="text-xs text-danger"
           @click="remove(index)"
         >
           Remove
@@ -148,19 +148,19 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
       </div>
 
       <div v-if="!definitionMap.has(instance.type)" :data-unknown="instance.id" class="mt-3">
-        <p class="text-xs text-amber-400">
+        <p class="text-xs text-warning">
           Definition unavailable. Disabled configuration is preserved.
         </p>
         <p
           v-for="diagnostic in diagnosticMessages(instance)"
           :key="diagnostic"
-          class="mt-1 text-[10px] text-amber-400"
+          class="mt-1 text-[10px] text-warning"
         >
           {{ diagnostic }}
         </p>
         <pre
           :data-raw-config="instance.id"
-          class="mt-2 overflow-auto rounded bg-surface-raised p-2 text-[10px] text-slate-400"
+          class="mt-2 overflow-auto rounded bg-surface-raised p-2 text-[10px] text-muted"
           >{{ JSON.stringify(instance.config, null, 2) }}</pre>
       </div>
       <template v-else>
@@ -170,7 +170,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
         <select
           :data-failure="instance.id"
           :value="instance.failureMode ?? ''"
-          class="mt-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs text-slate-200"
+          class="mt-1 rounded border border-line bg-surface-raised px-2 py-1 text-xs text-ink"
           @change="setFailure(index, ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
@@ -198,7 +198,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
         <p
           v-for="diagnostic in diagnosticMessages(instance)"
           :key="diagnostic"
-          class="mt-2 text-[10px] text-amber-400"
+          class="mt-2 text-[10px] text-warning"
         >
           {{ diagnostic }}
         </p>
@@ -208,7 +208,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
     <div class="flex gap-2">
       <select
         v-model="addType"
-        class="flex-1 rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-slate-200"
+        class="flex-1 rounded border border-line bg-surface-raised px-2 py-1.5 text-xs text-ink"
       >
         <option value="">Add middleware...</option>
         <option v-for="definition in definitions" :key="definition.type" :value="definition.type">
@@ -218,7 +218,7 @@ function diagnosticMessages(instance: MiddlewareInstanceConfig): string[] {
       <button
         type="button"
         :disabled="!addType"
-        class="rounded bg-cyan-700 px-3 py-1.5 text-xs text-white"
+        class="rounded bg-accent px-3 py-1.5 text-xs text-on-accent"
         @click="add"
       >
         Add

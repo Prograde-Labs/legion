@@ -8,15 +8,15 @@ test.describe('Login UI', () => {
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
 
-  test('valid credentials redirect to /#/participants', async ({ page, connInfo }) => {
+  test('valid credentials redirect to /#/chat', async ({ page, connInfo }) => {
     await page.goto('/');
     await page.locator('input[autocomplete="username"]').fill('operator');
     await page.locator('input[type="password"]').fill(connInfo.password);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    await expect(page).toHaveURL(/#\/participants/);
-    // Participants heading confirms the redirect landed correctly
-    await expect(page.getByRole('heading', { name: 'Participants' })).toBeVisible();
+    await expect(page).toHaveURL(/#\/chat/);
+    // Composer confirms the redirect landed on the chat surface
+    await expect(page.locator('[data-test="composer-input"]')).toBeVisible();
   });
 
   test('invalid credentials show error and stay on login', async ({ page }) => {

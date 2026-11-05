@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useParticipants } from '../composables/useParticipants.js';
-import { useAuth } from '../composables/useAuth.js';
+import { useToolAccess } from '../composables/useToolAccess.js';
 import { useCoarsePointer } from '../composables/useCoarsePointer.js';
 
 const props = defineProps<{
@@ -17,7 +17,7 @@ const emit = defineEmits<{
 }>();
 
 const { participants } = useParticipants();
-const auth = useAuth();
+const toolAccess = useToolAccess();
 const { isCoarse } = useCoarsePointer();
 
 const draft = ref('');
@@ -35,13 +35,9 @@ const mentionList = computed(() => {
   return agents.value.filter((a) => a.id.toLowerCase().includes(q));
 });
 
-const toolHints = computed<string[]>(() => {
-  const me = auth.participantId; // OQ4: hints derive from the user's own tools map when available
-  const tools = (auth as { tools?: { value?: string[] } }).tools?.value;
-  if (!tools) return []; // hidden, never guessed (open question 4 default)
-  void me;
-  return tools;
-});
+const toolHints = computed<string[]>(() =>
+  Object.keys(toolAccess.access.value).filter((tool) => toolAccess.can(tool) !== 'hidden'),
+);
 
 function onInput(event: Event): void {
   const value = (event.target as HTMLTextAreaElement).value;

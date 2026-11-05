@@ -74,9 +74,7 @@ function toggleApproval(tool: string) {
         @change="setEnabled(tool, !override?.enabled)"
         class="accent-cyan-400"
       />
-      <span
-        :class="['flex-1 font-mono text-xs', override?.enabled ? 'text-slate-100' : 'text-faint']"
-      >
+      <span :class="['flex-1 font-mono text-xs', override?.enabled ? 'text-ink' : 'text-faint']">
         {{ tool }}
       </span>
       <button
@@ -85,7 +83,7 @@ function toggleApproval(tool: string) {
         :class="[
           'text-[9px] px-2 py-0.5 rounded border transition-colors',
           override.requireApproval
-            ? 'bg-amber-400/10 border-amber-400/30 text-amber-400'
+            ? 'bg-warning/10 border-warning/30 text-warning'
             : 'border-line text-faint',
         ]"
       >

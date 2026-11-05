@@ -1,11 +1,10 @@
 <script setup lang="ts">
 defineProps<{ type: string }>();
 const colours: Record<string, string> = {
-  'message:sent': 'bg-cyan-400/10 text-cyan-400 border-cyan-400/20',
-  'tool:call': 'bg-violet-400/10 text-violet-400 border-violet-400/20',
-  'tool:result': 'bg-green-400/10 text-green-400 border-green-400/20',
-  error: 'bg-red-400/10 text-red-400 border-red-400/20',
-  delegation: 'bg-amber-400/10 text-amber-400 border-amber-400/20',
+  agent: 'bg-accent-soft text-accent border-accent/20',
+  user: 'bg-success/10 text-success border-success/20',
+  service: 'bg-warning/10 text-warning border-warning/20',
+  mock: 'bg-surface-raised text-muted border-line',
 };
 const cls = (t: string) => colours[t] ?? 'bg-surface-raised text-muted border-line';
 </script>

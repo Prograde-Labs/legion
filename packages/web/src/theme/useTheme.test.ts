@@ -7,8 +7,9 @@ describe('useTheme', () => {
     document.documentElement.removeAttribute('data-theme');
   });
 
-  it('defaults to command-deck and sets the attribute', () => {
-    const { theme } = useTheme();
+  it('defaults to command-deck and sets the attribute on init', () => {
+    const { theme, initTheme } = useTheme();
+    initTheme();
     expect(theme.value).toBe('command-deck');
     expect(document.documentElement.dataset.theme).toBe('command-deck');
   });

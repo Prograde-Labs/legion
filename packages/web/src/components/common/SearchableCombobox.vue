@@ -45,7 +45,7 @@ function select(option: { value: string; label: string }) {
     <input
       :value="open ? query : selectedLabel"
       :placeholder="selectedLabel || placeholder"
-      class="w-full bg-surface border border-line rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-600"
+      class="w-full bg-surface border border-line rounded px-3 py-1.5 text-sm text-ink placeholder:text-faint focus:outline-none focus:border-accent"
       @input="query = ($event.target as HTMLInputElement).value"
       @focus="onFocus"
       @blur="onBlur"
@@ -58,12 +58,12 @@ function select(option: { value: string; label: string }) {
         v-for="option in filtered"
         :key="option.value"
         data-option
-        class="px-3 py-2 text-sm text-slate-200 hover:bg-surface cursor-pointer"
+        class="px-3 py-2 text-sm text-ink hover:bg-surface cursor-pointer"
         @mousedown.prevent="select(option)"
       >
         {{ option.label }}
       </li>
-      <li v-if="filtered.length === 0" class="px-3 py-2 text-sm text-slate-500">No results</li>
+      <li v-if="filtered.length === 0" class="px-3 py-2 text-sm text-muted">No results</li>
     </ul>
   </div>
 </template>

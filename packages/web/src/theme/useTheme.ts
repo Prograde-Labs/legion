@@ -14,8 +14,6 @@ function apply(name: ThemeName): void {
 }
 
 export function useTheme() {
-  apply(theme.value);
-
   function initTheme(): void {
     const stored = localStorage.getItem(STORAGE_KEY);
     theme.value = isThemeName(stored) ? stored : 'command-deck';

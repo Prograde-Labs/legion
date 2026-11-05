@@ -1,9 +1,9 @@
 <script setup lang="ts">
 defineProps<{ status: 'active' | 'retired' | 'live' | 'complete' }>();
 const colours: Record<string, string> = {
-  active: 'bg-cyan-400',
-  live: 'bg-cyan-400 animate-pulse',
-  complete: 'bg-green-400',
+  active: 'bg-accent',
+  live: 'bg-accent animate-pulse',
+  complete: 'bg-success',
   retired: 'bg-faint',
 };
 </script>

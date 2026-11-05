@@ -13,10 +13,10 @@ const entries = (r: { result?: unknown }) => (r.result as FileEntry[] | null) ??
     <div
       v-for="e in entries($props)"
       :key="e.name"
-      class="flex items-center gap-2 text-slate-400 hover:text-slate-200"
+      class="flex items-center gap-2 text-muted hover:text-ink"
     >
       <span>{{ e.type === 'dir' ? '📁' : '📄' }}</span>
-      <span :class="e.type === 'dir' ? 'text-cyan-400' : ''">{{ e.name }}</span>
+      <span :class="e.type === 'dir' ? 'text-accent' : ''">{{ e.name }}</span>
       <span v-if="e.size" class="ml-auto text-faint">{{ e.size }}B</span>
     </div>
   </div>

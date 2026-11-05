@@ -9,11 +9,8 @@ const emit = defineEmits<{ close: [] }>();
         <div class="flex-1 bg-black/60" @click="emit('close')" />
         <div class="w-96 bg-surface border-l border-line flex flex-col shadow-2xl">
           <div class="flex items-center justify-between px-5 py-4 border-b border-line">
-            <span class="text-sm font-semibold text-slate-100">{{ title }}</span>
-            <button
-              @click="emit('close')"
-              class="text-muted hover:text-slate-200 text-lg leading-none"
-            >
+            <span class="text-sm font-semibold text-ink">{{ title }}</span>
+            <button @click="emit('close')" class="text-muted hover:text-ink text-lg leading-none">
               ✕
             </button>
           </div>

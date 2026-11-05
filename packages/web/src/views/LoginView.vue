@@ -19,7 +19,7 @@ async function submit() {
     void useToolAccess()
       .refresh()
       .catch(() => {});
-    await router.push('/participants');
+    await router.push('/chat');
   } catch {
     error.value = 'Incorrect name or password.';
   } finally {

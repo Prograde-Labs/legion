@@ -2,6 +2,22 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import Composer from './Composer.vue';
 
+const toolAccessMock = vi.hoisted(() => ({
+  access: null as { value: Record<string, 'auto' | 'requires_approval'> } | null,
+}));
+
+vi.mock('../composables/useToolAccess.js', async () => {
+  const { ref } = await import('vue');
+  const access = ref<Record<string, 'auto' | 'requires_approval'>>({});
+  toolAccessMock.access = access;
+  return {
+    useToolAccess: () => ({
+      access,
+      can: (tool: string) => access.value[tool] ?? 'hidden',
+    }),
+  };
+});
+
 const AGENTS = [
   { id: 'agent-a', name: 'Agent A', type: 'agent', tools: {} },
   { id: 'agent-b', name: 'Agent B', type: 'agent', tools: {} },
@@ -32,6 +48,7 @@ describe('Composer', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.unstubAllGlobals();
+    if (toolAccessMock.access) toolAccessMock.access.value = {};
     localStorage.setItem('legion-token', 'tok');
     localStorage.setItem('legion-expires-at', String(Math.floor(Date.now() / 1000) + 3600));
   });
@@ -92,6 +109,15 @@ describe('Composer', () => {
     expect(list.text()).not.toContain("'op'");
     await list.findAll('button')[0].trigger('click');
     expect((wrapper.find('textarea').element.value as string).startsWith('@agent-a')).toBe(true);
+  });
+
+  it('shows tool hints from the caller policy map', () => {
+    toolAccessMock.access!.value = { communicate: 'auto', file_read: 'auto' };
+    const wrapper = mount(Composer, {
+      props: { conversationId: null, recipientId: 'agent-a' },
+    });
+    expect(wrapper.text()).toContain('communicate');
+    expect(wrapper.text()).toContain('file_read');
   });
 
   it('shows the branch indicator when branchLabel is provided', () => {
