@@ -9,7 +9,7 @@ import TopologyMap from './TopologyMap.vue';
 import AgentEditor from './AgentEditor.vue';
 import UserEditor from './UserEditor.vue';
 
-const { byId, load, participants } = useParticipants();
+const { byId, load, loading, participants } = useParticipants();
 const { selectedId, select } = useParticipantSelection();
 const { isNarrow } = useNarrowViewport();
 
@@ -109,7 +109,14 @@ function onRetired(): void {
           Map
         </button>
       </div>
-      <TopologyMap v-if="viewMode === 'map'" class="min-h-0 flex-1" @select="select" />
+      <div
+        v-if="!loading && participants.length === 0"
+        data-test="participants-empty"
+        class="p-4 text-sm text-faint"
+      >
+        No participants yet.
+      </div>
+      <TopologyMap v-else-if="viewMode === 'map'" class="min-h-0 flex-1" @select="select" />
       <ParticipantsList v-else class="min-h-0 flex-1" @select="select" />
     </div>
     <div

@@ -31,6 +31,9 @@ const routes = [
     component: () => import('../views/ConfigView.vue'),
     meta: { requiresAuth: true },
   },
+  // Unknown paths fall back to the chat surface; the guard still forces login
+  // first when the visitor is unauthenticated.
+  { path: '/:pathMatch(.*)*', redirect: '/chat' },
 ];
 
 export const router = createRouter({ history: createWebHashHistory(), routes });
@@ -38,5 +41,6 @@ export const router = createRouter({ history: createWebHashHistory(), routes });
 router.beforeEach((to) => {
   const { isAuthenticated } = useAuth();
   if (to.meta.requiresAuth && !isAuthenticated.value) return '/login';
+  if (to.path === '/login' && isAuthenticated.value) return '/chat';
   return;
 });

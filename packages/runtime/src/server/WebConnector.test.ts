@@ -1,6 +1,6 @@
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SECURITY_HEADERS, WebConnector } from './WebConnector.js';
@@ -502,6 +502,51 @@ describe('WebConnector: SPA fallback', () => {
       const spaRes = await inject(connector, { method: 'GET', url: '/chat/123' });
       expect(spaRes.statusCode).toBe(200);
       expect(spaRes.body).toContain('spa-shell');
+
+      await connector.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks hashed assets as immutable but leaves the SPA shell uncached', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
+    mkdirSync(join(dir, 'assets'));
+    writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
+    writeFileSync(join(dir, 'assets', 'app-abc123.js'), 'console.log(1)');
+    try {
+      const { connector } = await makeConnector({ webDistPath: dir });
+
+      const asset = await inject(connector, { method: 'GET', url: '/assets/app-abc123.js' });
+      expect(asset.statusCode).toBe(200);
+      expect(asset.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+
+      const spa = await inject(connector, { method: 'GET', url: '/chat/123' });
+      expect(spa.statusCode).toBe(200);
+      // The shell must never be cached as immutable: deploys would go stale.
+      expect(spa.headers['cache-control']).not.toBe('public, max-age=31536000, immutable');
+
+      const api = await inject(connector, { method: 'GET', url: '/api/health' });
+      expect(api.headers['cache-control']).not.toBe('public, max-age=31536000, immutable');
+
+      await connector.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('serves the SPA instead of 500 for malformed request targets', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
+    writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
+    try {
+      const { connector } = await makeConnector({ webDistPath: dir });
+
+      // `new URL(req.url, base)` throws on scheme-relative targets; the fallback
+      // must degrade to a 404/SPA response instead of a 500.
+      for (const url of ['//', '///']) {
+        const res = await inject(connector, { method: 'GET', url });
+        expect(res.statusCode).not.toBe(500);
+      }
 
       await connector.stop();
     } finally {

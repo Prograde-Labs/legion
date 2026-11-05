@@ -8,23 +8,36 @@ let capturedOnChunk: ((chunk: unknown) => void) | null = null;
 const startMock = vi.fn().mockResolvedValue(undefined);
 const cancelMock = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('./useToolStream.js', () => ({
-  useToolStream: (
-    _tool: string,
-    _args: () => unknown,
-    opts?: { onChunk?: (c: unknown) => void },
-  ) => {
-    capturedOnChunk = opts?.onChunk ?? null;
-    return {
-      start: startMock,
-      cancel: cancelMock,
-      chunks: { value: [] },
-      done: { value: false },
-      error: { value: null },
-      conversationId: { value: null },
-    };
-  },
+// Real refs so the composable's watch on procStream.error observes changes.
+const streamMocks = vi.hoisted(() => ({
+  error: null as { value: string | null } | null,
 }));
+
+vi.mock('./useToolStream.js', async () => {
+  const { ref } = await import('vue');
+  const error = ref<string | null>(null);
+  streamMocks.error = error;
+  return {
+    useToolStream: (
+      _tool: string,
+      _args: () => unknown,
+      opts?: { onChunk?: (c: unknown) => void },
+    ) => {
+      capturedOnChunk = opts?.onChunk ?? null;
+      return {
+        start: startMock,
+        cancel: cancelMock,
+        chunks: { value: [] },
+        done: { value: false },
+        error,
+        active: { value: false },
+        cancelling: { value: false },
+        conversationId: { value: null },
+        result: { value: null },
+      };
+    },
+  };
+});
 
 vi.mock('./useWebSocket.js', () => ({
   useWebSocket: () => ({
@@ -71,6 +84,9 @@ function emitChunk(chunk: unknown): void {
 beforeEach(() => {
   vi.clearAllMocks();
   capturedOnChunk = null;
+  // Keep the ref itself (the mock factory runs once per module graph); clear
+  // only its value between tests.
+  if (streamMocks.error) streamMocks.error.value = null;
   vi.resetModules();
 });
 
@@ -189,6 +205,27 @@ describe('useProcess', () => {
 
     expect((w.vm as any).handle?.status).toBe('exited');
     expect((w.vm as any).handle?.exitCode).toBe(0);
+    w.unmount();
+  });
+
+  it('surfaces a stream error into the composable error', async () => {
+    const { useProcess } = await import('./useProcess.js');
+    executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
+    executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
+
+    const TestComponent = defineComponent({
+      setup() {
+        return useProcess('proc-1');
+      },
+      template: '<div/>',
+    });
+    const w = mount(TestComponent);
+    await new Promise((r) => setTimeout(r, 0));
+
+    streamMocks.error!.value = 'watch stream failed';
+    await nextTick();
+
+    expect((w.vm as any).error).toBe('watch stream failed');
     w.unmount();
   });
 

@@ -24,6 +24,11 @@ export class SystemProviderStore {
   }
 
   async save(config: ProviderConfig): Promise<void> {
+    // Provider names become filenames under providers/; reject separators and
+    // anything that could escape that directory.
+    if (!/^[A-Za-z0-9._-]+$/.test(config.name)) {
+      throw new Error('Invalid provider name');
+    }
     await this.storage.writeJson(`providers/${config.name}.json`, config);
   }
 

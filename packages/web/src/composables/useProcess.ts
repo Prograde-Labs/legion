@@ -42,6 +42,12 @@ export function useProcess(processId: string) {
     },
   );
 
+  // The transport reports stream failures on the stream object; surface them
+  // alongside local execute failures so the view can show one error.
+  watch(procStream.error, (value) => {
+    if (value) error.value = value;
+  });
+
   onMounted(async () => {
     try {
       handle.value = await execute<ProcessHandle>('get_process', { id: processId });

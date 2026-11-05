@@ -121,6 +121,17 @@ describe('SystemProviderStore', () => {
     expect(await store.list()).toEqual([config]);
   });
 
+  it('rejects provider names that escape the provider directory', async () => {
+    const store = new SystemProviderStore(new MemoryStorage());
+
+    await expect(store.save(providerConfig({ name: '../evil' }))).rejects.toThrow(
+      'Invalid provider name',
+    );
+    await expect(store.save(providerConfig({ name: 'a/b' }))).rejects.toThrow(
+      'Invalid provider name',
+    );
+  });
+
   it('delete() removes provider so get() returns null', async () => {
     const store = new SystemProviderStore(new MemoryStorage());
     await store.save(providerConfig({ name: 'deleted' }));

@@ -71,8 +71,13 @@ export class WebConnector implements Connector {
     // ── Response headers ─────────────────────────────────────────────────────
     // onSend covers every response, including error and not-found handlers.
     // Task 13's cache headers branch slots in here alongside the security headers.
-    app.addHook('onSend', async (_req, reply, payload) => {
+    app.addHook('onSend', async (req, reply, payload) => {
       applySecurityHeaders((name, value) => reply.header(name, value));
+      // Hashed build assets are content-addressed; cache them forever. The SPA
+      // shell and API responses stay uncached so deploys take effect immediately.
+      if (req.url.startsWith('/assets/')) {
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+      }
       return payload;
     });
 
@@ -121,8 +126,10 @@ export class WebConnector implements Connector {
           wildcard: false,
         });
         // SPA client-side routing fallback; unknown API routes must stay JSON 404s.
+        // Parse manually: `new URL(req.url, base)` throws on scheme-relative
+        // targets like `//`, turning a malformed request into a 500.
         app.setNotFoundHandler((req, reply) => {
-          const pathname = new URL(req.url, 'http://localhost').pathname;
+          const pathname = req.url.split('?')[0];
           if (pathname === '/api' || pathname.startsWith('/api/')) {
             reply.status(404).send({ error: 'Not found' });
             return;

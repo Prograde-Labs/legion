@@ -164,6 +164,11 @@ function nodeFill(kind: TopoNode['kind']): string {
   if (kind === 'user') return 'var(--color-accent-soft)';
   return 'var(--color-surface)';
 }
+
+/** Click and keyboard activation share one path; MCP nodes are not selectable. */
+function activateNode(node: TopoNode): void {
+  if (node.kind !== 'mcp') emit('select', node.id);
+}
 </script>
 
 <template>
@@ -192,7 +197,10 @@ function nodeFill(kind: TopoNode['kind']): string {
         :key="node.id"
         data-test="topo-node"
         role="button"
-        @click="node.kind !== 'mcp' && emit('select', node.id)"
+        tabindex="0"
+        @click="activateNode(node)"
+        @keydown.enter="activateNode(node)"
+        @keydown.space.prevent="activateNode(node)"
       >
         <circle
           :cx="node.x"

@@ -241,4 +241,38 @@ describe('useProcesses', () => {
     expect((w.vm as any).loading).toBe(false);
     w.unmount();
   });
+
+  it('pauses the poll while the document is hidden', async () => {
+    vi.useFakeTimers();
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
+    const executeMock = vi.fn().mockResolvedValue([]);
+    useLegionApi.mockReturnValue({ execute: executeMock });
+
+    const { useProcesses } = await import('./useProcesses.js');
+    const TestComponent = defineComponent({
+      setup() {
+        return useProcesses();
+      },
+      template: '<div/>',
+    });
+    const w = mount(TestComponent);
+    await vi.runAllTicks();
+    const callsAtMount = executeMock.mock.calls.length;
+    expect(callsAtMount).toBeGreaterThan(0);
+
+    let hidden = true;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    try {
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(executeMock.mock.calls.length).toBe(callsAtMount);
+
+      hidden = false;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(executeMock.mock.calls.length).toBeGreaterThan(callsAtMount);
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+      w.unmount();
+      vi.useRealTimers();
+    }
+  });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
@@ -17,6 +17,29 @@ const approvals = useApprovals();
 const { pendingCount, oldest } = approvals;
 const accountOpen = ref(false);
 const menuOpen = ref(false);
+const menuRoot = ref<HTMLElement | null>(null);
+
+/** Dismiss the avatar menu when the click lands outside its container. */
+function closeMenuOnOutsideClick(event: MouseEvent): void {
+  if (!menuOpen.value) return;
+  const target = event.target as Node | null;
+  if (target && menuRoot.value?.contains(target)) return;
+  menuOpen.value = false;
+}
+
+function closeMenuOnEscape(event: KeyboardEvent): void {
+  if (event.key === 'Escape') menuOpen.value = false;
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeMenuOnOutsideClick);
+  document.addEventListener('keydown', closeMenuOnEscape);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeMenuOnOutsideClick);
+  document.removeEventListener('keydown', closeMenuOnEscape);
+});
 
 const ws = useWebSocket();
 type ActivityChunk = Extract<StreamChunk, { data: unknown }>;
@@ -83,7 +106,7 @@ function onLogout(): void {
         :target-conversation-id="oldest?.conversationId ?? null"
         @activate="badgeClick"
       />
-      <div class="ml-auto relative">
+      <div ref="menuRoot" class="ml-auto relative">
         <button
           type="button"
           data-test="avatar"

@@ -1,9 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import AppShell from './AppShell.vue';
 import { useAuth } from '../composables/useAuth.js';
 import { useApprovals } from '../composables/useApprovals.js';
+
+// Mounted shells stay subscribed to the module-scoped approval store; unmount
+// every wrapper so watchers from one test cannot fire during the next.
+enableAutoUnmount(afterEach);
 
 const wsMocks = vi.hoisted(() => ({
   connectionId: null as { value: string | null } | null,
@@ -234,5 +238,24 @@ describe('AppShell', () => {
     wsMocks.streamChunkHandler?.({ type: 'approval:resolved', data: { approvalId: 'a1' } });
     await wrapper.vm.$nextTick();
     expect(wrapper.findComponent({ name: 'NavBadge' }).props('count')).toBe(0);
+  });
+
+  it('closes the avatar menu on outside click and Escape', async () => {
+    await seedAuth();
+    const wrapper = await mountShellAt('/');
+    await wrapper.find('[data-test="avatar"]').trigger('click');
+    expect(wrapper.text()).toContain('Account…');
+
+    // Outside click: the listener lives on document, the click target is outside
+    // the avatar container.
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).not.toContain('Account…');
+
+    await wrapper.find('[data-test="avatar"]').trigger('click');
+    expect(wrapper.text()).toContain('Account…');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).not.toContain('Account…');
   });
 });

@@ -44,7 +44,12 @@ export function useProcesses() {
   void refresh();
 
   if (!pollInterval) {
-    pollInterval = setInterval(() => void refresh(), 5000);
+    pollInterval = setInterval(() => {
+      // Background tabs do not need fresh process lists; resume on the next tick
+      // after visibility returns.
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void refresh();
+    }, 5000);
   }
 
   if (getCurrentInstance()) {

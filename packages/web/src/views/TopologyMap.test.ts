@@ -85,6 +85,20 @@ describe('TopologyMap', () => {
     expect(wrapper.emitted('select')?.[0]).toEqual(['agent-a']);
   });
 
+  it('activates a node with Enter and Space for keyboard users', async () => {
+    stubExecute();
+    const wrapper = mount(TopologyMap);
+    await vi.waitFor(() => wrapper.find('[data-test="topo-node"]').exists());
+    const node = wrapper.findAll('[data-test="topo-node"]')[0];
+    expect(node.attributes('tabindex')).toBe('0');
+
+    await node.trigger('keydown', { key: 'Enter' });
+    expect(wrapper.emitted('select')?.[0]).toEqual(['agent-a']);
+
+    await node.trigger('keydown', { key: ' ' });
+    expect(wrapper.emitted('select')?.[1]).toEqual(['agent-a']);
+  });
+
   it('tool:call chunks from the activity stream add a transient edge', async () => {
     stubExecute();
     const wrapper = mount(TopologyMap);

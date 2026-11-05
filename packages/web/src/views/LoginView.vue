@@ -75,7 +75,7 @@ async function submit() {
         </form>
       </div>
       <p class="mt-4 text-center text-xs leading-relaxed text-faint">
-        First run? The bootstrap password was<br />printed to process stdout on startup.
+        Ask an operator for credentials.
       </p>
     </div>
   </div>

@@ -78,6 +78,9 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           if (!SUPPORTED_PROVIDER_TYPES.has(args.type)) {
             throw new Error(`Provider type '${String(args.type)}' is not supported`);
           }
+          if (args.baseUrl !== undefined && !/^https?:\/\//.test(args.baseUrl)) {
+            return { status: 'error', error: 'baseUrl must be http(s)' };
+          }
           await systemStore.save(args);
           return { status: 'success', data: args };
         } catch (err) {

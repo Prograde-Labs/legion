@@ -143,3 +143,16 @@ describe('ParticipantsView post-refresh reload', () => {
     expect(wrapper.text()).toContain('Assistant');
   });
 });
+
+describe('ParticipantsView empty state', () => {
+  it('shows an empty message when the roster is loaded and empty', async () => {
+    const { wrapper } = await mountParticipantsView({ narrow: false, seed: false });
+    // Tool access is hidden, so no fetch runs; loading is false and the roster empty.
+    expect(wrapper.find('[data-test="participants-empty"]').exists()).toBe(true);
+  });
+
+  it('does not show the empty message while the roster is populated', async () => {
+    const { wrapper } = await mountParticipantsView({ narrow: false });
+    expect(wrapper.find('[data-test="participants-empty"]').exists()).toBe(false);
+  });
+});
