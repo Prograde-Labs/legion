@@ -2,6 +2,8 @@
 import { computed } from 'vue';
 import { lookupPanel, useDock } from './registry.js';
 
+const emit = defineEmits<{ jump: [messageId: string] }>();
+
 const dock = useDock();
 
 const activeTab = computed(() => dock.tabs.value.find((t) => t.id === dock.activeId.value) ?? null);
@@ -37,7 +39,7 @@ function startResize(event: MouseEvent): void {
 <template>
   <aside
     data-test="dock-root"
-    class="flex flex-col border-l border-line bg-bg max-md:fixed max-md:inset-0 max-md:z-40"
+    class="flex flex-col border-l border-line bg-bg max-md:fixed max-md:inset-0 max-md:z-40 max-md:!w-full"
     :style="{ width: `${dock.width.value}px` }"
   >
     <div class="flex items-center overflow-x-auto border-b border-line">
@@ -75,6 +77,7 @@ function startResize(event: MouseEvent): void {
         v-if="activeTab && activeEntry"
         :is="activeEntry.component"
         :payload="activeTab.payload"
+        @jump="emit('jump', $event)"
       />
     </div>
     <div

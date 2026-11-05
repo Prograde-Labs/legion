@@ -39,6 +39,30 @@ describe('useDock', () => {
     expect(dock.tabs.value[0].id).toBe('tool-detail:b');
   });
 
+  it('restores persisted tabs when switching to a conversation', () => {
+    localStorage.setItem(
+      'legion-dock-c1',
+      JSON.stringify({
+        tabs: [
+          {
+            id: 'tool-detail:a',
+            kind: 'tool-detail',
+            title: 'A',
+            icon: 'T',
+            payload: { tool: 'a' },
+          },
+        ],
+        activeId: 'tool-detail:a',
+        width: 500,
+      }),
+    );
+    const dock = useDock();
+    dock.setConversation('c1');
+    expect(dock.tabs.value).toHaveLength(1);
+    expect(dock.activeId.value).toBe('tool-detail:a');
+    expect(dock.width.value).toBe(500);
+  });
+
   it('persists state per conversation', () => {
     const dock = useDock();
     dock.setConversation('c1');

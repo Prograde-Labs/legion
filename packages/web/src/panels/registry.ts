@@ -54,26 +54,35 @@ function storageKey(): string {
 }
 
 function persist(): void {
-  if (conversationId.value === null) return;
+  if (restoring || conversationId.value === null) return;
   localStorage.setItem(
     storageKey(),
     JSON.stringify({ tabs: tabs.value, activeId: activeId.value, width: width.value }),
   );
 }
 
+let restoring = false;
+
 function restore(): void {
-  tabs.value = [];
-  activeId.value = null;
-  if (conversationId.value === null) return;
-  const raw = localStorage.getItem(storageKey());
-  if (!raw) return;
+  restoring = true;
   try {
-    const saved = JSON.parse(raw) as { tabs?: DockTab[]; activeId?: string | null; width?: number };
+    tabs.value = [];
+    activeId.value = null;
+    if (conversationId.value === null) return;
+    const raw = localStorage.getItem(storageKey());
+    if (!raw) return;
+    const saved = JSON.parse(raw) as {
+      tabs?: DockTab[];
+      activeId?: string | null;
+      width?: number;
+    };
     tabs.value = saved.tabs ?? [];
     activeId.value = saved.activeId ?? tabs.value[0]?.id ?? null;
     if (saved.width !== undefined) width.value = saved.width;
   } catch {
     // corrupted state: start empty
+  } finally {
+    restoring = false;
   }
 }
 

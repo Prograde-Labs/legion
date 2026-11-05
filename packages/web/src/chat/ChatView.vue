@@ -168,7 +168,7 @@ function onChipOpen(tool: string, payload: Record<string, unknown>): void {
 }
 
 function onDockJump(messageId: string): void {
-  void messageId; // Task 14+ message-focus wiring; breadcrumb lands here today
+  threadRef.value?.scrollToMessage(messageId);
 }
 </script>
 

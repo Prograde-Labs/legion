@@ -197,6 +197,11 @@ defineExpose({
     await stream.start();
   },
   streaming: computed(() => stream.active.value || isStreaming.value),
+  // Breadcrumb jump (dock sub-chat): scroll the main thread to a message by id.
+  scrollToMessage: (messageId: string): void => {
+    const target = tailEl.value?.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
+    target?.scrollIntoView({ block: 'center' });
+  },
   // Reply target for the CURRENT thread, derived from its own loaded messages
   // (last non-user message's recipientId == this conversation's other party).
   // ChatView uses this when the sidebar list hasn't loaded the conversation yet.
@@ -284,7 +289,7 @@ watch(
     </div>
     <div ref="tailEl" class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <div class="mx-auto flex max-w-3xl flex-col gap-4">
-        <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2">
+        <div v-for="m in messages" :key="m.id" class="flex flex-col gap-2" :data-message-id="m.id">
           <div
             :data-highlight="
               highlight &&

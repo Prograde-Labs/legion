@@ -103,6 +103,14 @@ describe('DockPanel', () => {
     expect(root.classes().some((c) => c.startsWith('max-md:fixed'))).toBe(true);
   });
 
+  it('uses a full-viewport width on narrow screens', () => {
+    const dock = useDock();
+    dock.setConversation('c1');
+    dock.open({ kind: 'tool-detail', title: 'A', icon: 'T', payload: { tool: 'a' } });
+    const wrapper = mount(DockPanel);
+    expect(wrapper.find('[data-test="dock-root"]').classes()).toContain('max-md:!w-full');
+  });
+
   // Task 13: the chip payload carries { tool, args, result } — the NEW
   // conversation id arrives in result.data.conversationId (args carries one
   // only when the side-conversation already existed), so CommunicatePanel must
@@ -138,5 +146,24 @@ describe('DockPanel', () => {
       payload: { tool: 'communicate', args: { to: 'x' }, result: null },
     });
     expect(w.find('[data-test="subchat-empty"]').exists()).toBe(true);
+  });
+
+  it('forwards the sub-chat jump event', async () => {
+    executeMock.mockResolvedValue({
+      id: 'sub-1',
+      messages: [mkMsg({ id: 'm1', conversationId: 'sub-1' })],
+    });
+    const wrapper = mountDockWithPanel({
+      kind: 'communicate',
+      payload: {
+        tool: 'communicate',
+        args: {},
+        result: { status: 'success', data: { conversationId: 'sub-1' } },
+        replyMessageId: 'm1',
+      },
+    });
+    await flushPromises();
+    await wrapper.find('[data-test="jump-to-message"]').trigger('click');
+    expect(wrapper.emitted('jump')?.[0]).toEqual(['m1']);
   });
 });
