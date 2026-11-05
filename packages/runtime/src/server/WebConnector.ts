@@ -37,6 +37,20 @@ export interface WebConnectorDeps {
 /** Auth timeout for WebSocket connections: close if no auth message within this window. */
 const WS_AUTH_TIMEOUT_MS = 10_000;
 
+/**
+ * Applied to every HTTP response via the onSend hook below.
+ * connect-src allows the WebSocket transport (`ws:`/`wss:`); style-src allows the
+ * inline styles Vue/Tailwind emit at runtime. Dev-mode Vite responses are hijacked
+ * in the onRequest hook and bypass onSend, so HMR is unaffected.
+ */
+export const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
+} as const;
+
 export class WebConnector implements Connector {
   readonly name = 'web';
 
@@ -58,6 +72,16 @@ export class WebConnector implements Connector {
   async start(ctx: ConnectorContext): Promise<void> {
     const app = Fastify({ logger: false });
     this.app = app;
+
+    // ── Response headers ─────────────────────────────────────────────────────
+    // onSend covers every response, including error and not-found handlers.
+    // Task 13's cache headers branch slots in here alongside the security headers.
+    app.addHook('onSend', async (_req, reply, payload) => {
+      for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+        reply.header(name, value);
+      }
+      return payload;
+    });
 
     // ── Plugins ──────────────────────────────────────────────────────────────
     await app.register(websocketPlugin);

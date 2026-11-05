@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WebConnector } from './WebConnector.js';
+import { SECURITY_HEADERS, WebConnector } from './WebConnector.js';
 import { signToken, verifyToken } from './auth.js';
 import type { ConnectorContext } from '@legion-collective/core';
 import type { ToolResult } from '@legion-collective/core';
@@ -153,6 +153,125 @@ describe('WebConnector: POST /api/auth/login', () => {
     expect(body.token.split('.').length).toBe(3);
     expect(body.participantId).toBe('op-1');
     await connector.stop();
+  });
+
+  it('returns 429 after five failed attempts from the same IP', async () => {
+    const { connector } = await makeConnector();
+    for (let i = 0; i < 5; i += 1) {
+      const res = await inject(connector, {
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { name: 'Operator', password: 'wrong' },
+      });
+      expect(res.statusCode).toBe(401);
+    }
+
+    const blocked = await inject(connector, {
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { name: 'Operator', password: 'hunter2' },
+    });
+    expect(blocked.statusCode).toBe(429);
+    expect(JSON.parse(blocked.body)).toEqual({
+      error: 'Too many login attempts. Try again later.',
+    });
+    await connector.stop();
+  });
+
+  it('resets failed attempts after a successful login', async () => {
+    const { connector } = await makeConnector();
+    const attempt = (password: string) =>
+      inject(connector, {
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { name: 'Operator', password },
+      });
+
+    for (let i = 0; i < 4; i += 1) {
+      expect((await attempt('wrong')).statusCode).toBe(401);
+    }
+    expect((await attempt('hunter2')).statusCode).toBe(200);
+
+    // The counter was reset, so five more failures are allowed before blocking.
+    for (let i = 0; i < 5; i += 1) {
+      expect((await attempt('wrong')).statusCode).toBe(401);
+    }
+    expect((await attempt('hunter2')).statusCode).toBe(429);
+    await connector.stop();
+  });
+
+  it('does not count malformed login requests against the limit', async () => {
+    const { connector } = await makeConnector();
+    for (let i = 0; i < 5; i += 1) {
+      const res = await inject(connector, {
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { name: 'Operator' },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+
+    const res = await inject(connector, {
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { name: 'Operator', password: 'wrong' },
+    });
+    expect(res.statusCode).toBe(401);
+    await connector.stop();
+  });
+});
+
+describe('WebConnector: security headers', () => {
+  it('exports the expected header values', () => {
+    expect(SECURITY_HEADERS).toEqual({
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:",
+    });
+  });
+
+  it('applies the headers to API responses', async () => {
+    const { connector } = await makeConnector();
+    const res = await inject(connector, { method: 'GET', url: '/api/health' });
+    expect(res.statusCode).toBe(200);
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      expect(res.headers[name.toLowerCase()]).toBe(value);
+    }
+    await connector.stop();
+  });
+
+  it('applies the headers to error and not-found responses', async () => {
+    const { connector } = await makeConnector();
+    const unauthorized = await inject(connector, { method: 'GET', url: '/api/auth/me' });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const notFound = await inject(connector, { method: 'GET', url: '/api/does-not-exist' });
+    expect(notFound.statusCode).toBe(404);
+
+    for (const res of [unauthorized, notFound]) {
+      for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+        expect(res.headers[name.toLowerCase()]).toBe(value);
+      }
+    }
+    await connector.stop();
+  });
+
+  it('applies the headers to the SPA fallback', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
+    writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
+    try {
+      const { connector } = await makeConnector({ webDistPath: dir });
+      const res = await inject(connector, { method: 'GET', url: '/chat/123' });
+      expect(res.statusCode).toBe(200);
+      for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+        expect(res.headers[name.toLowerCase()]).toBe(value);
+      }
+      await connector.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
