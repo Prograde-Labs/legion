@@ -40,6 +40,13 @@ export const createUserTool: Tool = {
     if (operator !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change the operator flag' };
     }
+    // Tool policies are privilege-bearing: save_mcp_sources can run arbitrary
+    // commands on the next boot and save_provider/set_secret/set_approval_authority
+    // widen access. A non-operator must not be able to grant them, even to
+    // itself, so any `tools` mutation requires an operator.
+    if (tools !== undefined && !callerIsOperator(context)) {
+      return { status: 'error', error: 'Only an operator can change tool policies' };
+    }
     try {
       const config: UserConfig = {
         id,
@@ -85,6 +92,9 @@ export const modifyUserTool: Tool = {
     };
     if (operator !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change the operator flag' };
+    }
+    if (tools !== undefined && !callerIsOperator(context)) {
+      return { status: 'error', error: 'Only an operator can change tool policies' };
     }
     try {
       const collective = requireCollective(context);

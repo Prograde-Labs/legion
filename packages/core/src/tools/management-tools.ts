@@ -325,6 +325,12 @@ export const setToolPolicyTool: Tool = {
       tool: string;
       policy: ToolPolicy;
     };
+    // Tool policies are privilege-bearing (save_mcp_sources runs arbitrary
+    // commands on the next boot). Without this guard a non-operator holding
+    // set_tool_policy could grant itself any tool, including its own.
+    if (context.participant.operator !== true) {
+      return { status: 'error', error: 'Only an operator can change tool policies' };
+    }
     try {
       const collective = requireCollective(context);
       const participant = collective.getOrThrow(participantId);
@@ -352,6 +358,9 @@ export const removeToolPolicyTool: Tool = {
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
     const { participantId, tool } = args as { participantId: string; tool: string };
+    if (context.participant.operator !== true) {
+      return { status: 'error', error: 'Only an operator can change tool policies' };
+    }
     try {
       const collective = requireCollective(context);
       const participant = collective.getOrThrow(participantId);

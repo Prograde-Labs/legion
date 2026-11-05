@@ -92,12 +92,17 @@ async function buildTestDeps(options: { storage?: MemoryStorage } = {}) {
   };
 }
 
-async function invokeManagementTool(name: string, args: unknown, deps: TestDeps): Promise<unknown> {
+async function invokeManagementTool(
+  name: string,
+  args: unknown,
+  deps: TestDeps,
+  participantId = 'operator',
+): Promise<unknown> {
   const tool = deps.toolRegistry.get(name);
   if (!tool) throw new Error(`Tool not found: ${name}`);
   const conversationStore = new FileConversationStore(deps.storage);
   const context = {
-    participant: deps.collective.getOrThrow('operator'),
+    participant: deps.collective.getOrThrow(participantId),
     collective: deps.collective,
     workspaceRoot: '/tmp',
     storage: deps.storage,
@@ -308,6 +313,47 @@ describe('management tools', () => {
     );
     expect(result.status).toBe('success');
     expect(collective.get('agent-x')?.tools['file_read']).toBe('auto');
+  });
+
+  it('set_tool_policy rejects a non-operator acting on itself', async () => {
+    // Regression for the critical review finding: set_tool_policy had no
+    // privilege guard, so a non-operator could grant itself save_mcp_sources
+    // (arbitrary command execution on the next boot).
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'non-op',
+      name: 'Non Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'set_tool_policy',
+      { participantId: 'non-op', tool: 'save_mcp_sources', policy: 'auto' },
+      deps,
+      'non-op',
+    );
+    expect((result as { status: string }).status).toBe('error');
+    expect((result as { error: string }).error).toContain('operator');
+    expect(deps.collective.get('non-op')?.tools['save_mcp_sources']).toBeUndefined();
+  });
+
+  it('set_tool_policy lets an operator grant a tool', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'plain-user',
+      name: 'Plain User',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'set_tool_policy',
+      { participantId: 'plain-user', tool: 'save_mcp_sources', policy: 'auto' },
+      deps,
+    );
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('plain-user')?.tools['save_mcp_sources']).toBe('auto');
   });
 
   it('get_conversation returns the active chain of a conversation', async () => {
@@ -1612,6 +1658,26 @@ describe('remove_tool_policy', () => {
       deps,
     );
     expect((result as { status: string }).status).toBe('success');
+  });
+
+  it('rejects a non-operator', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'non-op',
+      name: 'Non Op',
+      type: 'user',
+      tools: { communicate: 'auto' },
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'remove_tool_policy',
+      { participantId: 'non-op', tool: 'communicate' },
+      deps,
+      'non-op',
+    );
+    expect((result as { status: string }).status).toBe('error');
+    expect((result as { error: string }).error).toContain('operator');
+    expect(deps.collective.get('non-op')?.tools['communicate']).toBe('auto');
   });
 });
 
