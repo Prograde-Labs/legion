@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import type { StreamChunk } from '@legion-collective/types';
 
 // FakeWS harness transcribed from composables/useToolStream.test.ts: Thread's
@@ -160,6 +160,14 @@ function stubFetch(): void {
   );
 }
 
+// Unmount every wrapper so Thread's 60s quiet-period timer and stream watchers
+// cannot outlive a test (no open handles).
+enableAutoUnmount(afterEach);
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('Thread', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -268,6 +276,24 @@ describe('Thread', () => {
       data: { conversationId: 'c1', messageId: 'm9' },
     });
     await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBe(loadsBefore + 1));
+  });
+
+  it('surfaces a denied conversation stream as a non-blocking live note', async () => {
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    (conversationMocks.error as { value: string | null }).value = 'unauthorized';
+    await wrapper.vm.$nextTick();
+
+    const note = wrapper.find('[data-test="live-error"]');
+    expect(note.exists()).toBe(true);
+    expect(note.text()).toContain('unauthorized');
+    // Non-blocking: the thread content is still rendered.
+    expect(wrapper.find('[data-test="msg"]').exists()).toBe(true);
+
+    (conversationMocks.error as { value: string | null }).value = null;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="live-error"]').exists()).toBe(false);
   });
 
   it('clears the thinking indicator when switching conversations', async () => {

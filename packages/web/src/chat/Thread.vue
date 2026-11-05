@@ -212,6 +212,14 @@ const conversationStream = useToolStream(
   },
 );
 
+// A denied/unauthorized watch_conversation (e.g. non-participant or a missing
+// grant) is non-blocking: the thread still loads/reloads, but the user should
+// know live updates are off rather than silently missing replies.
+const liveError = ref<string | null>(null);
+watch(conversationStream.error, (err) => {
+  liveError.value = err ? friendlyToolError(err) : null;
+});
+
 watch(
   () => [useWebSocket().getConnectionId(), props.conversationId] as const,
   ([id, conversationId]) => {
@@ -364,6 +372,14 @@ watch(
     </div>
     <div v-if="streamError" data-test="stream-error" class="px-4 py-2 text-sm text-danger">
       {{ streamError }}
+    </div>
+    <div
+      v-if="liveError"
+      data-test="live-error"
+      class="px-4 py-1.5 text-xs text-muted"
+      title="Live updates are unavailable; reload to see new messages."
+    >
+      Live updates unavailable: {{ liveError }}
     </div>
     <!--
       Compact action (review feedback #11): manual compaction of the whole

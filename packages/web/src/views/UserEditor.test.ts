@@ -479,6 +479,25 @@ describe('UserEditor', () => {
     expect(note.text()).toContain('preserved');
   });
 
+  it('renders tool policies read-only for a non-operator with a preserved note', async () => {
+    seedAuth('alice');
+    seedRoster([{ id: 'alice', operator: false }]);
+    mockCan((tool) => (tool === 'modify_user' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    await vi.waitFor(() => expect(wrapper.find('[data-tool-row]').exists()).toBe(true));
+
+    const note = wrapper.find('[data-test="tools-readonly"]');
+    expect(note.exists()).toBe(true);
+    expect(note.text()).toContain('preserved');
+    const checkboxes = wrapper.findAll('[data-tool-row] input');
+    expect(checkboxes.length).toBeGreaterThan(0);
+    for (const checkbox of checkboxes) {
+      expect((checkbox.element as HTMLInputElement).disabled).toBe(true);
+    }
+  });
+
   it('skips authority save on create when the caller lacks set_approval_authority', async () => {
     mockCan((tool) => (tool === 'create_user' ? 'auto' : 'hidden'));
     const calls: string[] = [];

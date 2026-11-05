@@ -342,6 +342,47 @@ describe('useToolStream', () => {
       wrapper.unmount();
     });
 
+    it('starts the next stream even when the previous cancel is denied (conversation switch)', async () => {
+      // A non-operator without cancel_stream in their grant gets an error from
+      // cancel_stream. A conversation switch must still start the new stream
+      // instead of aborting start() and leaving the old stream running.
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ streamId: 'stream-1', conversationId: 'c1' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ result: { status: 'error', error: 'tool is hidden' } }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ streamId: 'stream-2', conversationId: 'c2' }),
+        } as Response);
+      const { useToolStream } = await import('./useToolStream.js');
+      let stream!: ReturnType<typeof useToolStream>;
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            stream = useToolStream('watch_conversation', () => ({ conversationId: 'c1' }));
+            return () => null;
+          },
+        }),
+      );
+
+      await stream.start();
+      expect(stream.conversationId.value).toBe('c1');
+      expect(stream.active.value).toBe(true);
+
+      await stream.start();
+
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(stream.active.value).toBe(true);
+      expect(stream.conversationId.value).toBe('c2');
+      expect(stream.error.value).toBeNull();
+      wrapper.unmount();
+    });
+
     it('stays inactive when start fails', async () => {
       const { useToolStream } = await import('./useToolStream.js');
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));

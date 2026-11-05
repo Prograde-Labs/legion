@@ -235,6 +235,60 @@ describe('AppShell', () => {
     );
   });
 
+  it('stops the approvals fallback when the activity stream recovers', async () => {
+    await seedAuth();
+    serverApprovals = [
+      {
+        approvalId: 'a1',
+        conversationId: 'conv-fallback',
+        requesterId: 'agent-a',
+        tool: 'file_write',
+        args: {},
+        createdAt: '2026-10-08T00:00:00Z',
+      },
+    ];
+    let activityHidden = true;
+    executeFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { tool?: string };
+      if (body.tool === 'watch_activity') {
+        return activityHidden
+          ? new Response('hidden', { status: 403 })
+          : new Response(JSON.stringify({ streamId: 'activity', conversationId: '' }), {
+              status: 200,
+            });
+      }
+      if (body.tool === 'list_pending_approvals') {
+        return new Response(
+          JSON.stringify({ result: { status: 'success', data: serverApprovals } }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ result: { status: 'success', data: {} } }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal('fetch', executeFetch);
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
+    await router.push('/');
+    await router.isReady();
+    const wrapper = mount(AppShell, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent({ name: 'NavBadge' }).props('count')).toBe(1),
+    );
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    // A reconnect restarts watch_activity successfully; error resets to null and
+    // the low-frequency polling interval must be cleared.
+    activityHidden = false;
+    wsMocks.connectionId!.value = null;
+    await wrapper.vm.$nextTick();
+    wsMocks.connectionId!.value = 'conn-2';
+    await flushPromises();
+
+    expect(clearSpy).toHaveBeenCalled();
+  });
+
   it('ingests live approval chunks from the watch_activity stream', async () => {
     await seedAuth();
     const wrapper = await mountShellAt('/');

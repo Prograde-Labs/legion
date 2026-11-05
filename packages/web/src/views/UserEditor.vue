@@ -279,8 +279,12 @@ async function retire(): Promise<void> {
       <ToolPolicyEditor
         :available-tools="availableTools"
         :overrides="overrides"
+        :readonly="!callerIsOperator"
         @update:overrides="overrides = $event"
       />
+      <p v-if="!callerIsOperator" data-test="tools-readonly" class="text-xs text-muted">
+        You do not have permission to change tool policies; the existing configuration is preserved.
+      </p>
     </div>
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>

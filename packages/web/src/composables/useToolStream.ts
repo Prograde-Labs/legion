@@ -57,8 +57,17 @@ export function useToolStream<TChunk extends StreamChunk = StreamChunk>(
   let cancelRequest: Promise<void> | null = null;
 
   async function start(): Promise<void> {
-    // Cancel any in-flight stream before starting a new one
-    if (activeStreamId) await cancel();
+    // Cancel any in-flight stream before starting a new one. A denied cancel
+    // (e.g. cancel_stream missing from the caller's grant) must not block the
+    // new stream: log/ignore and proceed — the stale handler is generation-
+    // guarded so it cannot deliver chunks into the new stream.
+    if (activeStreamId) {
+      try {
+        await cancel();
+      } catch (err) {
+        console.warn('Tool stream cancel failed; starting the next stream anyway', err);
+      }
+    }
 
     done.value = false;
     error.value = null;

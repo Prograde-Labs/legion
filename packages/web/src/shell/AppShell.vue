@@ -69,16 +69,20 @@ function startApprovalsFallback(): void {
   }, APPROVALS_FALLBACK_MS);
 }
 
+function stopApprovalsFallback(): void {
+  if (approvalsFallbackTimer === null) return;
+  clearInterval(approvalsFallbackTimer);
+  approvalsFallbackTimer = null;
+}
+
 watch(activity.error, (err) => {
+  // The live stream recovered (error reset to null on restart): stop the
+  // low-frequency polling so approvals are not fetched twice.
   if (err) startApprovalsFallback();
+  else stopApprovalsFallback();
 });
 
-onUnmounted(() => {
-  if (approvalsFallbackTimer !== null) {
-    clearInterval(approvalsFallbackTimer);
-    approvalsFallbackTimer = null;
-  }
-});
+onUnmounted(stopApprovalsFallback);
 
 // Refresh when a session appears (the shell is mounted before login too).
 watch(

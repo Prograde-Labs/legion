@@ -11,6 +11,8 @@ export interface ToolOverride {
 const props = defineProps<{
   overrides: ToolOverride[];
   availableTools: string[];
+  /** Render the current policies without letting a non-operator mutate them. */
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -71,14 +73,17 @@ function toggleApproval(tool: string) {
       <input
         type="checkbox"
         :checked="override?.enabled ?? false"
+        :disabled="readonly"
         @change="setEnabled(tool, !override?.enabled)"
-        class="accent-accent"
+        class="accent-accent disabled:opacity-60"
       />
       <span :class="['flex-1 font-mono text-xs', override?.enabled ? 'text-ink' : 'text-faint']">
         {{ tool }}
       </span>
       <button
         v-if="override?.enabled"
+        type="button"
+        :disabled="readonly"
         @click="toggleApproval(tool)"
         :class="[
           'text-[9px] px-2 py-0.5 rounded border transition-colors',
