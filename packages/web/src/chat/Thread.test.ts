@@ -175,6 +175,13 @@ describe('Thread', () => {
     const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
     await vi.waitFor(() => expect(wrapper.findAll('[data-test="msg"]').length).toBe(2));
     expect(wrapper.findAll('[data-test="approval-card"]')).toHaveLength(1);
+    // ...and it sits on the FIRST matching message, not the later duplicate.
+    expect(
+      wrapper.find('[data-message-id="m1"]').findAll('[data-test="approval-card"]'),
+    ).toHaveLength(1);
+    expect(
+      wrapper.find('[data-message-id="m2"]').findAll('[data-test="approval-card"]'),
+    ).toHaveLength(0);
   });
 
   it('send() issues the streaming communicate POST, streams tokens, reloads on done', async () => {
@@ -271,7 +278,7 @@ describe('Thread', () => {
     ).toContain('step 1 step 2');
   });
 
-  it('labels the streaming reply with the agent that was addressed', async () => {
+  it('passes the addressed agent as senderId to the streaming reply part', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(

@@ -101,6 +101,42 @@ describe('MessageActions', () => {
     expect(body.args).toEqual({ conversationId: 'c1', agentId: 'agent-a' });
   });
 
+  it('surfaces an error and does not call generate when no agent is available', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    useParticipants().__resetForTests(); // no participants → no agent to re-run with
+    const wrapper = mount(MessageActions, {
+      props: { conversationId: 'c1', message: { id: 'm1', content: 'hi', role: 'user' } },
+    });
+    await wrapper.find('[data-test="actions-toggle"]').trigger('click');
+    await wrapper.find('[data-test="action-rerun"]').trigger('click');
+    await flushPromises();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-test="actions-error"]').text()).toBe(
+      'No agent available to re-run this message.',
+    );
+  });
+
+  it('falls back to an active agent when the addressed agent is retired', async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    useParticipants().__setParticipantsForTests([
+      { id: 'agent-old', name: 'Retired', type: 'agent', tools: {}, status: 'retired' },
+      { id: 'agent-b', name: 'Agent B', type: 'agent', tools: {}, status: 'active' },
+    ]);
+    const wrapper = mount(MessageActions, {
+      props: {
+        conversationId: 'c1',
+        message: { id: 'm1', content: 'hi', role: 'user', recipientId: 'agent-old' },
+      },
+    });
+    await wrapper.find('[data-test="actions-toggle"]').trigger('click');
+    await wrapper.find('[data-test="action-rerun"]').trigger('click');
+    await flushPromises();
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.args.agentId).toBe('agent-b');
+  });
+
   it('failed edit surfaces the tool error and does not emit mutated', async () => {
     vi.stubGlobal(
       'fetch',

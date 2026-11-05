@@ -84,7 +84,10 @@ function saveEdit(): void {
 const agentId = computed<string | null>(() => {
   const candidate =
     props.message.role === 'user' ? props.message.recipientId : props.message.senderId;
-  if (candidate && byId(candidate)?.type === 'agent') return candidate;
+  const addressed = candidate ? byId(candidate) : undefined;
+  if (candidate && addressed?.type === 'agent' && addressed.status !== 'retired') {
+    return candidate;
+  }
   return participants.value.find((p) => p.type === 'agent' && p.status !== 'retired')?.id ?? null;
 });
 
