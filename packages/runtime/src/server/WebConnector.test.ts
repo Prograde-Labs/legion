@@ -4,13 +4,18 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebConnector } from './WebConnector.js';
-import { signToken } from './auth.js';
+import { signToken, verifyToken } from './auth.js';
 import type { ConnectorContext } from '@legion-collective/core';
 import type { ToolResult } from '@legion-collective/core';
 import { MemoryStorage } from '@legion-collective/core';
 import { Collective } from '@legion-collective/core';
 import { EventBus } from '@legion-collective/core';
 import { FileCredentialStore } from '@legion-collective/core';
+
+vi.mock('./auth.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./auth.js')>();
+  return { ...actual, verifyToken: vi.fn(actual.verifyToken) };
+});
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -365,6 +370,12 @@ describe('WebConnector: SPA fallback', () => {
       expect(apiRes.statusCode).toBe(404);
       expect(JSON.parse(apiRes.body)).toEqual({ error: 'Not found' });
 
+      for (const url of ['/api', '/api?x=1']) {
+        const bareApiRes = await inject(connector, { method: 'GET', url });
+        expect(bareApiRes.statusCode).toBe(404);
+        expect(JSON.parse(bareApiRes.body)).toEqual({ error: 'Not found' });
+      }
+
       const spaRes = await inject(connector, { method: 'GET', url: '/chat/123' });
       expect(spaRes.statusCode).toBe(200);
       expect(spaRes.body).toContain('spa-shell');
@@ -391,11 +402,25 @@ describe('WebConnector: WebSocket auth', () => {
     const secret = (connector as any).jwtSecret as Uint8Array;
     const { token } = await signToken('op-1', secret);
 
+    let resolveVerify!: (value: { participantId: string }) => void;
+    const verifyPending = new Promise<{ participantId: string }>((resolve) => {
+      resolveVerify = resolve;
+    });
+    vi.mocked(verifyToken).mockClear();
+    vi.mocked(verifyToken).mockReturnValueOnce(verifyPending);
+
     const handlers: Record<string, (arg?: unknown) => void> = {};
     const sent: string[] = [];
+    let resolveConnected!: () => void;
+    const connected = new Promise<void>((resolve) => {
+      resolveConnected = resolve;
+    });
     const socket = {
       readyState: 1,
-      send: (data: string) => sent.push(data),
+      send: (data: string) => {
+        sent.push(data);
+        if ((JSON.parse(data) as { type?: string }).type === 'connected') resolveConnected();
+      },
       close: vi.fn(),
       on: (event: string, cb: (arg?: unknown) => void) => {
         handlers[event] = cb;
@@ -405,8 +430,12 @@ describe('WebConnector: WebSocket auth', () => {
 
     handlers.message(Buffer.from(JSON.stringify({ type: 'auth', token })));
     handlers.message(Buffer.from(JSON.stringify({ type: 'auth', token })));
+    // The second frame must be ignored while the first verification is pending.
+    expect(verifyToken).toHaveBeenCalledTimes(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    resolveVerify({ participantId: 'op-1' });
+    await connected;
+
     const frames = sent.map((raw) => JSON.parse(raw) as { type: string });
     expect(frames.filter((frame) => frame.type === 'connected')).toHaveLength(1);
     expect(ctx.registry.setActive).toHaveBeenCalledTimes(1);

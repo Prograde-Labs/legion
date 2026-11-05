@@ -588,7 +588,11 @@ export async function startExternalConnectors(
       console.warn(
         `[legion] external connector '${connector.name}' could not register: ${msg} — skipped`,
       );
-      await connector.stop().catch(() => undefined);
+      try {
+        await connector.stop();
+      } catch {
+        // A broken stop() must not turn a registration skip into a boot failure.
+      }
       continue;
     }
     console.log(`[legion] external connector '${connector.name}' started`);

@@ -236,6 +236,51 @@ describe('loadExternalConnectors', () => {
     expect(modB.stoppedNames()).toEqual([]);
   });
 
+  it('does not throw when a dropped duplicate has a synchronous stop()', async () => {
+    const ws = tmpWorkspace();
+    const fileA = writeModule(
+      ws,
+      'dup-sync-a',
+      `
+      const stopped = [];
+      export function connector() {
+        return { name: 'dup', start: async () => {}, deliver: async () => {}, stop: () => { stopped.push('a'); } };
+      }
+      export function stoppedNames() { return stopped; }
+    `,
+    );
+    const fileB = writeModule(
+      ws,
+      'dup-sync-b',
+      `
+      export function connector() {
+        return { name: 'dup', start: async () => {}, deliver: async () => {}, stop: async () => {} };
+      }
+    `,
+    );
+    const { loaded } = await loadExternalConnectors(
+      [
+        { name: 'dup', module: fileA },
+        { name: 'dup', module: fileB },
+      ],
+      ws,
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
+      },
+      stubContext,
+    );
+    expect(loaded).toHaveLength(1);
+    const modA = (await import(pathToFileURL(fileA).href)) as {
+      stoppedNames: () => string[];
+    };
+    expect(modA.stoppedNames()).toEqual(['a']);
+  });
+
   it('duplicate connector names: last-wins with a warning', async () => {
     const ws = tmpWorkspace();
     const fileA = writeModule(

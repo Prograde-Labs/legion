@@ -11,11 +11,11 @@ function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden')
 
 const MCP = [{ name: 'fs', command: 'npx', args: ['-y', 'fs-mcp'] }];
 
-function stubFetch(): ReturnType<typeof vi.fn> {
+function stubFetch(servers: unknown = MCP): ReturnType<typeof vi.fn> {
   return vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? '{}'));
     if (body.tool === 'list_mcp_sources') {
-      return new Response(JSON.stringify({ result: { status: 'success', data: MCP } }), {
+      return new Response(JSON.stringify({ result: { status: 'success', data: servers } }), {
         status: 200,
       });
     }
@@ -94,6 +94,23 @@ describe('McpSourcesEditor', () => {
     expect(
       fetchMock.mock.calls.some((c) => JSON.parse(String(c[1]?.body)).tool === 'save_mcp_sources'),
     ).toBe(false);
+  });
+
+  it('does not confirm URL-only servers and still saves them', async () => {
+    const urlOnly = [{ name: 'websearch', url: 'http://localhost:3000/mcp' }];
+    const fetchMock = stubFetch(urlOnly);
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(McpSourcesEditor);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="mcp-card"]').length).toBe(1));
+    await wrapper.find('button[data-test="mcp-save"]').trigger('click');
+    await vi.waitFor(() => {
+      const saveCall = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'save_mcp_sources',
+      );
+      expect(saveCall).toBeDefined();
+      expect(JSON.parse(String(saveCall![1]?.body)).args.servers).toEqual(urlOnly);
+    });
+    expect(window.confirm).not.toHaveBeenCalled();
   });
 
   it('client-side duplicate name check blocks save', async () => {

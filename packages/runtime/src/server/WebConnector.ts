@@ -105,7 +105,8 @@ export class WebConnector implements Connector {
         });
         // SPA client-side routing fallback; unknown API routes must stay JSON 404s.
         app.setNotFoundHandler((req, reply) => {
-          if (req.url.startsWith('/api/')) {
+          const pathname = new URL(req.url, 'http://localhost').pathname;
+          if (pathname === '/api' || pathname.startsWith('/api/')) {
             reply.status(404).send({ error: 'Not found' });
             return;
           }

@@ -12,14 +12,18 @@ function makeCollective(): Collective {
   } as unknown as Collective;
 }
 
-async function makeApp(registry: StreamRegistry, ctx: ConnectorContext) {
+async function makeApp(
+  registry: StreamRegistry,
+  ctx: ConnectorContext,
+  sendToStream: (connectionId: string, participantId: string, data: object) => boolean = () => true,
+) {
   const app = Fastify({ logger: false });
   await registerExecuteRoute(app, {
     collective: makeCollective(),
     ctx,
     jwtSecret,
     streamRegistry: registry,
-    sendToStream: () => true,
+    sendToStream,
   });
   return app;
 }
@@ -79,7 +83,15 @@ describe('POST /api/execute', () => {
       streamTool: vi.fn(async () => ({ gen, conversationId: 'conv-1' })),
     } as unknown as ConnectorContext;
 
-    const app = await makeApp(registry, ctx);
+    let resolveDone!: () => void;
+    const done = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+    const app = await makeApp(registry, ctx, (_connectionId, _participantId, data) => {
+      const frame = data as { type?: string; data?: { type?: string } };
+      if (frame.type === 'stream:chunk' && frame.data?.type === 'stream:done') resolveDone();
+      return true;
+    });
     const res = await app.inject({
       method: 'POST',
       url: '/api/execute',
@@ -96,7 +108,7 @@ describe('POST /api/execute', () => {
     expect(registry.cancelForParticipant(streamId, 'op-1')).toBe(true);
 
     release();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await done;
     await app.close();
   });
 });

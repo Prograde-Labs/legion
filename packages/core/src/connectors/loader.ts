@@ -85,7 +85,11 @@ export async function loadExternalConnectors(
       console.warn(
         `[connector-loader] duplicate connector name '${entry.connector.name}' — last wins`,
       );
-      await previous.connector.stop().catch(() => undefined);
+      try {
+        await previous.connector.stop();
+      } catch {
+        // A broken stop() must not break boot or the surviving connector.
+      }
     }
     byName.set(entry.connector.name, entry);
   }

@@ -73,7 +73,7 @@ export function connector() {
     name: 'web',
     start: async () => {},
     deliver: async () => {},
-    stop: async () => { stopped += 1; },
+    stop: () => { stopped += 1; },
   };
 }
 export function stopCount() { return stopped; }
