@@ -94,7 +94,11 @@ async function send(): Promise<void> {
         @{{ a.id }}
       </button>
     </div>
-    <div v-if="toolHints.length" class="flex flex-wrap gap-1 text-xs text-faint">
+    <div
+      v-if="toolHints.length"
+      data-test="tool-hints"
+      class="flex flex-wrap gap-1 text-xs text-faint"
+    >
       <span v-for="t in toolHints" :key="t" class="rounded bg-surface px-1.5 py-0.5 font-mono">{{
         t
       }}</span>

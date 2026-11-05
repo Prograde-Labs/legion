@@ -14,6 +14,12 @@ describe('useTheme', () => {
     expect(document.documentElement.dataset.theme).toBe('command-deck');
   });
 
+  it('does not apply the theme as a side effect of useTheme()', () => {
+    document.documentElement.removeAttribute('data-theme');
+    useTheme();
+    expect(document.documentElement.dataset.theme).toBeUndefined();
+  });
+
   it('setTheme switches and persists', () => {
     const first = useTheme();
     first.setTheme('blueprint-light');

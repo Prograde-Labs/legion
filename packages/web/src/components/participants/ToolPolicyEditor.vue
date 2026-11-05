@@ -72,7 +72,7 @@ function toggleApproval(tool: string) {
         type="checkbox"
         :checked="override?.enabled ?? false"
         @change="setEnabled(tool, !override?.enabled)"
-        class="accent-cyan-400"
+        class="accent-accent"
       />
       <span :class="['flex-1 font-mono text-xs', override?.enabled ? 'text-ink' : 'text-faint']">
         {{ tool }}

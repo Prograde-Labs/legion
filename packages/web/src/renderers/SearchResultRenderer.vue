@@ -17,7 +17,7 @@ const results = (r: { result?: unknown }) => (r.result as SearchResult[] | null)
     >
       <p class="text-[11px] font-medium text-accent mb-0.5">{{ r.title }}</p>
       <p class="text-[9px] font-mono text-faint mb-1">{{ r.url }}</p>
-      <p class="text-[10px] text-muted leading-relaxed">{{ r.snippet }}</p>
+      <p class="text-[10px] text-faint leading-relaxed">{{ r.snippet }}</p>
     </div>
   </div>
 </template>

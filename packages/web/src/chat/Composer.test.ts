@@ -4,6 +4,7 @@ import Composer from './Composer.vue';
 
 const toolAccessMock = vi.hoisted(() => ({
   access: null as { value: Record<string, 'auto' | 'requires_approval'> } | null,
+  hidden: new Set<string>(),
 }));
 
 vi.mock('../composables/useToolAccess.js', async () => {
@@ -13,7 +14,8 @@ vi.mock('../composables/useToolAccess.js', async () => {
   return {
     useToolAccess: () => ({
       access,
-      can: (tool: string) => access.value[tool] ?? 'hidden',
+      can: (tool: string) =>
+        toolAccessMock.hidden.has(tool) ? 'hidden' : (access.value[tool] ?? 'hidden'),
     }),
   };
 });
@@ -49,6 +51,7 @@ describe('Composer', () => {
     localStorage.clear();
     vi.unstubAllGlobals();
     if (toolAccessMock.access) toolAccessMock.access.value = {};
+    toolAccessMock.hidden.clear();
     localStorage.setItem('legion-token', 'tok');
     localStorage.setItem('legion-expires-at', String(Math.floor(Date.now() / 1000) + 3600));
   });
@@ -118,6 +121,24 @@ describe('Composer', () => {
     });
     expect(wrapper.text()).toContain('communicate');
     expect(wrapper.text()).toContain('file_read');
+  });
+
+  it('renders no hint container when the caller policy is empty', () => {
+    const wrapper = mount(Composer, {
+      props: { conversationId: null, recipientId: 'agent-a' },
+    });
+    expect(wrapper.find('[data-test="tool-hints"]').exists()).toBe(false);
+  });
+
+  it('filters tools the caller policy hides', () => {
+    toolAccessMock.access!.value = { communicate: 'auto', file_write: 'auto' };
+    toolAccessMock.hidden.add('file_write');
+    const wrapper = mount(Composer, {
+      props: { conversationId: null, recipientId: 'agent-a' },
+    });
+    const hints = wrapper.find('[data-test="tool-hints"]');
+    expect(hints.text()).toContain('communicate');
+    expect(hints.text()).not.toContain('file_write');
   });
 
   it('shows the branch indicator when branchLabel is provided', () => {
