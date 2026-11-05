@@ -333,9 +333,19 @@ watch(stream.done, (isDone) => {
     // Draft send (no conversationId prop): the communicate result carries the
     // server-created conversation id — bubble it up so ChatView can replace the
     // draft route with the real one.
-    const result = stream.result.value as { data?: { conversationId?: string } } | null;
+    const result = stream.result.value as {
+      status?: string;
+      error?: string;
+      data?: { conversationId?: string };
+    } | null;
     const newConvId = result?.data?.conversationId;
     if (newConvId && !props.conversationId) emit('created', newConvId);
+    // `stream:error` covers transport failures, but a communicate failure can
+    // also arrive as a normal `stream:done` carrying an error ToolResult.
+    // Surface it unless the deadline notice already explains the stop.
+    if (result?.status === 'error' && result.error && streamTimedOut.value === null) {
+      streamError.value = friendlyToolError(result.error);
+    }
     void load();
   }
 });
@@ -534,13 +544,6 @@ watch(
             :highlight="props.highlight?.outboundMessageId === 'streaming-outbound'"
           />
           <ToolTimeline :calls="toolCalls" :detail="pendingArgs.detail" />
-          <div
-            v-if="streamTimedOut !== null"
-            data-test="stream-timeout"
-            class="px-1 text-xs text-danger"
-          >
-            Stopped after {{ Math.round(streamTimedOut / 1000) }}s
-          </div>
           <MessagePart
             v-if="streamingReasoning || streamingText"
             :message="{
@@ -559,6 +562,19 @@ watch(
             :highlight="props.highlight?.replyMessageId === 'streaming'"
             streaming
           />
+        </div>
+        <!--
+          Deadline notice lives OUTSIDE the streaming block: `stream:done` is
+          consumed by useToolStream and ends the stream, so a notice nested in
+          `v-if="isStreaming"` would vanish in the same tick. It stays visible
+          after the partial reply until the next send() clears it.
+        -->
+        <div
+          v-if="streamTimedOut !== null"
+          data-test="stream-timeout"
+          class="px-1 text-xs text-danger"
+        >
+          Stopped after {{ Math.round(streamTimedOut / 1000) }}s
         </div>
       </div>
     </div>

@@ -47,6 +47,11 @@ export interface SendOptions {
   origin?: ConversationOrigin;
   detail?: DetailLevel;
   model?: string;
+  /**
+   * Per-call deadline for the recipient's response. Enforced by `sendStream`
+   * only — the synchronous `send` path ignores it (partial-response
+   * persistence is a streaming concept).
+   */
   timeoutMs?: number;
   context: ToolContext;
 }
@@ -62,7 +67,6 @@ export interface MessageRouterPort {
     origin?: ConversationOrigin;
     detail?: DetailLevel;
     model?: string;
-    timeoutMs?: number;
     context: ToolContext;
   }): Promise<MessageRouterResult>;
 

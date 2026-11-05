@@ -102,7 +102,8 @@ Open design questions (for the brainstorm):
 `feat/communicate-detail` in `legion-connector-telegram-v2`):
 
 - Contract: `communicate` accepts `detail` (`'minimal' | 'standard' | 'full'`), `model` and
-  `timeoutMs`; the tool result is trimmed according to `detail`.
+  `timeoutMs`; the tool result stays lean (`conversationId`, `response`, `status`) at every
+  level and only adds `meta` at `full` — `detail` is a presentation hint, not a result trimmer.
 - Core plumbing: per-call deadline with partial-result persistence, a `call_timeout` stream
   chunk, run metadata on `MessageRouterResult`, and a per-call model override
   (`RuntimeContext.modelOverride`).

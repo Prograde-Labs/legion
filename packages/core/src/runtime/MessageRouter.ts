@@ -409,6 +409,10 @@ export class MessageRouter implements MessageRouterPort {
     return { ...result, approvalRequests: this.approvalRequests(state.context, result.approvalId) };
   }
 
+  /**
+   * Synchronous send. Does NOT enforce `opts.timeoutMs` — callers that need a
+   * per-call deadline (and its partial-response persistence) use `sendStream`.
+   */
   async send(opts: SendOptions): Promise<MessageRouterResult> {
     if (!this.collective.get(opts.senderId)) {
       return {

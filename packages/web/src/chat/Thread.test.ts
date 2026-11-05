@@ -436,6 +436,64 @@ describe('Thread', () => {
     await vi.waitFor(() => expect((wrapper.vm as { streaming?: boolean }).streaming).toBe(false));
   });
 
+  it('keeps the deadline notice visible after the stream ends, until the next send', async () => {
+    // load → communicate POST → post-done reload → second communicate POST.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ streamId: 's2', conversationId: 'c1' }), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    const vm = wrapper.vm as unknown as {
+      send: (to: string, message: string) => Promise<void>;
+    };
+    await vm.send('agent-a', 'do the thing');
+
+    mocks.streamChunkHandler?.({ type: 'iteration_start' });
+    mocks.streamChunkHandler?.({ type: 'call_timeout', timeoutMs: 5000 });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="stream-timeout"]').exists()).toBe(true),
+    );
+
+    // stream:done is consumed by useToolStream and ends the stream — the
+    // notice must survive that transition (it used to sit inside the
+    // v-if="isStreaming" block and disappear with it).
+    mocks.streamChunkHandler?.({
+      type: 'stream:done',
+      result: { status: 'timeout', partial: true },
+    });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="streaming-part"]').exists()).toBe(false),
+    );
+    const notice = wrapper.find('[data-test="stream-timeout"]');
+    expect(notice.exists()).toBe(true);
+    expect(notice.text()).toContain('Stopped after 5s');
+
+    // A fresh send() clears the previous deadline notice.
+    await vm.send('agent-a', 'try again');
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="stream-timeout"]').exists()).toBe(false),
+    );
+  });
+
   it('renders the tool-call timeline during a streamed communicate call', async () => {
     const fetchMock = vi
       .fn()
