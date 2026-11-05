@@ -8,18 +8,32 @@ const loading: Ref<boolean> = ref(false);
 const error: Ref<string | null> = ref(null);
 let consumerCount = 0;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+/** Bumped on reset so an in-flight refresh cannot repopulate the store after logout. */
+let generation = 0;
 
 async function refresh(): Promise<void> {
+  const requestGeneration = generation;
   const { execute } = useLegionApi();
   loading.value = true;
   try {
-    processes.value = await execute<ProcessHandle[]>('list_processes', { status: 'all' });
+    const result = await execute<ProcessHandle[]>('list_processes', { status: 'all' });
+    if (requestGeneration !== generation) return; // reset while in flight — stale identity
+    processes.value = result;
     error.value = null;
   } catch (e) {
+    if (requestGeneration !== generation) return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
-    loading.value = false;
+    if (requestGeneration === generation) loading.value = false;
   }
+}
+
+/** Drop the previous identity's processes on logout; polling lifecycle is untouched. */
+function reset(): void {
+  generation += 1;
+  processes.value = [];
+  loading.value = false;
+  error.value = null;
 }
 
 export function useProcesses() {
@@ -40,5 +54,5 @@ export function useProcesses() {
     });
   }
 
-  return { processes, loading, error, refresh };
+  return { processes, loading, error, refresh, reset };
 }

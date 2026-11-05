@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import type { BaseParticipant, ConversationMeta } from '@legion-collective/types';
@@ -22,6 +22,13 @@ vi.mock('./composables/useWebSocket.js', () => ({
   }),
 }));
 
+const processesMocks = vi.hoisted(() => ({ reset: vi.fn() }));
+vi.mock('./composables/useProcesses.js', () => ({
+  useProcesses: () => ({ reset: processesMocks.reset }),
+}));
+
+const originalFetch = globalThis.fetch;
+
 const PARTICIPANTS: BaseParticipant[] = [{ id: 'agent-a', name: 'A', type: 'agent', tools: {} }];
 
 const CONVS: ConversationMeta[] = [
@@ -43,7 +50,13 @@ describe('App', () => {
     useAuth().logout();
     useApprovals().reset();
     useParticipants().reset();
+    useConversations().reset();
     useReadState().reset();
+    processesMocks.reset.mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   it('clears module stores when the session ends', async () => {
@@ -89,6 +102,7 @@ describe('App', () => {
     expect(useConversations().conversations.value).toHaveLength(0);
     expect(useConversations().activeId.value).toBeNull();
     expect(useReadState().isUnread('c1', '2026-01-01T00:00:00Z')).toBe(true);
+    expect(processesMocks.reset).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 });

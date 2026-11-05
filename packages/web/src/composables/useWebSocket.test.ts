@@ -323,6 +323,7 @@ describe('useWebSocket', () => {
       type: 'stream:error',
       error: 'WebSocket disconnected',
     });
+    expect(streamHandler).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -386,6 +387,80 @@ describe('useWebSocket', () => {
     expect(api.getConnectionId()).toBe('conn-2');
     expect(second.readyState).toBe(1);
     expect(FakeWS.instances).toHaveLength(2);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not create a socket when one is already open', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      constructor() {
+        FakeWS.instances.push(this);
+      }
+      addEventListener() {}
+      send() {}
+      close() {}
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+    api.connect();
+    api.connect();
+    expect(FakeWS.instances).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('disconnects a socket that is still connecting', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 0;
+      listeners: Record<string, EventListener[]> = {};
+      constructor() {
+        FakeWS.instances.push(this);
+      }
+      addEventListener(type: string, listener: EventListener) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      dispatchEvent(event: Event) {
+        for (const listener of this.listeners[event.type] ?? []) listener(event);
+        return true;
+      }
+      send() {}
+      close() {
+        this.readyState = 3;
+        this.dispatchEvent({ type: 'close', code: 1006 } as unknown as Event);
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+    vi.useFakeTimers();
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+    api.connect();
+    const socket = FakeWS.instances[0];
+    expect(socket.readyState).toBe(0);
+    api.disconnect();
+    expect(socket.readyState).toBe(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(FakeWS.instances).toHaveLength(1);
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });

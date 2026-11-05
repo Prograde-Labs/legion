@@ -4,15 +4,20 @@ import type { BaseParticipant } from '@legion-collective/types';
 
 const participants = ref<BaseParticipant[]>([]);
 const loading = ref(false);
+/** Bumped on reset so an in-flight load cannot repopulate the store after logout. */
+let generation = 0;
 
 export function useParticipants() {
   async function load(): Promise<void> {
+    const requestGeneration = generation;
     loading.value = true;
     try {
       const { execute } = useLegionApi();
-      participants.value = await execute<BaseParticipant[]>('list_participants', {});
+      const result = await execute<BaseParticipant[]>('list_participants', {});
+      if (requestGeneration !== generation) return; // reset while in flight — stale identity
+      participants.value = result;
     } finally {
-      loading.value = false;
+      if (requestGeneration === generation) loading.value = false;
     }
   }
   const byId = computed(() => {
@@ -22,6 +27,7 @@ export function useParticipants() {
   });
   /** Drop the previous identity's roster on logout. */
   function reset(): void {
+    generation += 1;
     participants.value = [];
     loading.value = false;
   }

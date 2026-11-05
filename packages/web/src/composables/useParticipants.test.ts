@@ -63,4 +63,28 @@ describe('useParticipants', () => {
     expect(store.participants.value).toHaveLength(0);
     expect(store.loading.value).toBe(false);
   });
+
+  it('discards a load that resolves after reset', async () => {
+    let resolveResponse!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+      ),
+    );
+    const store = useParticipants();
+    const pending = store.load();
+    expect(store.loading.value).toBe(true);
+    store.reset();
+    resolveResponse(
+      new Response(JSON.stringify({ result: { status: 'success', data: PARTICIPANTS } }), {
+        status: 200,
+      }),
+    );
+    await pending;
+    expect(store.participants.value).toHaveLength(0);
+    expect(store.loading.value).toBe(false);
+  });
 });

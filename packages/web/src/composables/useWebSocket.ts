@@ -48,6 +48,8 @@ function connect(): void {
   });
 
   socket.addEventListener('message', (evt) => {
+    // A retired socket's late frame must not be dispatched for the new connection.
+    if (socket !== ws) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(evt.data as string);

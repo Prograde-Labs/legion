@@ -66,4 +66,41 @@ describe('useApprovals', () => {
     store.reset();
     expect(store.pending.value).toHaveLength(0);
   });
+
+  it('discards a refresh that resolves after reset', async () => {
+    let resolveResponse!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+      ),
+    );
+    const store = useApprovals();
+    const pending = store.refresh();
+    store.reset();
+    resolveResponse(
+      new Response(
+        JSON.stringify({
+          result: {
+            status: 'success',
+            data: [
+              {
+                approvalId: 'a1',
+                conversationId: 'c1',
+                requesterId: 'agent-a',
+                tool: 'file_write',
+                args: {},
+                createdAt: '2026-10-08T00:00:00Z',
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    await pending;
+    expect(store.pending.value).toHaveLength(0);
+  });
 });

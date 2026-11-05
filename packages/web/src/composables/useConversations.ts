@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue';
+import { computed, getCurrentInstance, ref, watch } from 'vue';
 import { useLegionApi } from './useLegionApi.js';
 import { useToolStream } from './useToolStream.js';
 import { useWebSocket } from './useWebSocket.js';
@@ -13,18 +13,22 @@ const filter = ref<{ status: 'active' | 'archived' | 'all'; search: string }>({
 });
 
 let watchStarted = false;
+/** Bumped on reset so an in-flight load cannot repopulate the store after logout. */
+let generation = 0;
 
 export function useConversations() {
   async function load(): Promise<void> {
+    const requestGeneration = generation;
     loading.value = true;
     try {
       const { execute } = useLegionApi();
       const result = await execute<{ conversations: ConversationMeta[] }>('list_conversations', {
         status: filter.value.status,
       });
+      if (requestGeneration !== generation) return; // reset while in flight — stale identity
       conversations.value = result.conversations;
     } finally {
-      loading.value = false;
+      if (requestGeneration === generation) loading.value = false;
     }
   }
   const visible = computed(() => {
@@ -39,6 +43,7 @@ export function useConversations() {
 
   /** Drop the previous identity's list, selection and filter on logout. */
   function reset(): void {
+    generation += 1;
     conversations.value = [];
     loading.value = false;
     activeId.value = null;
@@ -49,7 +54,9 @@ export function useConversations() {
   // watch_conversations stream reloads the list on every lifecycle event —
   // creation, message activity, status change. Started once when the socket
   // connects; matches the legacy ConversationsView wiring this rewrite replaced.
-  if (!watchStarted) {
+  // Only wire the stream watch from a component: useToolStream registers
+  // onUnmounted, which warns when called outside a component instance.
+  if (!watchStarted && getCurrentInstance()) {
     watchStarted = true;
     const ws = useWebSocket();
     const stream = useToolStream('watch_conversations', () => ({ status: filter.value.status }), {

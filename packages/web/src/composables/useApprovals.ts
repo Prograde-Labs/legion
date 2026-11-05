@@ -12,6 +12,8 @@ export interface PendingApproval {
 
 const pending = ref<PendingApproval[]>([]);
 let initialized = false;
+/** Bumped on reset so an in-flight refresh cannot repopulate the store after logout. */
+let generation = 0;
 
 function handleEvent(type: string, data: Record<string, unknown>): void {
   if (type === 'approval:requested') {
@@ -59,13 +61,16 @@ export function useApprovals() {
   const oldest = computed(() => pending.value[0] ?? null);
 
   async function refresh(): Promise<void> {
+    const requestGeneration = generation;
     const { execute } = useLegionApi();
     const list = await execute<PendingApproval[]>('list_pending_approvals', {});
+    if (requestGeneration !== generation) return; // reset while in flight — stale identity
     pending.value = list;
   }
 
   /** Drop the previous identity's approvals on logout. */
   function reset(): void {
+    generation += 1;
     pending.value = [];
   }
 

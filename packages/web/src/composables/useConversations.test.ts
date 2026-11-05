@@ -85,4 +85,29 @@ describe('useConversations', () => {
     expect(store.activeId.value).toBeNull();
     expect(store.filter.value).toEqual({ status: 'active', search: '' });
   });
+
+  it('discards a load that resolves after reset', async () => {
+    let resolveResponse!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+      ),
+    );
+    const store = useConversations();
+    const pending = store.load();
+    expect(store.loading.value).toBe(true);
+    store.reset();
+    resolveResponse(
+      new Response(
+        JSON.stringify({ result: { status: 'success', data: { conversations: CONVS } } }),
+        { status: 200 },
+      ),
+    );
+    await pending;
+    expect(store.conversations.value).toHaveLength(0);
+    expect(store.loading.value).toBe(false);
+  });
 });

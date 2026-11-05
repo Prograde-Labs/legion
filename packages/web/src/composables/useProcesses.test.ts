@@ -149,4 +149,86 @@ describe('useProcesses', () => {
     expect((w.vm as any).processes[0].id).toBe('proc-2');
     w.unmount();
   });
+
+  it('reset clears processes, loading and error', async () => {
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
+    const fakeProcesses = [
+      {
+        id: 'proc-1',
+        command: 'sleep',
+        args: ['10'],
+        cwd: '/tmp',
+        tty: false,
+        shell: false,
+        startedAt: '2026-01-01T00:00:00Z',
+        startedByParticipantId: 'op',
+        pid: 1234,
+        status: 'running',
+        exitCode: null,
+        exitedAt: null,
+      },
+    ];
+    useLegionApi.mockReturnValue({ execute: vi.fn().mockResolvedValue(fakeProcesses) });
+
+    const { useProcesses } = await import('./useProcesses.js');
+    const TestComponent = defineComponent({
+      setup() {
+        return useProcesses();
+      },
+      template: '<div/>',
+    });
+    const w = mount(TestComponent);
+    await new Promise((r) => setTimeout(r, 0));
+    expect((w.vm as any).processes).toHaveLength(1);
+
+    (w.vm as any).reset();
+    expect((w.vm as any).processes).toHaveLength(0);
+    expect((w.vm as any).loading).toBe(false);
+    expect((w.vm as any).error).toBeNull();
+    w.unmount();
+  });
+
+  it('discards a refresh that resolves after reset', async () => {
+    const { useLegionApi } = (await import('./useLegionApi.js')) as any;
+    let resolveExecute!: (value: unknown) => void;
+    const executeMock = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveExecute = resolve;
+      }),
+    );
+    useLegionApi.mockReturnValue({ execute: executeMock });
+
+    const { useProcesses } = await import('./useProcesses.js');
+    const TestComponent = defineComponent({
+      setup() {
+        return useProcesses();
+      },
+      template: '<div/>',
+    });
+    const w = mount(TestComponent);
+
+    // The mount-time refresh is still in flight; logging out resets the store.
+    (w.vm as any).reset();
+    resolveExecute([
+      {
+        id: 'proc-1',
+        command: 'sleep',
+        args: ['10'],
+        cwd: '/tmp',
+        tty: false,
+        shell: false,
+        startedAt: '2026-01-01T00:00:00Z',
+        startedByParticipantId: 'op',
+        pid: 1234,
+        status: 'running',
+        exitCode: null,
+        exitedAt: null,
+      },
+    ]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect((w.vm as any).processes).toHaveLength(0);
+    expect((w.vm as any).loading).toBe(false);
+    w.unmount();
+  });
 });
