@@ -8,7 +8,7 @@
 
 ## Verdict
 
-The architecture is sound and the rewrite is a large improvement over the old console: fail-closed tool gating, sanitized markdown, a clean composable layer, and good unit-test volume. After the fix wave it is **safe to use as the primary management surface for the reviewed scope**. The model picker, routing editor and dock restore no longer silently break configuration; live approvals and messages are wired through `watch_activity`/`watch_conversation` with a polling fallback for participants without the subscription tool; and the tool-policy self-escalation path is closed (every `tools` mutation, `set_tool_policy` and `remove_tool_policy` now requires an operator). The remaining deferred items are documented below (approval matching by `toolCallId`, duplicate approval refreshes, overlapping-stream orphan, and similar architectural follow-ups), and the e2e suite has still not been executed in this environment.
+The architecture is sound and the rewrite is a large improvement over the old console: fail-closed tool gating, sanitized markdown, a clean composable layer, and good unit-test volume. After the fix wave and the round-2 hardening pass it is **safe to use as the primary management surface for the reviewed scope**. The model picker, routing editor and dock restore no longer silently break configuration; live approvals and messages are wired through `watch_activity`/`watch_conversation` with a polling fallback for participants without the subscription tool; the streaming tools are viewer-scoped (`watch_conversation`/`watch_activity` require membership, `watch_conversations` filters to the caller, and the global activity feed is operator-only); and the privilege-escalation path is closed for user, agent and policy tools plus MCP saves (every `tools` mutation, `create_agent`/`modify_agent` tool maps, `set_tool_policy`, `remove_tool_policy`, `create_user`/`modify_user` policies and `save_mcp_sources` now require an operator). Users also receive `cancel_stream` so a conversation switch can stop the old stream. The remaining deferred items are documented below (approval matching by `toolCallId`, duplicate approval refreshes, overlapping-stream orphan, audit logging for MCP saves, and similar architectural follow-ups), and the e2e suite has still not been executed in this environment.
 
 ## Status legend
 
@@ -91,10 +91,10 @@ The architecture is sound and the rewrite is a large improvement over the old co
 
 ### [x] H10. Operator flag can be self-granted; credentials are unscoped
 
-**Where:** `packages/web/src/views/UserEditor.vue:224-227,152-157`; `packages/core/src/tools/user-tools.ts:13-51,53-95`; `packages/core/src/auth/AuthEngine.ts:9-18`; `packages/core/src/tools/management-tools.ts:772`; `packages/core/src/tools/secret-tools.ts`
-**What:** `create_user`/`modify_user` accept `operator: true`; `AuthEngine` authorizes by tool name only, and `Collective` only guards _removing_ the last operator. `set_credential`/`set_secret` can target any participant.
-**Impact:** a non-operator granted `modify_user`/`create_user` can promote themselves or create a new operator, then log in as it. Any holder of `set_credential` can reset any account’s password. This is privilege escalation.
-**Fix:** require an operator privilege for granting `operator`; add server-side checks in `create_user`/`modify_user`; hide the checkbox unless the caller is an operator; scope `set_credential`/`set_secret` to self or require operator for others.
+**Where:** `packages/web/src/views/UserEditor.vue`; `packages/core/src/tools/user-tools.ts`; `packages/core/src/auth/AuthEngine.ts:9-18`; `packages/core/src/tools/management-tools.ts`; `packages/core/src/tools/secret-tools.ts`; `packages/runtime/src/server/runtime-tools.ts`
+**What:** `create_user`/`modify_user` accept `operator: true`; `AuthEngine` authorizes by tool name only, and `Collective` only guards _removing_ the last operator. `set_credential`/`set_secret` can target any participant. Separately, `create_agent`/`modify_agent` accepted arbitrary `tools` maps and `save_mcp_sources` had no server-side guard, so a non-operator with those tools could grant `save_mcp_sources` and reach arbitrary command execution on the next boot.
+**Impact:** a non-operator granted `modify_user`/`create_user`/`modify_agent` can promote themselves or grant privilege-bearing tools, then log in as an operator. Any holder of `set_credential` can reset any account’s password. This is privilege escalation.
+**Fix:** user, agent and policy tool maps plus MCP saves are operator-gated server-side: granting `operator` in `create_user`/`modify_user`, any `tools` map in `create_user`/`modify_user`/`create_agent`/`modify_agent`, `set_tool_policy`/`remove_tool_policy`, and `save_mcp_sources` all reject non-operator callers. The web editor hides the operator checkbox and renders tool policies read-only for non-operators (with a preserved note) so a rename does not silently discard the policy map. `set_credential`/`set_secret` are scoped to self or an operator. Regression tests cover each non-operator rejection and the operator success paths.
 
 ---
 
@@ -134,7 +134,7 @@ The architecture is sound and the rewrite is a large improvement over the old co
 
 `McpSourcesEditor.vue:86-107` sends arbitrary `command`/`args`; `runtime-tools.ts:206-253` validates only name/transport. Any user with `save_mcp_sources` auto can run arbitrary commands as the Legion user on next boot. Add confirmation/audit and restrict to operators.
 
-**Status:** Client-side confirmation added before saving MCP sources; server-side operator restriction deferred.
+**Status:** Client-side confirmation added before saving MCP sources and a server-side operator guard now rejects non-operator callers (`save_mcp_sources` returns an error before validating/persisting). Audit logging for MCP changes remains deferred.
 
 ### [-] M9. Security hardening gaps
 
@@ -272,25 +272,25 @@ SPA fallback returns `index.html` for unknown `/api/*` (`WebConnector.ts:107-109
 
 ## Spec conformance summary
 
-| Spec item                     | Status                                                                                                                                              |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| §3.1 shell/nav/avatar/account | Done; theme switch in Account; login lands on Chat                                                                                                  |
-| §3.2 desktop/mobile           | Done; mobile dock is full-screen; drawer closes on new-conversation                                                                                 |
-| §3.3 composables              | Done; dead `useConversation` removed; identity stores reset on logout                                                                               |
-| §3.4 token layer              | Done; tokens plus runtime theme switch; raw colours replaced                                                                                        |
-| §4.1 conversation list        | Done; unread client-only; no live participant subscription (deferred)                                                                               |
-| §4.2 typed parts/registry     | Partly; process/file panels still fall back to the generic tool-detail renderer                                                                     |
-| §4.3 forks                    | Done; index sync/error handling follow-up noted                                                                                                     |
-| §4.4 composer                 | Send/stop done; tool hints curated to user-facing tools; @mention basic                                                                             |
-| §4.5 approvals                | Inline + badge; live `watch_activity` + `watch_conversation`; args refreshed; outcome handling fixed; polling fallback when the stream is hidden    |
-| §4.6 streaming                | Text/reasoning done; thinking indicator added; stop can still hang on a missing terminal chunk (deferred)                                           |
-| §5.1 dock                     | Tabs/close/reorder done; persistence restore fixed; mobile width fixed                                                                              |
-| §5.2 registry                 | communicate + fallback done; jump breadcrumb wired; process/file panels missing                                                                     |
-| §6.1 participants             | List/editors done; model picker fixed and save-validated; operator/tool escalation closed; middleware skills/credentials wired; topology edges live |
-| §6.2 processes                | Carried over; error handling surfaced                                                                                                               |
-| §6.3 config                   | Providers/routing/MCP done; routing hydrates on load; provider saves narrowed to constructible types                                                |
-| §7 backend tools              | Implemented; `list_pending_approvals` scoped; `save_provider` enum matches the store; tool-policy mutations operator-gated                          |
-| §8 testing                    | Unit/web tests plentiful and green; rewritten e2e specs not executed here (Playwright browsers unavailable — pending CI)                            |
+| Spec item                     | Status                                                                                                                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §3.1 shell/nav/avatar/account | Done; theme switch in Account; login lands on Chat                                                                                                                                                                                 |
+| §3.2 desktop/mobile           | Done; mobile dock is full-screen; drawer closes on new-conversation                                                                                                                                                                |
+| §3.3 composables              | Done; dead `useConversation` removed; identity stores reset on logout                                                                                                                                                              |
+| §3.4 token layer              | Done; tokens plus runtime theme switch; raw colours replaced                                                                                                                                                                       |
+| §4.1 conversation list        | Done; unread client-only; no live participant subscription (deferred)                                                                                                                                                              |
+| §4.2 typed parts/registry     | Partly; process/file panels still fall back to the generic tool-detail renderer                                                                                                                                                    |
+| §4.3 forks                    | Done; index sync/error handling follow-up noted                                                                                                                                                                                    |
+| §4.4 composer                 | Send/stop done; tool hints curated to user-facing tools; @mention basic                                                                                                                                                            |
+| §4.5 approvals                | Inline + badge; live viewer-scoped `watch_activity`/`watch_conversation`; args refreshed; outcome handling fixed; polling fallback for non-operators (global feed is operator-only)                                                |
+| §4.6 streaming                | Text/reasoning done; thinking indicator added; stop can still hang on a missing terminal chunk (deferred)                                                                                                                          |
+| §5.1 dock                     | Tabs/close/reorder done; persistence restore fixed; mobile width fixed                                                                                                                                                             |
+| §5.2 registry                 | communicate + fallback done; jump breadcrumb wired; process/file panels missing                                                                                                                                                    |
+| §6.1 participants             | List/editors done; model picker fixed and save-validated; operator/tool escalation closed across user, agent and policy tools; tool policies read-only for non-operators; middleware skills/credentials wired; topology edges live |
+| §6.2 processes                | Carried over; error handling surfaced                                                                                                                                                                                              |
+| §6.3 config                   | Providers/routing/MCP done; routing hydrates on load; provider saves narrowed to constructible types                                                                                                                               |
+| §7 backend tools              | Implemented; `list_pending_approvals` scoped; `save_provider` enum matches the store; tool-policy mutations and MCP saves operator-gated; watch streams viewer-scoped                                                              |
+| §8 testing                    | Unit/web tests plentiful and green; rewritten e2e specs not executed here (Playwright browsers unavailable — pending CI)                                                                                                           |
 
 ## Test gaps
 
@@ -307,13 +307,17 @@ The gaps identified during the review are now covered by regression tests:
 - `ApprovalAuthorityEditor` preserves `participants`.
 - Middleware validation blocks save; skills/credential hydration is tested.
 - Non-operator `modify_user` self-granting `save_mcp_sources` is rejected; non-operator `set_tool_policy`/`remove_tool_policy` are rejected; operator paths succeed.
+- Non-operator `create_agent`/`modify_agent` with a `tools` map are rejected (agent without tools still succeeds); non-operator `save_mcp_sources` is rejected and the operator path persists.
+- `watch_conversation` rejects non-participants/non-existent conversations and lets operators watch any; `watch_conversations` scopes non-operators to their own conversations; `watch_activity` rejects the global feed for non-operators and rejects non-member conversation filters.
+- Boot/user grants include `cancel_stream`; `useToolStream.start()` starts the next stream even when `cancel_stream` is denied; AppShell stops the approvals polling fallback when `watch_activity` recovers.
+- `create_user` merges the subscription tool defaults; `UserEditor` renders tool policies read-only for non-operators; Thread surfaces a denied conversation stream as a non-blocking note.
 - Provider saves reject `anthropic`/`copilot`/`codex` and advertise only `openai-compatible`/`openai-responses`.
 
 Remaining gaps:
 
 - The rewritten e2e specs (`config/providers`, etc.) have **not been executed**: the Docker wrapper mounts an ephemeral `HOME`, Playwright browsers are not installed in this environment, and they were intentionally not added. Verification is pending CI.
 - Approval-to-message matching still uses tool name because the approval record has no `toolCallId` backend field; a test for the precise match cannot be written until the field exists (parked).
-- The overlapping-start orphan and multiple unscoped streams are architectural follow-ups (parked), so no targeted regression test exists yet.
+- The overlapping-start orphan (a failed cancel leaves the old transport subscription registered until its generation is superseded) is an architectural follow-up (parked); the viewer-scoping tests cover the data-exposure side.
 
 ## Strengths worth preserving
 
@@ -327,4 +331,4 @@ Remaining gaps:
 
 ## Fix tracking
 
-The implementation plan is at `docs/superpowers/plans/2026-11-04-web-ui-review-fixes.md`. The fix wave is complete, including a final whole-branch review pass that closed the tool-policy self-escalation path, added live `watch_conversation` delivery, curated composer hints, narrowed provider types, fixed editor gating and applied the remaining nits. Every finding has a status — `[x]` fixed and covered by unit/web tests, `[~]` partially fixed with the remaining work noted inline, or `[-]` deliberately deferred with a reason. The full gate (`format:check`, `typecheck`, `npm test`, web tests) is green. The e2e suite could not be executed in this environment: the Docker wrapper mounts an ephemeral `HOME`, so Playwright browsers are not present, and they were intentionally not installed; the rewritten web UI specs remain pending CI.
+The implementation plan is at `docs/superpowers/plans/2026-11-04-web-ui-review-fixes.md`. The fix wave is complete, including a final whole-branch review pass that closed the tool-policy self-escalation path, added live `watch_conversation` delivery, curated composer hints, narrowed provider types, fixed editor gating and applied the remaining nits. A round-2 hardening pass then granted `cancel_stream` (with failed-cancel tolerance), viewer-scoped the `watch_*` streams, closed the same escalation route through `create_agent`/`modify_agent` and `save_mcp_sources`, merged subscription defaults into `create_user`, and applied the related UX/test-hygiene nits. Every finding has a status — `[x]` fixed and covered by unit/web tests, `[~]` partially fixed with the remaining work noted inline, or `[-]` deliberately deferred with a reason. The full gate (`format:check`, `typecheck`, `npm test`, web tests) is green. The e2e suite could not be executed in this environment: the Docker wrapper mounts an ephemeral `HOME`, so Playwright browsers are not present, and they were intentionally not installed; the rewritten web UI specs remain pending CI.
