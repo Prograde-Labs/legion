@@ -3,9 +3,20 @@ import { EventBus } from '../events/EventBus.js';
 import type { ToolContext } from './Tool.js';
 import { watchConversationsTool } from './watch-conversations-tool.js';
 
-function fakeCtx(eventBus: EventBus, signal?: AbortSignal): ToolContext {
+function fakeCtx(
+  eventBus: EventBus,
+  signal?: AbortSignal,
+  options: { operator?: boolean } = {},
+): ToolContext {
   return {
-    participant: { id: 'p', name: 'P', type: 'user', tools: {}, status: 'active' },
+    participant: {
+      id: 'p',
+      name: 'P',
+      type: 'user',
+      tools: {},
+      status: 'active',
+      operator: options.operator ?? false,
+    },
     conversationId: '',
     eventBus,
     signal,
@@ -37,13 +48,17 @@ function metadata(
   };
 }
 
-async function startWatch(args: unknown, controller = new AbortController()) {
+async function startWatch(
+  args: unknown,
+  controller = new AbortController(),
+  options: { operator?: boolean } = {},
+) {
   const eventBus = new EventBus();
   const chunks: StreamChunk[] = [];
   const consumer = (async () => {
     for await (const chunk of watchConversationsTool.stream(
       args,
-      fakeCtx(eventBus, controller.signal),
+      fakeCtx(eventBus, controller.signal, options),
     )) {
       chunks.push(chunk);
     }
@@ -241,5 +256,50 @@ describe('watch_conversations tool', () => {
 
     expect(chunks).toEqual([]);
     expect(off).toHaveBeenCalledTimes(2);
+  });
+
+  it('scopes a non-operator stream to conversations they participate in', async () => {
+    // The caller may pass participantId, but a non-operator must never receive
+    // another participant's conversations.
+    const { eventBus, controller, chunks, consumer } = await startWatch({
+      participantId: 'other',
+      status: 'all',
+    });
+    eventBus.emit('conversation:created', {
+      conversation: metadata('theirs', { participants: ['other', 'agent-2'] }),
+    });
+    eventBus.emit('conversation:created', {
+      conversation: metadata('mine', { participants: ['p', 'agent-1'] }),
+    });
+    await flushEvents();
+    controller.abort();
+    await consumer;
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual(['conversation:created']);
+    expect((chunks[0] as { data: { conversation: { id: string } } }).data.conversation.id).toBe(
+      'mine',
+    );
+  });
+
+  it('lets an operator stream conversations across participants', async () => {
+    const { eventBus, controller, chunks, consumer } = await startWatch(
+      { status: 'all' },
+      undefined,
+      { operator: true },
+    );
+    eventBus.emit('conversation:created', {
+      conversation: metadata('theirs', { participants: ['other', 'agent-2'] }),
+    });
+    eventBus.emit('conversation:created', {
+      conversation: metadata('mine', { participants: ['p', 'agent-1'] }),
+    });
+    await flushEvents();
+    controller.abort();
+    await consumer;
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual([
+      'conversation:created',
+      'conversation:created',
+    ]);
   });
 });

@@ -68,13 +68,15 @@ function makeApprovalRegistry(): PendingApprovalRegistry {
   return new PendingApprovalRegistry();
 }
 
-function makeContext(): ToolContext {
-  // Only approval scoping reads the context: give it a maximally-authorized
-  // caller so the per-record filtering is exercised by authEngine stubs.
+function makeContext(overrides: Partial<ToolContext['participant']> = {}): ToolContext {
+  // Give the default caller full authority so approval filtering is exercised
+  // by authEngine stubs; operator tools (save_mcp_sources) also require the flag.
   return {
     participant: {
       id: 'operator',
+      operator: true,
       approvalAuthority: { participants: '*', tools: '*' },
+      ...overrides,
     },
   } as unknown as ToolContext;
 }
@@ -450,6 +452,21 @@ describe('mcp source tools', () => {
     );
     expect(result.status).toBe('success');
     expect(stored.length).toBe(2);
+  });
+
+  it('save_mcp_sources rejects a non-operator caller', async () => {
+    // Regression for the deferred M8 fix: any user with save_mcp_sources could
+    // persist arbitrary commands that run as the Legion user on next boot.
+    let saved = false;
+    const tools = createRuntimeTools(makeDeps({ saveMCPServers: async () => void (saved = true) }));
+    const tool = tools.find((t) => t.name === 'save_mcp_sources')!;
+    const result = await tool.execute(
+      { servers: [{ name: 'fs', command: 'npx' }] },
+      makeContext({ operator: false }),
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('operator');
+    expect(saved).toBe(false);
   });
 
   it('save_mcp_sources rejects entries without name', async () => {

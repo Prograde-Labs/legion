@@ -209,6 +209,11 @@ export const createAgentTool: Tool = {
       middleware?: unknown;
     };
     try {
+      // Tool policies are privilege-bearing (save_mcp_sources can run arbitrary
+      // commands on next boot), so any tools map mutation requires an operator.
+      if (tools !== undefined && context.participant.operator !== true) {
+        throw new Error('Only an operator can change tool policies');
+      }
       if (middleware !== undefined && !Array.isArray(middleware)) {
         throw new Error('middleware must be an array when provided');
       }
@@ -841,6 +846,9 @@ export const modifyAgentTool: Tool = {
       tools?: Record<string, ToolPolicy>;
     };
     try {
+      if (tools !== undefined && context.participant.operator !== true) {
+        throw new Error('Only an operator can change tool policies');
+      }
       const collective = requireCollective(context);
       const existing = collective.get(id);
       if (!existing) return { status: 'error', error: `Agent not found: ${id}` };

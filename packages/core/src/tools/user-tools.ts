@@ -1,6 +1,26 @@
 import type { ToolPolicy, ToolResult, UserConfig } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
+/**
+ * Read/subscription tools every user needs for the web UI to be live: approval
+ * events, conversation-list updates, per-conversation messages, stream cancel,
+ * and the authoritative pending-approval list (already scoped server-side).
+ * Shared with the runtime boot grant so users created after boot start live
+ * without a restart. None of these can mutate policies, credentials, or config.
+ */
+export const USER_SUBSCRIPTION_TOOL_NAMES = [
+  'list_pending_approvals',
+  'cancel_stream',
+  'watch_activity',
+  'watch_conversation',
+  'watch_conversations',
+] as const;
+
+/** Default tool-policy map for a newly created user. */
+export function defaultUserSubscriptionTools(): Record<string, ToolPolicy> {
+  return Object.fromEntries(USER_SUBSCRIPTION_TOOL_NAMES.map((name) => [name, 'auto']));
+}
+
 function requireCollective(context: ToolContext): NonNullable<ToolContext['collective']> {
   if (!context.collective) throw new Error('collective unavailable in context');
   return context.collective;
@@ -52,7 +72,9 @@ export const createUserTool: Tool = {
         id,
         name,
         type: 'user',
-        tools: tools ?? {},
+        // Merge the boot-time read/subscription grant so users created after
+        // boot are live immediately; explicit policies override the defaults.
+        tools: { ...defaultUserSubscriptionTools(), ...(tools ?? {}) },
         status: 'active',
         ...(operator === undefined ? {} : { operator }),
       };

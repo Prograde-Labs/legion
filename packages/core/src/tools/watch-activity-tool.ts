@@ -1,6 +1,7 @@
 import type { LegionEventName, StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
+import { assertConversationAccess } from './conversation-access.js';
 
 type ActivityEventName =
   'tool:call' | 'tool:result' | 'iteration' | 'approval:requested' | 'approval:resolved' | 'error';
@@ -30,6 +31,13 @@ export const watchActivityTool: StreamingTool = {
   },
   async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const { conversationId: filterConvId } = (args ?? {}) as { conversationId?: string };
+    if (filterConvId) {
+      await assertConversationAccess(context, filterConvId);
+    } else if (context.participant.operator !== true) {
+      // The global activity feed is operator-only; non-operators must scope to
+      // a conversation they participate in (AppShell falls back to polling).
+      throw new Error('unauthorized');
+    }
     const queue = new AsyncQueue<StreamChunk>();
 
     const unsubs = ACTIVITY_EVENTS.map((event) =>

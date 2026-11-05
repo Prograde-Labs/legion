@@ -49,6 +49,12 @@ export const watchConversationsTool: StreamingTool = {
   },
   async *stream(args: unknown, context: ToolContext): AsyncGenerator<StreamChunk, void> {
     const filter = parseFilter(args);
+    // Viewer scoping: operators may stream the collective-wide feed, everyone
+    // else only conversations they participate in. Override any caller-supplied
+    // participantId so a non-operator cannot request another participant's list.
+    if (context.participant.operator !== true) {
+      filter.participantId = context.participant.id;
+    }
     const queue = new AsyncQueue<StreamChunk>();
     const unsubs = [
       context.eventBus.on('conversation:created', (data) => {

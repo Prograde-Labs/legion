@@ -23,6 +23,9 @@ describe('ensureBootstrapRuntimeToolPolicies', () => {
     await ensureBootstrapRuntimeToolPolicies(collective);
 
     const approver = collective.get('approver') as UserConfig;
+    // cancel_stream lets the thread stop/restart its stream on a conversation
+    // switch; ownership is enforced by StreamRegistry.cancelForParticipant.
+    expect(approver.tools['cancel_stream']).toBe('auto');
     expect(approver.tools['watch_activity']).toBe('auto');
     expect(approver.tools['watch_conversation']).toBe('auto');
     expect(approver.tools['watch_conversations']).toBe('auto');

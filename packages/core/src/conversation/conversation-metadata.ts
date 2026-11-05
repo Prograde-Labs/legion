@@ -101,7 +101,7 @@ function parseIsoTimestamp(value: string): ParsedTimestamp | undefined {
   };
 }
 
-function getParticipants(conversation: ConversationFilterInput): string[] {
+export function getConversationParticipants(conversation: ConversationFilterInput): string[] {
   if ('participants' in conversation) return conversation.participants;
 
   const participants = new Set<string>();
@@ -110,6 +110,10 @@ function getParticipants(conversation: ConversationFilterInput): string[] {
     participants.add(message.recipientId);
   }
   return [...participants];
+}
+
+function getParticipants(conversation: ConversationFilterInput): string[] {
+  return getConversationParticipants(conversation);
 }
 
 export function applyConversationMutation(

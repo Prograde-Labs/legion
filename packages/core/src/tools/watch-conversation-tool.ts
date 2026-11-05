@@ -1,6 +1,7 @@
 import type { StreamChunk } from '@legion-collective/types';
 import { AsyncQueue } from '../streaming/AsyncQueue.js';
 import type { StreamingTool, ToolContext } from './Tool.js';
+import { assertConversationAccess } from './conversation-access.js';
 
 export const watchConversationTool: StreamingTool = {
   name: 'watch_conversation',
@@ -20,6 +21,7 @@ export const watchConversationTool: StreamingTool = {
     if (!conversationId) {
       throw new Error('conversationId is required');
     }
+    await assertConversationAccess(context, conversationId);
 
     const queue = new AsyncQueue<StreamChunk>();
     const unsubs = [

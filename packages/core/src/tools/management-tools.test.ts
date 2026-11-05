@@ -965,6 +965,58 @@ describe('management tools', () => {
     expect(result.status).toBe('error');
   });
 
+  it('create_agent rejects a tools map from a non-operator', async () => {
+    // Regression for the escalation path: create_agent accepted an arbitrary
+    // tools map, so a non-operator could grant save_mcp_sources.
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'non-op',
+      name: 'Non Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'create_agent',
+      {
+        id: 'agent-escalated',
+        name: 'Escalated',
+        systemPrompt: 's',
+        model: { model: 'm' },
+        tools: { save_mcp_sources: 'auto' },
+      },
+      deps,
+      'non-op',
+    );
+    expect((result as { status: string }).status).toBe('error');
+    expect((result as { error: string }).error).toContain('operator');
+    expect(deps.collective.get('agent-escalated')).toBeUndefined();
+  });
+
+  it('create_agent lets a non-operator create an agent without tools', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'non-op',
+      name: 'Non Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'create_agent',
+      {
+        id: 'agent-plain',
+        name: 'Plain',
+        systemPrompt: 's',
+        model: { model: 'm' },
+      },
+      deps,
+      'non-op',
+    );
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('agent-plain')?.tools).toEqual({});
+  });
+
   it('set_credential hashes and stores a participant secret', async () => {
     const { context } = await makeContext();
     const credentialStore = new FileCredentialStore(new MemoryStorage());
@@ -1550,6 +1602,57 @@ describe('modify_agent', () => {
     expect(p.maxIterations).toBe(10);
     expect(p.tools['communicate']).toBe('requires_approval');
     expect(p.tools['list_participants']).toBeUndefined(); // replaced, not merged
+  });
+
+  it('modify_agent rejects tools changes from a non-operator', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'non-op',
+      name: 'Non Op',
+      type: 'user',
+      tools: {},
+      status: 'active',
+    });
+    await deps.collective.add({
+      id: 'mod-target',
+      name: 'Target',
+      type: 'agent',
+      systemPrompt: 's',
+      model: { model: 'm' },
+      tools: { communicate: 'auto' },
+      maxIterations: 20,
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'modify_agent',
+      { id: 'mod-target', tools: { save_mcp_sources: 'auto' } },
+      deps,
+      'non-op',
+    );
+    expect((result as { status: string }).status).toBe('error');
+    expect((result as { error: string }).error).toContain('operator');
+    expect(deps.collective.get('mod-target')?.tools).toEqual({ communicate: 'auto' });
+  });
+
+  it('modify_agent lets an operator replace tools', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'mod-op-target',
+      name: 'Target',
+      type: 'agent',
+      systemPrompt: 's',
+      model: { model: 'm' },
+      tools: { communicate: 'auto' },
+      maxIterations: 20,
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'modify_agent',
+      { id: 'mod-op-target', tools: { save_mcp_sources: 'auto' } },
+      deps,
+    );
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('mod-op-target')?.tools).toEqual({ save_mcp_sources: 'auto' });
   });
 
   it('updates name in Collective', async () => {

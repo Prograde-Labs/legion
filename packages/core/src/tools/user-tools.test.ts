@@ -28,15 +28,40 @@ async function makeContext(
 
 const [createUserTool, modifyUserTool] = userTools;
 
+/** Boot-equivalent subscription tools every new user must get to be live. */
+const SUBSCRIPTION_TOOLS = {
+  list_pending_approvals: 'auto',
+  cancel_stream: 'auto',
+  watch_activity: 'auto',
+  watch_conversation: 'auto',
+  watch_conversations: 'auto',
+};
+
 describe('create_user', () => {
-  it('creates a user participant with defaults', async () => {
+  it('creates a user participant with default live subscription tools', async () => {
     const { context, collective } = await makeContext();
     const result = await createUserTool.execute({ id: 'alice', name: 'Alice' }, context);
     expect(result.status).toBe('success');
     const user = collective.get('alice') as UserConfig | undefined;
     expect(user?.type).toBe('user');
     expect(user?.status).toBe('active');
-    expect(user?.tools).toEqual({});
+    // Users created after boot must get the same read/subscription grant that
+    // ensureBootstrapRuntimeToolPolicies applies, or their UI is dead until a
+    // restart.
+    expect(user?.tools).toEqual(SUBSCRIPTION_TOOLS);
+  });
+
+  it('merges subscription tools with explicitly supplied tool policies', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createUserTool.execute(
+      { id: 'carol', name: 'Carol', tools: { communicate: 'auto' } },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect((collective.get('carol') as UserConfig).tools).toEqual({
+      ...SUBSCRIPTION_TOOLS,
+      communicate: 'auto',
+    });
   });
 
   it('rejects a duplicate id', async () => {
@@ -56,7 +81,7 @@ describe('create_user', () => {
     expect(result.status).toBe('success');
     const user = collective.get('bob') as UserConfig;
     expect(user.operator).toBe(true);
-    expect(user.tools).toEqual({ list_participants: 'auto' });
+    expect(user.tools).toEqual({ ...SUBSCRIPTION_TOOLS, list_participants: 'auto' });
   });
 
   it('refuses to grant operator unless the caller is an operator', async () => {
@@ -79,6 +104,7 @@ describe('create_user', () => {
     const result = await createUserTool.execute({ id: 'u2', name: 'U2' }, context);
     expect(result.status).toBe('success');
     expect((collective.get('u2') as UserConfig).operator).toBeUndefined();
+    expect((collective.get('u2') as UserConfig).tools).toEqual(SUBSCRIPTION_TOOLS);
   });
 
   it('refuses an explicit operator flag from a non-operator', async () => {
@@ -104,7 +130,7 @@ describe('create_user', () => {
     const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
     const result = await createUserTool.execute({ id: 'u2', name: 'U2' }, context);
     expect(result.status).toBe('success');
-    expect((collective.get('u2') as UserConfig).tools).toEqual({});
+    expect((collective.get('u2') as UserConfig).tools).toEqual(SUBSCRIPTION_TOOLS);
   });
 });
 
@@ -140,7 +166,10 @@ describe('modify_user', () => {
       context,
     );
     await modifyUserTool.execute({ id: 'alice', name: 'Alice B' }, context);
-    expect((collective.get('alice') as UserConfig).tools).toEqual({ communicate: 'auto' });
+    expect((collective.get('alice') as UserConfig).tools).toEqual({
+      ...SUBSCRIPTION_TOOLS,
+      communicate: 'auto',
+    });
   });
 
   it('rejects non-user participants', async () => {
@@ -213,8 +242,8 @@ describe('modify_user', () => {
     );
     expect(result.status).toBe('error');
     expect(result.error).toContain('tool polic');
-    // The pre-existing (empty) policy map is untouched.
-    expect((collective.get('u1') as UserConfig).tools).toEqual({});
+    // The pre-existing policy map is untouched.
+    expect((collective.get('u1') as UserConfig).tools).toEqual(SUBSCRIPTION_TOOLS);
   });
 
   it('lets an operator replace tools through modify_user', async () => {

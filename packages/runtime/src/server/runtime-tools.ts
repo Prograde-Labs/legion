@@ -246,7 +246,15 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         },
         required: ['servers'],
       },
-      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+      execute: async (rawArgs: unknown, context): Promise<ToolResult> => {
+        // MCP server declarations can spawn arbitrary commands as the Legion
+        // user on next boot, so saving them is operator-only.
+        if (context.participant.operator !== true) {
+          return {
+            status: 'error',
+            error: 'Only an operator can change MCP sources',
+          };
+        }
         try {
           const { servers } = rawArgs as { servers: unknown };
           if (!Array.isArray(servers)) throw new Error('servers must be an array');

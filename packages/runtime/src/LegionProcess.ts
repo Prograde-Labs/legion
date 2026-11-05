@@ -40,6 +40,7 @@ import {
   approvalResponseTool,
   managementTools,
   userTools,
+  USER_SUBSCRIPTION_TOOL_NAMES,
   setApprovalAuthorityTool,
   fileTools,
   processTools,
@@ -487,16 +488,11 @@ const OLD_RUNTIME_TOOL_NAMES = [
   'set_credential_with_meta',
 ] as const;
 
-// Read/subscription tools every user participant needs for the web UI to be
-// live: approval events, conversation-list updates, per-conversation messages,
-// and the authoritative pending-approval list (already scoped server-side).
-// None of these can mutate tool policies, credentials, or provider/MCP config.
-const USER_SUBSCRIPTION_TOOL_NAMES = [
-  'list_pending_approvals',
-  'watch_activity',
-  'watch_conversation',
-  'watch_conversations',
-] as const;
+// USER_SUBSCRIPTION_TOOL_NAMES lives in core (user-tools) so create_user and the
+// boot grant cannot drift: approval events, conversation-list updates,
+// per-conversation messages, stream cancel, and the authoritative
+// pending-approval list (already scoped server-side). None of these can mutate
+// tool policies, credentials, or provider/MCP config.
 
 export async function ensureBootstrapRuntimeToolPolicies(collective: Collective): Promise<void> {
   const operator = collective.get(BOOTSTRAP_OPERATOR_ID);
