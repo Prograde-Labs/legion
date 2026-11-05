@@ -3,24 +3,28 @@
  * active stream. Never exposed to ToolRegistry callers or tool authors.
  */
 export class StreamRegistry {
-  private streams = new Map<string, { connectionId: string; abort: AbortController }>();
+  private streams = new Map<
+    string,
+    { connectionId: string; participantId: string; abort: AbortController }
+  >();
 
   /**
    * Register a new stream. Returns an AbortSignal the tool generator can
    * poll or pass to AsyncQueue.next() to detect cancellation.
    */
-  register(streamId: string, connectionId: string): AbortSignal {
+  register(streamId: string, connectionId: string, participantId: string): AbortSignal {
     const controller = new AbortController();
-    this.streams.set(streamId, { connectionId, abort: controller });
+    this.streams.set(streamId, { connectionId, participantId, abort: controller });
     return controller.signal;
   }
 
   /**
-   * Cancel a specific stream. Returns false if not found (already done or unknown).
+   * Cancel a specific stream if the participant owns it. Returns false if the
+   * stream is unknown or belongs to another participant.
    */
-  cancel(streamId: string): boolean {
+  cancelForParticipant(streamId: string, participantId: string): boolean {
     const entry = this.streams.get(streamId);
-    if (!entry) return false;
+    if (!entry || entry.participantId !== participantId) return false;
     entry.abort.abort();
     this.streams.delete(streamId);
     return true;

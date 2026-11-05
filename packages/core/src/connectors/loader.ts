@@ -77,12 +77,15 @@ export async function loadExternalConnectors(
     for (const f of failures) console.error(`[connector-loader] skipped '${f.name}': ${f.reason}`);
   }
   // Duplicate connector names: last-wins (ConnectorRegistry.register would otherwise throw).
+  // Stop the connector that loses the race so it does not keep polling.
   const byName = new Map<string, LoadedConnector>();
   for (const entry of loaded) {
-    if (byName.has(entry.connector.name)) {
+    const previous = byName.get(entry.connector.name);
+    if (previous) {
       console.warn(
         `[connector-loader] duplicate connector name '${entry.connector.name}' — last wins`,
       );
+      await previous.connector.stop().catch(() => undefined);
     }
     byName.set(entry.connector.name, entry);
   }

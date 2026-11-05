@@ -184,6 +184,58 @@ describe('loadExternalConnectors', () => {
     expect(loaded).toHaveLength(1);
   });
 
+  it('stops a connector that loses the duplicate-name race', async () => {
+    const ws = tmpWorkspace();
+    const fileA = writeModule(
+      ws,
+      'dup-a',
+      `
+      const stopped = [];
+      export function connector() {
+        return { name: 'dup', start: async () => {}, deliver: async () => {}, stop: async () => { stopped.push('a'); } };
+      }
+      export function stoppedNames() { return stopped; }
+    `,
+    );
+    const fileB = writeModule(
+      ws,
+      'dup-b',
+      `
+      const stopped = [];
+      export function connector() {
+        return { name: 'dup', start: async () => {}, deliver: async () => {}, stop: async () => { stopped.push('b'); } };
+      }
+      export function stoppedNames() { return stopped; }
+    `,
+    );
+    const { loaded } = await loadExternalConnectors(
+      [
+        { name: 'dup', module: fileA },
+        { name: 'dup', module: fileB },
+      ],
+      ws,
+      {
+        collective: {
+          list: () => [],
+          get: () => undefined,
+          findByIdentity: () => undefined,
+          getOrThrow: () => undefined,
+        },
+      },
+      stubContext,
+    );
+    expect(loaded).toHaveLength(1);
+    const modA = (await import(pathToFileURL(fileA).href)) as {
+      stoppedNames: () => string[];
+    };
+    const modB = (await import(pathToFileURL(fileB).href)) as {
+      stoppedNames: () => string[];
+    };
+    // Last-wins: the first connector is dropped and must be stopped.
+    expect(modA.stoppedNames()).toEqual(['a']);
+    expect(modB.stoppedNames()).toEqual([]);
+  });
+
   it('duplicate connector names: last-wins with a warning', async () => {
     const ws = tmpWorkspace();
     const fileA = writeModule(

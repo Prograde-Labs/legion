@@ -103,8 +103,12 @@ export class WebConnector implements Connector {
           root: webDistPath,
           wildcard: false,
         });
-        // SPA client-side routing fallback
-        app.setNotFoundHandler((_req, reply) => {
+        // SPA client-side routing fallback; unknown API routes must stay JSON 404s.
+        app.setNotFoundHandler((req, reply) => {
+          if (req.url.startsWith('/api/')) {
+            reply.status(404).send({ error: 'Not found' });
+            return;
+          }
           void reply.sendFile('index.html');
         });
       }
@@ -198,6 +202,7 @@ export class WebConnector implements Connector {
   private handleWebSocket(socket: WebSocket, ctx: ConnectorContext): void {
     let participantId: string | null = null;
     let connectionId: string | null = null;
+    let authStarted = false;
 
     const authTimer = setTimeout(() => {
       if (!participantId) socket.close(4401, 'Authentication timeout');
@@ -217,6 +222,9 @@ export class WebConnector implements Connector {
       }
 
       if (msg.type === 'auth' && !participantId) {
+        // Ignore overlapping auth frames; only one verification may be in flight.
+        if (authStarted) return;
+        authStarted = true;
         const token = msg.token;
         if (!token) {
           socket.close(4401, 'No token provided');

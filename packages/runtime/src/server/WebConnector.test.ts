@@ -1,6 +1,10 @@
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebConnector } from './WebConnector.js';
+import { signToken } from './auth.js';
 import type { ConnectorContext } from '@legion-collective/core';
 import type { ToolResult } from '@legion-collective/core';
 import { MemoryStorage } from '@legion-collective/core';
@@ -52,7 +56,7 @@ function makeConnectorContext(
   };
 }
 
-async function makeConnector(opts: { toolResult?: ToolResult } = {}) {
+async function makeConnector(opts: { toolResult?: ToolResult; webDistPath?: string } = {}) {
   const storage = new MemoryStorage();
   const collective = await makeCollective();
   const credentials = makeCredentials(storage);
@@ -64,6 +68,7 @@ async function makeConnector(opts: { toolResult?: ToolResult } = {}) {
     credentials,
     eventBus,
     serverConfig: { port: 0 },
+    webDistPath: opts.webDistPath,
   });
 
   const ctx = makeConnectorContext(opts.toolResult);
@@ -345,6 +350,68 @@ describe('WebConnector: POST /api/auth/logout', () => {
     const { connector } = await makeConnector();
     const res = await inject(connector, { method: 'POST', url: '/api/auth/logout' });
     expect(res.statusCode).toBe(200);
+    await connector.stop();
+  });
+});
+
+describe('WebConnector: SPA fallback', () => {
+  it('returns JSON 404 for unknown /api routes and serves index.html otherwise', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
+    writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
+    try {
+      const { connector } = await makeConnector({ webDistPath: dir });
+
+      const apiRes = await inject(connector, { method: 'GET', url: '/api/does-not-exist' });
+      expect(apiRes.statusCode).toBe(404);
+      expect(JSON.parse(apiRes.body)).toEqual({ error: 'Not found' });
+
+      const spaRes = await inject(connector, { method: 'GET', url: '/chat/123' });
+      expect(spaRes.statusCode).toBe(200);
+      expect(spaRes.body).toContain('spa-shell');
+
+      await connector.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('WebConnector: WebSocket auth', () => {
+  it('ignores a second auth frame while the first is still pending', async () => {
+    const storage = new MemoryStorage();
+    const collective = await makeCollective();
+    const credentials = makeCredentials(storage);
+    const connector = new WebConnector({
+      collective,
+      credentials,
+      eventBus: new EventBus(),
+      serverConfig: { port: 0 },
+    });
+    const ctx = makeConnectorContext();
+    const secret = (connector as any).jwtSecret as Uint8Array;
+    const { token } = await signToken('op-1', secret);
+
+    const handlers: Record<string, (arg?: unknown) => void> = {};
+    const sent: string[] = [];
+    const socket = {
+      readyState: 1,
+      send: (data: string) => sent.push(data),
+      close: vi.fn(),
+      on: (event: string, cb: (arg?: unknown) => void) => {
+        handlers[event] = cb;
+      },
+    };
+    (connector as any).handleWebSocket(socket, ctx);
+
+    handlers.message(Buffer.from(JSON.stringify({ type: 'auth', token })));
+    handlers.message(Buffer.from(JSON.stringify({ type: 'auth', token })));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const frames = sent.map((raw) => JSON.parse(raw) as { type: string });
+    expect(frames.filter((frame) => frame.type === 'connected')).toHaveLength(1);
+    expect(ctx.registry.setActive).toHaveBeenCalledTimes(1);
+
+    handlers.close();
     await connector.stop();
   });
 });

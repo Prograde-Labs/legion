@@ -49,6 +49,12 @@ describe('FileSecretStore', () => {
     await expect(store.getSecret('a', 'k')).resolves.toBe('new');
   });
 
+  it('does not lose concurrent writes', async () => {
+    const store = makeStore();
+    await Promise.all([store.setSecret('p1', 'a', 'one'), store.setSecret('p1', 'b', 'two')]);
+    expect(await store.listKeys('p1')).toEqual(expect.arrayContaining(['a', 'b']));
+  });
+
   it('refuses a key material shorter than 32 chars', () => {
     const dir = mkdtempSync(join(tmpdir(), 'legion-secrets-'));
     expect(() => new FileSecretStore(new FileStorage(dir), 'short')).toThrow(/32/);

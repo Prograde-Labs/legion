@@ -46,12 +46,6 @@ export class FileCredentialStore implements CredentialStore {
     }
   }
 
-  async set(key: string, value: string): Promise<void> {
-    const file = await this.readAll();
-    file[key] = { scheme: 'raw', hash: value, updatedAt: nowIso() };
-    await this.writeAll(file);
-  }
-
   async list(): Promise<string[]> {
     const file = await this.readAll();
     return Object.keys(file);

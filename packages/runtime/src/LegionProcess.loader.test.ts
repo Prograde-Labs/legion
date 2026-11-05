@@ -67,14 +67,16 @@ const BROKEN = 'export syntax !!!';
 // Fixture that self-reports the name of a connector already registered in the
 // ConnectorRegistry (e.g. the builtin 'web') — exercises the dup-name guard.
 const NAME_COLLIDER = `
+let stopped = 0;
 export function connector() {
   return {
     name: 'web',
     start: async () => {},
     deliver: async () => {},
-    stop: async () => {},
+    stop: async () => { stopped += 1; },
   };
 }
+export function stopCount() { return stopped; }
 export default connector;
 `;
 
@@ -185,5 +187,11 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
       expect.stringContaining("external connector 'web' could not register"),
     );
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('skipped'));
+
+    // A connector that loses registration must be stopped so it stops polling.
+    const collider = (await import(pathToFileURL(colliderFile).href)) as {
+      stopCount: () => number;
+    };
+    expect(collider.stopCount()).toBe(1);
   });
 });

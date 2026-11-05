@@ -45,7 +45,7 @@ export async function registerExecuteRoute(
     if (req.query.stream === 'false') {
       const { result, conversationId: convId } = await ctx.callTool(participantId, toolName, args, {
         conversationId: conversationId ?? '',
-        cancelStream: (sid: string) => streamRegistry.cancel(sid),
+        cancelStream: (sid: string) => streamRegistry.cancelForParticipant(sid, participantId),
       });
       return reply.send({ result, conversationId: convId });
     }
@@ -54,8 +54,8 @@ export async function registerExecuteRoute(
     const connectionId = req.headers['x-stream-connection'] as string | undefined;
     if (connectionId) {
       const streamId = randomUUID();
-      const signal = streamRegistry.register(streamId, connectionId);
-      const cancelStream = (sid: string) => streamRegistry.cancel(sid);
+      const signal = streamRegistry.register(streamId, connectionId, participantId);
+      const cancelStream = (sid: string) => streamRegistry.cancelForParticipant(sid, participantId);
 
       let gen: AsyncGenerator<StreamChunk>;
       let convId: string;
@@ -66,7 +66,7 @@ export async function registerExecuteRoute(
           cancelStream,
         }));
       } catch (err) {
-        streamRegistry.cancel(streamId);
+        streamRegistry.cancelForParticipant(streamId, participantId);
         return reply.status(500).send({ error: String(err) });
       }
 
@@ -86,7 +86,7 @@ export async function registerExecuteRoute(
             });
             if (!sent) {
               // Socket gone — abort the generator.
-              streamRegistry.cancel(streamId);
+              streamRegistry.cancelForParticipant(streamId, participantId);
               break;
             }
             if (chunk.type === 'stream:done' || chunk.type === 'stream:error') break;
@@ -99,7 +99,7 @@ export async function registerExecuteRoute(
             data: { type: 'stream:error', error: String(err) },
           });
         } finally {
-          streamRegistry.cancel(streamId); // no-op if already done
+          streamRegistry.cancelForParticipant(streamId, participantId); // no-op if already done
         }
       })();
 

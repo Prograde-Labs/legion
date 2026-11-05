@@ -214,7 +214,7 @@ No login rate limiting (`auth.ts:22-46`); JWT in localStorage (`useAuth.ts:10`);
 
 ### [ ] M29. WebConnector minor issues
 
-SPA fallback returns `index.html` for unknown `/api/*` (`WebConnector.ts:107-109`); a second `auth` frame while the first is pending can register twice (`219-245`); no WS heartbeat.
+SPA fallback returns `index.html` for unknown `/api/*` (`WebConnector.ts:107-109`); a second `auth` frame while the first is pending can register twice (`219-245`); no WS heartbeat (Task 10 fixed the first two and deliberately omitted the heartbeat to avoid per-socket timer leaks in unit tests — follow-up).
 
 ### [ ] M30. `execute` cancelStream has no ownership check
 

@@ -71,18 +71,22 @@ export class FileSecretStore implements SecretStore {
   }
 
   async setSecret(participantId: string, key: string, secret: string): Promise<void> {
-    const file = await this.readAll();
-    file[participantId] = { ...file[participantId], [key]: this.encrypt(secret) };
-    await this.writeAll(file);
+    await this.storage.withLock(SECRETS_FILE, async () => {
+      const file = await this.readAll();
+      file[participantId] = { ...file[participantId], [key]: this.encrypt(secret) };
+      await this.writeAll(file);
+    });
   }
 
   async removeSecret(participantId: string, key: string): Promise<void> {
-    const file = await this.readAll();
-    if (file[participantId]) {
-      delete file[participantId][key];
-      if (Object.keys(file[participantId]).length === 0) delete file[participantId];
-    }
-    await this.writeAll(file);
+    await this.storage.withLock(SECRETS_FILE, async () => {
+      const file = await this.readAll();
+      if (file[participantId]) {
+        delete file[participantId][key];
+        if (Object.keys(file[participantId]).length === 0) delete file[participantId];
+      }
+      await this.writeAll(file);
+    });
   }
 
   async listKeys(participantId: string): Promise<string[]> {

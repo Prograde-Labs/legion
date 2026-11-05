@@ -30,6 +30,10 @@ describe('McpSourcesEditor', () => {
     mockCan(() => 'auto');
     localStorage.clear();
     vi.unstubAllGlobals();
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    );
     localStorage.setItem('legion-token', 'tok');
     localStorage.setItem('legion-expires-at', String(Math.floor(Date.now() / 1000) + 3600));
   });
@@ -73,6 +77,23 @@ describe('McpSourcesEditor', () => {
       expect(body.args.servers.length).toBe(2);
       expect(body.args.servers[1]).toEqual({ name: 'websearch', url: 'http://localhost:3000/mcp' });
     });
+  });
+
+  it('requires confirmation before saving commands', async () => {
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    );
+    const fetchMock = stubFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(McpSourcesEditor);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="mcp-card"]').length).toBe(1));
+    await wrapper.find('button[data-test="mcp-save"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(window.confirm).toHaveBeenCalledWith('Save MCP servers that run shell commands?');
+    expect(
+      fetchMock.mock.calls.some((c) => JSON.parse(String(c[1]?.body)).tool === 'save_mcp_sources'),
+    ).toBe(false);
   });
 
   it('client-side duplicate name check blocks save', async () => {

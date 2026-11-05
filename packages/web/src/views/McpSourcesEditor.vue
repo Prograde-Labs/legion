@@ -93,6 +93,12 @@ async function save(): Promise<void> {
     busy.value = false;
     return;
   }
+  if (servers.value.some((server) => server.command !== undefined)) {
+    if (!window.confirm('Save MCP servers that run shell commands?')) {
+      busy.value = false;
+      return;
+    }
+  }
   try {
     const result = await execute<{ saved: number }>('save_mcp_sources', {
       servers: servers.value,
