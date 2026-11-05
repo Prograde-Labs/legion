@@ -430,30 +430,51 @@ export class MessageRouter implements MessageRouterPort {
     return this.sendInner(opts);
   }
 
-  sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+  async *sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
     const controller = new AbortController();
     const signal = opts.context.signal
       ? AbortSignal.any([opts.context.signal, controller.signal])
       : controller.signal;
-    const inner = this.sendStreamWithController({ ...opts, context: { ...opts.context, signal } });
-    return {
-      next: (...args) => inner.next(...args),
-      return: (value) => {
+    let timedOut = false;
+    const timer =
+      opts.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, opts.timeoutMs);
+
+    const inner = this.sendStreamWithController({
+      ...opts,
+      context: { ...opts.context, signal },
+    });
+    let iterations = 0;
+    let completed = false;
+    try {
+      let next = await inner.next();
+      while (!next.done) {
+        if (next.value.type === 'iteration_start') iterations += 1;
+        yield next.value;
+        next = await inner.next();
+      }
+      const recipient = this.collective.get(opts.recipientId);
+      const model = opts.model ?? (recipient?.type === 'agent' ? recipient.model.model : undefined);
+      const meta: MessageRouterResult['meta'] = {
+        ...(model === undefined ? {} : { model }),
+        ...(iterations === 0 ? {} : { iterations }),
+      };
+      const result: MessageRouterResult = { ...next.value, meta };
+      completed = true;
+      if (!timedOut) return result;
+      yield { type: 'call_timeout', timeoutMs: opts.timeoutMs! };
+      return { ...result, status: 'timeout', partial: true };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (!completed) {
         controller.abort();
-        return inner.return(value as never);
-      },
-      throw: (error) => {
-        controller.abort();
-        return inner.throw(error);
-      },
-      [Symbol.asyncIterator]() {
-        return this;
-      },
-      [Symbol.asyncDispose](): Promise<void> {
-        controller.abort();
-        return inner.return(undefined as never).then(() => undefined);
-      },
-    };
+        void inner.return(undefined as never).catch(() => undefined);
+      }
+    }
   }
 
   private async *sendStreamWithController(

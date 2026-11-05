@@ -3978,6 +3978,68 @@ describe('MessageRouter.sendStream()', () => {
     expect(conversation?.parentConversationId).toBeUndefined();
     expect(conversation?.parentToolCallId).toBe('context-call');
   });
+
+  it('returns a partial timeout result and emits a call_timeout chunk', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'legion-timeout-'));
+    try {
+      const base = await setup(dir);
+      const registry = new RuntimeRegistry();
+      registry.registerFactory('mock', () => ({
+        async handle() {
+          return { kind: 'response', content: 'unused' } as const;
+        },
+        async *handleStream() {
+          yield { type: 'iteration_start', iteration: 0 } as const;
+          yield { type: 'text_delta', delta: 'partial answer' } as const;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          yield { type: 'text_delta', delta: ' more' } as const;
+          return { kind: 'response', content: 'partial answer more' } as const;
+        },
+      }));
+      const router = new MessageRouter(base.store, registry, base.collective, base.eventBus);
+
+      const stream = router.sendStream({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'hi',
+        timeoutMs: 10,
+        context: base.baseContext,
+      });
+      const chunks: LLMChunk[] = [];
+      let next = await stream.next();
+      while (!next.done) {
+        chunks.push(next.value);
+        next = await stream.next();
+      }
+
+      expect(next.value).toMatchObject({
+        status: 'timeout',
+        partial: true,
+        response: 'partial answer',
+      });
+      expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 10 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('attaches run metadata to stream results', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'legion-meta-'));
+    try {
+      const base = await setupReasoningRouter(dir);
+      const stream = base.router.sendStream({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'hi',
+        context: base.baseContext,
+      });
+      let next = await stream.next();
+      while (!next.done) next = await stream.next();
+      expect(next.value.meta).toMatchObject({ iterations: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('MessageRouter: reasoning persistence', () => {
