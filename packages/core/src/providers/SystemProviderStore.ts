@@ -5,10 +5,20 @@ import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
 import type { Provider } from './Provider.js';
 
+/** Provider names become filenames under providers/; reject separators/traversal. */
+const PROVIDER_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+function assertValidProviderName(name: string): void {
+  if (!PROVIDER_NAME_PATTERN.test(name)) {
+    throw new Error('Invalid provider name');
+  }
+}
+
 export class SystemProviderStore {
   constructor(private storage: Storage) {}
 
   async get(name: string): Promise<Provider | null> {
+    assertValidProviderName(name);
     const config = await this.storage.readJson<ProviderConfig>(`providers/${name}.json`);
     if (!config) return null;
     return this.construct(config);
@@ -24,15 +34,12 @@ export class SystemProviderStore {
   }
 
   async save(config: ProviderConfig): Promise<void> {
-    // Provider names become filenames under providers/; reject separators and
-    // anything that could escape that directory.
-    if (!/^[A-Za-z0-9._-]+$/.test(config.name)) {
-      throw new Error('Invalid provider name');
-    }
+    assertValidProviderName(config.name);
     await this.storage.writeJson(`providers/${config.name}.json`, config);
   }
 
   async delete(name: string): Promise<void> {
+    assertValidProviderName(name);
     await this.storage.delete(`providers/${name}.json`);
   }
 

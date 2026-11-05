@@ -11,12 +11,15 @@ const cancelMock = vi.fn().mockResolvedValue(undefined);
 // Real refs so the composable's watch on procStream.error observes changes.
 const streamMocks = vi.hoisted(() => ({
   error: null as { value: string | null } | null,
+  active: null as { value: boolean } | null,
 }));
 
 vi.mock('./useToolStream.js', async () => {
   const { ref } = await import('vue');
   const error = ref<string | null>(null);
+  const active = ref(false);
   streamMocks.error = error;
+  streamMocks.active = active;
   return {
     useToolStream: (
       _tool: string,
@@ -30,7 +33,7 @@ vi.mock('./useToolStream.js', async () => {
         chunks: { value: [] },
         done: { value: false },
         error,
-        active: { value: false },
+        active,
         cancelling: { value: false },
         conversationId: { value: null },
         result: { value: null },
@@ -84,9 +87,10 @@ function emitChunk(chunk: unknown): void {
 beforeEach(() => {
   vi.clearAllMocks();
   capturedOnChunk = null;
-  // Keep the ref itself (the mock factory runs once per module graph); clear
-  // only its value between tests.
+  // Keep the refs themselves (the mock factory runs once per module graph);
+  // clear only their values between tests.
   if (streamMocks.error) streamMocks.error.value = null;
+  if (streamMocks.active) streamMocks.active.value = false;
   vi.resetModules();
 });
 
@@ -226,6 +230,46 @@ describe('useProcess', () => {
     await nextTick();
 
     expect((w.vm as any).error).toBe('watch stream failed');
+    w.unmount();
+  });
+
+  it('clears a stale stream error when the stream restarts or output resumes', async () => {
+    const { useProcess } = await import('./useProcess.js');
+    executeMock.mockResolvedValueOnce(RUNNING_HANDLE);
+    executeMock.mockResolvedValueOnce({ data: btoa(''), totalBytes: 0, from: 0 });
+
+    const TestComponent = defineComponent({
+      setup() {
+        return useProcess('proc-1');
+      },
+      template: '<div/>',
+    });
+    const w = mount(TestComponent);
+    await new Promise((r) => setTimeout(r, 0));
+
+    streamMocks.error!.value = 'watch stream failed';
+    await nextTick();
+    expect((w.vm as any).error).toBe('watch stream failed');
+
+    // Reconnect: the stream becomes active again → stale error is cleared.
+    streamMocks.active!.value = true;
+    await nextTick();
+    expect((w.vm as any).error).toBeNull();
+
+    streamMocks.error!.value = 'watch stream failed again';
+    await nextTick();
+    expect((w.vm as any).error).toBe('watch stream failed again');
+
+    // First output chunk after an error clears it too.
+    emitChunk({
+      type: 'process:output',
+      processId: 'proc-1',
+      stream: 'stdout',
+      data: btoa('resumed\n'),
+    });
+    await nextTick();
+    expect((w.vm as any).error).toBeNull();
+    expect((w.vm as any).chunks).toContain('resumed\n');
     w.unmount();
   });
 

@@ -48,22 +48,22 @@ function stubViewport(narrow: boolean): void {
 }
 
 /** Fetch responder covering everything the participants view and its editors call. */
-function stubParticipantApi(): ReturnType<typeof vi.fn> {
-  return stubFetch((tool) => {
-    if (tool === 'list_tools')
-      return { tools: ['list_participants'], callerPolicy: { list_participants: 'auto' } };
-    if (tool === 'list_participants') return [ASSISTANT];
-    if (tool === 'get_participant') return ASSISTANT;
-    if (tool === 'list_models') return [];
-    if (tool === 'list_middleware') return { definitions: [] };
-    return {};
-  });
+function participantData(tool: string): unknown {
+  if (tool === 'list_tools')
+    return { tools: ['list_participants'], callerPolicy: { list_participants: 'auto' } };
+  if (tool === 'list_participants') return [ASSISTANT];
+  if (tool === 'get_participant') return ASSISTANT;
+  if (tool === 'list_models') return [];
+  if (tool === 'list_middleware') return { definitions: [] };
+  return {};
 }
 
 interface MountOptions {
   narrow: boolean;
   /** Seed the participants store directly (default); false exercises the network path. */
   seed?: boolean;
+  /** Override the per-tool response payloads for empty/access-denied cases. */
+  responder?: (tool: string) => unknown;
 }
 
 // Instances stay alive across tests unless unmounted; their watchers observe
@@ -71,9 +71,13 @@ interface MountOptions {
 // every prior instance's watcher. Unmount everything between tests.
 const mountedWrappers: ReturnType<typeof mount>[] = [];
 
-async function mountParticipantsView({ narrow, seed = true }: MountOptions) {
+async function mountParticipantsView({
+  narrow,
+  seed = true,
+  responder = participantData,
+}: MountOptions) {
   stubViewport(narrow);
-  const fetchMock = stubParticipantApi();
+  const fetchMock = stubFetch(responder);
   if (seed) useParticipants().__setParticipantsForTests([ASSISTANT] as never);
   const wrapper = mount(ParticipantsView);
   mountedWrappers.push(wrapper);
@@ -144,11 +148,68 @@ describe('ParticipantsView post-refresh reload', () => {
   });
 });
 
-describe('ParticipantsView empty state', () => {
-  it('shows an empty message when the roster is loaded and empty', async () => {
+describe('ParticipantsView empty and access states', () => {
+  it('does not flash an empty message before access resolves', async () => {
     const { wrapper } = await mountParticipantsView({ narrow: false, seed: false });
-    // Tool access is hidden, so no fetch runs; loading is false and the roster empty.
+    expect(wrapper.find('[data-test="participants-empty"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="participants-no-access"]').exists()).toBe(false);
+  });
+
+  it('shows the empty message only after an empty load completes', async () => {
+    const { wrapper } = await mountParticipantsView({
+      narrow: false,
+      seed: false,
+      responder: (tool) => {
+        if (tool === 'list_tools')
+          return { tools: ['list_participants'], callerPolicy: { list_participants: 'auto' } };
+        if (tool === 'list_participants') return [];
+        return {};
+      },
+    });
+    await useToolAccess().refresh();
+    await flushPromises();
     expect(wrapper.find('[data-test="participants-empty"]').exists()).toBe(true);
+  });
+
+  it('shows an access-specific message when list_participants is hidden', async () => {
+    const { wrapper, fetchMock } = await mountParticipantsView({
+      narrow: false,
+      seed: false,
+      responder: (tool) => {
+        if (tool === 'list_tools') return { tools: [], callerPolicy: {} };
+        return {};
+      },
+    });
+    await useToolAccess().refresh();
+    await flushPromises();
+    expect(wrapper.find('[data-test="participants-no-access"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="participants-empty"]').exists()).toBe(false);
+    const listCalls = fetchMock.mock.calls.filter((call) => {
+      const body = JSON.parse((call[1] as { body?: string } | undefined)?.body ?? '{}') as {
+        tool?: string;
+      };
+      return body.tool === 'list_participants';
+    });
+    expect(listCalls).toHaveLength(0);
+  });
+
+  it('keeps the Map tab rendering when the roster is empty', async () => {
+    const { wrapper } = await mountParticipantsView({
+      narrow: false,
+      seed: false,
+      responder: (tool) => {
+        if (tool === 'list_tools')
+          return { tools: ['list_participants'], callerPolicy: { list_participants: 'auto' } };
+        if (tool === 'list_participants') return [];
+        if (tool === 'list_mcp_sources') return [{ name: 'filesystem', command: 'npx' }];
+        return {};
+      },
+    });
+    await useToolAccess().refresh();
+    await flushPromises();
+    await wrapper.find('[data-test="view-map"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-test="topo-svg"]').exists()).toBe(true));
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="topo-node"]')).toHaveLength(1));
   });
 
   it('does not show the empty message while the roster is populated', async () => {

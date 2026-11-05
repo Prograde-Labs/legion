@@ -132,6 +132,16 @@ describe('SystemProviderStore', () => {
     );
   });
 
+  it('rejects traversal names on get and delete without touching storage', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('config.json', { secret: true });
+    const store = new SystemProviderStore(storage);
+
+    await expect(store.get('../config')).rejects.toThrow('Invalid provider name');
+    await expect(store.delete('../config')).rejects.toThrow('Invalid provider name');
+    expect(await storage.readJson('config.json')).toEqual({ secret: true });
+  });
+
   it('delete() removes provider so get() returns null', async () => {
     const store = new SystemProviderStore(new MemoryStorage());
     await store.save(providerConfig({ name: 'deleted' }));

@@ -33,5 +33,5 @@ export function useToolAccess() {
     access.value = {};
     loaded.value = false;
   }
-  return { can, refresh, access, reset, __resetForTests };
+  return { can, refresh, access, loaded, reset, __resetForTests };
 }

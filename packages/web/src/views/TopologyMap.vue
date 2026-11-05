@@ -177,7 +177,7 @@ function activateNode(node: TopoNode): void {
       data-test="topo-svg"
       :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"
       class="h-full w-full"
-      role="img"
+      role="group"
       aria-label="Collective topology"
     >
       <line
@@ -198,6 +198,7 @@ function activateNode(node: TopoNode): void {
         data-test="topo-node"
         role="button"
         tabindex="0"
+        class="outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         @click="activateNode(node)"
         @keydown.enter="activateNode(node)"
         @keydown.space.prevent="activateNode(node)"

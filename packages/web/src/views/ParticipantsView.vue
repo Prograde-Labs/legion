@@ -14,6 +14,17 @@ const { selectedId, select } = useParticipantSelection();
 const { isNarrow } = useNarrowViewport();
 
 const toolAccess = useToolAccess();
+const accessLoaded = computed(() => toolAccess.loaded.value);
+const noAccess = computed(
+  () => accessLoaded.value && toolAccess.can('list_participants') === 'hidden',
+);
+/** Set only when this view initiates a load, so the empty message never flashes. */
+const loadAttempted = ref(false);
+
+function requestLoad(): void {
+  loadAttempted.value = true;
+  void load().catch(() => {});
+}
 
 // Initial population of the shared participants store: the list, recipient
 // picker, and participant editors all read from it, but nothing else fetches.
@@ -26,14 +37,15 @@ const toolAccess = useToolAccess();
 // re-triggers load() once the policy lands; on normal in-app navigation the
 // map is already populated, so the watcher stays quiet (no double-load).
 onMounted(() => {
+  if (!accessLoaded.value) return;
   if (toolAccess.can('list_participants') === 'hidden') return;
-  void load().catch(() => {});
+  requestLoad();
 });
-watch(toolAccess.access, (access) => {
-  if (Object.keys(access).length === 0) return;
+watch(toolAccess.access, () => {
+  if (!accessLoaded.value) return;
   if (toolAccess.can('list_participants') === 'hidden') return;
-  if (participants.value.length > 0) return; // first load already ran
-  void load().catch(() => {});
+  if (loadAttempted.value) return; // first load already ran
+  requestLoad();
 });
 
 const viewMode = ref<'list' | 'map'>('list');
@@ -109,15 +121,22 @@ function onRetired(): void {
           Map
         </button>
       </div>
-      <div
-        v-if="!loading && participants.length === 0"
-        data-test="participants-empty"
-        class="p-4 text-sm text-faint"
-      >
-        No participants yet.
-      </div>
-      <TopologyMap v-else-if="viewMode === 'map'" class="min-h-0 flex-1" @select="select" />
-      <ParticipantsList v-else class="min-h-0 flex-1" @select="select" />
+      <template v-if="viewMode === 'map'">
+        <TopologyMap class="min-h-0 flex-1" @select="select" />
+      </template>
+      <template v-else>
+        <div v-if="noAccess" data-test="participants-no-access" class="p-4 text-sm text-faint">
+          You do not have access to participants.
+        </div>
+        <div
+          v-else-if="!loading && loadAttempted && participants.length === 0"
+          data-test="participants-empty"
+          class="p-4 text-sm text-faint"
+        >
+          No participants yet.
+        </div>
+        <ParticipantsList v-else class="min-h-0 flex-1" @select="select" />
+      </template>
     </div>
     <div
       v-if="!isNarrow || mobileDetail"

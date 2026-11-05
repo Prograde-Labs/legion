@@ -73,9 +73,10 @@ export class WebConnector implements Connector {
     // Task 13's cache headers branch slots in here alongside the security headers.
     app.addHook('onSend', async (req, reply, payload) => {
       applySecurityHeaders((name, value) => reply.header(name, value));
-      // Hashed build assets are content-addressed; cache them forever. The SPA
-      // shell and API responses stay uncached so deploys take effect immediately.
-      if (req.url.startsWith('/assets/')) {
+      // Hashed build assets are content-addressed; cache them forever. Only a
+      // real 200 asset response qualifies — the SPA shell and API responses stay
+      // uncached so deploys take effect immediately.
+      if (req.url.startsWith('/assets/') && reply.statusCode === 200) {
         reply.header('Cache-Control', 'public, max-age=31536000, immutable');
       }
       return payload;
@@ -126,11 +127,23 @@ export class WebConnector implements Connector {
           wildcard: false,
         });
         // SPA client-side routing fallback; unknown API routes must stay JSON 404s.
-        // Parse manually: `new URL(req.url, base)` throws on scheme-relative
-        // targets like `//`, turning a malformed request into a 500.
+        // Absolute-form targets arrive verbatim; parse the pathname so proxy
+        // traffic still routes correctly. `new URL` throws on scheme-relative
+        // targets like `//`, so fall back to a manual split.
         app.setNotFoundHandler((req, reply) => {
-          const pathname = req.url.split('?')[0];
+          let pathname: string;
+          try {
+            pathname = new URL(req.url, 'http://localhost').pathname;
+          } catch {
+            pathname = req.url.split('?')[0];
+          }
           if (pathname === '/api' || pathname.startsWith('/api/')) {
+            reply.status(404).send({ error: 'Not found' });
+            return;
+          }
+          // A missing hashed asset is a 404, not the SPA shell — otherwise a
+          // stale asset URL would silently return index.html with asset caching.
+          if (pathname.startsWith('/assets/')) {
             reply.status(404).send({ error: 'Not found' });
             return;
           }

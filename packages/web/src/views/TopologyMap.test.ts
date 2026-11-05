@@ -89,8 +89,11 @@ describe('TopologyMap', () => {
     stubExecute();
     const wrapper = mount(TopologyMap);
     await vi.waitFor(() => wrapper.find('[data-test="topo-node"]').exists());
+    // The SVG is a group so its role=button children stay exposed to AT.
+    expect(wrapper.find('[data-test="topo-svg"]').attributes('role')).toBe('group');
     const node = wrapper.findAll('[data-test="topo-node"]')[0];
     expect(node.attributes('tabindex')).toBe('0');
+    expect(node.attributes('class')).toContain('focus-visible');
 
     await node.trigger('keydown', { key: 'Enter' });
     expect(wrapper.emitted('select')?.[0]).toEqual(['agent-a']);

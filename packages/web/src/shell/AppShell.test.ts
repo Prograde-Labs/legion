@@ -258,4 +258,20 @@ describe('AppShell', () => {
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).not.toContain('Account…');
   });
+
+  it('removes its document listeners on unmount', async () => {
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    await seedAuth();
+    const wrapper = await mountShellAt('/');
+
+    const clickHandler = addSpy.mock.calls.find(([type]) => type === 'click')?.[1];
+    const keydownHandler = addSpy.mock.calls.find(([type]) => type === 'keydown')?.[1];
+    expect(typeof clickHandler).toBe('function');
+    expect(typeof keydownHandler).toBe('function');
+
+    wrapper.unmount();
+    expect(removeSpy).toHaveBeenCalledWith('click', clickHandler);
+    expect(removeSpy).toHaveBeenCalledWith('keydown', keydownHandler);
+  });
 });

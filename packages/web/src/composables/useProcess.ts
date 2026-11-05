@@ -15,6 +15,8 @@ export function useProcess(processId: string) {
 
   const procStream = useToolStream('watch_process', () => ({ processId }), {
     onChunk: (chunk) => {
+      // Output resumed after a stream error: the error is no longer current.
+      error.value = null;
       if (chunk.type === 'process:output') {
         const c = chunk as { data?: string };
         if (c.data) chunks.value.push(atob(c.data));
@@ -43,9 +45,13 @@ export function useProcess(processId: string) {
   );
 
   // The transport reports stream failures on the stream object; surface them
-  // alongside local execute failures so the view can show one error.
+  // alongside local execute failures so the view can show one error. A restart
+  // (active flips true) clears a stale error.
   watch(procStream.error, (value) => {
     if (value) error.value = value;
+  });
+  watch(procStream.active, (active) => {
+    if (active) error.value = null;
   });
 
   onMounted(async () => {

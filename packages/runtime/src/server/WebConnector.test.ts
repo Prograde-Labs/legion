@@ -90,6 +90,30 @@ async function inject(
   return (connector as any).app!.inject(opts);
 }
 
+/**
+ * Send a raw HTTP GET whose request-target is used verbatim. Needed for
+ * absolute-form targets, which light-my-request/inject normalises away.
+ */
+async function rawGet(
+  connector: WebConnector,
+  path: string,
+): Promise<{ statusCode: number; body: string }> {
+  const app = (connector as any).app as ReturnType<typeof Fastify>;
+  const address = app.server.address() as AddressInfo;
+  return new Promise((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port: address.port, path, method: 'GET' }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body }));
+    });
+    req.once('error', reject);
+    req.end();
+  });
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('WebConnector: GET /api/health', () => {
@@ -521,6 +545,12 @@ describe('WebConnector: SPA fallback', () => {
       expect(asset.statusCode).toBe(200);
       expect(asset.headers['cache-control']).toBe('public, max-age=31536000, immutable');
 
+      // A missing asset must not fall through to the SPA shell or inherit the
+      // immutable cache header.
+      const missing = await inject(connector, { method: 'GET', url: '/assets/missing.js' });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.headers['cache-control']).not.toBe('public, max-age=31536000, immutable');
+
       const spa = await inject(connector, { method: 'GET', url: '/chat/123' });
       expect(spa.statusCode).toBe(200);
       // The shell must never be cached as immutable: deploys would go stale.
@@ -535,18 +565,45 @@ describe('WebConnector: SPA fallback', () => {
     }
   });
 
-  it('serves the SPA instead of 500 for malformed request targets', async () => {
+  it('serves the SPA for malformed targets and keeps API 404s', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
     writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
     try {
       const { connector } = await makeConnector({ webDistPath: dir });
 
       // `new URL(req.url, base)` throws on scheme-relative targets; the fallback
-      // must degrade to a 404/SPA response instead of a 500.
+      // must degrade to the SPA rather than a 500.
       for (const url of ['//', '///']) {
         const res = await inject(connector, { method: 'GET', url });
-        expect(res.statusCode).not.toBe(500);
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toContain('spa-shell');
       }
+
+      const apiRes = await inject(connector, { method: 'GET', url: '/api/does-not-exist' });
+      expect(apiRes.statusCode).toBe(404);
+      expect(JSON.parse(apiRes.body)).toEqual({ error: 'Not found' });
+
+      await connector.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('handles absolute-form request targets', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
+    writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
+    try {
+      const { connector } = await makeConnector({ webDistPath: dir });
+
+      // Proxies may forward absolute-form targets; the pathname, not the full
+      // URL, decides between an API 404 and the SPA fallback.
+      const apiRes = await rawGet(connector, 'http://example.com/api/does-not-exist');
+      expect(apiRes.statusCode).toBe(404);
+      expect(JSON.parse(apiRes.body)).toEqual({ error: 'Not found' });
+
+      const spaRes = await rawGet(connector, 'http://example.com/chat/123');
+      expect(spaRes.statusCode).toBe(200);
+      expect(spaRes.body).toContain('spa-shell');
 
       await connector.stop();
     } finally {
