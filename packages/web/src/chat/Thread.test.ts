@@ -486,6 +486,71 @@ describe('Thread', () => {
     );
   });
 
+  it('keys tool calls per iteration so repeated provider indexes do not collide', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      )
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await (wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }).send(
+      'agent-a',
+      'do the thing',
+    );
+
+    // Iteration 1: provider index 0.
+    mocks.streamChunkHandler?.({ type: 'iteration_start', iteration: 0 });
+    mocks.streamChunkHandler?.({
+      type: 'tool_call_start',
+      index: 0,
+      id: 'c1',
+      name: 'search_notes',
+    });
+    mocks.streamChunkHandler?.({
+      type: 'tool_call_args_delta',
+      index: 0,
+      delta: '{"query":"legion"}',
+    });
+
+    // Iteration 2: the provider index restarts at 0 for a different call.
+    mocks.streamChunkHandler?.({ type: 'iteration_start', iteration: 1 });
+    mocks.streamChunkHandler?.({
+      type: 'tool_call_start',
+      index: 0,
+      id: 'c2',
+      name: 'write_file',
+    });
+    mocks.streamChunkHandler?.({
+      type: 'tool_call_args_delta',
+      index: 0,
+      delta: '{"path":"a.md"}',
+    });
+
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="tool-call"]')).toHaveLength(2));
+    const [first, second] = wrapper.findAll('[data-test="tool-call"]');
+    expect(first.text()).toContain('search_notes');
+    expect(first.text()).toContain('"query":"legion"');
+    expect(first.text()).not.toContain('"path"');
+    expect(second.text()).toContain('write_file');
+    expect(second.text()).toContain('"path":"a.md"');
+    expect(second.text()).not.toContain('"query"');
+  });
+
   it('accumulates reasoning deltas into the streaming part', async () => {
     const fetchMock = vi
       .fn()
@@ -529,6 +594,41 @@ describe('Thread', () => {
         .find('[data-reasoning][data-streaming-reasoning]')
         .text(),
     ).toContain('step 1 step 2');
+  });
+
+  it('hides reasoning at standard detail while still streaming text', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    await (
+      wrapper.vm as unknown as {
+        send: (to: string, message: string, detail?: string) => Promise<void>;
+      }
+    ).send('agent-a', 'think then reply', 'standard');
+
+    mocks.streamChunkHandler?.({ type: 'iteration_start' });
+    mocks.streamChunkHandler?.({ type: 'reasoning_delta', delta: 'secret thought' });
+    mocks.streamChunkHandler?.({ type: 'text_delta', delta: 'the answer' });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="streaming-part"]').exists()).toBe(true),
+    );
+    const part = wrapper.get('[data-test="streaming-part"]');
+    expect(part.text()).toContain('the answer');
+    expect(part.text()).not.toContain('secret thought');
+    expect(part.find('[data-reasoning]').exists()).toBe(false);
   });
 
   it('passes the addressed agent as senderId to the streaming reply part', async () => {

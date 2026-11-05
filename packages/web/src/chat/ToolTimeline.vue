@@ -2,6 +2,7 @@
 import type { DetailLevel } from '@legion-collective/types';
 
 interface ToolCallView {
+  key: number;
   index: number;
   name: string;
   args: string;
@@ -22,7 +23,7 @@ function summary(args: string): string {
     data-test="tool-timeline"
     class="flex flex-col gap-1 text-xs text-muted"
   >
-    <div v-for="call in props.calls" :key="call.index" data-test="tool-call">
+    <div v-for="call in props.calls" :key="call.key" data-test="tool-call">
       <span class="font-mono">🔧 {{ call.name }}</span>
       <span
         v-if="props.detail === 'full' && summary(call.args)"

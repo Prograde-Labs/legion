@@ -3,8 +3,8 @@ import { mount } from '@vue/test-utils';
 import ToolTimeline from './ToolTimeline.vue';
 
 const calls = [
-  { index: 0, name: 'search_notes', args: '{"query":"legion"}' },
-  { index: 1, name: 'write_file', args: '{"path":"a.md"}' },
+  { key: 0, index: 0, name: 'search_notes', args: '{"query":"legion"}' },
+  { key: 1, index: 1, name: 'write_file', args: '{"path":"a.md"}' },
 ];
 
 describe('ToolTimeline', () => {

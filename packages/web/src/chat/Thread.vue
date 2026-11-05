@@ -50,7 +50,7 @@ const streamingText = ref('');
 const streamingReasoning = ref('');
 const isStreaming = ref(false);
 const streamError = ref<string | null>(null);
-const toolCalls = ref<Array<{ index: number; name: string; args: string }>>([]);
+const toolCalls = ref<Array<{ key: number; index: number; name: string; args: string }>>([]);
 const streamTimedOut = ref<number | null>(null);
 const tailEl = ref<HTMLElement | null>(null);
 let loadSeq = 0;
@@ -296,10 +296,22 @@ const stream = useToolStream('communicate', () => pendingArgs, {
       isStreaming.value = true;
       streamingReasoning.value += chunk.delta;
     } else if (chunk.type === 'tool_call_start') {
-      toolCalls.value.push({ index: chunk.index, name: chunk.name, args: '' });
+      toolCalls.value.push({
+        key: toolCalls.value.length,
+        index: chunk.index,
+        name: chunk.name,
+        args: '',
+      });
     } else if (chunk.type === 'tool_call_args_delta') {
-      const call = toolCalls.value.find((entry) => entry.index === chunk.index);
-      if (call) call.args += chunk.delta;
+      // `chunk.index` is the provider's per-response index and restarts at 0
+      // each iteration, so resolve against the latest call for that index.
+      for (let i = toolCalls.value.length - 1; i >= 0; i--) {
+        const call = toolCalls.value[i];
+        if (call.index === chunk.index) {
+          call.args += chunk.delta;
+          break;
+        }
+      }
     } else if (chunk.type === 'call_timeout') {
       streamTimedOut.value = chunk.timeoutMs;
     } else if (chunk.type === 'stream:done' || chunk.type === 'stream:error') {
@@ -343,14 +355,14 @@ watch(stream.error, (err) => {
 // (isStreaming) so Composer's Stop button is visible the whole time.
 defineExpose({
   cancelStream: (): Promise<void> => stream.cancel(),
-  send: async (to: string, message: string): Promise<void> => {
+  send: async (to: string, message: string, detail: DetailLevel = 'full'): Promise<void> => {
     toolCalls.value = [];
     streamTimedOut.value = null;
     pendingArgs = {
       to,
       message,
       conversationId: props.conversationId ?? undefined,
-      detail: 'full',
+      detail,
     };
     await stream.start();
   },
@@ -540,7 +552,7 @@ watch(
               role: 'assistant',
               content: streamingText,
               reasoning:
-                pendingArgs.detail === 'minimal' ? undefined : streamingReasoning || undefined,
+                pendingArgs.detail === 'full' ? streamingReasoning || undefined : undefined,
               timestamp: new Date().toISOString(),
               status: 'active',
             }"
