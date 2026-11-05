@@ -20,14 +20,19 @@ export function useParticipants() {
     for (const p of participants.value) map.set(p.id, p);
     return (id: string): BaseParticipant | undefined => map.get(id);
   });
+  /** Drop the previous identity's roster on logout. */
+  function reset(): void {
+    participants.value = [];
+    loading.value = false;
+  }
   return {
     participants,
     loading,
     load,
     byId: (id: string): BaseParticipant | undefined => byId.value(id),
+    reset,
     __resetForTests() {
-      participants.value = [];
-      loading.value = false;
+      reset();
     },
     __setParticipantsForTests(list: BaseParticipant[]) {
       participants.value = list;

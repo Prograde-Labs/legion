@@ -3,11 +3,19 @@ import { watch } from 'vue';
 import { useAuth } from './composables/useAuth.js';
 import { useToolAccess } from './composables/useToolAccess.js';
 import { useWebSocket } from './composables/useWebSocket.js';
+import { useApprovals } from './composables/useApprovals.js';
+import { useParticipants } from './composables/useParticipants.js';
+import { useConversations } from './composables/useConversations.js';
+import { useReadState } from './composables/useReadState.js';
 import AppShell from './shell/AppShell.vue';
 
 const { isAuthenticated } = useAuth();
 const { connect, disconnect } = useWebSocket();
 const { refresh: refreshToolAccess, reset: resetToolAccess } = useToolAccess();
+const { reset: resetApprovals } = useApprovals();
+const { reset: resetParticipants } = useParticipants();
+const { reset: resetConversations } = useConversations();
+const { reset: resetReadState } = useReadState();
 
 watch(
   isAuthenticated,
@@ -17,9 +25,14 @@ watch(
       void refreshToolAccess().catch(() => {});
     } else {
       disconnect();
-      // Fail closed across identity switches: drop the previous user's policy map so
-      // can() returns 'hidden' until the next identity's refresh resolves.
+      // Fail closed across identity switches: drop every module store so the next
+      // identity never sees the previous user's policy, approvals, roster, list or
+      // read markers.
       resetToolAccess();
+      resetApprovals();
+      resetParticipants();
+      resetConversations();
+      resetReadState();
     }
   },
   { immediate: true },

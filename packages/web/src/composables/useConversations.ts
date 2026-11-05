@@ -37,6 +37,14 @@ export function useConversations() {
     );
   });
 
+  /** Drop the previous identity's list, selection and filter on logout. */
+  function reset(): void {
+    conversations.value = [];
+    loading.value = false;
+    activeId.value = null;
+    filter.value = { status: 'active', search: '' };
+  }
+
   // Live list (spec §4.1 sorted by recent activity): one module-scoped
   // watch_conversations stream reloads the list on every lifecycle event —
   // creation, message activity, status change. Started once when the socket
@@ -71,11 +79,9 @@ export function useConversations() {
       // watch_conversations stream reconciles the full list on the next event.
       conversations.value = conversations.value.filter((c) => c.id !== id);
     },
+    reset,
     __resetForTests() {
-      conversations.value = [];
-      loading.value = false;
-      activeId.value = null;
-      filter.value = { status: 'active', search: '' };
+      reset();
     },
     __setConversationsForTests(list: ConversationMeta[]) {
       conversations.value = list;

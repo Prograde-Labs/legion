@@ -1,22 +1,27 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
+import type { ConversationMeta } from '@legion-collective/types';
 import { useConversations } from './useConversations.js';
 
-const CONVS = [
+const CONVS: ConversationMeta[] = [
   {
     id: 'c1',
     title: 'First',
     participants: ['operator', 'agent-a'],
     status: 'active',
+    createdAt: '2026-10-08T00:00:00Z',
     updatedAt: '2026-10-08T00:00:00Z',
     tags: [],
+    messageCount: 2,
   },
   {
     id: 'c2',
     title: 'Second',
     participants: ['agent-a'],
     status: 'archived',
+    createdAt: '2026-10-07T00:00:00Z',
     updatedAt: '2026-10-07T00:00:00Z',
     tags: [],
+    messageCount: 1,
   },
 ];
 
@@ -68,5 +73,16 @@ describe('useConversations', () => {
     store.select('c2');
     expect(store.activeId.value).toBe('c2');
     expect(useConversations().activeId.value).toBe('c2');
+  });
+
+  it('reset clears conversations, active id and filter', () => {
+    const store = useConversations();
+    store.__setConversationsForTests(CONVS);
+    store.select('c1');
+    store.filter.value = { status: 'all', search: 'first' };
+    store.reset();
+    expect(store.conversations.value).toHaveLength(0);
+    expect(store.activeId.value).toBeNull();
+    expect(store.filter.value).toEqual({ status: 'active', search: '' });
   });
 });

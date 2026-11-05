@@ -64,12 +64,18 @@ export function useApprovals() {
     pending.value = list;
   }
 
+  /** Drop the previous identity's approvals on logout. */
+  function reset(): void {
+    pending.value = [];
+  }
+
   return {
     pending,
     pendingCount,
     pendingByConversation,
     oldest,
     refresh,
+    reset,
     removeLocal(approvalId: string): void {
       pending.value = pending.value.filter((p) => p.approvalId !== approvalId);
     },

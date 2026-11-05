@@ -29,4 +29,13 @@ describe('useReadState', () => {
     expect(reloaded().isUnread('c1', '2026-01-01T00:00:00Z')).toBe(false);
     expect(reloaded().isUnread('c2', '2026-01-01T00:00:00Z')).toBe(true);
   });
+
+  it('reset clears last-read state and storage', () => {
+    const state = useReadState();
+    state.markRead('c1');
+    expect(localStorage.getItem('legion-last-read')).toBeTruthy();
+    state.reset();
+    expect(state.isUnread('c1', '2026-01-01T00:00:00Z')).toBe(true);
+    expect(localStorage.getItem('legion-last-read')).toBeNull();
+  });
 });

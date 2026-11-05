@@ -58,4 +58,12 @@ describe('useApprovals', () => {
     });
     expect(store.pendingCount.value).toBe(0);
   });
+
+  it('reset clears pending approvals', () => {
+    const store = useApprovals();
+    store.__setPendingForTests([{ conversationId: 'c1' }]);
+    expect(store.pendingCount.value).toBe(1);
+    store.reset();
+    expect(store.pending.value).toHaveLength(0);
+  });
 });

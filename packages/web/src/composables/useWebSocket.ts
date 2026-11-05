@@ -17,20 +17,37 @@ let backoff = 1000;
 let stoppedByAuth = false;
 const connectionId = ref<string | null>(null);
 
+/** Fail every registered stream so in-flight UI work settles instead of hanging. */
+function terminateStreams(): void {
+  for (const handler of [...streamHandlers.values()]) {
+    try {
+      handler({ type: 'stream:error', error: 'WebSocket disconnected' });
+    } catch {
+      /* isolate */
+    }
+  }
+  streamHandlers.clear();
+  pendingStreamChunks.length = 0;
+}
+
 function connect(): void {
   const { getToken } = useAuth();
   const token = getToken();
   if (!token) return;
+  // Idempotent while a socket is already connecting or open: a second connect()
+  // must not leak the first socket.
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  const socket = new WebSocket(`${protocol}//${location.host}/ws`);
+  ws = socket;
 
-  ws.addEventListener('open', () => {
+  socket.addEventListener('open', () => {
     backoff = 1000;
-    ws!.send(JSON.stringify({ type: 'auth', token }));
+    socket.send(JSON.stringify({ type: 'auth', token }));
   });
 
-  ws.addEventListener('message', (evt) => {
+  socket.addEventListener('message', (evt) => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(evt.data as string);
@@ -68,17 +85,11 @@ function connect(): void {
     }
   });
 
-  ws.addEventListener('close', (evt) => {
+  socket.addEventListener('close', (evt) => {
+    // A retired socket's late close must not disturb the current connection.
+    if (socket !== ws) return;
     connectionId.value = null;
-    for (const handler of [...streamHandlers.values()]) {
-      try {
-        handler({ type: 'stream:error', error: 'WebSocket disconnected' });
-      } catch {
-        /* isolate */
-      }
-    }
-    streamHandlers.clear();
-    pendingStreamChunks.length = 0;
+    terminateStreams();
     if (evt.code === 4401) {
       stoppedByAuth = true;
       const { logout } = useAuth();
@@ -86,10 +97,10 @@ function connect(): void {
       router.push('/login');
       return;
     }
-    scheduleReconnect();
+    if (!stoppedByAuth) scheduleReconnect();
   });
 
-  ws.addEventListener('error', () => ws?.close());
+  socket.addEventListener('error', () => socket.close());
 }
 
 function scheduleReconnect(): void {
@@ -107,16 +118,20 @@ export function useWebSocket() {
   return {
     connect() {
       stoppedByAuth = false;
-      if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+      connect();
     },
     disconnect() {
       if (reconnectTimer !== null) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      stoppedByAuth = false;
-      ws?.close();
+      // Intentional teardown: never schedule a reconnect afterwards.
+      stoppedByAuth = true;
+      const socket = ws;
       ws = null;
+      connectionId.value = null;
+      terminateStreams();
+      socket?.close();
     },
     onMessage(handler: MessageHandler): () => void {
       handlers.add(handler);

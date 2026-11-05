@@ -54,4 +54,13 @@ describe('useParticipants', () => {
     expect(second.byId('operator')?.name).toBe('Operator');
     expect(second.loading.value).toBe(false);
   });
+
+  it('reset clears participants', () => {
+    const store = useParticipants();
+    store.__setParticipantsForTests(PARTICIPANTS);
+    expect(store.participants.value).toHaveLength(2);
+    store.reset();
+    expect(store.participants.value).toHaveLength(0);
+    expect(store.loading.value).toBe(false);
+  });
 });

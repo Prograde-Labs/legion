@@ -249,4 +249,144 @@ describe('useWebSocket', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it('does not create a second socket while the first is connecting', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 0;
+      constructor() {
+        FakeWS.instances.push(this);
+      }
+      addEventListener() {}
+      send() {}
+      close() {}
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+    api.connect();
+    api.connect();
+    expect(FakeWS.instances).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('does not reconnect after an intentional disconnect', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      listeners: Record<string, EventListener[]> = {};
+      constructor() {
+        FakeWS.instances.push(this);
+      }
+      addEventListener(type: string, listener: EventListener) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      dispatchEvent(event: Event) {
+        for (const listener of this.listeners[event.type] ?? []) listener(event);
+        return true;
+      }
+      send() {}
+      close() {
+        this.readyState = 3;
+        this.dispatchEvent({ type: 'close', code: 1006 } as unknown as Event);
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+    vi.useFakeTimers();
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+    api.connect();
+    const streamHandler = vi.fn();
+    api.onStreamChunk('stream-1', streamHandler);
+    api.disconnect();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(FakeWS.instances).toHaveLength(1);
+    expect(streamHandler).toHaveBeenCalledWith({
+      type: 'stream:error',
+      error: 'WebSocket disconnected',
+    });
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores close and error events from a stale socket', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      listeners: Record<string, EventListener[]> = {};
+      constructor() {
+        FakeWS.instances.push(this);
+      }
+      addEventListener(type: string, listener: EventListener) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      dispatchEvent(event: Event) {
+        for (const listener of this.listeners[event.type] ?? []) listener(event);
+        return true;
+      }
+      send() {}
+      close() {
+        this.readyState = 3;
+        this.dispatchEvent({ type: 'close', code: 1006 } as unknown as Event);
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+    vi.useFakeTimers();
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+
+    api.connect();
+    const first = FakeWS.instances[0];
+    first.dispatchEvent({
+      type: 'message',
+      data: JSON.stringify({ type: 'connected', connectionId: 'conn-1' }),
+    } as unknown as Event);
+    api.disconnect();
+
+    api.connect();
+    const second = FakeWS.instances[1];
+    expect(second).toBeDefined();
+    second.dispatchEvent({
+      type: 'message',
+      data: JSON.stringify({ type: 'connected', connectionId: 'conn-2' }),
+    } as unknown as Event);
+
+    // A late close/error from the retired socket must not touch the new one.
+    first.dispatchEvent({ type: 'error' } as unknown as Event);
+    first.dispatchEvent({ type: 'close', code: 1006 } as unknown as Event);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(api.getConnectionId()).toBe('conn-2');
+    expect(second.readyState).toBe(1);
+    expect(FakeWS.instances).toHaveLength(2);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 });

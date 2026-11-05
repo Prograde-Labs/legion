@@ -30,8 +30,18 @@ function persist(): void {
 export function useReadState(): {
   isUnread(conversationId: string, updatedAt: string): boolean;
   markRead(conversationId: string): void;
+  reset(): void;
   __resetForTests(): void;
 } {
+  function reset(): void {
+    lastRead.value = {};
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore storage failures in environments without storage.
+    }
+  }
+
   return {
     isUnread(conversationId: string, updatedAt: string): boolean {
       return updatedAt > (lastRead.value[conversationId] ?? '');
@@ -40,13 +50,10 @@ export function useReadState(): {
       lastRead.value[conversationId] = new Date().toISOString();
       persist();
     },
+    /** Drop the previous identity's read markers on logout. */
+    reset,
     __resetForTests(): void {
-      lastRead.value = {};
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // Ignore storage failures in environments without storage.
-      }
+      reset();
     },
   };
 }
