@@ -464,4 +464,70 @@ describe('useWebSocket', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it('ignores messages from a stale socket', async () => {
+    vi.doMock('./useAuth.js', () => ({
+      useAuth: () => ({ getToken: () => 'tok', logout: () => {} }),
+    }));
+    vi.doMock('../router/index.js', () => ({ router: { push: vi.fn() } }));
+
+    class FakeWS {
+      static instances: FakeWS[] = [];
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      listeners: Record<string, EventListener[]> = {};
+      constructor() {
+        FakeWS.instances.push(this);
+      }
+      addEventListener(type: string, listener: EventListener) {
+        (this.listeners[type] ??= []).push(listener);
+      }
+      dispatchEvent(event: Event) {
+        for (const listener of this.listeners[event.type] ?? []) listener(event);
+        return true;
+      }
+      send() {}
+      close() {
+        this.readyState = 3;
+        this.dispatchEvent({ type: 'close', code: 1006 } as unknown as Event);
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWS);
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:3000' });
+    const { useWebSocket } = await import('./useWebSocket.js');
+    const api = useWebSocket();
+
+    api.connect();
+    const first = FakeWS.instances[0];
+    api.disconnect();
+    api.connect();
+    const second = FakeWS.instances[1];
+    second.dispatchEvent({
+      type: 'message',
+      data: JSON.stringify({ type: 'connected', connectionId: 'conn-2' }),
+    } as unknown as Event);
+
+    const handler = vi.fn();
+    api.onStreamChunk('stream-1', handler);
+
+    // Late frames from the retired socket must not reach the live connection.
+    first.dispatchEvent({
+      type: 'message',
+      data: JSON.stringify({ type: 'connected', connectionId: 'conn-stale' }),
+    } as unknown as Event);
+    first.dispatchEvent({
+      type: 'message',
+      data: JSON.stringify({
+        type: 'stream:chunk',
+        streamId: 'stream-1',
+        data: { type: 'stream:done', result: { status: 'success' } },
+      }),
+    } as unknown as Event);
+
+    expect(api.getConnectionId()).toBe('conn-2');
+    expect(handler).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
 });

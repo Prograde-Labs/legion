@@ -28,8 +28,11 @@ async function refresh(): Promise<void> {
   }
 }
 
-/** Drop the previous identity's processes on logout; polling lifecycle is untouched. */
-function reset(): void {
+/**
+ * Drop the previous identity's processes on logout. Standalone so App can reset
+ * without becoming a polling consumer (no refresh, no interval, no consumerCount).
+ */
+export function resetProcesses(): void {
   generation += 1;
   processes.value = [];
   loading.value = false;
@@ -54,5 +57,5 @@ export function useProcesses() {
     });
   }
 
-  return { processes, loading, error, refresh, reset };
+  return { processes, loading, error, refresh, reset: resetProcesses };
 }

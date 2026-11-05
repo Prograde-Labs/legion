@@ -22,10 +22,14 @@ vi.mock('./composables/useWebSocket.js', () => ({
   }),
 }));
 
-const processesMocks = vi.hoisted(() => ({ reset: vi.fn() }));
-vi.mock('./composables/useProcesses.js', () => ({
-  useProcesses: () => ({ reset: processesMocks.reset }),
-}));
+const processesMocks = vi.hoisted(() => ({ resetProcesses: vi.fn() }));
+// Partial mock: keep the real composable available so a regression that calls
+// useProcesses() at App setup would still boot its fetch/poll and be caught by
+// the unauthenticated-traffic test below.
+vi.mock('./composables/useProcesses.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./composables/useProcesses.js')>();
+  return { ...actual, resetProcesses: processesMocks.resetProcesses };
+});
 
 const originalFetch = globalThis.fetch;
 
@@ -52,7 +56,7 @@ describe('App', () => {
     useParticipants().reset();
     useConversations().reset();
     useReadState().reset();
-    processesMocks.reset.mockClear();
+    processesMocks.resetProcesses.mockClear();
   });
 
   afterEach(() => {
@@ -102,7 +106,34 @@ describe('App', () => {
     expect(useConversations().conversations.value).toHaveLength(0);
     expect(useConversations().activeId.value).toBeNull();
     expect(useReadState().isUnread('c1', '2026-01-01T00:00:00Z')).toBe(true);
-    expect(processesMocks.reset).toHaveBeenCalledTimes(1);
+    expect(processesMocks.resetProcesses).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('issues no execute requests while unauthenticated', async () => {
+    const router = createRouter({
+      history: createWebHashHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/chat', component: { template: '<div />' } },
+        { path: '/participants', component: { template: '<div />' } },
+        { path: '/processes', component: { template: '<div />' } },
+        { path: '/config', component: { template: '<div />' } },
+        { path: '/login', component: { template: '<div />' } },
+      ],
+    });
+    await router.push('/login');
+    await router.isReady();
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    globalThis.fetch = fetchMock;
+
+    const wrapper = mount(App, { global: { plugins: [router] } });
+    await flushPromises();
+
+    // App setup must not boot useProcesses(): no list_processes refresh and no
+    // 5s poll traffic (which could 401 and bounce a fresh session to /login).
+    expect(fetchMock).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 });

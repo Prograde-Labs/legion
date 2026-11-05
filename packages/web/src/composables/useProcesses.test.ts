@@ -168,7 +168,12 @@ describe('useProcesses', () => {
         exitedAt: null,
       },
     ];
-    useLegionApi.mockReturnValue({ execute: vi.fn().mockResolvedValue(fakeProcesses) });
+    useLegionApi.mockReturnValue({
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce(fakeProcesses)
+        .mockRejectedValueOnce(new Error('boom')),
+    });
 
     const { useProcesses } = await import('./useProcesses.js');
     const TestComponent = defineComponent({
@@ -179,6 +184,11 @@ describe('useProcesses', () => {
     });
     const w = mount(TestComponent);
     await new Promise((r) => setTimeout(r, 0));
+    expect((w.vm as any).processes).toHaveLength(1);
+
+    // Make the error non-null so the reset assertion is not vacuous.
+    await (w.vm as any).refresh();
+    expect((w.vm as any).error).toBe('boom');
     expect((w.vm as any).processes).toHaveLength(1);
 
     (w.vm as any).reset();
