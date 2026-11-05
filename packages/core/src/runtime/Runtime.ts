@@ -65,6 +65,8 @@ export interface RuntimeContext extends ToolContext {
   pendingApprovalRegistry: PendingApprovalRegistry;
   approvalLog?: ApprovalLog;
   messageRouter: MessageRouterPort;
+  /** Per-call model override supplied by the caller; falls back to the participant's model. */
+  modelOverride?: string;
   /** Detached lifecycle actions accumulated before runtime dispatch. */
   middlewareActions?: MiddlewareActionResult[];
   buildSystemPrompt?: (input: {

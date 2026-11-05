@@ -1,4 +1,5 @@
 import type {
+  DetailLevel,
   JSONSchema,
   ToolResult,
   ParticipantConfig,
@@ -6,6 +7,7 @@ import type {
   StreamChunk,
   LLMChunk,
   ConversationOrigin,
+  MessageUsage,
   MiddlewareInstanceConfig,
   MiddlewareCheckpoint,
 } from '@legion-collective/types';
@@ -25,7 +27,7 @@ import type {
 export interface MessageRouterResult {
   conversationId: string;
   response?: string;
-  status: 'success' | 'error' | 'dispatched' | 'pending_approval';
+  status: 'success' | 'error' | 'dispatched' | 'pending_approval' | 'timeout';
   error?: string;
   partial?: boolean;
   storedMessageId?: string;
@@ -33,6 +35,20 @@ export interface MessageRouterResult {
   checkpointId?: string;
   pendingParticipantId?: string;
   approvalRequests?: PendingApproval[];
+  meta?: { model?: string; usage?: MessageUsage; iterations?: number };
+}
+
+export interface SendOptions {
+  senderId: string;
+  recipientId: string;
+  message: string;
+  conversationId?: string;
+  replyTo?: string;
+  origin?: ConversationOrigin;
+  detail?: DetailLevel;
+  model?: string;
+  timeoutMs?: number;
+  context: ToolContext;
 }
 
 /** Minimal port so core tools can route messages without depending on @legion-collective/runtime. */
@@ -44,6 +60,9 @@ export interface MessageRouterPort {
     conversationId?: string;
     replyTo?: string;
     origin?: ConversationOrigin;
+    detail?: DetailLevel;
+    model?: string;
+    timeoutMs?: number;
     context: ToolContext;
   }): Promise<MessageRouterResult>;
 
@@ -77,6 +96,9 @@ export interface MessageRouterPort {
     conversationId?: string;
     replyTo?: string;
     origin?: ConversationOrigin;
+    detail?: DetailLevel;
+    model?: string;
+    timeoutMs?: number;
     context: ToolContext;
   }): AsyncGenerator<LLMChunk, MessageRouterResult>;
 }

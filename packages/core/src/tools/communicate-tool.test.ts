@@ -329,3 +329,104 @@ describe('communicate as StreamingTool', () => {
     });
   });
 });
+
+describe('communicate parameter handling', () => {
+  function fakeRouter(captured: unknown[]) {
+    return {
+      sendStream(opts: unknown) {
+        captured.push(opts);
+        return (async function* () {
+          return { conversationId: 'conv-1', response: 'ok', status: 'success' } as const;
+        })();
+      },
+    };
+  }
+
+  function contextWith(router: unknown): ToolContext {
+    return {
+      participant: { id: 'agent-a', name: 'A', type: 'mock', tools: {}, status: 'active' },
+      conversationId: 'seed',
+      communicationDepth: 0,
+      messageRouter: router,
+    } as unknown as ToolContext;
+  }
+
+  async function run(args: unknown, router: unknown) {
+    const stream = communicateTool.stream(args, contextWith(router));
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+    return next.value;
+  }
+
+  it('rejects an invalid detail level', async () => {
+    const result = await run({ to: 'b', message: 'hi', detail: 'verbose' }, fakeRouter([]));
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('invalid detail');
+  });
+
+  it('rejects a non-positive timeoutMs', async () => {
+    const result = await run({ to: 'b', message: 'hi', timeoutMs: 0 }, fakeRouter([]));
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('timeoutMs');
+  });
+
+  it('clamps timeoutMs to 24 hours and passes detail and model through', async () => {
+    const captured: unknown[] = [];
+    const result = await run(
+      { to: 'b', message: 'hi', detail: 'full', model: 'fast-model', timeoutMs: 999_999_999 },
+      fakeRouter(captured),
+    );
+    expect(result.status).toBe('success');
+    expect(captured[0]).toMatchObject({
+      detail: 'full',
+      model: 'fast-model',
+      timeoutMs: 86_400_000,
+    });
+  });
+
+  it('defaults detail to standard', async () => {
+    const captured: unknown[] = [];
+    await run({ to: 'b', message: 'hi' }, fakeRouter(captured));
+    expect(captured[0]).toMatchObject({ detail: 'standard' });
+  });
+
+  it('maps a timeout result to a partial error', async () => {
+    const router = {
+      sendStream() {
+        return (async function* () {
+          return {
+            conversationId: 'conv-1',
+            response: 'half an answer',
+            status: 'timeout',
+            partial: true,
+          } as const;
+        })();
+      },
+    };
+    const result = await run({ to: 'b', message: 'hi', timeoutMs: 10 }, router);
+    expect(result).toEqual({
+      status: 'error',
+      error: 'deadline exceeded',
+      data: { conversationId: 'conv-1', response: 'half an answer', partial: true },
+    });
+  });
+
+  it('returns meta only at full detail', async () => {
+    const router = {
+      sendStream() {
+        return (async function* () {
+          return {
+            conversationId: 'conv-1',
+            response: 'ok',
+            status: 'success',
+            meta: { model: 'fast-model', iterations: 2 },
+          } as const;
+        })();
+      },
+    };
+    const full = await run({ to: 'b', message: 'hi', detail: 'full' }, router);
+    expect(full.data).toMatchObject({ meta: { model: 'fast-model', iterations: 2 } });
+    const standard = await run({ to: 'b', message: 'hi' }, router);
+    expect((standard.data as Record<string, unknown>).meta).toBeUndefined();
+  });
+});

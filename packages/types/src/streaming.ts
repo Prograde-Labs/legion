@@ -2,6 +2,9 @@
 import type { ToolResult } from './tool.js';
 import type { LegionEventMap, LegionEventName } from './events.js';
 
+/** Presentation level requested by a caller; connectors clamp it to their own maximum. */
+export type DetailLevel = 'minimal' | 'standard' | 'full';
+
 // LLM output — from communicate and any LLM-backed streaming tools
 export type LLMChunk =
   | { type: 'iteration_start'; iteration: number }
@@ -9,7 +12,8 @@ export type LLMChunk =
   | { type: 'text_delta'; delta: string }
   | { type: 'message_snapshot'; content: string; reasoning?: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
-  | { type: 'tool_call_args_delta'; index: number; delta: string };
+  | { type: 'tool_call_args_delta'; index: number; delta: string }
+  | { type: 'call_timeout'; timeoutMs: number };
 
 // Lifecycle — emitted by ToolRegistry, never by tool authors
 export type LifecycleChunk =

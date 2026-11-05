@@ -3,7 +3,12 @@ import type { ConversationStore } from '../conversation/ConversationStore.js';
 import { ConversationThread } from '../conversation/ConversationThread.js';
 import type { Collective } from '../collective/Collective.js';
 import type { EventBus } from '../events/EventBus.js';
-import type { ToolContext, MessageRouterPort, MessageRouterResult } from '../tools/Tool.js';
+import type {
+  ToolContext,
+  MessageRouterPort,
+  MessageRouterResult,
+  SendOptions,
+} from '../tools/Tool.js';
 import {
   archiveAutomationHelper,
   snapshotMiddlewareActions,
@@ -34,16 +39,6 @@ import {
 } from '../middleware/MiddlewareLifecycle.js';
 import type { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
 import { compactRange, getActiveChain } from '../conversation/conversation-ops.js';
-
-export interface SendOptions {
-  senderId: string;
-  recipientId: string;
-  message: string;
-  conversationId?: string;
-  replyTo?: string;
-  origin?: ConversationOrigin;
-  context: ToolContext;
-}
 
 const DEFAULT_DEPTH_LIMIT = 10;
 
