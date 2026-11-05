@@ -1,7 +1,7 @@
 export interface LoginRateLimiterOptions {
   /** Failed attempts allowed per IP within a window. */
   maxAttempts: number;
-  /** Length of the sliding window in milliseconds. */
+  /** Length of the fixed window in milliseconds. */
   windowMs: number;
   /** Upper bound on tracked IPs, so hostile traffic cannot grow the map without limit. */
   maxTrackedIps: number;
@@ -56,6 +56,15 @@ export class LoginRateLimiter {
 
   reset(ip: string): void {
     this.attempts.delete(ip);
+  }
+
+  /** Whole seconds until the IP's window resets; 0 when it is not being throttled. */
+  retryAfter(ip: string): number {
+    const entry = this.attempts.get(ip);
+    if (!entry) return 0;
+    const remainingMs = entry.resetAt - Date.now();
+    if (remainingMs <= 0) return 0;
+    return Math.ceil(remainingMs / 1000);
   }
 
   /** Drop expired entries, then evict the oldest live ones if still at the cap. */

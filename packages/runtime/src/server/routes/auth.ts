@@ -26,11 +26,11 @@ export async function registerAuthRoutes(
   app.post<{ Body: { name?: string; password?: string } }>(
     '/api/auth/login',
     async (req, reply) => {
-      // req.ip is populated by Fastify from the socket; keep a stable fallback for
-      // unusual transports (and inject() in tests, which does provide 127.0.0.1).
-      const ip = req.ip ?? 'unknown';
+      // Fastify always populates req.ip from the socket (no trustProxy configured).
+      const ip = req.ip;
 
       if (!limiter.allow(ip)) {
+        reply.header('Retry-After', String(limiter.retryAfter(ip)));
         return reply.status(429).send({ error: 'Too many login attempts. Try again later.' });
       }
 
@@ -54,8 +54,9 @@ export async function registerAuthRoutes(
         return reply.status(401).send({ error: 'Invalid name or password' });
       }
 
-      limiter.reset(ip);
       const { token, expiresAt } = await signToken(participant.id, jwtSecret);
+      // Only clear the failure count once a token has actually been issued.
+      limiter.reset(ip);
       return reply.send({ token, participantId: participant.id, expiresAt });
     },
   );

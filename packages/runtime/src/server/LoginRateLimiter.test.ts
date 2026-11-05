@@ -76,6 +76,22 @@ describe('LoginRateLimiter', () => {
     expect(limiter.allow('10.0.0.3')).toBe(false);
   });
 
+  it('reports seconds until the window resets', () => {
+    vi.useFakeTimers();
+    try {
+      const limiter = new LoginRateLimiter({ maxAttempts: 5, windowMs: 60_000 });
+      expect(limiter.retryAfter('127.0.0.1')).toBe(0);
+      limiter.recordFailure('127.0.0.1');
+      expect(limiter.retryAfter('127.0.0.1')).toBe(60);
+      vi.advanceTimersByTime(15_000);
+      expect(limiter.retryAfter('127.0.0.1')).toBe(45);
+      vi.advanceTimersByTime(45_000);
+      expect(limiter.retryAfter('127.0.0.1')).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uses the documented defaults (5 attempts per 60s)', () => {
     const limiter = new LoginRateLimiter();
     for (let i = 0; i < 5; i += 1) limiter.recordFailure('127.0.0.1');

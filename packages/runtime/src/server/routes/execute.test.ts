@@ -1,7 +1,11 @@
+import { request } from 'node:http';
+import type { IncomingHttpHeaders } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import Fastify from 'fastify';
 import { StreamRegistry } from '@legion-collective/core';
 import type { Collective, ConnectorContext, StreamChunk } from '@legion-collective/core';
 import { signToken } from '../auth.js';
+import { SECURITY_HEADERS } from '../securityHeaders.js';
 import { registerExecuteRoute } from './execute.js';
 
 const jwtSecret = new Uint8Array(32).fill(7);
@@ -110,5 +114,60 @@ describe('POST /api/execute', () => {
     release();
     await done;
     await app.close();
+  });
+
+  it('applies security headers to SSE responses', async () => {
+    const registry = new StreamRegistry();
+    const gen = (async function* () {
+      yield { type: 'stream:done', result: { status: 'success' } } as StreamChunk;
+    })();
+    const ctx = {
+      streamTool: vi.fn(async () => ({ gen, conversationId: 'conv-1' })),
+    } as unknown as ConnectorContext;
+
+    const app = await makeApp(registry, ctx);
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    try {
+      const address = app.server.address() as AddressInfo;
+      const authorization = await bearerToken();
+      const response = await new Promise<{
+        statusCode: number | undefined;
+        headers: IncomingHttpHeaders;
+        body: string;
+      }>((resolve, reject) => {
+        const req = request(
+          {
+            host: '127.0.0.1',
+            port: address.port,
+            path: '/api/execute',
+            method: 'POST',
+            headers: {
+              authorization,
+              'content-type': 'application/json',
+            },
+          },
+          (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk: string) => {
+              body += chunk;
+            });
+            res.on('end', () =>
+              resolve({ statusCode: res.statusCode, headers: res.headers, body }),
+            );
+          },
+        );
+        req.once('error', reject);
+        req.end(JSON.stringify({ tool: 'watch_conversations', args: {} }));
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toContain('text/event-stream');
+      for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+        expect(response.headers[name.toLowerCase()]).toBe(value);
+      }
+    } finally {
+      await app.close();
+    }
   });
 });

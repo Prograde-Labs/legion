@@ -4,6 +4,7 @@ import { verifyToken, extractBearerToken } from '../auth.js';
 import type { JwtSecret } from '../auth.js';
 import type { ConnectorContext, Collective, StreamChunk } from '@legion-collective/core';
 import { StreamRegistry } from '@legion-collective/core';
+import { applySecurityHeaders } from '../securityHeaders.js';
 
 export interface ExecuteRouteDeps {
   collective: Collective;
@@ -156,6 +157,9 @@ export async function registerExecuteRoute(
       return;
     }
 
+    // SSE hijacks the response, so Fastify's onSend hook never runs — set the
+    // security headers directly on the raw response before writing the head.
+    applySecurityHeaders((name, value) => reply.raw.setHeader(name, value));
     reply.raw.setHeader('Content-Type', 'text/event-stream');
     reply.raw.setHeader('Cache-Control', 'no-cache');
     reply.raw.setHeader('Connection', 'keep-alive');

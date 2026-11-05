@@ -175,6 +175,10 @@ describe('WebConnector: POST /api/auth/login', () => {
     expect(JSON.parse(blocked.body)).toEqual({
       error: 'Too many login attempts. Try again later.',
     });
+    const retryAfter = Number(blocked.headers['retry-after']);
+    expect(Number.isInteger(retryAfter)).toBe(true);
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(60);
     await connector.stop();
   });
 
