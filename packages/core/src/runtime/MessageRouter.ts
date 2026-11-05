@@ -430,8 +430,33 @@ export class MessageRouter implements MessageRouterPort {
     return this.sendInner(opts);
   }
 
-  async *sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
+  sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
     const controller = new AbortController();
+    const inner = this.sendStreamWithDeadline(opts, controller);
+    return {
+      next: (...args) => inner.next(...args),
+      return: (value) => {
+        controller.abort();
+        return inner.return(value);
+      },
+      throw: (error) => {
+        controller.abort();
+        return inner.throw(error);
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      [Symbol.asyncDispose](): Promise<void> {
+        controller.abort();
+        return inner.return(undefined as never).then(() => undefined);
+      },
+    };
+  }
+
+  private async *sendStreamWithDeadline(
+    opts: SendOptions,
+    controller: AbortController,
+  ): AsyncGenerator<LLMChunk, MessageRouterResult> {
     const signal = opts.context.signal
       ? AbortSignal.any([opts.context.signal, controller.signal])
       : controller.signal;
@@ -472,7 +497,11 @@ export class MessageRouter implements MessageRouterPort {
       if (timer !== undefined) clearTimeout(timer);
       if (!completed) {
         controller.abort();
-        void inner.return(undefined as never).catch(() => undefined);
+        try {
+          await inner.return(undefined as never);
+        } catch {
+          // Early-termination cleanup errors are secondary to the terminal result.
+        }
       }
     }
   }
