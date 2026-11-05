@@ -1,7 +1,7 @@
 # `communicate` Detail, Model Override and Deadline — Design
 
 **Date:** 2026-11-05
-**Status:** Draft — awaiting review
+**Status:** Implemented
 **Roadmap item:** #2 (post-MVP wishlist, `012-post-mvp-roadmap.md`)
 **Thread:** `2026-11-02-legion-v2` / branch `integration/telegram-v2-and-web-ui`
 **Phase:** A (nested-chunk forwarding is explicitly deferred — see §11)
@@ -67,11 +67,11 @@ Validation:
 
 ## 5. Detail semantics
 
-| Level      | What a connector may render                                                                                                                    |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `minimal`  | Final response text only. No progress, no tool activity, no reasoning.                                                                           |
-| `standard` | Final text + progress/status + messages the participant posts between tool calls. No reasoning, no tool arguments.                               |
-| `full`     | Everything: tool calls, argument summaries, results, reasoning, and run metadata (model actually used, usage, iterations).                       |
+| Level      | What a connector may render                                                                                                |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `minimal`  | Final response text only. No progress, no tool activity, no reasoning.                                                     |
+| `standard` | Final text + progress/status + messages the participant posts between tool calls. No reasoning, no tool arguments.         |
+| `full`     | Everything: tool calls, argument summaries, results, reasoning, and run metadata (model actually used, usage, iterations). |
 
 **Clamp rule:** effective level = `min(requested, connector.maxDetail)`. The connector is the only
 component that decides rendering. Core carries the requested level; it never enforces presentation.

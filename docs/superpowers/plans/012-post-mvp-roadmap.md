@@ -33,7 +33,7 @@ What exists today, relevant to the wishlist:
   bridge used only by `watch_*`; `StreamRegistry` tracks one `AbortController` per transport
   stream. There is no general owned-stream abstraction.
 - **AuthEngine** (`packages/core/src/auth/AuthEngine.ts`) — `authorize(participantId, tool,
-  args, policies)` and `hasAuthority(...)` both accept and ignore `args` and
+args, policies)` and `hasAuthority(...)` both accept and ignore `args` and
   `participantId`. Policies are per-tool only; visibility is the participant's `tools` map.
 - **Connectors** — core contract is `start/deliver/stop` over
   `submit/callTool/streamTool`. Telegram v2 is implemented
@@ -49,15 +49,15 @@ What exists today, relevant to the wishlist:
 
 ## Items, priority and dependencies
 
-| #   | Item                                   | Priority | Depends on            | Size     | Notes                                                                 |
-| --- | -------------------------------------- | -------- | --------------------- | -------- | --------------------------------------------------------------------- |
-| 2   | `communicate` flexibility              | **P0**   | —                     | Medium   | Unblocks 1, 4, 5. Interface change others consume.                    |
-| 6   | AuthEngine: argument scope control     | **P1**   | —                     | Medium   | Design jointly with 7; same policy layer.                             |
-| 7   | Participant contact/group control      | **P1**   | 6 (shared mechanism)  | Medium   | Reuse "hidden = absent from map" pattern for the directory.           |
-| 3   | EventBus removal / owned streams       | **P1**   | 2 (stable surface)    | Large    | Wide refactor; only `watch_*` subscribe today.                        |
-| 4   | Teams connector                        | **P2**   | 2, external connector loader | Medium-Large | Telegram v2 is the template. Loader is a prerequisite.       |
-| 5   | Web UI polish                          | **P2**   | 2 (richer response detail) | Medium | Replay-on-reconnect, responsive layout, customization.            |
-| 1   | CLI agent participants                 | **P3**   | 2                     | Large    | Most open-ended; new participant driver surface.                      |
+| #   | Item                               | Priority | Depends on                   | Size         | Notes                                                       |
+| --- | ---------------------------------- | -------- | ---------------------------- | ------------ | ----------------------------------------------------------- |
+| 2   | `communicate` flexibility          | **P0**   | —                            | Medium       | Unblocks 1, 4, 5. Interface change others consume.          |
+| 6   | AuthEngine: argument scope control | **P1**   | —                            | Medium       | Design jointly with 7; same policy layer.                   |
+| 7   | Participant contact/group control  | **P1**   | 6 (shared mechanism)         | Medium       | Reuse "hidden = absent from map" pattern for the directory. |
+| 3   | EventBus removal / owned streams   | **P1**   | 2 (stable surface)           | Large        | Wide refactor; only `watch_*` subscribe today.              |
+| 4   | Teams connector                    | **P2**   | 2, external connector loader | Medium-Large | Telegram v2 is the template. Loader is a prerequisite.      |
+| 5   | Web UI polish                      | **P2**   | 2 (richer response detail)   | Medium       | Replay-on-reconnect, responsive layout, customization.      |
+| 1   | CLI agent participants             | **P3**   | 2                            | Large        | Most open-ended; new participant driver surface.            |
 
 ### Why this order
 
@@ -97,6 +97,21 @@ Open design questions (for the brainstorm):
 - Should "detail" control what the LLM sees in the tool result, or only what connectors
   render (or both)?
 - How do these parameters compose with `replyTo` (fire-and-forget) and approval flows?
+
+**Landed** (2026-11-05, `integration/telegram-v2-and-web-ui` in legion and
+`feat/communicate-detail` in `legion-connector-telegram-v2`):
+
+- Contract: `communicate` accepts `detail` (`'minimal' | 'standard' | 'full'`), `model` and
+  `timeoutMs`; the tool result is trimmed according to `detail`.
+- Core plumbing: per-call deadline with partial-result persistence, a `call_timeout` stream
+  chunk, run metadata on `MessageRouterResult`, and a per-call model override
+  (`RuntimeContext.modelOverride`).
+- Rendering: the web UI shows a per-iteration tool-call timeline gated by `detail`, and the
+  Telegram connector streams calls and renders each detail level.
+
+Phase C (nested tool-stream forwarding, so an agent-initiated `detail` request has a live
+effect on the caller's stream) remains open — see
+`docs/superpowers/specs/2026-11-05-communicate-detail-design.md` §11.
 
 ### #6 — AuthEngine argument scope control
 

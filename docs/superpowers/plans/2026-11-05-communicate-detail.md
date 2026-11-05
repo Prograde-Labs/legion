@@ -430,67 +430,67 @@ git commit -m "feat(communicate): add detail, model and timeout parameters"
 Append inside the existing `describe('MessageRouter', ...)` block in `packages/core/src/runtime/MessageRouter.test.ts`:
 
 ```ts
-  it('returns a partial timeout result and emits a call_timeout chunk', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'legion-timeout-'));
-    try {
-      const base = await setup(dir);
-      const registry = new RuntimeRegistry();
-      registry.registerFactory('mock', () => ({
-        async handle() {
-          return { kind: 'response', content: 'unused' } as const;
-        },
-        async *handleStream() {
-          yield { type: 'iteration_start', iteration: 0 } as const;
-          yield { type: 'text_delta', delta: 'partial answer' } as const;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          yield { type: 'text_delta', delta: ' more' } as const;
-          return { kind: 'response', content: 'partial answer more' } as const;
-        },
-      }));
-      const router = new MessageRouter(base.store, registry, base.collective, base.eventBus);
+it('returns a partial timeout result and emits a call_timeout chunk', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'legion-timeout-'));
+  try {
+    const base = await setup(dir);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'response', content: 'unused' } as const;
+      },
+      async *handleStream() {
+        yield { type: 'iteration_start', iteration: 0 } as const;
+        yield { type: 'text_delta', delta: 'partial answer' } as const;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        yield { type: 'text_delta', delta: ' more' } as const;
+        return { kind: 'response', content: 'partial answer more' } as const;
+      },
+    }));
+    const router = new MessageRouter(base.store, registry, base.collective, base.eventBus);
 
-      const stream = router.sendStream({
-        senderId: 'op',
-        recipientId: 'mock-1',
-        message: 'hi',
-        timeoutMs: 10,
-        context: base.baseContext,
-      });
-      const chunks: LLMChunk[] = [];
-      let next = await stream.next();
-      while (!next.done) {
-        chunks.push(next.value);
-        next = await stream.next();
-      }
-
-      expect(next.value).toMatchObject({
-        status: 'timeout',
-        partial: true,
-        response: 'partial answer',
-      });
-      expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 10 });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hi',
+      timeoutMs: 10,
+      context: base.baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
     }
-  });
 
-  it('attaches run metadata to stream results', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'legion-meta-'));
-    try {
-      const base = await setupReasoningRouter(dir);
-      const stream = base.router.sendStream({
-        senderId: 'op',
-        recipientId: 'mock-1',
-        message: 'hi',
-        context: base.baseContext,
-      });
-      let next = await stream.next();
-      while (!next.done) next = await stream.next();
-      expect(next.value.meta).toMatchObject({ iterations: 1 });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+    expect(next.value).toMatchObject({
+      status: 'timeout',
+      partial: true,
+      response: 'partial answer',
+    });
+    expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 10 });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+it('attaches run metadata to stream results', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'legion-meta-'));
+  try {
+    const base = await setupReasoningRouter(dir);
+    const stream = base.router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hi',
+      context: base.baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+    expect(next.value.meta).toMatchObject({ iterations: 1 });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -586,49 +586,49 @@ git commit -m "feat(router): enforce communicate deadlines and attach run metada
 Append to `packages/core/src/runtime/AgentRuntime.test.ts` inside `describe('AgentRuntime', ...)`:
 
 ```ts
-  it('uses a model override for provider resolution and streaming', async () => {
-    const { context, inbound } = await makeSetup([]);
-    const defaultProvider: Provider = {
-      async *stream() {
-        yield { type: 'text_delta', delta: 'default' };
-        yield { type: 'done', stopReason: 'stop' };
-      },
-    };
-    const overrideProvider: Provider = {
-      async *stream() {
-        yield { type: 'text_delta', delta: 'override' };
-        yield { type: 'done', stopReason: 'stop' };
-      },
-    };
-    const router = new MockModelRouter(
-      new Map([
-        ['test-model', defaultProvider],
-        ['override-model', overrideProvider],
-      ]),
-    ) as ModelRouter;
-    const runtime = new AgentRuntime(
-      'agent-1',
-      router,
-      new UsageCalculator(new MockPricingSource({}), new Map()),
-    );
+it('uses a model override for provider resolution and streaming', async () => {
+  const { context, inbound } = await makeSetup([]);
+  const defaultProvider: Provider = {
+    async *stream() {
+      yield { type: 'text_delta', delta: 'default' };
+      yield { type: 'done', stopReason: 'stop' };
+    },
+  };
+  const overrideProvider: Provider = {
+    async *stream() {
+      yield { type: 'text_delta', delta: 'override' };
+      yield { type: 'done', stopReason: 'stop' };
+    },
+  };
+  const router = new MockModelRouter(
+    new Map([
+      ['test-model', defaultProvider],
+      ['override-model', overrideProvider],
+    ]),
+  ) as ModelRouter;
+  const runtime = new AgentRuntime(
+    'agent-1',
+    router,
+    new UsageCalculator(new MockPricingSource({}), new Map()),
+  );
 
-    const result = await runtime.handle(inbound, { ...context, modelOverride: 'override-model' });
-    expect(result).toMatchObject({ kind: 'response', content: 'override' });
-  });
+  const result = await runtime.handle(inbound, { ...context, modelOverride: 'override-model' });
+  expect(result).toMatchObject({ kind: 'response', content: 'override' });
+});
 
-  it('fails closed when a model override cannot be resolved', async () => {
-    const { context, inbound, router } = await makeSetup([]);
-    const runtime = new AgentRuntime(
-      'agent-1',
-      router,
-      new UsageCalculator(new MockPricingSource({}), new Map()),
-    );
-    const result = await runtime.handle(inbound, { ...context, modelOverride: 'missing-model' });
-    expect(result).toEqual({
-      kind: 'middleware_abort',
-      error: 'model override unavailable: missing-model',
-    });
+it('fails closed when a model override cannot be resolved', async () => {
+  const { context, inbound, router } = await makeSetup([]);
+  const runtime = new AgentRuntime(
+    'agent-1',
+    router,
+    new UsageCalculator(new MockPricingSource({}), new Map()),
+  );
+  const result = await runtime.handle(inbound, { ...context, modelOverride: 'missing-model' });
+  expect(result).toEqual({
+    kind: 'middleware_abort',
+    error: 'model override unavailable: missing-model',
   });
+});
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -641,13 +641,13 @@ Expected: FAIL — the override is ignored.
 In `packages/core/src/runtime/MessageRouter.ts`, both `sendInner` and `sendStreamInner` call `buildRuntimeContext`. Add the override to the context object passed in:
 
 ```ts
-    const runtimeContext = this.buildRuntimeContext(
-      thread,
-      recipient.id,
-      { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
-      depth,
-      /* existing middleware argument unchanged */
-    );
+const runtimeContext = this.buildRuntimeContext(
+  thread,
+  recipient.id,
+  { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
+  depth,
+  /* existing middleware argument unchanged */
+);
 ```
 
 Apply the same change at the second call site (the `sendInner` path around line 945). `buildRuntimeContext` spreads `toolContext`, so `modelOverride` flows into `RuntimeContext`.
@@ -657,39 +657,42 @@ Apply the same change at the second call site (the `sendInner` path around line 
 In `packages/core/src/runtime/AgentRuntime.ts`, inside `runLoop`, replace the provider-resolution block:
 
 ```ts
-    const modelId = context.modelOverride ?? agent.model.model;
-    const effectiveModel: ModelConfig =
-      context.modelOverride === undefined
-        ? agent.model
-        : { ...agent.model, model: context.modelOverride };
-    let provider: Provider | null;
-    let providerId: string | undefined;
-    try {
-      const resolved = await this.router.resolveWithId(modelId);
-      provider = resolved?.provider ?? null;
-      providerId = resolved?.providerId;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (context.modelOverride !== undefined) {
-        return this.withActions(
-          { kind: 'middleware_abort', error: `model override unavailable: ${modelId}` },
-          actions,
-        );
-      }
-      return this.withActions({ kind: 'response', content: `[AgentRuntime error: ${msg}]` }, actions);
-    }
-    if (!provider) {
-      if (context.modelOverride !== undefined) {
-        return this.withActions(
-          { kind: 'middleware_abort', error: `model override unavailable: ${modelId}` },
-          actions,
-        );
-      }
-      return this.withActions(
-        { kind: 'response', content: `[AgentRuntime error: no provider available for model '${modelId}']` },
-        actions,
-      );
-    }
+const modelId = context.modelOverride ?? agent.model.model;
+const effectiveModel: ModelConfig =
+  context.modelOverride === undefined
+    ? agent.model
+    : { ...agent.model, model: context.modelOverride };
+let provider: Provider | null;
+let providerId: string | undefined;
+try {
+  const resolved = await this.router.resolveWithId(modelId);
+  provider = resolved?.provider ?? null;
+  providerId = resolved?.providerId;
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (context.modelOverride !== undefined) {
+    return this.withActions(
+      { kind: 'middleware_abort', error: `model override unavailable: ${modelId}` },
+      actions,
+    );
+  }
+  return this.withActions({ kind: 'response', content: `[AgentRuntime error: ${msg}]` }, actions);
+}
+if (!provider) {
+  if (context.modelOverride !== undefined) {
+    return this.withActions(
+      { kind: 'middleware_abort', error: `model override unavailable: ${modelId}` },
+      actions,
+    );
+  }
+  return this.withActions(
+    {
+      kind: 'response',
+      content: `[AgentRuntime error: no provider available for model '${modelId}']`,
+    },
+    actions,
+  );
+}
 ```
 
 Import `ModelConfig` from `@legion-collective/types` if it is not already imported.
@@ -894,12 +897,8 @@ Reset at send start:
 In the streaming block template, before the streaming `MessagePart`, add:
 
 ```vue
-          <ToolTimeline :calls="toolCalls" :detail="pendingArgs.detail" />
-          <div
-            v-if="streamTimedOut !== null"
-            data-test="stream-timeout"
-            class="px-1 text-xs text-danger"
-          >
+<ToolTimeline :calls="toolCalls" :detail="pendingArgs.detail" />
+<div v-if="streamTimedOut !== null" data-test="stream-timeout" class="px-1 text-xs text-danger">
             Stopped after {{ Math.round(streamTimedOut / 1000) }}s
           </div>
 ```
@@ -907,7 +906,7 @@ In the streaming block template, before the streaming `MessagePart`, add:
 Also hide reasoning at `minimal` by changing the streaming message's `reasoning` field:
 
 ```vue
-              :reasoning="pendingArgs.detail === 'minimal' ? undefined : streamingReasoning || undefined"
+:reasoning="pendingArgs.detail === 'minimal' ? undefined : streamingReasoning || undefined"
 ```
 
 - [ ] **Step 5: Update the existing send test and add a timeline test**
@@ -915,65 +914,62 @@ Also hide reasoning at `minimal` by changing the streaming message's `reasoning`
 In the existing `send() issues the streaming communicate POST…` test, update the expected request body to include the new detail hint:
 
 ```ts
-    expect(JSON.parse(String(init.body))).toEqual({
-      tool: 'communicate',
-      args: {
-        to: 'agent-a',
-        message: 'do the thing',
-        conversationId: 'c1',
-        detail: 'full',
-      },
-    });
+expect(JSON.parse(String(init.body))).toEqual({
+  tool: 'communicate',
+  args: {
+    to: 'agent-a',
+    message: 'do the thing',
+    conversationId: 'c1',
+    detail: 'full',
+  },
+});
 ```
 
 Append a new test modelled on that test:
 
 ```ts
-  it('renders the tool-call timeline during a streamed communicate call', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
-      )
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
-          { status: 200 },
-        ),
-      );
-    vi.stubGlobal('fetch', fetchMock);
-    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
-    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
-
-    await (
-      wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }
-    ).send('agent-a', 'do the thing');
-
-    mocks.streamChunkHandler?.({ type: 'iteration_start', iteration: 0 });
-    mocks.streamChunkHandler?.({ type: 'tool_call_start', index: 0, id: 'c1', name: 'search_notes' });
-    mocks.streamChunkHandler?.({
-      type: 'tool_call_args_delta',
-      index: 0,
-      delta: '{"query":"legion"}',
-    });
-
-    await vi.waitFor(() =>
-      expect(wrapper.find('[data-test="tool-timeline"]').exists()).toBe(true),
+it('renders the tool-call timeline during a streamed communicate call', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+        { status: 200 },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+    )
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+        { status: 200 },
+      ),
     );
-    expect(wrapper.text()).toContain('search_notes');
-    expect(wrapper.find('[data-test="tool-args"]').text()).toContain('legion');
+  vi.stubGlobal('fetch', fetchMock);
+  const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+  await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
 
-    mocks.streamChunkHandler?.({ type: 'stream:done', result: null });
-    await vi.waitFor(() =>
-      expect(wrapper.find('[data-test="tool-timeline"]').exists()).toBe(false),
-    );
+  await (wrapper.vm as unknown as { send: (to: string, message: string) => Promise<void> }).send(
+    'agent-a',
+    'do the thing',
+  );
+
+  mocks.streamChunkHandler?.({ type: 'iteration_start', iteration: 0 });
+  mocks.streamChunkHandler?.({ type: 'tool_call_start', index: 0, id: 'c1', name: 'search_notes' });
+  mocks.streamChunkHandler?.({
+    type: 'tool_call_args_delta',
+    index: 0,
+    delta: '{"query":"legion"}',
   });
+
+  await vi.waitFor(() => expect(wrapper.find('[data-test="tool-timeline"]').exists()).toBe(true));
+  expect(wrapper.text()).toContain('search_notes');
+  expect(wrapper.find('[data-test="tool-args"]').text()).toContain('legion');
+
+  mocks.streamChunkHandler?.({ type: 'stream:done', result: null });
+  await vi.waitFor(() => expect(wrapper.find('[data-test="tool-timeline"]').exists()).toBe(false));
+});
 ```
 
 The existing `beforeEach` already sets `mocks.connectionId = 'conn-1'` and `mocks.token = 'tok'`, so no extra setup is needed.
@@ -1387,37 +1383,40 @@ Pass it through in `buildInbound()`:
 In `src/inbound.test.ts`, add a case:
 
 ```ts
-  it('streams communicate calls instead of calling the tool once', async () => {
-    const api = {
-      sendMessage: vi.fn().mockResolvedValue(undefined),
-      sendChatAction: vi.fn().mockResolvedValue(undefined),
-    };
-    const tgCtx = {
-      message: { chat: { id: 777 }, text: 'hello' },
-      reply: vi.fn().mockResolvedValue(undefined),
-      api,
-    } as unknown as Context;
-    const streamTool = vi.fn(async () => ({
-      gen: (async function* () {
-        yield { type: 'iteration_start', iteration: 0 };
-        yield { type: 'text_delta', delta: 'final answer' };
-        yield { type: 'stream:done', result: { status: 'success', data: { response: 'final answer', conversationId: 'conv-1' } } };
-      })(),
-      conversationId: '',
-    }));
-    const { deps } = makeDeps();
-    (deps.ctx as unknown as { streamTool: typeof streamTool }).streamTool = streamTool;
+it('streams communicate calls instead of calling the tool once', async () => {
+  const api = {
+    sendMessage: vi.fn().mockResolvedValue(undefined),
+    sendChatAction: vi.fn().mockResolvedValue(undefined),
+  };
+  const tgCtx = {
+    message: { chat: { id: 777 }, text: 'hello' },
+    reply: vi.fn().mockResolvedValue(undefined),
+    api,
+  } as unknown as Context;
+  const streamTool = vi.fn(async () => ({
+    gen: (async function* () {
+      yield { type: 'iteration_start', iteration: 0 };
+      yield { type: 'text_delta', delta: 'final answer' };
+      yield {
+        type: 'stream:done',
+        result: { status: 'success', data: { response: 'final answer', conversationId: 'conv-1' } },
+      };
+    })(),
+    conversationId: '',
+  }));
+  const { deps } = makeDeps();
+  (deps.ctx as unknown as { streamTool: typeof streamTool }).streamTool = streamTool;
 
-    await createInboundHandler({ ...deps, typingIntervalMs: 0 })('my_bot', tgCtx);
+  await createInboundHandler({ ...deps, typingIntervalMs: 0 })('my_bot', tgCtx);
 
-    expect(streamTool).toHaveBeenCalledWith(
-      'chris',
-      'communicate',
-      expect.objectContaining({ to: 'worker', message: 'hello', detail: 'standard' }),
-      expect.anything(),
-    );
-    expect(api.sendMessage).toHaveBeenCalled();
-  });
+  expect(streamTool).toHaveBeenCalledWith(
+    'chris',
+    'communicate',
+    expect.objectContaining({ to: 'worker', message: 'hello', detail: 'standard' }),
+    expect.anything(),
+  );
+  expect(api.sendMessage).toHaveBeenCalled();
+});
 ```
 
 - [ ] **Step 9: Update the existing inbound tests for the streaming path**
@@ -1447,7 +1446,11 @@ function makeDeps(
     conversationId: '',
   }));
   const deps: InboundDeps = {
-    ctx: { callTool, streamTool, registry: { setActive: vi.fn() } } as unknown as InboundDeps['ctx'],
+    ctx: {
+      callTool,
+      streamTool,
+      registry: { setActive: vi.fn() },
+    } as unknown as InboundDeps['ctx'],
     pool: {} as InboundDeps['pool'],
     directory: async () => ({
       bots: new Map([['my_bot', { participantId: 'worker' }]]),
