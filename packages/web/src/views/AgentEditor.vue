@@ -22,8 +22,8 @@ const toolAccess = useToolAccess();
 // separate affordances with their own tools.
 const canSave = computed(() =>
   props.participantId === 'new'
-    ? toolAccess.can('create_agent') === 'auto'
-    : toolAccess.can('modify_agent') === 'auto',
+    ? toolAccess.can('create_agent') === 'auto' && modelText.value.trim().length > 0
+    : toolAccess.can('modify_agent') === 'auto' && modelText.value.trim().length > 0,
 );
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
 const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
@@ -34,7 +34,7 @@ const systemPrompt = ref('');
 const maxIterations = ref(20);
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
-const modelOptions = ref<{ provider: string; model: { model: string } }[]>([]);
+const modelOptions = ref<{ provider: string; model: { id: string; name?: string } }[]>([]);
 const middleware = ref<MiddlewareInstanceConfig[]>([]);
 const middlewareDefinitions = ref<never[]>([]);
 const authorityModel = ref<{ tools?: Record<string, boolean> | '*' } | null>(null);
@@ -101,7 +101,7 @@ async function load(): Promise<void> {
       ];
     })
     .catch(() => {});
-  void execute<{ provider: string; model: { model: string } }[]>('list_models', {})
+  void execute<{ provider: string; model: { id: string; name?: string } }[]>('list_models', {})
     .then((models) => (modelOptions.value = models))
     .catch(() => {});
   void execute<{ definitions: never[] }>('list_middleware', {})
@@ -191,11 +191,19 @@ async function retire(): Promise<void> {
 }
 
 const groupedModels = computed(() => {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, { id: string; label: string }[]>();
   for (const entry of modelOptions.value) {
+    const id = entry.model.id;
     const list = groups.get(entry.provider) ?? [];
-    list.push(entry.model.model);
+    list.push({ id, label: entry.model.name ?? id });
     groups.set(entry.provider, list);
+  }
+  // Keep an unknown existing model selectable rather than silently dropping it.
+  if (
+    modelText.value &&
+    ![...groups.values()].some((list) => list.some((m) => m.id === modelText.value))
+  ) {
+    groups.set('current', [{ id: modelText.value, label: modelText.value }]);
   }
   return [...groups.entries()];
 });
@@ -227,7 +235,7 @@ const groupedModels = computed(() => {
         class="rounded border border-line bg-surface px-2 py-1"
       >
         <optgroup v-for="[provider, models] in groupedModels" :key="provider" :label="provider">
-          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+          <option v-for="m in models" :key="m.id" :value="m.id">{{ m.label }}</option>
         </optgroup>
       </select>
       <input

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { RoutingConfig } from '@legion-collective/types';
 import { useLegionApi } from '../../composables/useLegionApi.js';
 
@@ -11,8 +11,17 @@ const props = defineProps<{
 const emit = defineEmits<{ saved: [] }>();
 const { execute } = useLegionApi();
 
-const rows = ref<Array<{ model: string; providers: string[] }>>(
-  Object.entries(props.routing.models ?? {}).map(([model, providers]) => ({ model, providers })),
+const rows = ref<Array<{ model: string; providers: string[] }>>([]);
+
+watch(
+  () => props.routing,
+  (routing) => {
+    rows.value = Object.entries(routing.models ?? {}).map(([model, providers]) => ({
+      model,
+      providers: [...providers],
+    }));
+  },
+  { deep: true, immediate: true },
 );
 
 const newModelId = ref('');
@@ -85,6 +94,7 @@ async function save() {
     <div
       v-for="(row, rowIndex) in rows"
       :key="row.model"
+      data-test="routing-row"
       class="border border-line rounded p-3 space-y-2"
     >
       <div class="flex items-center justify-between">

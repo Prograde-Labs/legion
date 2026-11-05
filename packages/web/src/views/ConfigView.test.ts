@@ -10,6 +10,10 @@ function mockCan(can: (tool: string) => 'auto' | 'requires_approval' | 'hidden')
   vi.mocked(useToolAccess).mockReturnValue({ can } as never);
 }
 
+function toolResponse(_tool: string, data: unknown): Response {
+  return new Response(JSON.stringify({ result: { status: 'success', data } }), { status: 200 });
+}
+
 // useLegionApi reads the auth token from localStorage-backed refs seeded at module
 // init — seed at hoist time (before the module graph initializes).
 vi.hoisted(() => {
@@ -67,6 +71,25 @@ describe('ConfigView theming', () => {
     const wrapper = mount(ConfigView, { global: { plugins: [router] } });
     expect(wrapper.text()).toContain('Providers');
     expect(wrapper.text()).toContain('Model routing');
+    wrapper.unmount();
+  });
+
+  it('renders existing system routing after load', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'list_providers') return toolResponse('list_providers', []);
+        if (body.tool === 'get_routing')
+          return toolResponse('get_routing', {
+            system: { models: { 'DeepSeek-V4.1-Flash-1017': ['local'] } },
+            workspace: {},
+          });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+    await vi.waitFor(() => expect(wrapper.text()).toContain('DeepSeek-V4.1-Flash-1017'));
     wrapper.unmount();
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import AgentEditor from './AgentEditor.vue';
 import { useToolAccess } from '../composables/useToolAccess.js';
 
@@ -31,7 +31,9 @@ function stubFetch(): ReturnType<typeof vi.fn> {
     if (body.tool === 'list_tools')
       return toolResponse('list_tools', { tools: ['communicate', 'file_read'], callerPolicy: {} });
     if (body.tool === 'list_models')
-      return toolResponse('list_models', [{ provider: 'openai', model: 'gpt-4o' }]);
+      return toolResponse('list_models', [
+        { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+      ]);
     return toolResponse(body.tool, {});
   });
 }
@@ -79,7 +81,9 @@ describe('AgentEditor', () => {
             callerPolicy: {},
           });
         if (body.tool === 'list_models')
-          return toolResponse('list_models', [{ provider: 'openai', model: 'gpt-4o' }]);
+          return toolResponse('list_models', [
+            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+          ]);
         if (body.tool === 'list_middleware')
           return toolResponse('list_middleware', { definitions: [] });
         return toolResponse(body.tool, {});
@@ -104,6 +108,49 @@ describe('AgentEditor', () => {
     expect(checked.length).toBe(2);
     expect(rows[1].text()).toContain('file_read');
     expect(rows[1].text()).toContain('require approval');
+  });
+
+  it('renders model ids from list_models and saves the selected id', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...AGENT,
+            model: { model: 'DeepSeek-V4.1-Flash-1017' },
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+        if (body.tool === 'list_models')
+          return toolResponse('list_models', [
+            {
+              provider: 'local',
+              model: { id: 'DeepSeek-V4.1-Flash-1017', name: 'DeepSeek V4.1 Flash' },
+            },
+          ]);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
+        if (body.tool === 'modify_agent') return toolResponse('modify_agent', { id: 'agent-a' });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-model"]').element as HTMLSelectElement).value).toBe(
+        'DeepSeek-V4.1-Flash-1017',
+      ),
+    );
+    const options = wrapper.findAll('[data-test="agent-model"] option');
+    expect(options.map((o) => o.attributes('value'))).toContain('DeepSeek-V4.1-Flash-1017');
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await flushPromises();
+    const saveCall = (vi.mocked(fetch).mock.calls as Array<[string, RequestInit]>).find(
+      ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
+    );
+    expect(JSON.parse(String(saveCall?.[1].body)).args.model).toEqual({
+      model: 'DeepSeek-V4.1-Flash-1017',
+    });
   });
 
   it('shows a friendly message when get_participant is denied', async () => {
@@ -155,6 +202,8 @@ describe('AgentEditor', () => {
     vi.stubGlobal('fetch', fetchMock);
     const wrapper = mount(AgentEditor, { props: { participantId: 'new' } });
     await wrapper.find('[data-test="agent-name"]').setValue('Fresh Agent');
+    // New agents skip load(), so the model field stays a free-text input.
+    await wrapper.find('[data-test="agent-model"]').setValue('gpt-4o');
     await wrapper.find('[data-test="agent-save"]').trigger('click');
     await vi.waitFor(() => {
       const call = fetchMock.mock.calls.find(
