@@ -349,7 +349,15 @@ describe('AgentEditor', () => {
           return toolResponse('list_middleware', { definitions: MIDDLEWARE_DEFINITIONS });
         if (body.tool === 'list_skills')
           return toolResponse('list_skills', {
-            skills: [{ name: 'brainstorming', description: 'Brainstorm', scope: 'global' }],
+            skills: [
+              {
+                name: 'brainstorming',
+                description: 'Brainstorm',
+                scope: 'global',
+                location: '/skills/brainstorming/SKILL.md',
+                baseDirectory: '/skills/brainstorming',
+              },
+            ],
             diagnostics: [],
           });
         if (body.tool === 'list_secrets')
@@ -374,16 +382,36 @@ describe('AgentEditor', () => {
   it('does not fail the editor when list_secrets is denied for another participant', async () => {
     // list_secrets is self-or-operator only: an editor opened by a non-operator
     // for another participant gets a tool error, which must stay silent here.
+    // The credential field is optional so save stays available, and it must show
+    // no key options because `credentialKeys` stayed empty.
+    const definitions = [
+      {
+        type: 'workspace:webhook',
+        displayName: 'Webhook',
+        defaultFailureMode: 'closed',
+        configSchema: {
+          type: 'object',
+          properties: {
+            token: { type: 'string', title: 'Token', format: 'credential-reference' },
+          },
+        },
+        source: 'workspace',
+      },
+    ];
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body ?? '{}'));
-        if (body.tool === 'get_participant') return toolResponse('get_participant', AGENT);
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...AGENT,
+            middleware: [{ id: 'webhook-1', type: 'workspace:webhook', config: {} }],
+          });
         if (body.tool === 'list_tools')
           return toolResponse('list_tools', { tools: [], callerPolicy: {} });
         if (body.tool === 'list_models') return toolResponse('list_models', []);
         if (body.tool === 'list_middleware')
-          return toolResponse('list_middleware', { definitions: [] });
+          return toolResponse('list_middleware', { definitions });
         if (body.tool === 'list_skills') return toolResponse('list_skills', { skills: [] });
         if (body.tool === 'list_secrets')
           return new Response(
@@ -404,9 +432,16 @@ describe('AgentEditor', () => {
         'gpt-4o',
       ),
     );
+    await vi.waitFor(() => expect(wrapper.find('[data-field="token"]').exists()).toBe(true));
     await flushPromises();
     expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(true);
+    expect(
+      wrapper
+        .find('[data-field="token"]')
+        .findAll('option')
+        .map((option) => option.text()),
+    ).toEqual(['Select credential...']);
   });
 
   it('blocks save while middleware config fails validation', async () => {

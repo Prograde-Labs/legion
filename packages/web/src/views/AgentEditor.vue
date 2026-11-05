@@ -22,6 +22,10 @@ const emit = defineEmits<{ saved: [id: string]; retired: [] }>();
 const { execute } = useLegionApi();
 const auth = useAuth();
 const toolAccess = useToolAccess();
+// Declared before `canSave`, which reads both, so the computed has no
+// forward reference to a later `const`.
+const middlewareErrors = ref<string[]>([]);
+const canSetMiddleware = computed(() => toolAccess.can('set_participant_middleware') === 'auto');
 // Save covers create (new) or modify (existing); retire and authority-save are
 // separate affordances with their own tools.
 const canSave = computed(() => {
@@ -35,7 +39,6 @@ const canSave = computed(() => {
 });
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
 const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
-const canSetMiddleware = computed(() => toolAccess.can('set_participant_middleware') === 'auto');
 
 const name = ref('');
 const modelText = ref('');
@@ -46,7 +49,6 @@ const availableTools = ref<string[]>([]);
 const modelOptions = ref<{ provider: string; model: { id: string; name?: string } }[]>([]);
 const middleware = ref<MiddlewareInstanceConfig[]>([]);
 const middlewareDefinitions = ref<MiddlewareDefinitionInfo[]>([]);
-const middlewareErrors = ref<string[]>([]);
 const skills = ref<SkillInfo[]>([]);
 const credentialKeys = ref<string[]>([]);
 const authorityModel = ref<{
