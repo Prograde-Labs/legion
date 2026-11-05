@@ -333,19 +333,9 @@ watch(stream.done, (isDone) => {
     // Draft send (no conversationId prop): the communicate result carries the
     // server-created conversation id — bubble it up so ChatView can replace the
     // draft route with the real one.
-    const result = stream.result.value as {
-      status?: string;
-      error?: string;
-      data?: { conversationId?: string };
-    } | null;
+    const result = stream.result.value as { data?: { conversationId?: string } } | null;
     const newConvId = result?.data?.conversationId;
     if (newConvId && !props.conversationId) emit('created', newConvId);
-    // `stream:error` covers transport failures, but a communicate failure can
-    // also arrive as a normal `stream:done` carrying an error ToolResult.
-    // Surface it unless the deadline notice already explains the stop.
-    if (result?.status === 'error' && result.error && streamTimedOut.value === null) {
-      streamError.value = friendlyToolError(result.error);
-    }
     void load();
   }
 });

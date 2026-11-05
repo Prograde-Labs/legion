@@ -494,6 +494,46 @@ describe('Thread', () => {
     );
   });
 
+  it('stays quiet when a user Stop ends the stream with a cancellation error', async () => {
+    // Stop aborts the stream before any content streams; the router reports the
+    // cancellation as a normal `stream:done` carrying an error ToolResult. That
+    // is a deliberate user action, not a failure — no red banner.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ streamId: 's1', conversationId: 'c1' }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ result: { status: 'success', data: { id: 'c1', messages: CHAIN } } }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    const vm = wrapper.vm as unknown as {
+      send: (to: string, message: string) => Promise<void>;
+      streaming?: boolean;
+    };
+    await vm.send('agent-a', 'do the thing');
+
+    mocks.streamChunkHandler?.({
+      type: 'stream:done',
+      result: { status: 'error', error: 'Runtime cancelled' },
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(vm.streaming).toBe(false));
+    expect(wrapper.find('[data-test="stream-error"]').exists()).toBe(false);
+  });
+
   it('renders the tool-call timeline during a streamed communicate call', async () => {
     const fetchMock = vi
       .fn()
