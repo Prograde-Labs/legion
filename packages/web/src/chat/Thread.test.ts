@@ -38,6 +38,7 @@ vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
 // (the FakeWS harness above is built for it), and capture its onChunk callback.
 const activityMocks = vi.hoisted(() => ({
   onChunk: null as ((chunk: { type: string; data?: Record<string, unknown> }) => void) | null,
+  getArgs: null as (() => unknown) | null,
   start: vi.fn(async () => {}),
   cancel: vi.fn(async () => {}),
   done: null as unknown,
@@ -58,6 +59,7 @@ vi.mock('../composables/useToolStream.js', async (importOriginal) => {
       const done = ref(false);
       const error = ref<string | null>(null);
       activityMocks.onChunk = (options.onChunk ?? null) as typeof activityMocks.onChunk;
+      activityMocks.getArgs = getArgs;
       activityMocks.done = done;
       activityMocks.error = error;
       return {
@@ -152,6 +154,7 @@ describe('Thread', () => {
     mocks.streamChunkHandler = null;
     mocks.streamUnregister.mockReset();
     activityMocks.onChunk = null;
+    activityMocks.getArgs = null;
     activityMocks.done = null;
     activityMocks.error = null;
     activityMocks.start.mockClear();
@@ -185,6 +188,39 @@ describe('Thread', () => {
     (activityMocks.error as { value: string | null }).value = 'WebSocket disconnected';
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(false);
+  });
+
+  it('clears the thinking indicator after a quiet period, reset by each chunk', async () => {
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+
+    vi.useFakeTimers();
+    try {
+      activityMocks.onChunk?.({ type: 'iteration' });
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(true);
+
+      // Any later chunk pushes the quiet period out again.
+      activityMocks.onChunk?.({ type: 'tool:result' });
+      vi.advanceTimersByTime(59_000);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(true);
+
+      vi.advanceTimersByTime(1_000);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('omits conversationId from activity args when there is no conversation', async () => {
+    const wrapper = mount(Thread, { props: { conversationId: null } });
+    await flushPromises();
+    expect(activityMocks.getArgs?.()).toEqual({});
+
+    await wrapper.setProps({ conversationId: 'c1' });
+    expect(activityMocks.getArgs?.()).toEqual({ conversationId: 'c1' });
   });
 
   it('emits open(tool, payload) on chip click', async () => {

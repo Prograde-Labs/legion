@@ -1,5 +1,5 @@
 import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AuthEngine, PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
 import { createRuntimeTools } from './runtime-tools.js';
 
@@ -315,6 +315,48 @@ describe('list_pending_approvals', () => {
     const data = result.data as Array<{ requesterId: string }>;
     expect(data).toHaveLength(1);
     expect(data[0].requesterId).toBe('agent-a');
+  });
+
+  it('forwards the caller authority, requester, tool and args to hasAuthority', async () => {
+    const registry = makeApprovalRegistry();
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    const hasAuthority = vi.fn().mockReturnValue(true);
+    const tools = createRuntimeTools(
+      makeDeps({
+        pendingApprovalRegistry: registry,
+        authEngine: { hasAuthority } as unknown as AuthEngine,
+      }),
+    );
+    const authority = { participants: ['agent-a'], tools: { file_write: true } };
+    const context = {
+      participant: { id: 'operator', approvalAuthority: authority },
+    } as unknown as ToolContext;
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    await tool.execute({}, context);
+    expect(hasAuthority).toHaveBeenCalledWith(authority, 'agent-a', 'file_write', { path: '/x' });
+  });
+
+  it('returns an empty list (fails closed) when the caller has no authority', async () => {
+    const registry = makeApprovalRegistry();
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    const tools = createRuntimeTools(
+      makeDeps({ pendingApprovalRegistry: registry, authEngine: new AuthEngine() }),
+    );
+    const context = { participant: { id: 'operator' } } as unknown as ToolContext;
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    const result = await tool.execute({}, context);
+    expect(result.status).toBe('success');
+    expect(result.data).toEqual([]);
   });
 
   it('filters by conversationId', async () => {

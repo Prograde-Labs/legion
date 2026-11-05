@@ -85,6 +85,15 @@ describe('ApprovalCard', () => {
     expect(wrapper.find('[data-test="approval-error"]').text()).toContain('unauthorized');
   });
 
+  it.each(['not_found', 'conflict'])('keeps the card when the outcome is %s', async (outcome) => {
+    vi.stubGlobal('fetch', okFetch(outcome));
+    const wrapper = mount(ApprovalCard, { props: { approval } });
+    await wrapper.find('[data-test="approval-approve"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.emitted('resolved')).toBeUndefined();
+    expect(wrapper.find('[data-test="approval-error"]').text()).toContain(outcome);
+  });
+
   it('surfaces a tool error instead of dying silently', async () => {
     vi.stubGlobal(
       'fetch',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolStream } from '../composables/useToolStream.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
@@ -156,11 +156,35 @@ const tailApprovals = computed(() =>
 // instance serves every conversation (ChatView swaps activeId), so restart the
 // stream whenever the conversation changes.
 const thinking = ref(false);
+// watch_activity has no run-completion event, so an autonomous run would leave
+// the indicator on forever. Fall back to a quiet-period inactivity deadline.
+const THINKING_QUIET_MS = 60_000;
+let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearThinkingTimer(): void {
+  if (thinkingTimer !== null) {
+    clearTimeout(thinkingTimer);
+    thinkingTimer = null;
+  }
+}
+
+/** Push the quiet-period deadline out on every activity chunk. */
+function noteActivity(): void {
+  clearThinkingTimer();
+  thinkingTimer = setTimeout(() => {
+    thinkingTimer = null;
+    thinking.value = false;
+  }, THINKING_QUIET_MS);
+}
+
+onUnmounted(clearThinkingTimer);
+
 const activityStream = useToolStream(
   'watch_activity',
-  () => ({ conversationId: props.conversationId ?? '' }),
+  () => (props.conversationId ? { conversationId: props.conversationId } : {}),
   {
     onChunk: (chunk) => {
+      noteActivity();
       if (chunk.type === 'iteration') {
         thinking.value = true;
       } else if (chunk.type === 'approval:requested' || chunk.type === 'approval:resolved') {
@@ -183,11 +207,17 @@ watch(
 );
 
 watch(activityStream.error, (err) => {
-  if (err) thinking.value = false;
+  if (err) {
+    thinking.value = false;
+    clearThinkingTimer();
+  }
 });
 
 watch(isStreaming, (active) => {
-  if (active) thinking.value = false;
+  if (active) {
+    thinking.value = false;
+    clearThinkingTimer();
+  }
 });
 
 // Live tokens: stream the communicate tool the carried-over way. Final-review
@@ -231,6 +261,7 @@ watch(stream.done, (isDone) => {
   if (isDone) {
     isStreaming.value = false;
     thinking.value = false;
+    clearThinkingTimer();
     // Draft send (no conversationId prop): the communicate result carries the
     // server-created conversation id (same shape useConversation unwraps) —
     // bubble it up so ChatView can replace the draft route with the real one.
@@ -245,6 +276,7 @@ watch(stream.error, (err) => {
     streamError.value = friendlyToolError(err);
     isStreaming.value = false;
     thinking.value = false;
+    clearThinkingTimer();
   }
 });
 

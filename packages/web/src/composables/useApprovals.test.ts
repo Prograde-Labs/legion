@@ -1,6 +1,21 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { useApprovals } from './useApprovals.js';
 
+function approval(id: string): Record<string, unknown> {
+  return {
+    approvalId: id,
+    conversationId: 'c1',
+    requesterId: 'agent-a',
+    tool: 'file_write',
+    args: {},
+    createdAt: '2026-10-08T00:00:00Z',
+  };
+}
+
+function responseWith(data: unknown): Response {
+  return new Response(JSON.stringify({ result: { status: 'success', data } }), { status: 200 });
+}
+
 describe('useApprovals', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -90,6 +105,53 @@ describe('useApprovals', () => {
       tool: 'file_write',
     });
     await vi.waitFor(() => expect(store.pending.value[0]?.args).toEqual({ path: '/tmp/x' }));
+  });
+
+  it('applies the newest refresh even when an older response lands last', async () => {
+    let resolveFirst!: (value: Response) => void;
+    let resolveSecond!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockReturnValueOnce(
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          }),
+        )
+        .mockReturnValueOnce(
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve;
+          }),
+        ),
+    );
+    const store = useApprovals();
+    const first = store.refresh();
+    const second = store.refresh();
+
+    // Newer request resolves first and wins.
+    resolveSecond(responseWith([approval('a2')]));
+    await second;
+    expect(store.pending.value.map((p) => p.approvalId)).toEqual(['a2']);
+
+    // Older request lands last: it must not overwrite the newer snapshot.
+    resolveFirst(responseWith([approval('a1')]));
+    await first;
+    expect(store.pending.value.map((p) => p.approvalId)).toEqual(['a2']);
+  });
+
+  it('ingest dedupes a repeated approval:requested chunk', () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    const store = useApprovals();
+    const chunk = {
+      approvalId: 'a1',
+      conversationId: 'c1',
+      participantId: 'agent-a',
+      tool: 'file_write',
+    };
+    store.ingest('approval:requested', chunk);
+    store.ingest('approval:requested', chunk);
+    expect(store.pendingCount.value).toBe(1);
   });
 
   it('reset clears pending approvals', () => {

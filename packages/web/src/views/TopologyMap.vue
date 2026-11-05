@@ -140,7 +140,7 @@ watch(
 
 onBeforeUnmount(() => {
   if (pruneTimer) clearInterval(pruneTimer);
-  void activityStream.cancel();
+  void activityStream.cancel().catch(() => undefined);
 });
 
 const liveEdges = computed(() =>

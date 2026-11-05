@@ -143,6 +143,7 @@ describe('ChatView draft flow', () => {
   });
 
   it('shows recipient picker and composer on /chat with no id', async () => {
+    vi.stubGlobal('fetch', stubExecute('new-conv'));
     const router = makeRouter();
     await router.push('/chat');
     await router.isReady();

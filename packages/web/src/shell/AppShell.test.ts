@@ -6,26 +6,32 @@ import { useAuth } from '../composables/useAuth.js';
 import { useApprovals } from '../composables/useApprovals.js';
 
 const wsMocks = vi.hoisted(() => ({
-  connectionId: 'conn-1' as string | null,
+  connectionId: null as { value: string | null } | null,
   streamChunkHandler: null as
     ((chunk: { type: string; data?: Record<string, unknown> }) => void) | null,
 }));
 
 // AppShell's global watch_activity stream reads getConnectionId and registers a
 // chunk handler; capture the handler so tests can push real transport chunks.
-vi.mock('../composables/useWebSocket.js', () => ({
-  useWebSocket: () => ({
-    getConnectionId: () => wsMocks.connectionId,
-    onMessage: () => () => undefined,
-    onStreamChunk: (
-      _streamId: string,
-      handler: (chunk: { type: string; data?: Record<string, unknown> }) => void,
-    ) => {
-      wsMocks.streamChunkHandler = handler;
-      return () => undefined;
-    },
-  }),
-}));
+// connectionId is a ref so the watch observes reconnects.
+vi.mock('../composables/useWebSocket.js', async () => {
+  const { ref } = await import('vue');
+  const connectionId = ref<string | null>('conn-1');
+  wsMocks.connectionId = connectionId;
+  return {
+    useWebSocket: () => ({
+      getConnectionId: () => connectionId.value,
+      onMessage: () => () => undefined,
+      onStreamChunk: (
+        _streamId: string,
+        handler: (chunk: { type: string; data?: Record<string, unknown> }) => void,
+      ) => {
+        wsMocks.streamChunkHandler = handler;
+        return () => undefined;
+      },
+    }),
+  };
+});
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -86,7 +92,7 @@ describe('AppShell', () => {
   beforeEach(() => {
     useAuth().logout();
     useApprovals().reset();
-    wsMocks.connectionId = 'conn-1';
+    wsMocks.connectionId!.value = 'conn-1';
     wsMocks.streamChunkHandler = null;
     serverApprovals = [];
     executeFetch = null;
@@ -111,7 +117,7 @@ describe('AppShell', () => {
   });
 
   it('renders no nav when unauthenticated on /login', async () => {
-    wsMocks.connectionId = null; // no socket without a session
+    wsMocks.connectionId!.value = null; // no socket without a session
     const wrapper = await mountShellAt('/login');
     expect(wrapper.find('nav').exists()).toBe(false);
     expect(wrapper.find('[data-test="avatar"]').exists()).toBe(false);
@@ -151,6 +157,38 @@ describe('AppShell', () => {
     const badge = wrapper.findComponent({ name: 'NavBadge' });
     expect(badge.props('count')).toBe(1);
     expect(badge.props('targetConversationId')).toBe('conv-9');
+  });
+
+  it('resyncs approvals when the socket reconnects', async () => {
+    await seedAuth();
+    const wrapper = await mountShellAt('/');
+    await flushPromises();
+
+    const refreshCalls = () =>
+      executeFetch!.mock.calls.filter((call) => {
+        const init = call[1] as RequestInit | undefined;
+        const body = JSON.parse(String(init?.body ?? '{}')) as { tool?: string };
+        return body.tool === 'list_pending_approvals';
+      }).length;
+    const before = refreshCalls();
+
+    serverApprovals = [
+      {
+        approvalId: 'a1',
+        conversationId: 'conv-1',
+        requesterId: 'agent-a',
+        tool: 'file_write',
+        args: {},
+        createdAt: '2026-10-08T00:00:00Z',
+      },
+    ];
+    wsMocks.connectionId!.value = null;
+    await wrapper.vm.$nextTick();
+    wsMocks.connectionId!.value = 'conn-2';
+    await flushPromises();
+
+    expect(refreshCalls()).toBeGreaterThan(before);
+    expect(wrapper.findComponent({ name: 'NavBadge' }).props('count')).toBe(1);
   });
 
   it('ingests live approval chunks from the watch_activity stream', async () => {

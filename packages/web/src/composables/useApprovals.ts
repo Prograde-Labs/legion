@@ -13,6 +13,8 @@ export interface PendingApproval {
 const pending = ref<PendingApproval[]>([]);
 /** Bumped on reset so an in-flight refresh cannot repopulate the store after logout. */
 let generation = 0;
+/** Monotonic refresh id: only the newest issued request may apply its snapshot. */
+let refreshRequestId = 0;
 
 export function useApprovals() {
   const pendingCount = computed(() => pending.value.length);
@@ -27,9 +29,12 @@ export function useApprovals() {
 
   async function refresh(): Promise<void> {
     const requestGeneration = generation;
+    const requestId = ++refreshRequestId;
     const { execute } = useLegionApi();
     const list = await execute<PendingApproval[]>('list_pending_approvals', {});
     if (requestGeneration !== generation) return; // reset while in flight — stale identity
+    // An older request landing last must not clobber a newer snapshot.
+    if (requestId !== refreshRequestId) return;
     pending.value = list;
   }
 
