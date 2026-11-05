@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import type { StreamChunk } from '@legion-collective/types';
 
 // FakeWS harness transcribed from composables/useToolStream.test.ts: Thread's
 // stream path reads connectionId/token from useWebSocket/useAuth and registers
@@ -31,6 +32,48 @@ vi.mock('../composables/useAuth.js', () => ({
 // Compact action is gated by Cluster A's tool-access gate (Task 2 cross-cluster
 // dependency): same vi.mock pattern as MessageActions.test.ts / ForkControls.test.ts.
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
+
+// Thread opens a conversation-scoped watch_activity stream. Stub only that
+// tool so the communicate stream keeps running through the real composable
+// (the FakeWS harness above is built for it), and capture its onChunk callback.
+const activityMocks = vi.hoisted(() => ({
+  onChunk: null as ((chunk: { type: string; data?: Record<string, unknown> }) => void) | null,
+  start: vi.fn(async () => {}),
+  cancel: vi.fn(async () => {}),
+  done: null as unknown,
+  error: null as unknown,
+}));
+
+vi.mock('../composables/useToolStream.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../composables/useToolStream.js')>();
+  const { ref } = await import('vue');
+  return {
+    ...actual,
+    useToolStream: (
+      toolName: string,
+      getArgs: () => unknown,
+      options: { onChunk?: (chunk: StreamChunk) => void } = {},
+    ) => {
+      if (toolName !== 'watch_activity') return actual.useToolStream(toolName, getArgs, options);
+      const done = ref(false);
+      const error = ref<string | null>(null);
+      activityMocks.onChunk = (options.onChunk ?? null) as typeof activityMocks.onChunk;
+      activityMocks.done = done;
+      activityMocks.error = error;
+      return {
+        start: activityMocks.start,
+        cancel: activityMocks.cancel,
+        chunks: ref([]),
+        done,
+        error,
+        active: ref(false),
+        cancelling: ref(false),
+        conversationId: ref<string | null>(null),
+        result: ref<unknown>(null),
+      };
+    },
+  };
+});
 
 import Thread from './Thread.vue';
 import MessagePart from './MessagePart.vue';
@@ -108,6 +151,11 @@ describe('Thread', () => {
     mocks.token = 'tok';
     mocks.streamChunkHandler = null;
     mocks.streamUnregister.mockReset();
+    activityMocks.onChunk = null;
+    activityMocks.done = null;
+    activityMocks.error = null;
+    activityMocks.start.mockClear();
+    activityMocks.cancel.mockClear();
     mockCan(() => 'auto');
     useParticipants().__resetForTests();
     useParticipants().__setParticipantsForTests(AGENTS);
@@ -121,6 +169,22 @@ describe('Thread', () => {
     expect(wrapper.find('.md-content').exists()).toBe(true);
     const chip = wrapper.find('[data-test="tool-chip"]');
     expect(chip.text()).toContain('mcp__filesystem__read_file');
+  });
+
+  it('shows a thinking indicator while the activity stream reports an iteration', async () => {
+    const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+    await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+    // The conversation-scoped stream started once the socket + conversation exist.
+    expect(activityMocks.start).toHaveBeenCalled();
+
+    activityMocks.onChunk?.({ type: 'iteration' });
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(true);
+
+    // A stream error clears the indicator.
+    (activityMocks.error as { value: string | null }).value = 'WebSocket disconnected';
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="thinking-indicator"]').exists()).toBe(false);
   });
 
   it('emits open(tool, payload) on chip click', async () => {

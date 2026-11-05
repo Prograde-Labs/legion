@@ -2,18 +2,20 @@
 // OQ1 (default accepted): connector nodes omitted — no tool exposes connector
 // config; adding one would be a seventh backend change (plan tripwire).
 // OQ2 (default accepted): deterministic type-grouped circular layout; no physics.
-// Live WS edges: the reducer below is the same one an activity subscription
-// would call; subscribing live is deferred (TODO(task-22) e2e verification).
+// Live edges: a watch_activity subscription feeds the reducer below.
 // (Ledger: brief placed these as an HTML comment inside <script setup>, which is
 // invalid TS — converted to TS comments, content unchanged.)
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import type { StreamChunk } from '@legion-collective/types';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useParticipants } from '../composables/useParticipants.js';
+import { useToolStream } from '../composables/useToolStream.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 
 const emit = defineEmits<{ select: [participantId: string] }>();
 
 const { participants } = useParticipants();
-const { execute, onEvent } = useLegionApi();
+const { execute } = useLegionApi();
 
 interface McpSource {
   name: string;
@@ -111,13 +113,34 @@ function prune(): void {
   edges.value = next;
 }
 
+// Live edges arrive through watch_activity (the connector does not forward
+// eventBus events). Cancelled explicitly on unmount so cancelOnUnmount is off.
+type ActivityChunk = Extract<StreamChunk, { data: unknown }>;
+const { getConnectionId } = useWebSocket();
+const activityStream = useToolStream<ActivityChunk>('watch_activity', () => ({}), {
+  cancelOnUnmount: false,
+  onChunk: (chunk) => {
+    if (chunk.type === 'tool:call') {
+      handleActivity((chunk.data ?? {}) as { participantId?: string });
+    }
+  },
+});
+
 onMounted(() => {
   pruneTimer = setInterval(prune, 1000);
-  onEvent('activity', (data) => handleActivity(data as { participantId?: string }));
 });
+
+watch(
+  () => getConnectionId(),
+  (id) => {
+    if (id) void activityStream.start();
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   if (pruneTimer) clearInterval(pruneTimer);
+  void activityStream.cancel();
 });
 
 const liveEdges = computed(() =>
@@ -141,10 +164,6 @@ function nodeFill(kind: TopoNode['kind']): string {
   if (kind === 'user') return 'var(--color-accent-soft)';
   return 'var(--color-surface)';
 }
-
-defineExpose({
-  __handleActivityForTests: handleActivity,
-});
 </script>
 
 <template>

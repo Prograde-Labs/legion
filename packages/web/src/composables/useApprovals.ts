@@ -11,45 +11,10 @@ export interface PendingApproval {
 }
 
 const pending = ref<PendingApproval[]>([]);
-let initialized = false;
 /** Bumped on reset so an in-flight refresh cannot repopulate the store after logout. */
 let generation = 0;
 
-function handleEvent(type: string, data: Record<string, unknown>): void {
-  if (type === 'approval:requested') {
-    const approvalId = data['approvalId'];
-    if (typeof approvalId !== 'string') return;
-    if (pending.value.some((p) => p.approvalId === approvalId)) return;
-    pending.value = [
-      ...pending.value,
-      {
-        approvalId,
-        conversationId: String(data['conversationId'] ?? ''),
-        requesterId: String(data['participantId'] ?? ''),
-        tool: String(data['tool'] ?? ''),
-        args: {},
-        createdAt: new Date().toISOString(),
-      },
-    ];
-  } else if (type === 'approval:resolved') {
-    const approvalId = data['approvalId'];
-    if (typeof approvalId !== 'string') return;
-    pending.value = pending.value.filter((p) => p.approvalId !== approvalId);
-  }
-}
-
 export function useApprovals() {
-  if (!initialized) {
-    initialized = true;
-    const { onEvent } = useLegionApi();
-    onEvent('approval:requested', (data) =>
-      handleEvent('approval:requested', data as Record<string, unknown>),
-    );
-    onEvent('approval:resolved', (data) =>
-      handleEvent('approval:resolved', data as Record<string, unknown>),
-    );
-  }
-
   const pendingCount = computed(() => pending.value.length);
   const pendingByConversation = computed(() => {
     const map = new Map<string, number>();
@@ -74,6 +39,34 @@ export function useApprovals() {
     pending.value = [];
   }
 
+  /** Merge a live activity chunk into the pending list. */
+  function ingest(type: string, data: Record<string, unknown>): void {
+    if (type === 'approval:requested') {
+      const approvalId = data['approvalId'];
+      if (typeof approvalId !== 'string') return;
+      if (pending.value.some((p) => p.approvalId === approvalId)) return;
+      pending.value = [
+        ...pending.value,
+        {
+          approvalId,
+          conversationId: String(data['conversationId'] ?? ''),
+          requesterId: String(data['participantId'] ?? ''),
+          tool: String(data['tool'] ?? ''),
+          args: (data['args'] as Record<string, unknown> | undefined) ?? {},
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      // The stream event omits args; refresh the authoritative list.
+      void refresh().catch(() => {});
+      return;
+    }
+    if (type === 'approval:resolved') {
+      const approvalId = data['approvalId'];
+      if (typeof approvalId !== 'string') return;
+      pending.value = pending.value.filter((p) => p.approvalId !== approvalId);
+    }
+  }
+
   return {
     pending,
     pendingCount,
@@ -81,6 +74,7 @@ export function useApprovals() {
     oldest,
     refresh,
     reset,
+    ingest,
     removeLocal(approvalId: string): void {
       pending.value = pending.value.filter((p) => p.approvalId !== approvalId);
     },
@@ -94,9 +88,5 @@ export function useApprovals() {
         createdAt: p.createdAt ?? new Date(0).toISOString(),
       }));
     },
-    __handleEventForTests(type: string, data: Record<string, unknown>): void {
-      handleEvent(type, data);
-    },
   };
 }
-// TODO(task-12): stub replaced by full implementation (spec §4.5) — live WS + refresh

@@ -282,6 +282,7 @@ export class LegionProcess {
       saveSystemRouting,
       saveWorkspaceRouting,
       pendingApprovalRegistry,
+      authEngine,
       // Read live workspace state, not the startup snapshot: save_mcp_sources
       // writes .legion/config.json, and list_mcp_sources must read back what
       // was saved (spec §6 read-back contract).

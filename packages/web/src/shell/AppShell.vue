@@ -1,18 +1,53 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useApprovals } from '../composables/useApprovals.js';
+import { useToolStream } from '../composables/useToolStream.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
+import type { StreamChunk } from '@legion-collective/types';
 import NavBadge from './NavBadge.vue';
 import AccountSlideOver from './AccountSlideOver.vue';
 
 const router = useRouter();
 const { logout } = useLegionApi();
 const { isAuthenticated, participantId } = useAuth();
-const { pendingCount, oldest } = useApprovals();
+const approvals = useApprovals();
+const { pendingCount, oldest } = approvals;
 const accountOpen = ref(false);
 const menuOpen = ref(false);
+
+const ws = useWebSocket();
+type ActivityChunk = Extract<StreamChunk, { data: unknown }>;
+// App-level activity subscription: WebConnector does not forward eventBus
+// events, so approvals must arrive through watch_activity. The shell outlives
+// route changes, so this stream is not cancelled on unmount.
+const activity = useToolStream<ActivityChunk>('watch_activity', () => ({}), {
+  cancelOnUnmount: false,
+  onChunk: (chunk) => {
+    if (chunk.type === 'approval:requested' || chunk.type === 'approval:resolved') {
+      approvals.ingest(chunk.type, (chunk.data ?? {}) as Record<string, unknown>);
+    }
+  },
+});
+
+// Refresh when a session appears (the shell is mounted before login too).
+watch(
+  isAuthenticated,
+  (authed) => {
+    if (authed) void approvals.refresh().catch(() => {});
+  },
+  { immediate: true },
+);
+
+watch(
+  () => ws.getConnectionId(),
+  (id) => {
+    if (id) void activity.start();
+  },
+  { immediate: true },
+);
 
 function badgeClick() {
   if (oldest.value) void router.push(`/chat/${oldest.value.conversationId}`);

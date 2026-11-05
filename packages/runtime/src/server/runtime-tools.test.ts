@@ -1,7 +1,15 @@
 import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
 import { describe, expect, it } from 'vitest';
-import { PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
+import { AuthEngine, PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
 import { createRuntimeTools } from './runtime-tools.js';
+
+function makeAuthEngine(
+  canApprove: (requesterId: string, tool: string) => boolean = () => true,
+): AuthEngine {
+  return {
+    hasAuthority: (_authority, requesterId, tool) => canApprove(requesterId, tool),
+  } as unknown as AuthEngine;
+}
 
 type ProviderStub = { listModels?: () => Promise<ProviderModel[]> };
 
@@ -43,6 +51,7 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
       Object.assign(workspaceRouting, routing);
     },
     pendingApprovalRegistry: makeApprovalRegistry(),
+    authEngine: makeAuthEngine(),
     getMCPServers: async () => [],
     saveMCPServers: async () => {},
     ...overrides,
@@ -60,8 +69,14 @@ function makeApprovalRegistry(): PendingApprovalRegistry {
 }
 
 function makeContext(): ToolContext {
-  // Tools under test never read the context; a stub keeps the fixture light.
-  return {} as unknown as ToolContext;
+  // Only approval scoping reads the context: give it a maximally-authorized
+  // caller so the per-record filtering is exercised by authEngine stubs.
+  return {
+    participant: {
+      id: 'operator',
+      approvalAuthority: { participants: '*', tools: '*' },
+    },
+  } as unknown as ToolContext;
 }
 
 describe('runtime tools', () => {
@@ -272,6 +287,34 @@ describe('list_pending_approvals', () => {
     const result = await tool.execute({}, makeContext());
     expect(result.status).toBe('success');
     expect((result.data as unknown[]).length).toBe(2);
+  });
+
+  it('omits records the caller has no authority over', async () => {
+    const registry = makeApprovalRegistry();
+    await registry.create({
+      conversationId: 'conv-1',
+      requesterId: 'agent-a',
+      tool: 'file_write',
+      args: { path: '/x' },
+    });
+    await registry.create({
+      conversationId: 'conv-2',
+      requesterId: 'agent-b',
+      tool: 'shell',
+      args: {},
+    });
+    const tools = createRuntimeTools(
+      makeDeps({
+        pendingApprovalRegistry: registry,
+        authEngine: makeAuthEngine((requesterId) => requesterId === 'agent-a'),
+      }),
+    );
+    const tool = tools.find((t) => t.name === 'list_pending_approvals')!;
+    const result = await tool.execute({}, makeContext());
+    expect(result.status).toBe('success');
+    const data = result.data as Array<{ requesterId: string }>;
+    expect(data).toHaveLength(1);
+    expect(data[0].requesterId).toBe('agent-a');
   });
 
   it('filters by conversationId', async () => {

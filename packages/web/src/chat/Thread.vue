@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useToolStream } from '../composables/useToolStream.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
 import MessagePart from './MessagePart.vue';
 import ForkControls from './ForkControls.vue';
 import MessageActions from './MessageActions.vue';
@@ -150,6 +151,45 @@ const tailApprovals = computed(() =>
     : [],
 );
 
+// Conversation-scoped activity: WebConnector does not forward eventBus events,
+// so approvals and tool activity arrive through watch_activity. One Thread
+// instance serves every conversation (ChatView swaps activeId), so restart the
+// stream whenever the conversation changes.
+const thinking = ref(false);
+const activityStream = useToolStream(
+  'watch_activity',
+  () => ({ conversationId: props.conversationId ?? '' }),
+  {
+    onChunk: (chunk) => {
+      if (chunk.type === 'iteration') {
+        thinking.value = true;
+      } else if (chunk.type === 'approval:requested' || chunk.type === 'approval:resolved') {
+        void approvals.refresh().catch(() => {});
+        void load();
+      } else if (chunk.type === 'tool:result') {
+        void load();
+      }
+    },
+  },
+);
+
+watch(
+  () => [useWebSocket().getConnectionId(), props.conversationId] as const,
+  ([id, conversationId]) => {
+    if (id && conversationId) void activityStream.start();
+    else if (!conversationId) void activityStream.cancel().catch(() => {});
+  },
+  { immediate: true },
+);
+
+watch(activityStream.error, (err) => {
+  if (err) thinking.value = false;
+});
+
+watch(isStreaming, (active) => {
+  if (active) thinking.value = false;
+});
+
 // Live tokens: stream the communicate tool the carried-over way. Final-review
 // C1/I1 fix: ChatView drives sends through the exposed send(); conversationId
 // is required here or the backend creates a NEW conversation instead of
@@ -190,6 +230,7 @@ const stream = useToolStream('communicate', () => pendingArgs, {
 watch(stream.done, (isDone) => {
   if (isDone) {
     isStreaming.value = false;
+    thinking.value = false;
     // Draft send (no conversationId prop): the communicate result carries the
     // server-created conversation id (same shape useConversation unwraps) —
     // bubble it up so ChatView can replace the draft route with the real one.
@@ -203,6 +244,7 @@ watch(stream.error, (err) => {
   if (err) {
     streamError.value = friendlyToolError(err);
     isStreaming.value = false;
+    thinking.value = false;
   }
 });
 
@@ -350,6 +392,9 @@ watch(
           :approval="a"
           @resolved="onResolved(a.approvalId)"
         />
+        <div v-if="thinking" data-test="thinking-indicator" class="px-1 text-xs text-faint">
+          Thinking…
+        </div>
         <div v-if="isStreaming" data-test="streaming-part" class="flex flex-col gap-2">
           <!--
             Draft send (no conversationId prop): persisting via load() waits for

@@ -11,12 +11,15 @@ const approval = {
   createdAt: '2026-10-08T00:00:00Z',
 };
 
-function okFetch(): ReturnType<typeof vi.fn> {
-  return vi
-    .fn()
-    .mockResolvedValue(
-      new Response(JSON.stringify({ result: { status: 'success', data: {} } }), { status: 200 }),
-    );
+function okFetch(outcome = 'approve'): ReturnType<typeof vi.fn> {
+  return vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        result: { status: 'success', data: { results: [{ approvalId: 'a1', outcome }] } },
+      }),
+      { status: 200 },
+    ),
+  );
 }
 
 describe('ApprovalCard', () => {
@@ -49,7 +52,7 @@ describe('ApprovalCard', () => {
   });
 
   it('reject with reason includes the message and emits resolved', async () => {
-    const fetchMock = okFetch();
+    const fetchMock = okFetch('reject');
     vi.stubGlobal('fetch', fetchMock);
     const wrapper = mount(ApprovalCard, { props: { approval } });
     await wrapper.find('[data-test="approval-reason-toggle"]').trigger('click');
@@ -60,6 +63,26 @@ describe('ApprovalCard', () => {
     expect(body.args.decisions[0].decision).toBe('reject');
     expect(body.args.decisions[0].message).toBe('not today');
     expect(wrapper.emitted('resolved')?.[0]).toEqual([false]);
+  });
+
+  it('keeps the card when the decision is unauthorized', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: {
+            status: 'success',
+            data: { results: [{ approvalId: 'a1', outcome: 'unauthorized' }] },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(ApprovalCard, { props: { approval } });
+    await wrapper.find('[data-test="approval-approve"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.emitted('resolved')).toBeUndefined();
+    expect(wrapper.find('[data-test="approval-error"]').text()).toContain('unauthorized');
   });
 
   it('surfaces a tool error instead of dying silently', async () => {

@@ -27,6 +27,34 @@ vi.mock('../composables/useAuth.js', () => ({
   useAuth: () => ({ getToken: () => 'tok', participantId: { value: 'operator' } }),
 }));
 
+// Thread also opens a conversation-scoped watch_activity stream. Stub only that
+// tool so the stream-count assertions below see just the communicate POST.
+vi.mock('../composables/useToolStream.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../composables/useToolStream.js')>();
+  const { ref } = await import('vue');
+  return {
+    ...actual,
+    useToolStream: (
+      toolName: string,
+      getArgs: () => unknown,
+      options: { onChunk?: (chunk: unknown) => void },
+    ) => {
+      if (toolName !== 'watch_activity') return actual.useToolStream(toolName, getArgs, options);
+      return {
+        start: vi.fn(async () => {}),
+        cancel: vi.fn(async () => {}),
+        chunks: ref([]),
+        done: ref(false),
+        error: ref<string | null>(null),
+        active: ref(false),
+        cancelling: ref(false),
+        conversationId: ref<string | null>(null),
+        result: ref<unknown>(null),
+      };
+    },
+  };
+});
+
 import ChatView from './ChatView.vue';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useConversations } from '../composables/useConversations.js';

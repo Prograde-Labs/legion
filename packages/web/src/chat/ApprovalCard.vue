@@ -23,15 +23,28 @@ async function decide(approved: boolean): Promise<void> {
   busy.value = true;
   error.value = null;
   try {
-    await execute('approval_response', {
-      decisions: [
-        {
-          approvalId: props.approval.approvalId,
-          decision: approved ? 'approve' : 'reject',
-          ...(reason.value ? { message: reason.value } : {}),
-        },
-      ],
-    });
+    const result = await execute<{ results: Array<{ approvalId: string; outcome: string }> }>(
+      'approval_response',
+      {
+        decisions: [
+          {
+            approvalId: props.approval.approvalId,
+            decision: approved ? 'approve' : 'reject',
+            ...(reason.value ? { message: reason.value } : {}),
+          },
+        ],
+      },
+    );
+    const outcome = result.results?.find(
+      (r) => r.approvalId === props.approval.approvalId,
+    )?.outcome;
+    if (
+      !outcome ||
+      !['approve', 'reject', 'acknowledged', 'already_acknowledged'].includes(outcome)
+    ) {
+      error.value = `Approval not applied: ${outcome ?? 'unknown'}`;
+      return;
+    }
     emit('resolved', approved);
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);

@@ -6,7 +6,7 @@ import type {
   ToolResult,
 } from '@legion-collective/types';
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
-import type { PendingApprovalRegistry } from '@legion-collective/core';
+import type { AuthEngine, PendingApprovalRegistry } from '@legion-collective/core';
 
 interface RuntimeToolDeps {
   systemStore: SystemProviderStore;
@@ -15,6 +15,7 @@ interface RuntimeToolDeps {
   saveSystemRouting: (routing: RoutingConfig) => Promise<void>;
   saveWorkspaceRouting: (routing: RoutingConfig) => Promise<void>;
   pendingApprovalRegistry: PendingApprovalRegistry;
+  authEngine: AuthEngine;
   getMCPServers: () => Promise<MCPServerConfig[]>;
   saveMCPServers: (servers: MCPServerConfig[]) => Promise<void>;
 }
@@ -27,6 +28,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
     saveSystemRouting,
     saveWorkspaceRouting,
     pendingApprovalRegistry,
+    authEngine,
     getMCPServers,
     saveMCPServers,
   } = deps;
@@ -177,10 +179,19 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         },
         required: [],
       },
-      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+      execute: async (rawArgs: unknown, context): Promise<ToolResult> => {
         try {
           const { conversationId } = (rawArgs ?? {}) as { conversationId?: string };
-          const pending = pendingApprovalRegistry.listPending(conversationId);
+          const pending = pendingApprovalRegistry
+            .listPending(conversationId)
+            .filter((record) =>
+              authEngine.hasAuthority(
+                context.participant.approvalAuthority,
+                record.requesterId,
+                record.tool,
+                record.args,
+              ),
+            );
           return { status: 'success', data: pending };
         } catch (err) {
           return toErrorResult(err);
