@@ -58,6 +58,36 @@ function stubFetch(dataFor: (tool: string) => unknown): void {
   );
 }
 
+describe('ProcessesView errors', () => {
+  it('shows an error banner when the process list fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: unknown, init?: { body?: string }) => {
+        const { tool } = JSON.parse(init?.body ?? '{}') as { tool: string };
+        if (tool === 'list_processes') {
+          return Promise.resolve(
+            new Response(JSON.stringify({ result: { status: 'error', error: 'list failed' } }), {
+              status: 200,
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ result: { status: 'success', data: {} } }), {
+            status: 200,
+          }),
+        );
+      }),
+    );
+    await router.push('/processes');
+    await router.isReady();
+    const wrapper = mount(ProcessesView, { global: { plugins: [router] } });
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="processes-error"]').text()).toContain('list failed'),
+    );
+    wrapper.unmount();
+  });
+});
+
 describe('ProcessesView theming', () => {
   it('uses token utilities, not raw colors (list + start form)', async () => {
     stubFetch(() => []);

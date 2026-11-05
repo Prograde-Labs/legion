@@ -2,7 +2,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import RoutingEditor from './RoutingEditor.vue';
 
+const execute = vi.hoisted(() => vi.fn());
+vi.mock('../../composables/useLegionApi.js', () => ({ useLegionApi: () => ({ execute }) }));
+
 beforeEach(() => {
+  vi.clearAllMocks();
   localStorage.clear();
   vi.unstubAllGlobals();
   localStorage.setItem('legion-token', 'tok');
@@ -20,5 +24,20 @@ describe('RoutingEditor', () => {
     });
     expect(wrapper.findAll('[data-test="routing-row"]')).toHaveLength(1);
     expect(wrapper.find('[data-test="routing-row"]').text()).toContain('DeepSeek-V4.1-Flash-1017');
+  });
+
+  it('shows an error banner when save fails', async () => {
+    execute.mockRejectedValueOnce(new Error('routing failed'));
+    const wrapper = mount(RoutingEditor, {
+      props: {
+        scope: 'system',
+        routing: { models: { 'DeepSeek-V4.1-Flash-1017': ['local'] } },
+        providerNames: ['local'],
+      },
+    });
+    await wrapper.find('[data-test="routing-save"]').trigger('click');
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="routing-error"]').text()).toContain('routing failed'),
+    );
   });
 });

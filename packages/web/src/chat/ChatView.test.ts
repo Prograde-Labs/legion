@@ -56,6 +56,7 @@ vi.mock('../composables/useToolStream.js', async (importOriginal) => {
 });
 
 import ChatView from './ChatView.vue';
+import Composer from './Composer.vue';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useConversations } from '../composables/useConversations.js';
 import { useApprovals } from '../composables/useApprovals.js';
@@ -282,5 +283,104 @@ describe('ChatView draft flow', () => {
       }
     });
     expect(plainCommunicate.length).toBe(0);
+  });
+
+  it('closes the mobile drawer when selecting a new conversation', async () => {
+    vi.stubGlobal('fetch', stubExecute('conv-1'));
+    const router = makeRouter();
+    await router.push('/chat');
+    await router.isReady();
+    const wrapper = mount(ChatView, { global: { plugins: [router] } });
+    await flushPromises();
+    await wrapper.find('[data-test="drawer-toggle"]').trigger('click');
+    expect(wrapper.find('[data-test="drawer-backdrop"]').exists()).toBe(true);
+    await wrapper.find('[data-test="new-conv"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-test="drawer-backdrop"]').exists()).toBe(false);
+  });
+
+  it('closes the mobile drawer when the route returns to the draft', async () => {
+    vi.stubGlobal('fetch', stubExecute('conv-1'));
+    const router = makeRouter();
+    await router.push('/chat/conv-1');
+    await router.isReady();
+    const wrapper = mount(ChatView, { global: { plugins: [router] } });
+    await flushPromises();
+    await wrapper.find('[data-test="drawer-toggle"]').trigger('click');
+    expect(wrapper.find('[data-test="drawer-backdrop"]').exists()).toBe(true);
+    await router.push('/chat');
+    await flushPromises();
+    expect(wrapper.find('[data-test="drawer-backdrop"]').exists()).toBe(false);
+  });
+
+  it('prefers the thread’s last counterpart for the reply target', async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      if (headers['X-Stream-Connection']) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ streamId: 's1', conversationId: 'conv-2' }), {
+            status: 200,
+          }),
+        );
+      }
+      const tool = (JSON.parse(String(init?.body ?? '{}')) as { tool?: string }).tool ?? '';
+      let data: unknown = {};
+      if (tool === 'get_conversation')
+        data = {
+          id: 'conv-2',
+          messages: [
+            {
+              id: 'm1',
+              parentId: null,
+              conversationId: 'conv-2',
+              senderId: 'operator',
+              recipientId: 'agent-a',
+              role: 'user',
+              content: 'first',
+              timestamp: '2026-10-09T00:00:00Z',
+              status: 'active',
+            },
+            {
+              id: 'm2',
+              parentId: 'm1',
+              conversationId: 'conv-2',
+              senderId: 'agent-b',
+              recipientId: 'operator',
+              role: 'assistant',
+              content: 'last',
+              timestamp: '2026-10-09T00:00:01Z',
+              status: 'active',
+            },
+          ],
+        };
+      else if (tool === 'list_conversations')
+        data = {
+          conversations: [
+            {
+              id: 'conv-2',
+              title: 'Two agents',
+              status: 'active',
+              tags: [],
+              createdAt: '2026-10-09T00:00:00Z',
+              updatedAt: '2026-10-09T00:00:01Z',
+              participants: ['operator', 'agent-a', 'agent-b'],
+              messageCount: 2,
+            },
+          ],
+        };
+      else if (tool === 'list_pending_approvals') data = [];
+      else if (tool === 'list_participants') data = AGENTS;
+      return Promise.resolve(
+        new Response(JSON.stringify({ result: { status: 'success', data } }), { status: 200 }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const router = makeRouter();
+    await router.push('/chat/conv-2');
+    await router.isReady();
+    const wrapper = mount(ChatView, { global: { plugins: [router] } });
+    await vi.waitFor(() =>
+      expect(wrapper.findComponent(Composer).props('recipientId')).toBe('agent-b'),
+    );
   });
 });

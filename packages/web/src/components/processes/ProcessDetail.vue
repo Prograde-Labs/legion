@@ -4,6 +4,7 @@ import { useProcess } from '../../composables/useProcess.js';
 import { useToolAccess } from '../../composables/useToolAccess.js';
 import ProcessStatusDot from './ProcessStatusDot.vue';
 import AnsiOutput from './AnsiOutput.vue';
+import { friendlyToolError } from '../../composables/friendlyToolError.js';
 
 const props = defineProps<{ processId: string }>();
 const emit = defineEmits<{ deleted: [] }>();
@@ -58,32 +59,42 @@ const stdinInput = ref('');
 const sending = ref(false);
 const stopping = ref(false);
 const deleting = ref(false);
+const actionError = ref<string | null>(null);
 
 async function onSend(): Promise<void> {
   if (!stdinInput.value) return;
+  actionError.value = null;
   sending.value = true;
   try {
     await send(stdinInput.value);
     stdinInput.value = '';
+  } catch (err) {
+    actionError.value = friendlyToolError(err);
   } finally {
     sending.value = false;
   }
 }
 
 async function onStop(): Promise<void> {
+  actionError.value = null;
   stopping.value = true;
   try {
     await stop();
+  } catch (err) {
+    actionError.value = friendlyToolError(err);
   } finally {
     stopping.value = false;
   }
 }
 
 async function onDelete(): Promise<void> {
+  actionError.value = null;
   deleting.value = true;
   try {
     await del();
     emit('deleted');
+  } catch (err) {
+    actionError.value = friendlyToolError(err);
   } finally {
     deleting.value = false;
   }
@@ -107,6 +118,14 @@ async function onDelete(): Promise<void> {
 
     <!-- Detail view -->
     <template v-else-if="handle">
+      <div
+        v-if="actionError"
+        data-test="process-error"
+        role="alert"
+        class="border-b border-line px-4 py-2 text-xs text-danger"
+      >
+        {{ actionError }}
+      </div>
       <!-- Header bar -->
       <div class="flex items-center gap-3 px-4 py-2.5 border-b border-line flex-shrink-0">
         <ProcessStatusDot :status="handle.status" />
@@ -129,6 +148,7 @@ async function onDelete(): Promise<void> {
         <div class="ml-auto flex items-center gap-2">
           <button
             v-if="canStop"
+            data-test="process-stop"
             :disabled="!isRunning || stopping"
             class="text-xs px-3 py-1 rounded border transition-colors"
             :class="
@@ -142,6 +162,7 @@ async function onDelete(): Promise<void> {
           </button>
           <button
             v-if="canDelete"
+            data-test="process-delete"
             :disabled="isRunning || deleting"
             class="text-xs px-3 py-1 rounded border transition-colors"
             :class="
@@ -171,6 +192,7 @@ async function onDelete(): Promise<void> {
           @keydown.enter="onSend"
         />
         <button
+          data-test="process-send"
           :disabled="!stdinInput || sending"
           class="text-xs px-3 py-1.5 rounded border border-line text-muted hover:text-ink hover:border-line-strong disabled:opacity-40"
           @click="onSend"

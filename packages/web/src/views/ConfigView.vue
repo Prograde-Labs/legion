@@ -19,6 +19,7 @@ const workspaceRouting = ref<RoutingConfig>({});
 const providerSlide = ref(false);
 const editingProvider = ref<ProviderConfig | null>(null);
 const loadError = ref<string | null>(null);
+const deleteError = ref<string | null>(null);
 
 async function load() {
   try {
@@ -51,8 +52,14 @@ const typeBadge: Record<string, string> = {
 };
 
 async function deleteProvider(name: string) {
-  await execute('delete_provider', { name });
-  await load();
+  if (!window.confirm(`Delete provider “${name}”?`)) return;
+  deleteError.value = null;
+  try {
+    await execute('delete_provider', { name });
+    await load();
+  } catch (err) {
+    deleteError.value = friendlyToolError(err);
+  }
 }
 </script>
 
@@ -86,6 +93,14 @@ async function deleteProvider(name: string) {
           >
             + Add provider
           </button>
+        </div>
+        <div
+          v-if="deleteError"
+          data-test="delete-error"
+          role="alert"
+          class="mb-3 text-xs text-danger bg-danger/10 border border-danger/20 rounded p-3"
+        >
+          {{ deleteError }}
         </div>
         <table
           class="w-full border-collapse bg-surface rounded-lg border border-line overflow-hidden text-xs"
@@ -135,6 +150,7 @@ async function deleteProvider(name: string) {
                 </button>
                 <button
                   v-if="canDeleteProvider"
+                  data-test="provider-delete"
                   @click="deleteProvider(p.name)"
                   class="text-danger hover:brightness-110"
                 >

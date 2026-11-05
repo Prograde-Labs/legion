@@ -553,6 +553,14 @@ describe('AgentEditor', () => {
     });
   });
 
+  it('hides the authority save button for a new agent', async () => {
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(AgentEditor, { props: { participantId: 'new' } });
+    await flushPromises();
+    // The caller may set authority, but a participant does not exist yet.
+    expect(wrapper.find('[data-test="authority-save"]').exists()).toBe(false);
+  });
+
   it('retire hidden for protected participants', async () => {
     vi.stubGlobal(
       'fetch',

@@ -338,7 +338,7 @@ const groupedModels = computed(() => {
       <span class="text-xs text-faint">Approval authority</span>
       <ApprovalAuthorityEditor v-model="authorityModel" :available-tools="availableTools" />
       <button
-        v-if="canSetAuthority"
+        v-if="canSetAuthority && participantId !== 'new'"
         type="button"
         data-test="authority-save"
         :disabled="busy"

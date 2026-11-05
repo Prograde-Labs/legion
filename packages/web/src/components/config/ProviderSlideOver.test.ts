@@ -2,8 +2,8 @@ import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProviderSlideOver from './ProviderSlideOver.vue';
 
-const execute = vi.fn();
-vi.mock('../../composables/useExecute.js', () => ({ useExecute: () => ({ execute }) }));
+const execute = vi.hoisted(() => vi.fn());
+vi.mock('../../composables/useLegionApi.js', () => ({ useLegionApi: () => ({ execute }) }));
 
 async function openForm() {
   const wrapper = mount(ProviderSlideOver, {
@@ -15,12 +15,26 @@ async function openForm() {
 }
 
 describe('ProviderSlideOver provider types', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('offers openai-responses in the type dropdown', async () => {
     const wrapper = await openForm();
     const options = wrapper.findAll('select option').map((o) => o.text());
     expect(options).toContain('openai-responses');
+  });
+
+  it('disables provider types the store cannot construct', async () => {
+    const wrapper = await openForm();
+    const options = wrapper.findAll('select option');
+    const byValue = (value: string) =>
+      options.find((o) => (o.element as HTMLOptionElement).value === value);
+
+    expect((byValue('anthropic')?.element as HTMLOptionElement).disabled).toBe(true);
+    expect((byValue('copilot')?.element as HTMLOptionElement).disabled).toBe(true);
+    expect((byValue('codex')?.element as HTMLOptionElement).disabled).toBe(true);
+    expect((byValue('openai-responses')?.element as HTMLOptionElement).disabled).toBe(false);
   });
 
   it('shows the base URL field for openai-responses', async () => {
@@ -35,5 +49,15 @@ describe('ProviderSlideOver provider types', () => {
     const select = wrapper.get('select');
     await select.setValue('anthropic');
     expect(wrapper.text()).not.toContain('Base URL');
+  });
+
+  it('shows an error banner when save fails', async () => {
+    execute.mockRejectedValueOnce(new Error('save failed'));
+    const wrapper = await openForm();
+    await wrapper.find('[data-test="provider-name"]').setValue('local');
+    await wrapper.find('[data-test="provider-save"]').trigger('click');
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-error"]').text()).toContain('save failed'),
+    );
   });
 });

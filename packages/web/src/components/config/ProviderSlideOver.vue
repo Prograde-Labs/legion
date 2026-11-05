@@ -3,6 +3,7 @@ import { ref, watch } from 'vue';
 import type { ProviderConfig } from '@legion-collective/types';
 import SlideOver from '../common/SlideOver.vue';
 import { useLegionApi } from '../../composables/useLegionApi.js';
+import { friendlyToolError } from '../../composables/friendlyToolError.js';
 
 const props = defineProps<{
   open: boolean;
@@ -17,6 +18,7 @@ const baseUrl = ref('');
 const apiKey = ref('');
 const priority = ref(10);
 const saving = ref(false);
+const error = ref<string | null>(null);
 const apiKeyPlaceholder = ref('');
 
 watch(
@@ -34,6 +36,7 @@ watch(
 
 async function save() {
   saving.value = true;
+  error.value = null;
   try {
     const payload: ProviderConfig = {
       name: name.value,
@@ -49,6 +52,8 @@ async function save() {
     await execute('save_provider', payload);
     emit('saved');
     emit('close');
+  } catch (err) {
+    error.value = friendlyToolError(err);
   } finally {
     saving.value = false;
   }
@@ -62,12 +67,16 @@ async function save() {
     @close="emit('close')"
   >
     <div class="p-5 space-y-4">
+      <p v-if="error" data-test="provider-error" role="alert" class="text-xs text-danger">
+        {{ error }}
+      </p>
       <div>
         <label class="text-[10px] uppercase tracking-widest text-muted font-semibold block mb-1"
           >Name</label
         >
         <input
           v-model="name"
+          data-test="provider-name"
           :readonly="!!provider"
           class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink font-mono outline-none"
         />
@@ -81,11 +90,11 @@ async function save() {
           v-model="type"
           class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink"
         >
-          <option>openai-compatible</option>
-          <option>openai-responses</option>
-          <option>anthropic</option>
-          <option>copilot</option>
-          <option>codex</option>
+          <option value="openai-compatible">openai-compatible</option>
+          <option value="openai-responses">openai-responses</option>
+          <option value="anthropic" disabled>anthropic (not implemented)</option>
+          <option value="copilot" disabled>copilot (not implemented)</option>
+          <option value="codex" disabled>codex (not implemented)</option>
         </select>
       </div>
       <div v-if="type === 'openai-compatible' || type === 'openai-responses'">
@@ -94,6 +103,7 @@ async function save() {
         >
         <input
           v-model="baseUrl"
+          data-test="provider-base-url"
           placeholder="https://api.openai.com/v1"
           class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink font-mono outline-none"
         />
@@ -104,6 +114,7 @@ async function save() {
         >
         <input
           v-model="apiKey"
+          data-test="provider-api-key"
           type="password"
           :placeholder="apiKeyPlaceholder || 'sk-...'"
           class="w-full bg-bg border border-line rounded px-3 py-1.5 text-sm text-ink font-mono outline-none"
@@ -136,6 +147,7 @@ async function save() {
           Cancel
         </button>
         <button
+          data-test="provider-save"
           @click="save"
           :disabled="saving"
           class="text-xs px-3 py-1.5 bg-accent text-on-accent font-bold rounded disabled:opacity-50"

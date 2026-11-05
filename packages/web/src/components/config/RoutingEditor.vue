@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue';
 import type { RoutingConfig } from '@legion-collective/types';
 import { useLegionApi } from '../../composables/useLegionApi.js';
+import { friendlyToolError } from '../../composables/friendlyToolError.js';
 
 const props = defineProps<{
   scope: 'system' | 'workspace';
@@ -26,6 +27,7 @@ watch(
 
 const newModelId = ref('');
 const saving = ref(false);
+const error = ref<string | null>(null);
 
 function addRow() {
   const id = newModelId.value.trim();
@@ -74,6 +76,7 @@ const availableForRow = computed(() => (rowIndex: number) => {
 
 async function save() {
   saving.value = true;
+  error.value = null;
   try {
     const models: Record<string, string[]> = {};
     for (const row of rows.value) {
@@ -83,6 +86,8 @@ async function save() {
     }
     await execute('save_routing', { scope: props.scope, routing: { models } });
     emit('saved');
+  } catch (err) {
+    error.value = friendlyToolError(err);
   } finally {
     saving.value = false;
   }
@@ -163,8 +168,13 @@ async function save() {
       </button>
     </div>
 
+    <p v-if="error" data-test="routing-error" role="alert" class="text-xs text-danger">
+      {{ error }}
+    </p>
+
     <div class="flex justify-end pt-2">
       <button
+        data-test="routing-save"
         @click="save"
         :disabled="saving"
         class="text-xs px-3 py-1.5 bg-accent text-on-accent font-bold rounded disabled:opacity-50"

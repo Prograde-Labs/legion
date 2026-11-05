@@ -37,8 +37,8 @@ watch(
   () => route.params.id as string | undefined,
   (id) => {
     store.select(id ?? null);
+    drawerOpen.value = false;
     if (id) {
-      drawerOpen.value = false;
       // Reading a conversation marks it read (spec §4.1 unread dot clears).
       useReadState().markRead(id);
     }
@@ -56,6 +56,7 @@ watch(
 );
 
 function onSelect(id: string | null): void {
+  drawerOpen.value = false;
   void router.push(id ? `/chat/${id}` : '/chat');
 }
 
@@ -130,11 +131,12 @@ const branchLabel = ref<string | undefined>(undefined);
 const auth = useAuth();
 const conversationRecipient = computed<string | null>(() => {
   if (isDraft.value) return recipientId.value;
+  const fromThread = threadRef.value?.threadRecipient ?? null;
+  if (fromThread && useParticipants().byId(fromThread)?.type === 'agent') return fromThread;
   const conv = store.conversations.value.find((c) => c.id === activeId.value);
   const others = (conv?.participants ?? []).filter((p) => p !== auth.participantId.value);
   const agent = others.find((p) => useParticipants().byId(p)?.type === 'agent');
-  if (agent || others[0]) return agent ?? others[0] ?? null;
-  return threadRef.value?.threadRecipient ?? null;
+  return agent ?? others[0] ?? null;
 });
 
 // Thread emits `created` after a draft send's streaming communicate completes:

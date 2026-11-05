@@ -54,7 +54,10 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         type: 'object',
         properties: {
           name: { type: 'string' },
-          type: { type: 'string', enum: ['openai-compatible', 'anthropic', 'copilot', 'codex'] },
+          type: {
+            type: 'string',
+            enum: ['openai-compatible', 'openai-responses', 'anthropic', 'copilot', 'codex'],
+          },
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },
           priority: { type: 'number' },

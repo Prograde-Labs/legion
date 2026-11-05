@@ -139,6 +139,14 @@ describe('runtime tools', () => {
     expect(systemStore._store.get('local')).toEqual(config);
   });
 
+  it('save_provider advertises openai-responses as a supported type', () => {
+    const tools = createRuntimeTools(makeDeps());
+    const schema = tool(tools, 'save_provider').parameters as {
+      properties?: { type?: { enum?: string[] } };
+    };
+    expect(schema.properties?.type?.enum).toContain('openai-responses');
+  });
+
   it('delete_provider deletes and returns provider name', async () => {
     const systemStore = makeSystemStore([
       { name: 'local', type: 'openai-compatible', priority: 10 },
