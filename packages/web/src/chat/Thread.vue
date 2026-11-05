@@ -15,7 +15,6 @@ import { friendlyToolError } from '../composables/friendlyToolError.js';
 import type { MessageData, StreamChunk } from '@legion-collective/types';
 
 // Shape returned by the get_conversation tool (messages already as ordered array).
-// Mirrors useConversation.ts's exported type.
 type MessageWithAlternates = MessageData & {
   alternates?: Array<{ id: string; content: string; timestamp: string; status: string }>;
 };
@@ -263,8 +262,8 @@ watch(stream.done, (isDone) => {
     thinking.value = false;
     clearThinkingTimer();
     // Draft send (no conversationId prop): the communicate result carries the
-    // server-created conversation id (same shape useConversation unwraps) —
-    // bubble it up so ChatView can replace the draft route with the real one.
+    // server-created conversation id — bubble it up so ChatView can replace the
+    // draft route with the real one.
     const result = stream.result.value as { data?: { conversationId?: string } } | null;
     const newConvId = result?.data?.conversationId;
     if (newConvId && !props.conversationId) emit('created', newConvId);

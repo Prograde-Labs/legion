@@ -339,47 +339,4 @@ test.describe('middleware system', () => {
       ),
     ).toHaveLength(1);
   });
-
-  test('browser exposes archived helper filters and resolved titles', async ({ authPage, api }) => {
-    const agent = unique('browser-title-agent');
-    const namer = unique('browser-title-namer');
-    await createAgent(api, token, namer, [], {});
-    await createAgent(
-      api,
-      token,
-      agent,
-      [
-        {
-          id: 'browser-naming',
-          type: 'builtin:conversation-naming',
-          config: {
-            namingParticipantId: namer,
-            maximumLength: 80,
-            guidance: 'E2E_SHARED_TITLE',
-            scope: 'shared',
-            excludedTags: [],
-          },
-        },
-      ],
-      { generate_conversation_title: 'auto' },
-    );
-    await api.executeBuffered(token, 'communicate', {
-      to: agent,
-      message: 'E2E_NAMING_PARENT browser',
-    });
-
-    const { page } = authPage;
-    await page.goto('/#/conversations');
-    await expect(page.getByText('Shared Middleware Title', { exact: true }).first()).toBeVisible();
-    // Helper conversations belong to agent↔namer, so the default "Mine" mode hides them.
-    await page.getByRole('button', { name: 'All', exact: true }).click();
-    await page.locator('[data-status="archived"]').click();
-    await page.locator('[data-tag-filter]').fill('conversation-title');
-    await page.locator('[data-tag-filter]').press('Tab');
-    await expect(page.locator('[data-conversation-title]').first()).toBeVisible();
-    await page.locator('[data-tag-filter]').fill('');
-    await page.locator('[data-tag-filter]').press('Tab');
-    await page.locator('[data-status="active"]').click();
-    await expect(page.getByText('Shared Middleware Title', { exact: true }).first()).toBeVisible();
-  });
 });

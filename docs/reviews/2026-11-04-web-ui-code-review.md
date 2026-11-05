@@ -156,9 +156,11 @@ No login rate limiting (`auth.ts:22-46`); JWT in localStorage (`useAuth.ts:10`);
 
 `LoginView.vue:22`; spec §3.1 says Chat is home and the router redirects `/` → `/chat`. Pick one and update e2e.
 
-### [x] M15. Stale e2e specs target the removed UI
+### [~] M15. Stale e2e specs target the removed UI
 
 `packages/e2e/tests/participants/participants.spec.ts` (table rows/slide-over), `config/providers.spec.ts` (“Provider instances available to agents”, default-model field), and `config/credentials.spec.ts` (`/config/credentials` route doesn’t exist). The Playwright config runs all `tests/`, so the full e2e gate will fail; these need deletion/rewrite.
+
+**Status:** stale specs deleted (`participants.spec.ts`, `config/credentials.spec.ts`, and the legacy `/#/conversations` browser test in `middleware/middleware.spec.ts`); `config/providers.spec.ts` rewritten against the new Config page. The rewritten spec has not been executed — no Playwright browsers in the review environment — so verification is pending CI.
 
 ### [x] M16. Dead code remains
 
