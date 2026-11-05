@@ -58,6 +58,11 @@ End state of the full plan set: a **functional web connector + Vue web interface
 
 **This session:** generating Plans 1–10 (foundation batch through LegionProcess + web server).
 
+## Post-MVP
+
+Work after the v2 build sequence is triaged in
+[`012-post-mvp-roadmap.md`](./012-post-mvp-roadmap.md) (source: the workspace wishlist notes).
+
 ## Dependency notes
 
 - Plan 7 (approval bubbling) is split from Plan 4 because emergent cross-connector
