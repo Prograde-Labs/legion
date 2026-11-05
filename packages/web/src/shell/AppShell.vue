@@ -45,7 +45,7 @@ watch(
   () => ws.getConnectionId(),
   (id, previous) => {
     if (!id) return;
-    void activity.start();
+    void activity.start().catch(() => undefined);
     // Skip the initial mount (previous === undefined): the auth watch above
     // already refreshes. Every later transition (including null → id) resyncs.
     if (previous !== undefined) void approvals.refresh().catch(() => {});

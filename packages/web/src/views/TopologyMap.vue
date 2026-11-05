@@ -133,7 +133,7 @@ onMounted(() => {
 watch(
   () => getConnectionId(),
   (id) => {
-    if (id) void activityStream.start();
+    if (id) void activityStream.start().catch(() => undefined);
   },
   { immediate: true },
 );

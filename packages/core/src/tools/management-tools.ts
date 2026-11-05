@@ -272,6 +272,9 @@ export const listParticipantsTool: Tool = {
           status: p.status ?? 'active',
           middleware: structuredClone(p.middleware ?? []),
           middlewareRevision: p.middlewareRevision ?? 0,
+          // Only user participants carry the operator flag; the roster is used by
+          // the web UI to gate operator-only controls and last-operator checks.
+          ...(p.type === 'user' ? { operator: p.operator === true } : {}),
         }));
       return { status: 'success', data: list };
     } catch (err) {

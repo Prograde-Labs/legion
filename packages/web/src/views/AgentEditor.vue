@@ -286,6 +286,9 @@ const groupedModels = computed(() => {
         :skills="[]"
         :credential-keys="[]"
       />
+      <p v-if="!canSetMiddleware" data-test="middleware-readonly" class="text-xs text-muted">
+        You do not have permission to change middleware; the existing configuration is preserved.
+      </p>
     </div>
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>

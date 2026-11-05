@@ -4,6 +4,7 @@ import UserEditor from './UserEditor.vue';
 import { useAuth } from '../composables/useAuth.js';
 import { useParticipants } from '../composables/useParticipants.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
+import type { BaseParticipant } from '@legion-collective/types';
 
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
 
@@ -45,11 +46,29 @@ function seedAuth(participantId = 'operator'): void {
   useAuth().participantId.value = participantId;
 }
 
-/** Seed the roster so the editor can resolve whether the caller is an operator. */
+/**
+ * Seed the roster exactly as `list_participants` returns it (no tools or
+ * approvalAuthority; `operator` is only emitted for users).
+ */
+function seedRoster(entries: Array<{ id: string; operator: boolean }>): void {
+  useParticipants().__setParticipantsForTests(
+    entries.map(
+      (entry) =>
+        ({
+          id: entry.id,
+          name: entry.id,
+          type: 'user',
+          status: 'active',
+          middleware: [],
+          middlewareRevision: 0,
+          operator: entry.operator,
+        }) as unknown as BaseParticipant,
+    ),
+  );
+}
+
 function seedParticipants(operator = true): void {
-  useParticipants().__setParticipantsForTests([
-    { id: 'operator', name: 'Operator', type: 'user', tools: {}, operator },
-  ]);
+  seedRoster([{ id: 'operator', operator }]);
 }
 
 function waitLoaded(wrapper: ReturnType<typeof mount>): Promise<void> {
@@ -315,5 +334,92 @@ describe('UserEditor', () => {
       expect(call).toBeDefined();
       expect(JSON.parse(String(call![1]?.body)).args).not.toHaveProperty('operator');
     });
+  });
+
+  it('refuses to create a user with a password when the caller cannot set that credential', async () => {
+    seedParticipants(false);
+    mockCan((tool) => (tool === 'create_user' || tool === 'set_credential' ? 'auto' : 'hidden'));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(UserEditor, { props: { participantId: 'new' } });
+    await wrapper.find('[data-test="user-name"]').setValue('New User');
+    await wrapper.find('input[name="new-password"]').setValue('long-enough-pass');
+    await wrapper.find('input[name="confirm-password"]').setValue('long-enough-pass');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(calls).not.toContain('create_user');
+    expect(calls).not.toContain('set_credential');
+    expect(wrapper.find('[data-test="editor-error"]').text()).toContain('credential');
+  });
+
+  it('lets a non-operator change their own password', async () => {
+    seedParticipants(false);
+    seedAuth('alice');
+    mockCan((tool) => (tool === 'modify_user' || tool === 'set_credential' ? 'auto' : 'hidden'));
+    const fetchMock = stubFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    await wrapper.find('input[name="new-password"]').setValue('long-enough-pass');
+    await wrapper.find('input[name="confirm-password"]').setValue('long-enough-pass');
+    await wrapper.find('form').trigger('submit');
+    await vi.waitFor(() => {
+      const cred = fetchMock.mock.calls
+        .map(([, init]) => JSON.parse(String(init?.body)))
+        .find((b) => b.tool === 'set_credential');
+      expect(cred).toBeDefined();
+      expect(cred!.args).toEqual({ participantId: 'alice', secret: 'long-enough-pass' });
+    });
+  });
+
+  it('disables retire for the last active operator using the roster flag', async () => {
+    seedRoster([
+      { id: 'operator', operator: false },
+      { id: 'alice', operator: true },
+    ]);
+    vi.stubGlobal('fetch', stubFetch({ ...USER, operator: true }));
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    const retire = wrapper.find('[data-test="retire"]');
+    expect(retire.exists()).toBe(true);
+    expect((retire.element as HTMLButtonElement).disabled).toBe(true);
+    expect(retire.attributes('title')).toContain('last active operator');
+  });
+
+  it('notes that approval authority is preserved when it cannot be saved', async () => {
+    mockCan((tool) => (tool === 'modify_user' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    const note = wrapper.find('[data-test="authority-readonly"]');
+    expect(note.exists()).toBe(true);
+    expect(note.text()).toContain('preserved');
+  });
+
+  it('skips authority save on create when the caller lacks set_approval_authority', async () => {
+    mockCan((tool) => (tool === 'create_user' ? 'auto' : 'hidden'));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(UserEditor, { props: { participantId: 'new' } });
+    await wrapper.find('[data-test="user-name"]').setValue('New User');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+    expect(calls).toContain('create_user');
+    expect(calls).not.toContain('set_approval_authority');
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
 });

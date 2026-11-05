@@ -200,7 +200,7 @@ const activityStream = useToolStream(
 watch(
   () => [useWebSocket().getConnectionId(), props.conversationId] as const,
   ([id, conversationId]) => {
-    if (id && conversationId) void activityStream.start();
+    if (id && conversationId) void activityStream.start().catch(() => undefined);
     else if (!conversationId) void activityStream.cancel().catch(() => {});
   },
   { immediate: true },

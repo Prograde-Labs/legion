@@ -206,6 +206,34 @@ describe('management tools', () => {
     expect((result.data as { id: string }[]).some((p) => p.id === 'operator')).toBe(true);
   });
 
+  it('list_participants exposes the operator flag on user participants', async () => {
+    const { context, collective } = await makeContext();
+    await collective.add({ id: 'alice', name: 'Alice', type: 'user', tools: {} });
+    const result = await listParticipantsTool.execute({}, context);
+    const roster = result.data as Array<{ id: string; operator?: boolean }>;
+    expect(roster.find((p) => p.id === 'operator')?.operator).toBe(true);
+    expect(roster.find((p) => p.id === 'alice')?.operator).toBe(false);
+  });
+
+  it('list_participants omits the operator flag for non-user participants', async () => {
+    const { context, collective } = await makeContext();
+    await collective.add({
+      id: 'agent-a',
+      name: 'Agent A',
+      type: 'agent',
+      tools: {},
+      systemPrompt: 'test',
+      model: { model: 'test' },
+      maxIterations: 20,
+    });
+    const result = await listParticipantsTool.execute({}, context);
+    const agent = (result.data as Array<Record<string, unknown>>).find(
+      (p) => p['id'] === 'agent-a',
+    );
+    expect(agent).toBeDefined();
+    expect(agent).not.toHaveProperty('operator');
+  });
+
   it('list_participants exposes effective middleware defaults', async () => {
     const { context } = await makeContext();
     const result = await listParticipantsTool.execute({}, context);

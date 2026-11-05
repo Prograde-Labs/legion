@@ -266,6 +266,41 @@ describe('AgentEditor', () => {
     expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
 
+  it('skips middleware save on create when the caller lacks set_participant_middleware', async () => {
+    mockCan((tool) => (tool === 'create_agent' ? 'auto' : 'hidden'));
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        calls.push(body.tool);
+        return toolResponse(body.tool, {});
+      }),
+    );
+    const wrapper = mount(AgentEditor, { props: { participantId: 'new' } });
+    await wrapper.find('[data-test="agent-name"]').setValue('Fresh Agent');
+    await wrapper.find('[data-test="agent-model"]').setValue('gpt-4o');
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await flushPromises();
+    expect(calls).toContain('create_agent');
+    expect(calls).not.toContain('set_participant_middleware');
+    expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
+  });
+
+  it('notes that middleware is preserved when it cannot be saved', async () => {
+    mockCan((tool) => (tool === 'modify_agent' ? 'auto' : 'hidden'));
+    vi.stubGlobal('fetch', stubFetch());
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-model"]').element as HTMLInputElement).value).toBe(
+        'gpt-4o',
+      ),
+    );
+    const note = wrapper.find('[data-test="middleware-readonly"]');
+    expect(note.exists()).toBe(true);
+    expect(note.text()).toContain('preserved');
+  });
+
   it('retire hidden for protected participants', async () => {
     vi.stubGlobal(
       'fetch',

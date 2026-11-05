@@ -80,6 +80,14 @@ describe('create_user', () => {
     expect(result.status).toBe('success');
     expect((collective.get('u2') as UserConfig).operator).toBeUndefined();
   });
+
+  it('refuses an explicit operator flag from a non-operator', async () => {
+    const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
+    const result = await createUserTool.execute({ id: 'u2', name: 'U2', operator: false }, context);
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('operator');
+    expect(collective.get('u2')).toBeUndefined();
+  });
 });
 
 describe('modify_user', () => {
@@ -138,6 +146,23 @@ describe('modify_user', () => {
     expect(result.status).toBe('error');
     expect(result.error).toContain('operator');
     expect((collective.get('u1') as UserConfig).operator).toBeUndefined();
+  });
+
+  it('refuses to demote an operator unless the caller is an operator', async () => {
+    const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
+    // Keep a second operator so the collective's last-operator invariant does not
+    // mask the privilege guard being tested here.
+    await collective.add({
+      id: 'other-op',
+      name: 'Other Operator',
+      type: 'user',
+      tools: {},
+      operator: true,
+    });
+    const result = await modifyUserTool.execute({ id: 'operator', operator: false }, context);
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('operator');
+    expect((collective.get('operator') as UserConfig).operator).toBe(true);
   });
 
   it('allows an operator to promote another user', async () => {

@@ -28,10 +28,11 @@ const canSave = computed(() =>
 const canSetCredential = computed(() => toolAccess.can('set_credential') === 'auto');
 const canSetAuthority = computed(() => toolAccess.can('set_approval_authority') === 'auto');
 const canRetire = computed(() => toolAccess.can('retire_agent') === 'auto');
-// Only an operator may grant the operator flag; hide the control otherwise and
+// Only an operator may change the operator flag; hide the control otherwise and
 // omit the field from the write so a non-operator cannot demote an operator.
+// `operator` comes from list_participants (user entries only).
 const self = computed(() => participants.value.find((p) => p.id === auth.participantId.value));
-const canGrantOperator = computed(() => self.value?.operator === true);
+const callerIsOperator = computed(() => self.value?.operator === true);
 
 const name = ref('');
 const operator = ref(false);
@@ -112,6 +113,12 @@ const identities = computed(() => {
 });
 
 const isSelf = computed(() => props.participantId === auth.participantId.value);
+// Mirrors set_credential's backend rule: self, or an operator acting on anyone.
+// A new participant is never self, so creating one with a password requires an
+// operator caller.
+const canSetCredentialForTarget = computed(
+  () => canSetCredential.value && (isSelf.value || callerIsOperator.value),
+);
 const isProtected = computed(() => Boolean(loaded.value?.['protected']));
 const isLastActiveOperator = computed(() => {
   if (!operator.value) return false;
@@ -132,7 +139,7 @@ const retireTitle = computed(() =>
 async function save(): Promise<void> {
   busy.value = true;
   error.value = null;
-  if (newPassword.value.length > 0 && !canSetCredential.value) {
+  if (newPassword.value.length > 0 && !canSetCredentialForTarget.value) {
     error.value = 'You do not have permission to set credentials.';
     busy.value = false;
     return;
@@ -148,10 +155,10 @@ async function save(): Promise<void> {
         id,
         name: name.value,
         tools: overridesToToolsMap(overrides.value),
-        ...(canGrantOperator.value ? { operator: operator.value } : {}),
+        ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
       if (
-        canSetCredential.value &&
+        canSetCredentialForTarget.value &&
         newPassword.value.length >= 8 &&
         newPassword.value === confirmPassword.value
       ) {
@@ -169,10 +176,10 @@ async function save(): Promise<void> {
         id: props.participantId,
         name: name.value,
         tools: overridesToToolsMap(overrides.value),
-        ...(canGrantOperator.value ? { operator: operator.value } : {}),
+        ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
       if (
-        canSetCredential.value &&
+        canSetCredentialForTarget.value &&
         newPassword.value.length >= 8 &&
         newPassword.value === confirmPassword.value
       ) {
@@ -243,7 +250,7 @@ async function retire(): Promise<void> {
         class="rounded border border-line bg-surface px-2 py-1"
       />
     </label>
-    <label v-if="canGrantOperator" class="flex items-center gap-2 text-xs">
+    <label v-if="callerIsOperator" class="flex items-center gap-2 text-xs">
       <input v-model="operator" type="checkbox" name="operator" data-test="operator" />
       Operator
     </label>
@@ -263,6 +270,10 @@ async function retire(): Promise<void> {
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>
       <ApprovalAuthorityEditor v-model="authority" :available-tools="availableTools" />
+      <p v-if="!canSetAuthority" data-test="authority-readonly" class="text-xs text-muted">
+        You do not have permission to change approval authority; the existing configuration is
+        preserved.
+      </p>
     </div>
     <div v-if="canSave" class="flex flex-col gap-1">
       <span class="text-xs text-faint">Password (leave empty to keep unchanged)</span>

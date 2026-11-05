@@ -37,8 +37,8 @@ export const createUserTool: Tool = {
       operator?: boolean;
       tools?: Record<string, ToolPolicy>;
     };
-    if (operator === true && !callerIsOperator(context)) {
-      return { status: 'error', error: 'Only an operator can grant the operator flag' };
+    if (operator !== undefined && !callerIsOperator(context)) {
+      return { status: 'error', error: 'Only an operator can change the operator flag' };
     }
     try {
       const config: UserConfig = {
@@ -83,8 +83,8 @@ export const modifyUserTool: Tool = {
       operator?: boolean;
       tools?: Record<string, ToolPolicy>;
     };
-    if (operator === true && !callerIsOperator(context)) {
-      return { status: 'error', error: 'Only an operator can grant the operator flag' };
+    if (operator !== undefined && !callerIsOperator(context)) {
+      return { status: 'error', error: 'Only an operator can change the operator flag' };
     }
     try {
       const collective = requireCollective(context);
