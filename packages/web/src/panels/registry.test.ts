@@ -63,6 +63,44 @@ describe('useDock', () => {
     expect(dock.width.value).toBe(500);
   });
 
+  it('falls back to the first tab when the persisted activeId is stale', () => {
+    localStorage.setItem(
+      'legion-dock-c1',
+      JSON.stringify({
+        tabs: [
+          {
+            id: 'tool-detail:a',
+            kind: 'tool-detail',
+            title: 'A',
+            icon: 'T',
+            payload: { tool: 'a' },
+          },
+        ],
+        activeId: 'tool-detail:gone',
+        width: 500,
+      }),
+    );
+    const dock = useDock();
+    dock.setConversation('c1');
+    expect(dock.activeId.value).toBe('tool-detail:a');
+  });
+
+  it('starts empty when the persisted state is corrupted', () => {
+    localStorage.setItem('legion-dock-c1', '{not json');
+    const dock = useDock();
+    dock.setConversation('c1');
+    expect(dock.tabs.value).toEqual([]);
+    expect(dock.activeId.value).toBeNull();
+  });
+
+  it('persists the active tab as it changes', () => {
+    const dock = useDock();
+    dock.setConversation('c1');
+    dock.open({ kind: 'tool-detail', title: 'A', icon: 'T', payload: { tool: 'a' } });
+    dock.open({ kind: 'tool-detail', title: 'B', icon: 'T', payload: { tool: 'b' } });
+    expect(JSON.parse(localStorage.getItem('legion-dock-c1')!).activeId).toBe('tool-detail:b');
+  });
+
   it('persists state per conversation', () => {
     const dock = useDock();
     dock.setConversation('c1');

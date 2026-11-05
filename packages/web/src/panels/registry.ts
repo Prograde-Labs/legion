@@ -53,6 +53,8 @@ function storageKey(): string {
   return `legion-dock-${conversationId.value ?? 'none'}`;
 }
 
+let restoring = false;
+
 function persist(): void {
   if (restoring || conversationId.value === null) return;
   localStorage.setItem(
@@ -60,8 +62,6 @@ function persist(): void {
     JSON.stringify({ tabs: tabs.value, activeId: activeId.value, width: width.value }),
   );
 }
-
-let restoring = false;
 
 function restore(): void {
   restoring = true;
@@ -77,7 +77,13 @@ function restore(): void {
       width?: number;
     };
     tabs.value = saved.tabs ?? [];
-    activeId.value = saved.activeId ?? tabs.value[0]?.id ?? null;
+    // A stale activeId (tab closed/renamed since it was stored) would point at
+    // nothing, leaving the dock blank: fall back to the first restored tab.
+    const savedActive = saved.activeId ?? null;
+    activeId.value =
+      savedActive && tabs.value.some((t) => t.id === savedActive)
+        ? savedActive
+        : (tabs.value[0]?.id ?? null);
     if (saved.width !== undefined) width.value = saved.width;
   } catch {
     // corrupted state: start empty
@@ -86,7 +92,7 @@ function restore(): void {
   }
 }
 
-watch([tabs, width], persist, { deep: true, flush: 'sync' });
+watch([tabs, activeId, width], persist, { deep: true, flush: 'sync' });
 
 export function useDock() {
   function setConversation(id: string | null): void {

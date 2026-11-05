@@ -346,6 +346,22 @@ describe('Thread', () => {
     expect(wrapper.find('[data-highlight="true"]').exists()).toBe(true);
   });
 
+  it('scrollToMessage scrolls the matching message into view', async () => {
+    const original = Element.prototype.scrollIntoView;
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      const wrapper = mount(Thread, { props: { conversationId: 'c1' } });
+      await vi.waitFor(() => expect(wrapper.find('[data-test="msg"]').exists()).toBe(true));
+      const vm = wrapper.vm as unknown as { scrollToMessage: (id: string) => void };
+      vm.scrollToMessage('m1');
+      expect(scrollSpy).toHaveBeenCalledWith({ block: 'center' });
+      expect((scrollSpy.mock.contexts[0] as Element).getAttribute('data-message-id')).toBe('m1');
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('compacts the active conversation from the thread header', async () => {
     // Fresh Response per call — a shared mockResolvedValue Response's body is
     // single-read (res.json() disturbs it), so each fetch needs its own.
