@@ -88,6 +88,7 @@ async function deleteProvider(name: string) {
           </p>
           <button
             v-if="canSaveProvider"
+            data-test="add-provider"
             @click="openProvider(null)"
             class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-line text-accent rounded"
           >
@@ -120,6 +121,7 @@ async function deleteProvider(name: string) {
             <tr
               v-for="p in providers"
               :key="p.name"
+              data-test="provider-row"
               class="border-t border-line hover:bg-surface-raised"
             >
               <td class="px-3 py-2.5 text-muted text-center">{{ p.priority }}</td>
