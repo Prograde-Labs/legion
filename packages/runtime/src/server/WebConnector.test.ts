@@ -97,7 +97,11 @@ async function inject(
 async function rawGet(
   connector: WebConnector,
   path: string,
-): Promise<{ statusCode: number; body: string }> {
+): Promise<{
+  statusCode: number;
+  body: string;
+  headers: Record<string, string | string[] | undefined>;
+}> {
   const app = (connector as any).app as ReturnType<typeof Fastify>;
   const address = app.server.address() as AddressInfo;
   return new Promise((resolve, reject) => {
@@ -107,7 +111,7 @@ async function rawGet(
       res.on('data', (chunk: string) => {
         body += chunk;
       });
-      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body }));
+      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body, headers: res.headers }));
     });
     req.once('error', reject);
     req.end();
@@ -591,15 +595,21 @@ describe('WebConnector: SPA fallback', () => {
 
   it('handles absolute-form request targets', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'legion-webdist-'));
+    mkdirSync(join(dir, 'assets'));
     writeFileSync(join(dir, 'index.html'), '<html>spa-shell</html>');
+    writeFileSync(join(dir, 'assets', 'app-abc123.js'), 'console.log(1)');
     try {
       const { connector } = await makeConnector({ webDistPath: dir });
 
       // Proxies may forward absolute-form targets; the pathname, not the full
-      // URL, decides between an API 404 and the SPA fallback.
+      // URL, decides between an API 404, an immutable asset and the SPA fallback.
       const apiRes = await rawGet(connector, 'http://example.com/api/does-not-exist');
       expect(apiRes.statusCode).toBe(404);
       expect(JSON.parse(apiRes.body)).toEqual({ error: 'Not found' });
+
+      const assetRes = await rawGet(connector, 'http://example.com/assets/app-abc123.js');
+      expect(assetRes.statusCode).toBe(200);
+      expect(assetRes.headers['cache-control']).toBe('public, max-age=31536000, immutable');
 
       const spaRes = await rawGet(connector, 'http://example.com/chat/123');
       expect(spaRes.statusCode).toBe(200);

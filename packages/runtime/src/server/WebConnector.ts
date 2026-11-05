@@ -39,6 +39,19 @@ export interface WebConnectorDeps {
 const WS_AUTH_TIMEOUT_MS = 10_000;
 
 /**
+ * Resolve a request target to a pathname. Absolute-form proxy targets arrive
+ * verbatim, so route/cache decisions must look at the path, not the raw URL.
+ * `new URL` throws on scheme-relative targets like `//`, so degrade gracefully.
+ */
+function requestPathname(url: string): string {
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    return url.split('?')[0];
+  }
+}
+
+/**
  * Applied to every HTTP response via the onSend hook below, and to SSE streams in
  * the execute route (which hijack the response and bypass onSend).
  * Dev-mode Vite responses are hijacked in the onRequest hook and bypass onSend,
@@ -76,7 +89,7 @@ export class WebConnector implements Connector {
       // Hashed build assets are content-addressed; cache them forever. Only a
       // real 200 asset response qualifies — the SPA shell and API responses stay
       // uncached so deploys take effect immediately.
-      if (req.url.startsWith('/assets/') && reply.statusCode === 200) {
+      if (requestPathname(req.url).startsWith('/assets/') && reply.statusCode === 200) {
         reply.header('Cache-Control', 'public, max-age=31536000, immutable');
       }
       return payload;
@@ -100,7 +113,8 @@ export class WebConnector implements Connector {
       this.viteServer = vite;
       app.addHook('onRequest', async (req, reply) => {
         // onRequest fires before route handlers; URL guard lets API routes fall through to Fastify
-        if (req.url.startsWith('/api/') || req.url === '/ws') {
+        const devPath = requestPathname(req.url);
+        if (devPath === '/api' || devPath.startsWith('/api/') || devPath === '/ws') {
           return;
         }
         await new Promise<void>((resolve, reject) => {
@@ -128,15 +142,9 @@ export class WebConnector implements Connector {
         });
         // SPA client-side routing fallback; unknown API routes must stay JSON 404s.
         // Absolute-form targets arrive verbatim; parse the pathname so proxy
-        // traffic still routes correctly. `new URL` throws on scheme-relative
-        // targets like `//`, so fall back to a manual split.
+        // traffic still routes correctly.
         app.setNotFoundHandler((req, reply) => {
-          let pathname: string;
-          try {
-            pathname = new URL(req.url, 'http://localhost').pathname;
-          } catch {
-            pathname = req.url.split('?')[0];
-          }
+          const pathname = requestPathname(req.url);
           if (pathname === '/api' || pathname.startsWith('/api/')) {
             reply.status(404).send({ error: 'Not found' });
             return;

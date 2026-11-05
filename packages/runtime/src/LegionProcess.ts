@@ -487,32 +487,59 @@ const OLD_RUNTIME_TOOL_NAMES = [
   'set_credential_with_meta',
 ] as const;
 
-async function ensureBootstrapRuntimeToolPolicies(collective: Collective): Promise<void> {
+// Read/subscription tools every user participant needs for the web UI to be
+// live: approval events, conversation-list updates, per-conversation messages,
+// and the authoritative pending-approval list (already scoped server-side).
+// None of these can mutate tool policies, credentials, or provider/MCP config.
+const USER_SUBSCRIPTION_TOOL_NAMES = [
+  'list_pending_approvals',
+  'watch_activity',
+  'watch_conversation',
+  'watch_conversations',
+] as const;
+
+export async function ensureBootstrapRuntimeToolPolicies(collective: Collective): Promise<void> {
   const operator = collective.get(BOOTSTRAP_OPERATOR_ID);
-  if (!operator) return;
+  if (operator) {
+    const tools = { ...operator.tools };
+    let changed = false;
+    for (const name of RUNTIME_TOOL_NAMES) {
+      if (!(name in tools)) {
+        tools[name] = 'auto';
+        changed = true;
+      }
+    }
+    for (const name of SUBSCRIPTION_TOOL_NAMES) {
+      if (!(name in tools)) {
+        tools[name] = 'auto';
+        changed = true;
+      }
+    }
+    for (const name of OLD_RUNTIME_TOOL_NAMES) {
+      if (name in tools) {
+        delete tools[name];
+        changed = true;
+      }
+    }
 
-  const tools = { ...operator.tools };
-  let changed = false;
-  for (const name of RUNTIME_TOOL_NAMES) {
-    if (!(name in tools)) {
-      tools[name] = 'auto';
-      changed = true;
-    }
-  }
-  for (const name of SUBSCRIPTION_TOOL_NAMES) {
-    if (!(name in tools)) {
-      tools[name] = 'auto';
-      changed = true;
-    }
-  }
-  for (const name of OLD_RUNTIME_TOOL_NAMES) {
-    if (name in tools) {
-      delete tools[name];
-      changed = true;
-    }
+    if (changed) await collective.update(BOOTSTRAP_OPERATOR_ID, { tools });
   }
 
-  if (changed) await collective.update(BOOTSTRAP_OPERATOR_ID, { tools });
+  // Non-operator users (approvers/participants) get only the read/subscription
+  // tools, so the shell and thread can stream approvals/messages without the
+  // participant needing watch_activity granted explicitly.
+  for (const participant of collective.list()) {
+    if (participant.type !== 'user') continue;
+    const tools = { ...participant.tools };
+    let changed = false;
+    for (const name of USER_SUBSCRIPTION_TOOL_NAMES) {
+      if (!(name in tools)) {
+        tools[name] = 'auto';
+        changed = true;
+      }
+    }
+    if (changed) await collective.update(participant.id, { tools });
+  }
 }
 
 function validateMiddlewareConfiguration(

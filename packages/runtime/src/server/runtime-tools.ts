@@ -8,12 +8,12 @@ import type {
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
 import type { AuthEngine, PendingApprovalRegistry } from '@legion-collective/core';
 
-// Types SystemProviderStore can actually construct; copilot/codex throw
-// NotImplementedError and must not be persisted through save_provider.
+// Types SystemProviderStore can actually construct. copilot/codex throw
+// NotImplementedError, and anthropic is only a legacy mapping (its Messages API
+// is not OpenAI-compatible), so new saves are restricted to the two real types.
 const SUPPORTED_PROVIDER_TYPES = new Set<ProviderConfig['type']>([
   'openai-compatible',
   'openai-responses',
-  'anthropic',
 ]);
 
 interface RuntimeToolDeps {
@@ -64,7 +64,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           name: { type: 'string' },
           type: {
             type: 'string',
-            enum: ['openai-compatible', 'openai-responses', 'anthropic', 'copilot', 'codex'],
+            enum: ['openai-compatible', 'openai-responses'],
           },
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },

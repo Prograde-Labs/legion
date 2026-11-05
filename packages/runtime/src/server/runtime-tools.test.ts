@@ -139,12 +139,14 @@ describe('runtime tools', () => {
     expect(systemStore._store.get('local')).toEqual(config);
   });
 
-  it('save_provider advertises openai-responses as a supported type', () => {
+  it('save_provider advertises only the constructible provider types', () => {
     const tools = createRuntimeTools(makeDeps());
     const schema = tool(tools, 'save_provider').parameters as {
       properties?: { type?: { enum?: string[] } };
     };
-    expect(schema.properties?.type?.enum).toContain('openai-responses');
+    // copilot/codex throw NotImplementedError and anthropic is only a legacy
+    // mapping, so none of them may be advertised for new saves.
+    expect(schema.properties?.type?.enum).toEqual(['openai-compatible', 'openai-responses']);
   });
 
   it('save_provider rejects unsupported provider types', async () => {
@@ -155,6 +157,13 @@ describe('runtime tools', () => {
       tool(tools, 'save_provider').execute({ name: 'unsupported', type: 'codex', priority: 1 }),
     ).resolves.toEqual({ status: 'error', error: expect.stringContaining('codex') });
     expect(systemStore._store.has('unsupported')).toBe(false);
+
+    // Legacy anthropic configs still construct through the store, but new saves
+    // must be rejected so the UI cannot create an OpenAI-compatible mislabel.
+    await expect(
+      tool(tools, 'save_provider').execute({ name: 'legacy', type: 'anthropic', priority: 1 }),
+    ).resolves.toEqual({ status: 'error', error: expect.stringContaining('anthropic') });
+    expect(systemStore._store.has('legacy')).toBe(false);
   });
 
   it('save_provider rejects a non-http baseUrl', async () => {
