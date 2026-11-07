@@ -517,6 +517,89 @@ describe('MiddlewareRunner', () => {
     );
   });
 
+  it('records the scope detail on the rejected middleware action', async () => {
+    const f = await fixture([instance('request', { failureMode: 'open' })]);
+    f.participant.tools = {
+      risky: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-detail',
+          tool: 'risky',
+          arguments: { path: '../escape.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-detail',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('continue');
+    if (result.kind !== 'continue') throw new Error('expected continue');
+    expect(result.actions).toEqual([
+      {
+        requestId: 'scope-detail',
+        participantId: 'participant',
+        instanceId: 'request',
+        tool: 'risky',
+        status: 'rejected',
+        result: {
+          status: 'rejected',
+          message: 'argument scope violation: risky.path must be under work',
+        },
+      },
+    ]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects a scoped requires_approval middleware tool before requesting approval', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = {
+      risky: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const create = vi.spyOn(f.pendingApprovals, 'create');
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-before-approval',
+          tool: 'risky',
+          arguments: { path: '../escape.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-before-approval',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('abort');
+    expect(create).not.toHaveBeenCalled();
+    expect(f.pendingApprovals.listPending(f.thread.id)).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('executes a middleware tool whose arguments satisfy its scope', async () => {
     const f = await fixture([instance('request')]);
     f.participant.tools = {
