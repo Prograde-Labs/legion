@@ -414,7 +414,7 @@ export class AgentRuntime implements Runtime {
             this.participantId,
             tc.name,
             tc.arguments,
-            context.participant.tools,
+            agent.tools,
             { workspaceRoot: context.workspaceRoot },
           );
 

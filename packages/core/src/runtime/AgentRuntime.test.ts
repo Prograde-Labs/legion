@@ -1260,9 +1260,9 @@ describe('AgentRuntime: auth – argument scope', () => {
       { content: 'Done', toolCalls: [], stopReason: 'stop' },
     ]);
     const execute = vi.spyOn(context.toolRegistry, 'execute');
-    context.participant.tools = {
-      echo: { policy: 'auto', scope: { text: { enum: ['ok'] } } },
-    };
+    await context.collective.update('agent-1', {
+      tools: { echo: { policy: 'auto', scope: { text: { enum: ['ok'] } } } },
+    });
 
     const calc = new UsageCalculator(new MockPricingSource({}), new Map());
     const runtime = new AgentRuntime('agent-1', router, calc);
@@ -1273,6 +1273,32 @@ describe('AgentRuntime: auth – argument scope', () => {
     const toolTurn = context.conversation.activeChain.find((m) => m.toolResults?.length);
     expect(toolTurn?.toolResults?.[0].result.status).toBe('error');
     expect(toolTurn?.toolResults?.[0].result.error).toMatch(/argument scope violation: echo\.text/);
+  });
+
+  it('checks scope before approval, so a scope violation never prompts for approval', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'Done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const execute = vi.spyOn(context.toolRegistry, 'execute');
+    await context.collective.update('agent-1', {
+      tools: { echo: { policy: 'requires_approval', scope: { text: { enum: ['ok'] } } } },
+    });
+
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
+    const result = await runtime.handle(inbound, context);
+
+    expect(result.kind).toBe('response');
+    expect(execute).not.toHaveBeenCalled();
+    const toolResults = context.conversation.activeChain.flatMap((m) => m.toolResults ?? []);
+    expect(toolResults.some((tr) => tr.result.status === 'pending_approval')).toBe(false);
+    expect(toolResults[0].result.status).toBe('error');
+    expect(toolResults[0].result.error).toMatch(/argument scope violation: echo\.text/);
   });
 
   it('re-checks scope on approval resume and fails closed after a policy change', async () => {
