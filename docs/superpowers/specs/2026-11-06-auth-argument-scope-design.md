@@ -69,9 +69,7 @@ export interface ArgScope {
 export type ToolScope = Record<string, ArgScope>;
 
 export type ToolPolicy =
-  | 'auto'
-  | 'requires_approval'
-  | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
+  'auto' | 'requires_approval' | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
 ```
 
 A runtime helper in the same module normalizes the two forms:
@@ -95,9 +93,7 @@ export interface ScopeContext {
   workspaceRoot: string;
 }
 
-export type ScopeResult =
-  | { ok: true }
-  | { ok: false; arg: string; reason: string };
+export type ScopeResult = { ok: true } | { ok: false; arg: string; reason: string };
 
 export function evaluateScope(
   tool: string,
@@ -176,14 +172,14 @@ Behaviour:
 `reason: 'scope'` must be handled explicitly at every site; today several sites fall
 through to execution for any reason other than `hidden`/`requires_approval`.
 
-| Site | File | Behaviour |
-| --- | --- | --- |
-| Agent tool loop | `packages/core/src/runtime/AgentRuntime.ts` | Push `{ status: 'error', error: detail }` for the tool call; do not execute |
+| Site            | File                                                                    | Behaviour                                                                                       |
+| --------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Agent tool loop | `packages/core/src/runtime/AgentRuntime.ts`                             | Push `{ status: 'error', error: detail }` for the tool call; do not execute                     |
 | Approval resume | `packages/core/src/runtime/AgentRuntime.ts` (`processResumedApprovals`) | Re-run `authorize()` before executing; on violation, record the error result and do not execute |
-| Service context | `packages/core/src/service/ServiceContextImpl.ts` | Return `{ status: 'error', error: detail }` |
-| Process call | `packages/runtime/src/LegionProcess.ts` (`callTool`) | Return `{ result: { status: 'error', error: detail }, conversationId: '' }` |
-| Process stream | `packages/runtime/src/LegionProcess.ts` (`streamTool`) | Yield `{ type: 'stream:error', error: detail }` |
-| Middleware | `packages/core/src/middleware/MiddlewareRunner.ts` | `toolFailure(..., 'rejected', ...)` with the scope detail |
+| Service context | `packages/core/src/service/ServiceContextImpl.ts`                       | Return `{ status: 'error', error: detail }`                                                     |
+| Process call    | `packages/runtime/src/LegionProcess.ts` (`callTool`)                    | Return `{ result: { status: 'error', error: detail }, conversationId: '' }`                     |
+| Process stream  | `packages/runtime/src/LegionProcess.ts` (`streamTool`)                  | Yield `{ type: 'stream:error', error: detail }`                                                 |
+| Middleware      | `packages/core/src/middleware/MiddlewareRunner.ts`                      | `toolFailure(..., 'rejected', ...)` with the scope detail                                       |
 
 `workspaceRoot` is available as `context.workspaceRoot` at the core and runtime sites.
 `MiddlewareRunnerDependencies` gains a required `workspaceRoot: string`, supplied where

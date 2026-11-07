@@ -29,10 +29,12 @@
 ### Task 1: Policy types and normalization
 
 **Files:**
+
 - Modify: `packages/types/src/tool.ts:32`
 - Create: `packages/types/src/tool.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `ArgScope`, `ToolScope`, widened `ToolPolicy`, and `normalizeToolPolicy(policy: ToolPolicy | undefined): { policy: 'auto' | 'requires_approval'; scope?: ToolScope } | undefined`.
 
@@ -107,9 +109,7 @@ export interface ArgScope {
 export type ToolScope = Record<string, ArgScope>;
 
 export type ToolPolicy =
-  | 'auto'
-  | 'requires_approval'
-  | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
+  'auto' | 'requires_approval' | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
 
 /**
  * Normalizes the legacy string form and the object form to a single shape.
@@ -141,10 +141,12 @@ git commit -m "feat(types): add argument scope to tool policies"
 ### Task 2: Argument scope evaluator
 
 **Files:**
+
 - Create: `packages/core/src/auth/ArgumentScope.ts`
 - Create: `packages/core/src/auth/ArgumentScope.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ArgScope`, `ToolScope` from `@legion-collective/types`.
 - Produces:
   - `ScopeContext { workspaceRoot: string }`
@@ -182,15 +184,17 @@ describe('evaluateScope', () => {
   });
 
   it('passes an absent argument by default', () => {
-    expect(
-      evaluateScope('t', {}, { path: { enum: ['a'] } }, { workspaceRoot: root }),
-    ).toEqual({ ok: true });
+    expect(evaluateScope('t', {}, { path: { enum: ['a'] } }, { workspaceRoot: root })).toEqual({
+      ok: true,
+    });
   });
 
   it('fails a required argument when it is absent', () => {
-    expect(
-      evaluateScope('t', {}, { path: { required: true } }, { workspaceRoot: root }),
-    ).toEqual({ ok: false, arg: 'path', reason: 'is required' });
+    expect(evaluateScope('t', {}, { path: { required: true } }, { workspaceRoot: root })).toEqual({
+      ok: false,
+      arg: 'path',
+      reason: 'is required',
+    });
   });
 
   it('fails a required argument when it is null', () => {
@@ -421,7 +425,12 @@ function resolvePath(value: string, ctx: ScopeContext): string {
 }
 
 function evaluateArg(arg: string, value: unknown, rule: ArgScope, ctx: ScopeContext): ScopeResult {
-  if (rule.enum || rule.pattern !== undefined || rule.minLength !== undefined || rule.maxLength !== undefined) {
+  if (
+    rule.enum ||
+    rule.pattern !== undefined ||
+    rule.minLength !== undefined ||
+    rule.maxLength !== undefined
+  ) {
     if (typeof value !== 'string') return fail(arg, 'must be a string');
     if (rule.enum && !rule.enum.includes(value)) {
       return fail(arg, `must be one of: ${rule.enum.join(', ')}`);
@@ -511,10 +520,12 @@ git commit -m "feat(core): evaluate tool argument scopes"
 ### Task 3: AuthEngine scope integration
 
 **Files:**
+
 - Modify: `packages/core/src/auth/AuthEngine.ts`
 - Modify: `packages/core/src/auth/AuthEngine.test.ts`
 
 **Interfaces:**
+
 - Consumes: `evaluateScope` from `./ArgumentScope.js`; `normalizeToolPolicy` from `@legion-collective/types`.
 - Produces: `AuthResult` gains `reason?: 'auto' | 'requires_approval' | 'hidden' | 'scope'` and `detail?: string`. `authorize` gains an optional fifth parameter `ctx?: { workspaceRoot: string }`.
 
@@ -579,9 +590,14 @@ describe('AuthEngine.authorize argument scope', () => {
 
   it('fails closed when a scope is configured but context is missing', () => {
     const engine = new AuthEngine();
-    const result = engine.authorize('p1', 'file_read', { path: 'work/a.txt' }, {
-      file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
-    });
+    const result = engine.authorize(
+      'p1',
+      'file_read',
+      { path: 'work/a.txt' },
+      {
+        file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+      },
+    );
     expect(result.reason).toBe('scope');
     expect(result.detail).toBe('argument scope unavailable: workspaceRoot missing');
   });
@@ -589,9 +605,9 @@ describe('AuthEngine.authorize argument scope', () => {
   it('keeps the legacy string policies working without a scope context', () => {
     const engine = new AuthEngine();
     expect(engine.authorize('p1', 'file_read', {}, { file_read: 'auto' }).reason).toBe('auto');
-    expect(
-      engine.authorize('p1', 'danger', {}, { danger: 'requires_approval' }).reason,
-    ).toBe('requires_approval');
+    expect(engine.authorize('p1', 'danger', {}, { danger: 'requires_approval' }).reason).toBe(
+      'requires_approval',
+    );
   });
 });
 ```
@@ -689,10 +705,12 @@ git commit -m "feat(core): enforce argument scope in AuthEngine"
 ### Task 4: Policy validation
 
 **Files:**
+
 - Create: `packages/core/src/auth/validateToolPolicy.ts`
 - Create: `packages/core/src/auth/validateToolPolicy.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AnyTool`, `ToolRegistryLike` from `../tools/Tool.js`; `ArgScope`, `ToolPolicy`, `ToolScope`, `JSONSchema` from `@legion-collective/types`.
 - Produces:
   - `validateToolPolicy(tool: AnyTool | undefined, value: unknown): { ok: true; policy: ToolPolicy } | { ok: false; error: string }`
@@ -931,7 +949,10 @@ function validateArgScope(arg: string, value: unknown): string | null {
     const bound = value[key];
     if (
       bound !== undefined &&
-      (typeof bound !== 'number' || !Number.isFinite(bound) || !Number.isInteger(bound) || bound < 0)
+      (typeof bound !== 'number' ||
+        !Number.isFinite(bound) ||
+        !Number.isInteger(bound) ||
+        bound < 0)
     ) {
       return `scope.${arg}.${key} must be a non-negative integer`;
     }
@@ -1044,10 +1065,12 @@ git commit -m "feat(core): validate tool policy scopes"
 ### Task 5: AgentRuntime scope enforcement and resume re-check
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/AgentRuntime.ts:413-455` and `processResumedApprovals` around line 560
 - Modify: `packages/core/src/runtime/AgentRuntime.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AuthEngine.authorize(..., ctx)` from Task 3.
 - Produces: a `'scope'` authorization reason produces an error tool result and blocks execution, both in the normal loop and on approval resume.
 
@@ -1099,9 +1122,8 @@ describe('AgentRuntime: auth – argument scope', () => {
 
     const result = await runtime.handle(incoming, context);
     expect(result.kind).toBe('pending_approval');
-    const approvalId = (
-      result as { approvalRequests: { approvalId: string }[] }
-    ).approvalRequests[0].approvalId;
+    const approvalId = (result as { approvalRequests: { approvalId: string }[] })
+      .approvalRequests[0].approvalId;
 
     await pendingApprovalRegistry.resolve(approvalId, {
       approved: true,
@@ -1213,10 +1235,12 @@ git commit -m "feat(core): enforce scopes in agent tool calls and approval resum
 ### Task 6: ServiceContext scope enforcement
 
 **Files:**
+
 - Modify: `packages/core/src/service/ServiceContextImpl.ts:99-108`
 - Modify: `packages/core/src/service/ServiceContextImpl.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AuthEngine.authorize(..., ctx)` from Task 3.
 - Produces: `callTool` returns a structured scope error and never executes the tool.
 
@@ -1237,9 +1261,7 @@ it('fails closed when arguments violate the tool scope', async () => {
   });
   const result = await ctx.callTool('file_read', { path: '../escape.txt' });
   expect(result.status).toBe('error');
-  expect((result as { error: string }).error).toMatch(
-    /argument scope violation: file_read\.path/,
-  );
+  expect((result as { error: string }).error).toMatch(/argument scope violation: file_read\.path/);
 });
 ```
 
@@ -1253,13 +1275,9 @@ Expected: FAIL because the mock registry executes the tool.
 In `packages/core/src/service/ServiceContextImpl.ts`, change the `authorize` call:
 
 ```ts
-const authResult = authEngine.authorize(
-  participant.id,
-  toolName,
-  args,
-  participant.tools,
-  { workspaceRoot: this.deps.workspaceRoot },
-);
+const authResult = authEngine.authorize(participant.id, toolName, args, participant.tools, {
+  workspaceRoot: this.deps.workspaceRoot,
+});
 ```
 
 Replace the reason mapping with:
@@ -1295,11 +1313,13 @@ git commit -m "feat(core): enforce scopes in service tool calls"
 ### Task 7: Middleware scope enforcement
 
 **Files:**
+
 - Modify: `packages/core/src/middleware/MiddlewareRunner.ts:130-145`, `:1621-1640`
 - Modify: `packages/core/src/middleware/MiddlewareRunner.test.ts:105-115`
 - Modify: `packages/runtime/src/LegionProcess.ts:190-212`
 
 **Interfaces:**
+
 - Consumes: `AuthEngine.authorize(..., ctx)` from Task 3.
 - Produces: `MiddlewareRunnerDependencies` gains `workspaceRoot: string`; a scope violation records a rejected action and never executes the tool.
 
@@ -1352,8 +1372,8 @@ Expected: FAIL because the tool executes.
 In `packages/core/src/middleware/MiddlewareRunner.ts`, add to `MiddlewareRunnerDependencies`:
 
 ```ts
-  /** Workspace root used to resolve path-based argument scopes. */
-  workspaceRoot: string;
+/** Workspace root used to resolve path-based argument scopes. */
+workspaceRoot: string;
 ```
 
 In the authorization block, pass the context and handle scope before the generic unauthorized branch:
@@ -1426,10 +1446,12 @@ git commit -m "feat(core): enforce scopes for middleware tool requests"
 ### Task 8: LegionProcess callTool and streamTool
 
 **Files:**
+
 - Modify: `packages/runtime/src/LegionProcess.ts:858` and `:946`, plus the class constructor and `start` return
 - Modify: `packages/runtime/src/LegionProcess.integration.test.ts`
 
 **Interfaces:**
+
 - Consumes: `AuthEngine.authorize(..., ctx)` from Task 3.
 - Produces: `LegionProcess.connectorContext` (the built `ConnectorContext`) is exposed publicly so the runtime test can drive `callTool`/`streamTool`; both return the structured scope error.
 
@@ -1536,12 +1558,14 @@ git commit -m "feat(runtime): enforce scopes for connector tool calls"
 ### Task 9: Management tools and policy API
 
 **Files:**
+
 - Modify: `packages/core/src/tools/management-tools.ts:181-245`, `:315-350`, `:819-885`, `:883-905`
 - Modify: `packages/core/src/tools/user-tools.ts:37-170`
 - Modify: `packages/core/src/tools/management-tools.test.ts`
 - Modify: `packages/core/src/tools/user-tools.test.ts`
 
 **Interfaces:**
+
 - Consumes: `validateToolPolicy`, `validateToolsMap` from Task 4; `normalizeToolPolicy` from `@legion-collective/types`.
 - Produces:
   - `set_tool_policy` accepts optional `scope`, validates it, and replaces/clears it.
@@ -1657,26 +1681,24 @@ it('create_agent accepts the object policy form', async () => {
 Update the existing `describe('list_tools')` assertions to the normalized shape:
 
 ```ts
-    expect(result.data.callerPolicy['list_tools']).toEqual({ policy: 'auto' });
-    expect(result.data.callerPolicy['create_agent']).toEqual({ policy: 'auto' });
-    expect(Object.values(result.data.callerPolicy).every((p) => p.policy === 'auto')).toBe(true);
+expect(result.data.callerPolicy['list_tools']).toEqual({ policy: 'auto' });
+expect(result.data.callerPolicy['create_agent']).toEqual({ policy: 'auto' });
+expect(Object.values(result.data.callerPolicy).every((p) => p.policy === 'auto')).toBe(true);
 ```
 
 For the second test:
 
 ```ts
-    expect(result.data.callerPolicy).toEqual({
-      communicate: { policy: 'auto' },
-      edit_message: { policy: 'requires_approval' },
-    });
+expect(result.data.callerPolicy).toEqual({
+  communicate: { policy: 'auto' },
+  edit_message: { policy: 'requires_approval' },
+});
 ```
 
 Add one assertion for parameters:
 
 ```ts
-    expect(result.data.parameters['list_tools']).toEqual(
-      expect.objectContaining({ type: 'object' }),
-    );
+expect(result.data.parameters['list_tools']).toEqual(expect.objectContaining({ type: 'object' }));
 ```
 
 Add to `packages/core/src/tools/user-tools.test.ts`:
@@ -1742,39 +1764,39 @@ Replace the schema and execute body with:
 ```
 
 ```ts
-    const { participantId, tool, policy, scope } = args as {
-      participantId: string;
-      tool: string;
-      policy: 'auto' | 'requires_approval';
-      scope?: ToolScope;
-    };
-    if (context.participant.operator !== true) {
-      return { status: 'error', error: 'Only an operator can change tool policies' };
-    }
-    try {
-      const collective = requireCollective(context);
-      const participant = collective.getOrThrow(participantId);
-      const existing = normalizeToolPolicy(participant.tools[tool]);
+const { participantId, tool, policy, scope } = args as {
+  participantId: string;
+  tool: string;
+  policy: 'auto' | 'requires_approval';
+  scope?: ToolScope;
+};
+if (context.participant.operator !== true) {
+  return { status: 'error', error: 'Only an operator can change tool policies' };
+}
+try {
+  const collective = requireCollective(context);
+  const participant = collective.getOrThrow(participantId);
+  const existing = normalizeToolPolicy(participant.tools[tool]);
 
-      let next: ToolPolicy;
-      if (scope === undefined) {
-        const validated = validateToolPolicy(context.toolRegistry?.get(tool), policy);
-        if (!validated.ok) return { status: 'error', error: validated.error };
-        next = existing?.scope ? { policy, scope: existing.scope } : policy;
-      } else if (Object.keys(scope).length === 0) {
-        next = policy;
-      } else {
-        const validated = validateToolPolicy(context.toolRegistry?.get(tool), { policy, scope });
-        if (!validated.ok) return { status: 'error', error: validated.error };
-        next = validated.policy;
-      }
+  let next: ToolPolicy;
+  if (scope === undefined) {
+    const validated = validateToolPolicy(context.toolRegistry?.get(tool), policy);
+    if (!validated.ok) return { status: 'error', error: validated.error };
+    next = existing?.scope ? { policy, scope: existing.scope } : policy;
+  } else if (Object.keys(scope).length === 0) {
+    next = policy;
+  } else {
+    const validated = validateToolPolicy(context.toolRegistry?.get(tool), { policy, scope });
+    if (!validated.ok) return { status: 'error', error: validated.error };
+    next = validated.policy;
+  }
 
-      const tools = { ...participant.tools, [tool]: next };
-      await collective.update(participantId, { tools });
-      return { status: 'success', data: { participantId, tool, policy: next } };
-    } catch (err) {
-      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
-    }
+  const tools = { ...participant.tools, [tool]: next };
+  await collective.update(participantId, { tools });
+  return { status: 'success', data: { participantId, tool, policy: next } };
+} catch (err) {
+  return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+}
 ```
 
 - [ ] **Step 5: Validate create/modify agent tools maps**
@@ -1782,10 +1804,10 @@ Replace the schema and execute body with:
 In `createAgentTool`, after the operator guard:
 
 ```ts
-      if (tools !== undefined) {
-        const validated = validateToolsMap(context.toolRegistry, tools);
-        if (!validated.ok) throw new Error(validated.error);
-      }
+if (tools !== undefined) {
+  const validated = validateToolsMap(context.toolRegistry, tools);
+  if (!validated.ok) throw new Error(validated.error);
+}
 ```
 
 Do the same in `modifyAgentTool` after its operator guard.
@@ -1795,10 +1817,10 @@ Do the same in `modifyAgentTool` after its operator guard.
 In `createUserTool` and `modifyUserTool`, after the operator guard:
 
 ```ts
-    if (tools !== undefined) {
-      const validated = validateToolsMap(context.toolRegistry, tools);
-      if (!validated.ok) return { status: 'error', error: validated.error };
-    }
+if (tools !== undefined) {
+  const validated = validateToolsMap(context.toolRegistry, tools);
+  if (!validated.ok) return { status: 'error', error: validated.error };
+}
 ```
 
 - [ ] **Step 7: Update `list_tools`**
@@ -1848,6 +1870,7 @@ git commit -m "feat(core): expose and validate argument scopes in management too
 ### Task 10: Web scope editor and access normalization
 
 **Files:**
+
 - Modify: `packages/web/src/composables/useToolAccess.ts`
 - Modify: `packages/web/src/composables/useToolAccess.test.ts`
 - Modify: `packages/web/src/components/participants/ToolPolicyEditor.vue`
@@ -1858,6 +1881,7 @@ git commit -m "feat(core): expose and validate argument scopes in management too
 - Modify: `packages/web/src/views/UserEditor.test.ts`
 
 **Interfaces:**
+
 - Consumes: normalized `list_tools` from Task 9; `ToolPolicy`, `ToolScope`, `ArgScope`, `JSONSchema` from `@legion-collective/types`.
 - Produces: `ToolOverride` gains `scope?: ToolScope`; editors save the object form when a scope exists; `useToolAccess` accepts both forms; the editor shows an inline error for an invalid `pattern` or inverted bounds (server remains authoritative).
 
@@ -1866,174 +1890,174 @@ git commit -m "feat(core): expose and validate argument scopes in management too
 Add to `packages/web/src/composables/useToolAccess.test.ts`:
 
 ```ts
-  it('normalizes object caller policies', async () => {
-    executeMock.mockResolvedValue({
-      tools: ['file_write'],
-      callerPolicy: {
-        file_write: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } },
-      },
-    });
-    await useToolAccess().refresh();
-    expect(useToolAccess().can('file_write')).toBe('requires_approval');
+it('normalizes object caller policies', async () => {
+  executeMock.mockResolvedValue({
+    tools: ['file_write'],
+    callerPolicy: {
+      file_write: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } },
+    },
   });
+  await useToolAccess().refresh();
+  expect(useToolAccess().can('file_write')).toBe('requires_approval');
+});
 ```
 
 Add to `packages/web/src/components/participants/ToolPolicyEditor.test.ts`:
 
 ```ts
-  it('adds an argument rule when the scope editor is opened', async () => {
-    const w = mount(ToolPolicyEditor, {
-      props: {
-        overrides: [
-          { tool: 'file_write', source: 'built-in', enabled: true, requireApproval: false },
-        ],
-        availableTools: ['file_write'],
-        parameters: {
-          file_write: {
-            type: 'object',
-            properties: { path: { type: 'string' }, content: { type: 'string' } },
-          },
+it('adds an argument rule when the scope editor is opened', async () => {
+  const w = mount(ToolPolicyEditor, {
+    props: {
+      overrides: [
+        { tool: 'file_write', source: 'built-in', enabled: true, requireApproval: false },
+      ],
+      availableTools: ['file_write'],
+      parameters: {
+        file_write: {
+          type: 'object',
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
         },
       },
-    });
-    await w.find('[data-scope-toggle]').trigger('click');
-    await w.find('[data-add-arg]').trigger('click');
-    const payload = w.emitted('update:overrides')![0][0] as Array<{
-      tool: string;
-      scope?: Record<string, unknown>;
-    }>;
-    expect(payload[0].scope).toEqual({ path: {} });
+    },
   });
+  await w.find('[data-scope-toggle]').trigger('click');
+  await w.find('[data-add-arg]').trigger('click');
+  const payload = w.emitted('update:overrides')![0][0] as Array<{
+    tool: string;
+    scope?: Record<string, unknown>;
+  }>;
+  expect(payload[0].scope).toEqual({ path: {} });
+});
 
-  it('renders an existing scope rule', () => {
-    const w = mount(ToolPolicyEditor, {
-      props: {
-        overrides: [
-          {
-            tool: 'file_write',
-            source: 'built-in',
-            enabled: true,
-            requireApproval: false,
-            scope: { path: { pathPrefix: 'work' } },
-          },
-        ],
-        availableTools: ['file_write'],
-        parameters: { file_write: { type: 'object', properties: { path: { type: 'string' } } } },
-      },
-    });
-    expect(w.find('[data-scope-editor]').exists()).toBe(false);
-    expect(w.find('[data-scope-count]').text()).toContain('1');
+it('renders an existing scope rule', () => {
+  const w = mount(ToolPolicyEditor, {
+    props: {
+      overrides: [
+        {
+          tool: 'file_write',
+          source: 'built-in',
+          enabled: true,
+          requireApproval: false,
+          scope: { path: { pathPrefix: 'work' } },
+        },
+      ],
+      availableTools: ['file_write'],
+      parameters: { file_write: { type: 'object', properties: { path: { type: 'string' } } } },
+    },
   });
+  expect(w.find('[data-scope-editor]').exists()).toBe(false);
+  expect(w.find('[data-scope-count]').text()).toContain('1');
+});
 
-  it('shows an inline error for an invalid pattern', async () => {
-    const w = mount(ToolPolicyEditor, {
-      props: {
-        overrides: [
-          {
-            tool: 'file_write',
-            source: 'built-in',
-            enabled: true,
-            requireApproval: false,
-            scope: { path: { pattern: '[' } },
-          },
-        ],
-        availableTools: ['file_write'],
-      },
-    });
-    await w.find('[data-scope-toggle]').trigger('click');
-    expect(w.find('[data-scope-error]').text()).toContain('invalid pattern');
+it('shows an inline error for an invalid pattern', async () => {
+  const w = mount(ToolPolicyEditor, {
+    props: {
+      overrides: [
+        {
+          tool: 'file_write',
+          source: 'built-in',
+          enabled: true,
+          requireApproval: false,
+          scope: { path: { pattern: '[' } },
+        },
+      ],
+      availableTools: ['file_write'],
+    },
   });
+  await w.find('[data-scope-toggle]').trigger('click');
+  expect(w.find('[data-scope-error]').text()).toContain('invalid pattern');
+});
 ```
 
 Add to `packages/web/src/views/AgentEditor.test.ts`:
 
 ```ts
-  it('saves the object policy form when a scope is present', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body ?? '{}'));
-        if (body.tool === 'get_participant')
-          return toolResponse('get_participant', {
-            ...AGENT,
-            tools: {
-              file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
-            },
-          });
-        if (body.tool === 'list_tools')
-          return toolResponse('list_tools', { tools: ['file_write'], callerPolicy: {} });
-        if (body.tool === 'list_models')
-          return toolResponse('list_models', [
-            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
-          ]);
-        if (body.tool === 'list_middleware')
-          return toolResponse('list_middleware', { definitions: [] });
-        if (body.tool === 'modify_agent') return toolResponse('modify_agent', { id: 'agent-a' });
-        return toolResponse(body.tool, {});
-      }),
-    );
-    // Save omits `tools` for non-operators; seed the caller identity so the
-    // object-form save path runs.
-    useAuth().participantId.value = 'operator';
-    useParticipants().__setParticipantsForTests([
-      {
-        id: 'operator',
-        name: 'Operator',
-        type: 'user',
-        status: 'active',
-        tools: {},
-        operator: true,
-      } as never,
-    ]);
-    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
-    await vi.waitFor(() =>
-      expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
-        'Agent A',
-      ),
-    );
-    await wrapper.find('[data-test="agent-save"]').trigger('click');
-    await flushPromises();
-    const saveCall = (vi.mocked(fetch).mock.calls as Array<[string, RequestInit]>).find(
-      ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
-    );
-    expect(JSON.parse(String(saveCall?.[1].body)).args.tools).toEqual({
-      file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
-    });
+it('saves the object policy form when a scope is present', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant')
+        return toolResponse('get_participant', {
+          ...AGENT,
+          tools: {
+            file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+          },
+        });
+      if (body.tool === 'list_tools')
+        return toolResponse('list_tools', { tools: ['file_write'], callerPolicy: {} });
+      if (body.tool === 'list_models')
+        return toolResponse('list_models', [
+          { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+        ]);
+      if (body.tool === 'list_middleware')
+        return toolResponse('list_middleware', { definitions: [] });
+      if (body.tool === 'modify_agent') return toolResponse('modify_agent', { id: 'agent-a' });
+      return toolResponse(body.tool, {});
+    }),
+  );
+  // Save omits `tools` for non-operators; seed the caller identity so the
+  // object-form save path runs.
+  useAuth().participantId.value = 'operator';
+  useParticipants().__setParticipantsForTests([
+    {
+      id: 'operator',
+      name: 'Operator',
+      type: 'user',
+      status: 'active',
+      tools: {},
+      operator: true,
+    } as never,
+  ]);
+  const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+  await vi.waitFor(() =>
+    expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
+      'Agent A',
+    ),
+  );
+  await wrapper.find('[data-test="agent-save"]').trigger('click');
+  await flushPromises();
+  const saveCall = (vi.mocked(fetch).mock.calls as Array<[string, RequestInit]>).find(
+    ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
+  );
+  expect(JSON.parse(String(saveCall?.[1].body)).args.tools).toEqual({
+    file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
   });
+});
 ```
 
 Add to `packages/web/src/views/UserEditor.test.ts`:
 
 ```ts
-  it('saves the object policy form when a scope is present', async () => {
-    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? '{}'));
-      if (body.tool === 'get_participant')
-        return toolResponse('get_participant', {
-          ...USER,
-          tools: {
-            communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } },
-          },
-        });
-      if (body.tool === 'list_tools')
-        return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
-      if (body.tool === 'modify_user') return toolResponse('modify_user', { id: 'alice' });
-      return toolResponse(body.tool, {});
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
-    await waitLoaded(wrapper);
-    await wrapper.find('form').trigger('submit');
-    await vi.waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_user',
-      );
-      expect(call).toBeDefined();
-      expect(JSON.parse(String(call![1]?.body)).args.tools).toEqual({
-        communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } },
+it('saves the object policy form when a scope is present', async () => {
+  const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}'));
+    if (body.tool === 'get_participant')
+      return toolResponse('get_participant', {
+        ...USER,
+        tools: {
+          communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } },
+        },
       });
+    if (body.tool === 'list_tools')
+      return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+    if (body.tool === 'modify_user') return toolResponse('modify_user', { id: 'alice' });
+    return toolResponse(body.tool, {});
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+  await waitLoaded(wrapper);
+  await wrapper.find('form').trigger('submit');
+  await vi.waitFor(() => {
+    const call = fetchMock.mock.calls.find(
+      (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_user',
+    );
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call![1]?.body)).args.tools).toEqual({
+      communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } },
     });
   });
+});
 ```
 
 The existing test files already define `AGENT`, `USER`, `toolResponse`, `stubFetch`, `waitLoaded`, `mount`, and `flushPromises`; reuse them.
@@ -2058,16 +2082,16 @@ type CallerPolicyEntry = ToolAccessPolicy | { policy: ToolAccessPolicy; scope?: 
 ```
 
 ```ts
-    const data = await execute<{
-      tools: string[];
-      callerPolicy: Record<string, CallerPolicyEntry>;
-    }>('list_tools', {});
-    if (requestGeneration !== generation) return;
-    const normalized: Record<string, ToolAccessPolicy> = {};
-    for (const [tool, entry] of Object.entries(data.callerPolicy ?? {})) {
-      normalized[tool] = typeof entry === 'string' ? entry : entry.policy;
-    }
-    access.value = normalized;
+const data = await execute<{
+  tools: string[];
+  callerPolicy: Record<string, CallerPolicyEntry>;
+}>('list_tools', {});
+if (requestGeneration !== generation) return;
+const normalized: Record<string, ToolAccessPolicy> = {};
+for (const [tool, entry] of Object.entries(data.callerPolicy ?? {})) {
+  normalized[tool] = typeof entry === 'string' ? entry : entry.policy;
+}
+access.value = normalized;
 ```
 
 - [ ] **Step 4: Add scope state and handlers to `ToolPolicyEditor.vue`**
@@ -2404,11 +2428,7 @@ Inside each `[data-tool-row]`, after the approval button, add:
 In `AgentEditor.vue`, import:
 
 ```ts
-import {
-  normalizeToolPolicy,
-  type JSONSchema,
-  type ToolPolicy,
-} from '@legion-collective/types';
+import { normalizeToolPolicy, type JSONSchema, type ToolPolicy } from '@legion-collective/types';
 ```
 
 Add state next to `availableTools`:
@@ -2438,53 +2458,53 @@ function overridesToToolsMap(list: ToolOverride[]): Record<string, ToolPolicy> {
 Replace the load parsing:
 
 ```ts
-      const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
-      overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
-        const normalized = normalizeToolPolicy(value);
-        if (!normalized) return [];
-        return [
-          {
-            tool,
-            source: 'built-in',
-            enabled: true,
-            requireApproval: normalized.policy === 'requires_approval',
-            ...(normalized.scope ? { scope: normalized.scope } : {}),
-          },
-        ];
-      });
+const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
+overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
+  const normalized = normalizeToolPolicy(value);
+  if (!normalized) return [];
+  return [
+    {
+      tool,
+      source: 'built-in',
+      enabled: true,
+      requireApproval: normalized.policy === 'requires_approval',
+      ...(normalized.scope ? { scope: normalized.scope } : {}),
+    },
+  ];
+});
 ```
 
 Update the `list_tools` call type and store parameters:
 
 ```ts
-  void execute<{
-    tools: string[];
-    callerPolicy: Record<string, unknown>;
-    parameters?: Record<string, JSONSchema>;
-  }>('list_tools', {})
-    .then(({ tools, parameters }) => {
-      availableTools.value = tools;
-      toolParameters.value = parameters ?? {};
-      overrides.value = [
-        ...overrides.value.filter((o) => tools.includes(o.tool) || o.enabled),
-        ...tools
-          .filter((t) => !overrides.value.some((o) => o.tool === t))
-          .map((t) => ({ tool: t, source: 'built-in', enabled: false, requireApproval: false })),
-      ];
-    })
-    .catch(() => {});
+void execute<{
+  tools: string[];
+  callerPolicy: Record<string, unknown>;
+  parameters?: Record<string, JSONSchema>;
+}>('list_tools', {})
+  .then(({ tools, parameters }) => {
+    availableTools.value = tools;
+    toolParameters.value = parameters ?? {};
+    overrides.value = [
+      ...overrides.value.filter((o) => tools.includes(o.tool) || o.enabled),
+      ...tools
+        .filter((t) => !overrides.value.some((o) => o.tool === t))
+        .map((t) => ({ tool: t, source: 'built-in', enabled: false, requireApproval: false })),
+    ];
+  })
+  .catch(() => {});
 ```
 
 Pass the prop:
 
 ```vue
-      <ToolPolicyEditor
-        :available-tools="availableTools"
-        :parameters="toolParameters"
-        :overrides="overrides"
-        :readonly="!callerIsOperator"
-        @update:overrides="overrides = $event"
-      />
+<ToolPolicyEditor
+  :available-tools="availableTools"
+  :parameters="toolParameters"
+  :overrides="overrides"
+  :readonly="!callerIsOperator"
+  @update:overrides="overrides = $event"
+/>
 ```
 
 - [ ] **Step 7: Update UserEditor save/load**
@@ -2513,10 +2533,12 @@ git commit -m "feat(web): edit and display tool argument scopes"
 ### Task 11: Documentation
 
 **Files:**
+
 - Modify: `docs/superpowers/plans/012-post-mvp-roadmap.md` (item #6)
 - Modify: `docs/legion-v2-greenfield-spec.md` §7
 
 **Interfaces:**
+
 - Consumes: the implementation from Tasks 1–10.
 - Produces: roadmap and greenfield spec reflect the new scope predicate.
 
@@ -2545,29 +2567,29 @@ re-validating stored configs at boot.
 
 In `docs/legion-v2-greenfield-spec.md` §7, after the `AuthEngine is a pure predicate` code block, add:
 
-```md
+````md
 A participant's per-tool policy may also carry an argument scope:
 
 ```typescript
 type ToolPolicy =
-  | 'auto'
-  | 'requires_approval'
-  | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
+  'auto' | 'requires_approval' | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
 ```
+````
 
 `authorize(..., ctx)` evaluates the scope before returning `auto` or `requires_approval`.
 Scope keys are top-level argument names; supported constraints are `required`, `enum`,
 `pattern`, `minLength`/`maxLength`, `min`/`max`, and `pathPrefix` (resolved containment
 under the workspace root). A violation returns `reason: 'scope'` and is a hard deny, never
 an approval request. `hasAuthority` remains unscoped.
-```
+
+````
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/plans/012-post-mvp-roadmap.md docs/legion-v2-greenfield-spec.md
 git commit -m "docs: record argument scope control as landed"
-```
+````
 
 ---
 
