@@ -360,7 +360,9 @@ export const setToolPolicyTool: Tool = {
         if (!validated.ok) return { status: 'error', error: validated.error };
         next = existing?.scope ? { policy, scope: existing.scope } : policy;
       } else if (Object.keys(scope).length === 0) {
-        next = policy;
+        const validated = validateToolPolicy(context.toolRegistry?.get(tool), policy);
+        if (!validated.ok) return { status: 'error', error: validated.error };
+        next = validated.policy;
       } else {
         const validated = validateToolPolicy(context.toolRegistry?.get(tool), { policy, scope });
         if (!validated.ok) return { status: 'error', error: validated.error };

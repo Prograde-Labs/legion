@@ -456,6 +456,114 @@ describe('management tools', () => {
     expect(collective.get('agent-x')?.tools['file_write']).toBe('auto');
   });
 
+  it('set_tool_policy preserves an existing scope when scope is omitted', async () => {
+    const { context, collective } = await makeContext();
+    context.toolRegistry.register({
+      name: 'file_write',
+      description: 'write',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      { participantId: 'agent-x', tool: 'file_write', policy: 'auto' },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
+  });
+
+  it('set_tool_policy replaces an existing scope with a new one', async () => {
+    const { context, collective } = await makeContext();
+    context.toolRegistry.register({
+      name: 'file_write',
+      description: 'write',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { content: { maxLength: 10 } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { content: { maxLength: 10 } },
+    });
+  });
+
+  it('set_tool_policy validates the policy when clearing a scope', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'hidden' as unknown as 'auto',
+        scope: {},
+      },
+      context,
+    );
+    expect(result.status).toBe('error');
+    expect((result as { error: string }).error).toMatch(/policy must be/);
+    // The failed clear must not corrupt the stored policy.
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
+  });
+
   it('get_conversation returns the active chain of a conversation', async () => {
     const { context, conversationStore } = await makeContext();
     const conv = await conversationStore.create({
