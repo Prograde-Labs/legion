@@ -137,6 +137,8 @@ export interface MiddlewareRunnerDependencies {
   conversationStore: ConversationStore;
   /** Authoritative participant lookup used while resuming durable checkpoints. */
   collective?: Collective;
+  /** Workspace root used to resolve path-based argument scopes. */
+  workspaceRoot: string;
   buildToolContext: (
     participant: ParticipantConfig,
     thread: ConversationThread,
@@ -1623,7 +1625,21 @@ export class MiddlewareRunner {
         request.tool,
         request.arguments,
         input.participant.tools,
+        { workspaceRoot: this.dependencies.workspaceRoot },
       );
+      if (authorization.reason === 'scope') {
+        const message = authorization.detail ?? `argument scope violation: ${request.tool}`;
+        return this.toolFailure(
+          instance,
+          phase,
+          input,
+          snapshots,
+          request,
+          'rejected',
+          new Error(message),
+          { status: 'rejected', message },
+        );
+      }
       if (!authorization.authorized && authorization.reason !== 'requires_approval') {
         return this.toolFailure(
           instance,

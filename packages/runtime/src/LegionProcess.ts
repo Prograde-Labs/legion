@@ -196,6 +196,7 @@ export class LegionProcess {
       logger: middlewareLogger,
       conversationStore: store,
       collective,
+      workspaceRoot,
       buildToolContext: (participant, conversation, signal) =>
         buildMiddlewareToolContext({
           participant,

@@ -52,6 +52,7 @@ async function fixture(participants: ParticipantConfig[]) {
     eventBus,
     logger,
     conversationStore: store,
+    workspaceRoot: '/workspace',
     buildToolContext: (current, activeThread, signal) => ({
       participant: current,
       conversationId: activeThread.id,

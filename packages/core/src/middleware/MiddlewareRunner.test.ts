@@ -112,6 +112,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
     logger,
     conversationStore,
     collective,
+    workspaceRoot: '/workspace',
     buildToolContext: (principal, activeThread, signal) => ({
       participant: principal,
       conversationId: activeThread.id,
@@ -473,6 +474,82 @@ describe('MiddlewareRunner', () => {
     ).resolves.toMatchObject({ kind: 'continue', value: draft({ content: 'continued' }) });
     expect(calls).toEqual(['participant']);
     expect(f.thread.data.middlewareState).toEqual({ participant: { request: { ok: true } } });
+  });
+
+  it('rejects a middleware tool whose arguments violate its scope', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = {
+      risky: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const authorize = vi.spyOn(f.runnerDependencies.authEngine, 'authorize');
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-risky',
+          tool: 'risky',
+          arguments: { path: '../escape.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-rejected',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('abort');
+    expect(execute).not.toHaveBeenCalled();
+    expect(authorize).toHaveBeenCalledWith(
+      'participant',
+      'risky',
+      { path: '../escape.txt' },
+      f.participant.tools,
+      { workspaceRoot: '/workspace' },
+    );
+  });
+
+  it('executes a middleware tool whose arguments satisfy its scope', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = {
+      risky: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const, data: { ok: true } }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-allowed',
+          tool: 'risky',
+          arguments: { path: 'work/file.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-allowed',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('continue');
+    expect(execute).toHaveBeenCalledTimes(1);
+    if (result.kind !== 'continue') throw new Error('expected continue');
+    expect(result.actions).toMatchObject([{ requestId: 'scope-allowed', status: 'success' }]);
   });
 
   it('suspends an auto-authorized middleware action when its tool returns helper approval', async () => {
