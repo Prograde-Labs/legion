@@ -1426,12 +1426,12 @@ git commit -m "feat(core): enforce scopes for middleware tool requests"
 ### Task 8: LegionProcess callTool and streamTool
 
 **Files:**
-- Modify: `packages/runtime/src/LegionProcess.ts:858` and `:946`
+- Modify: `packages/runtime/src/LegionProcess.ts:858` and `:946`, plus the class constructor and `start` return
 - Modify: `packages/runtime/src/LegionProcess.integration.test.ts`
 
 **Interfaces:**
 - Consumes: `AuthEngine.authorize(..., ctx)` from Task 3.
-- Produces: `callTool` and `streamTool` return the structured scope error.
+- Produces: `LegionProcess.connectorContext` (the built `ConnectorContext`) is exposed publicly so the runtime test can drive `callTool`/`streamTool`; both return the structured scope error.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1448,13 +1448,13 @@ it('enforces argument scope for connector tool calls and streams', async () => {
     },
   });
 
-  const call = await process_.runtimeDeps.callTool('operator', 'file_read', {
+  const call = await process_.connectorContext.callTool('operator', 'file_read', {
     path: '../escape.txt',
   });
   expect(call.result.status).toBe('error');
   expect(call.result.error).toMatch(/argument scope violation: file_read\.path/);
 
-  const stream = await process_.runtimeDeps.streamTool('operator', 'file_read', {
+  const stream = await process_.connectorContext.streamTool('operator', 'file_read', {
     path: '../escape.txt',
   });
   const chunks: Array<{ type: string; error?: string }> = [];
@@ -1469,9 +1469,17 @@ it('enforces argument scope for connector tool calls and streams', async () => {
 Run: `npm test -- packages/runtime/src/LegionProcess.integration.test.ts -t "argument scope"`
 Expected: FAIL because the tool executes or the scope is ignored.
 
-- [ ] **Step 3: Implement callTool**
+- [ ] **Step 3: Expose the connector context and implement callTool**
 
-In `LegionProcess.ts`, update the `callTool` authorization:
+`LegionProcess.start` already builds a `ConnectorContext` (line ~373) and hands it to
+connectors; the class does not keep it. Add it to the class so the test can reach
+`callTool`/`streamTool`:
+
+1. Add a constructor parameter `readonly connectorContext: ConnectorContext` (after
+   `processManager`).
+2. Pass `connectorContext` as the final argument to `new LegionProcess(...)` in `start`.
+
+Then, in `LegionProcess.ts`, update the `callTool` authorization:
 
 ```ts
 const authResult = authEngine.authorize(participantId, toolName, args, participant.tools, {
@@ -1851,7 +1859,7 @@ git commit -m "feat(core): expose and validate argument scopes in management too
 
 **Interfaces:**
 - Consumes: normalized `list_tools` from Task 9; `ToolPolicy`, `ToolScope`, `ArgScope`, `JSONSchema` from `@legion-collective/types`.
-- Produces: `ToolOverride` gains `scope?: ToolScope`; editors save the object form when a scope exists; `useToolAccess` accepts both forms.
+- Produces: `ToolOverride` gains `scope?: ToolScope`; editors save the object form when a scope exists; `useToolAccess` accepts both forms; the editor shows an inline error for an invalid `pattern` or inverted bounds (server remains authoritative).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1916,6 +1924,25 @@ Add to `packages/web/src/components/participants/ToolPolicyEditor.test.ts`:
     expect(w.find('[data-scope-editor]').exists()).toBe(false);
     expect(w.find('[data-scope-count]').text()).toContain('1');
   });
+
+  it('shows an inline error for an invalid pattern', async () => {
+    const w = mount(ToolPolicyEditor, {
+      props: {
+        overrides: [
+          {
+            tool: 'file_write',
+            source: 'built-in',
+            enabled: true,
+            requireApproval: false,
+            scope: { path: { pattern: '[' } },
+          },
+        ],
+        availableTools: ['file_write'],
+      },
+    });
+    await w.find('[data-scope-toggle]').trigger('click');
+    expect(w.find('[data-scope-error]').text()).toContain('invalid pattern');
+  });
 ```
 
 Add to `packages/web/src/views/AgentEditor.test.ts`:
@@ -1935,13 +1962,29 @@ Add to `packages/web/src/views/AgentEditor.test.ts`:
           });
         if (body.tool === 'list_tools')
           return toolResponse('list_tools', { tools: ['file_write'], callerPolicy: {} });
-        if (body.tool === 'list_models') return toolResponse('list_models', []);
+        if (body.tool === 'list_models')
+          return toolResponse('list_models', [
+            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+          ]);
         if (body.tool === 'list_middleware')
           return toolResponse('list_middleware', { definitions: [] });
         if (body.tool === 'modify_agent') return toolResponse('modify_agent', { id: 'agent-a' });
         return toolResponse(body.tool, {});
       }),
     );
+    // Save omits `tools` for non-operators; seed the caller identity so the
+    // object-form save path runs.
+    useAuth().participantId.value = 'operator';
+    useParticipants().__setParticipantsForTests([
+      {
+        id: 'operator',
+        name: 'Operator',
+        type: 'user',
+        status: 'active',
+        tools: {},
+        operator: true,
+      } as never,
+    ]);
     const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
     await vi.waitFor(() =>
       expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
@@ -2194,6 +2237,28 @@ function onNumber(
   const raw = (event.target as HTMLInputElement).value;
   updateRule(tool, arg, { [key]: raw === '' ? undefined : Number(raw) });
 }
+
+/** Lightweight mirror of the server rules for immediate feedback (spec §9). */
+function scopeError(rule: ArgScope): string | null {
+  if (rule.pattern !== undefined) {
+    try {
+      new RegExp(rule.pattern);
+    } catch {
+      return 'invalid pattern';
+    }
+  }
+  if (
+    rule.minLength !== undefined &&
+    rule.maxLength !== undefined &&
+    rule.minLength > rule.maxLength
+  ) {
+    return 'min length exceeds max length';
+  }
+  if (rule.min !== undefined && rule.max !== undefined && rule.min > rule.max) {
+    return 'min exceeds max';
+  }
+  return null;
+}
 </script>
 ```
 
@@ -2303,6 +2368,13 @@ Inside each `[data-tool-row]`, after the approval button, add:
           >
             remove
           </button>
+          <p
+            v-if="scopeError(rule)"
+            data-scope-error
+            class="col-span-2 text-[9px] text-warning"
+          >
+            {{ scopeError(rule) }}
+          </p>
         </div>
         <div class="flex gap-2">
           <button
