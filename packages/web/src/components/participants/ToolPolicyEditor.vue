@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import type { ArgScope, JSONSchema, ToolScope } from '@legion-collective/types';
 
 export interface ToolOverride {
   tool: string;
   source: string;
   enabled: boolean;
   requireApproval: boolean;
+  scope?: ToolScope;
 }
 
 const props = defineProps<{
   overrides: ToolOverride[];
   availableTools: string[];
+  parameters?: Record<string, JSONSchema>;
   /** Render the current policies without letting a non-operator mutate them. */
   readonly?: boolean;
 }>();
@@ -18,6 +21,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:overrides': [value: ToolOverride[]];
 }>();
+
+const expanded = ref<Record<string, boolean>>({});
 
 // Build a unified list: every available tool, with its current state
 const rows = computed(() => {
@@ -59,6 +64,127 @@ function toggleApproval(tool: string) {
     ),
   );
 }
+
+function toggleScope(tool: string) {
+  expanded.value = { ...expanded.value, [tool]: !expanded.value[tool] };
+}
+
+function scopeRows(override: ToolOverride): Array<[string, ArgScope]> {
+  return Object.entries(override.scope ?? {});
+}
+
+function argumentNames(tool: string, current: string): string[] {
+  const properties = props.parameters?.[tool]?.properties;
+  const names =
+    properties && typeof properties === 'object'
+      ? Object.keys(properties as Record<string, unknown>)
+      : [];
+  return names.includes(current) ? names : [...names, current];
+}
+
+function replaceOverride(tool: string, patch: Partial<ToolOverride>) {
+  emit(
+    'update:overrides',
+    props.overrides.map((o) => (o.tool === tool ? { ...o, ...patch } : o)),
+  );
+}
+
+function updateScope(tool: string, scope: ToolScope) {
+  replaceOverride(tool, { scope });
+}
+
+function addArgument(tool: string) {
+  const override = props.overrides.find((o) => o.tool === tool);
+  if (!override) return;
+  const existing = override.scope ?? {};
+  const used = new Set(Object.keys(existing));
+  const declared = argumentNames(tool, '').filter((name) => name !== '');
+  const next = declared.find((name) => !used.has(name)) ?? `arg${Object.keys(existing).length + 1}`;
+  updateScope(tool, { ...existing, [next]: {} });
+}
+
+function removeArgument(tool: string, arg: string) {
+  const override = props.overrides.find((o) => o.tool === tool);
+  if (!override) return;
+  const next = { ...(override.scope ?? {}) };
+  delete next[arg];
+  updateScope(tool, next);
+}
+
+function renameArgument(tool: string, from: string, to: string) {
+  const override = props.overrides.find((o) => o.tool === tool);
+  if (!override || to === '' || from === to) return;
+  const next: ToolScope = {};
+  for (const [key, rule] of Object.entries(override.scope ?? {})) {
+    next[key === from ? to : key] = rule;
+  }
+  updateScope(tool, next);
+}
+
+function updateRule(tool: string, arg: string, patch: Partial<ArgScope>) {
+  const override = props.overrides.find((o) => o.tool === tool);
+  if (!override) return;
+  const merged = { ...(override.scope?.[arg] ?? {}), ...patch };
+  const clean = Object.fromEntries(
+    Object.entries(merged).filter(([, value]) => value !== undefined),
+  ) as ArgScope;
+  updateScope(tool, { ...(override.scope ?? {}), [arg]: clean });
+}
+
+function onArgName(tool: string, from: string, event: Event) {
+  renameArgument(tool, from, (event.target as HTMLInputElement).value);
+}
+
+function onRequired(tool: string, arg: string, event: Event) {
+  updateRule(tool, arg, {
+    required: (event.target as HTMLInputElement).checked || undefined,
+  });
+}
+
+function onEnum(tool: string, arg: string, event: Event) {
+  const values = (event.target as HTMLInputElement).value
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  updateRule(tool, arg, { enum: values.length ? values : undefined });
+}
+
+function onText(tool: string, arg: string, key: 'pattern' | 'pathPrefix', event: Event) {
+  const value = (event.target as HTMLInputElement).value;
+  updateRule(tool, arg, { [key]: value === '' ? undefined : value });
+}
+
+function onNumber(
+  tool: string,
+  arg: string,
+  key: 'minLength' | 'maxLength' | 'min' | 'max',
+  event: Event,
+) {
+  const raw = (event.target as HTMLInputElement).value;
+  updateRule(tool, arg, { [key]: raw === '' ? undefined : Number(raw) });
+}
+
+/** Lightweight mirror of the server rules for immediate feedback (spec §9). */
+function scopeError(rule: ArgScope): string | null {
+  if (rule.pattern !== undefined) {
+    try {
+      new RegExp(rule.pattern);
+    } catch {
+      return 'invalid pattern';
+    }
+  }
+  if (
+    rule.minLength !== undefined &&
+    rule.maxLength !== undefined &&
+    rule.minLength > rule.maxLength
+  ) {
+    return 'min length exceeds max length';
+  }
+  if (rule.min !== undefined && rule.max !== undefined && rule.min > rule.max) {
+    return 'min exceeds max';
+  }
+  return null;
+}
 </script>
 
 <template>
@@ -68,7 +194,7 @@ function toggleApproval(tool: string) {
       v-for="{ tool, override } in rows"
       :key="tool"
       data-tool-row
-      class="flex items-center gap-2 py-1.5 border-b border-line"
+      class="flex items-center gap-2 py-1.5 border-b border-line flex-wrap"
     >
       <input
         type="checkbox"
@@ -94,6 +220,134 @@ function toggleApproval(tool: string) {
       >
         require approval
       </button>
+      <button
+        v-if="override?.enabled"
+        type="button"
+        :disabled="readonly"
+        data-scope-toggle
+        class="text-[9px] px-2 py-0.5 rounded border border-line text-faint"
+        @click="toggleScope(tool)"
+      >
+        scope<span data-scope-count v-if="override?.scope">
+          {{ Object.keys(override.scope).length }}</span
+        >
+      </button>
+      <div
+        v-if="override?.enabled && expanded[tool]"
+        data-scope-editor
+        class="w-full mt-1 space-y-1 rounded border border-line bg-surface p-2"
+      >
+        <datalist :id="`scope-args-${tool}`">
+          <option v-for="name in argumentNames(tool, '')" :key="name" :value="name" />
+        </datalist>
+        <div
+          v-for="[arg, rule] in scopeRows(override)"
+          :key="arg"
+          data-scope-row
+          class="grid grid-cols-2 gap-1 items-center"
+        >
+          <input
+            :value="arg"
+            :list="`scope-args-${tool}`"
+            :disabled="readonly"
+            placeholder="argument name"
+            class="rounded border border-line bg-surface px-1 py-0.5 font-mono text-[10px]"
+            @change="onArgName(tool, arg, $event)"
+          />
+          <label class="flex items-center gap-1 text-[10px] text-faint">
+            <input
+              type="checkbox"
+              :checked="rule.required ?? false"
+              :disabled="readonly"
+              @change="onRequired(tool, arg, $event)"
+            />
+            required
+          </label>
+          <input
+            placeholder="enum (comma separated)"
+            :value="rule.enum?.join(', ') ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onEnum(tool, arg, $event)"
+          />
+          <input
+            placeholder="pattern"
+            :value="rule.pattern ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onText(tool, arg, 'pattern', $event)"
+          />
+          <input
+            type="number"
+            placeholder="min"
+            :value="rule.min ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onNumber(tool, arg, 'min', $event)"
+          />
+          <input
+            type="number"
+            placeholder="max"
+            :value="rule.max ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onNumber(tool, arg, 'max', $event)"
+          />
+          <input
+            type="number"
+            placeholder="min length"
+            :value="rule.minLength ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onNumber(tool, arg, 'minLength', $event)"
+          />
+          <input
+            type="number"
+            placeholder="max length"
+            :value="rule.maxLength ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onNumber(tool, arg, 'maxLength', $event)"
+          />
+          <input
+            placeholder="path prefix"
+            :value="rule.pathPrefix ?? ''"
+            :disabled="readonly"
+            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+            @change="onText(tool, arg, 'pathPrefix', $event)"
+          />
+          <button
+            type="button"
+            :disabled="readonly"
+            class="text-[9px] px-2 py-0.5 rounded border border-line text-faint"
+            @click="removeArgument(tool, arg)"
+          >
+            remove
+          </button>
+          <p v-if="scopeError(rule)" data-scope-error class="col-span-2 text-[9px] text-warning">
+            {{ scopeError(rule) }}
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            :disabled="readonly"
+            data-add-arg
+            class="text-[9px] px-2 py-0.5 rounded border border-line text-faint"
+            @click="addArgument(tool)"
+          >
+            add argument
+          </button>
+          <button
+            type="button"
+            :disabled="readonly"
+            class="text-[9px] px-2 py-0.5 rounded border border-line text-faint"
+            @click="updateScope(tool, {})"
+          >
+            clear scope
+          </button>
+        </div>
+      </div>
     </div>
     <p v-if="availableTools.length === 0" class="text-[10px] text-faint italic py-2">
       No tools registered.

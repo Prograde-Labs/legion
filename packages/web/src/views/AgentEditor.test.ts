@@ -701,4 +701,57 @@ describe('AgentEditor', () => {
     expect(wrapper.find('[data-test="agent-retire"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="authority-save"]').exists()).toBe(false);
   });
+
+  it('saves the object policy form when a scope is present', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...AGENT,
+            tools: {
+              file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+            },
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['file_write'], callerPolicy: {} });
+        if (body.tool === 'list_models')
+          return toolResponse('list_models', [
+            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+          ]);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
+        if (body.tool === 'modify_agent') return toolResponse('modify_agent', { id: 'agent-a' });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    // Save omits `tools` for non-operators; seed the caller identity so the
+    // object-form save path runs.
+    useAuth().participantId.value = 'operator';
+    useParticipants().__setParticipantsForTests([
+      {
+        id: 'operator',
+        name: 'Operator',
+        type: 'user',
+        status: 'active',
+        tools: {},
+        operator: true,
+      } as never,
+    ]);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
+        'Agent A',
+      ),
+    );
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await flushPromises();
+    const saveCall = (vi.mocked(fetch).mock.calls as Array<[string, RequestInit]>).find(
+      ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
+    );
+    expect(JSON.parse(String(saveCall?.[1].body)).args.tools).toEqual({
+      file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    });
+  });
 });
