@@ -162,6 +162,97 @@ async function makeSetup(providerResponses: ScriptedProviderResponse[]) {
   return { context, thread, eventBus, inbound, router, providerRequests };
 }
 
+async function setupApprovalScenario(tmpDir: string) {
+  const storage = new MemoryStorage();
+  await storage.writeJson('collective/participants/agent-1.json', {
+    id: 'agent-1',
+    name: 'A',
+    type: 'agent',
+    status: 'active',
+    tools: { echo: 'requires_approval' },
+    systemPrompt: 'You are an assistant.',
+    model: { model: 'test' },
+  });
+  const collective = await Collective.load(storage);
+  const store = new FileConversationStore(new FileStorage(tmpDir));
+  const eventBus = new EventBus();
+  const thread = new ConversationThread(
+    await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+    store,
+  );
+
+  const provider: Provider = {
+    async *stream(msgs, _tools) {
+      const last = msgs[msgs.length - 1];
+      if (last.role === 'tool') {
+        const parsed = JSON.parse(last.content ?? '{}');
+        if (parsed.status !== 'pending_approval') {
+          yield { type: 'text_delta', delta: 'Done' };
+          yield { type: 'done', stopReason: 'stop' };
+          return;
+        }
+      }
+      yield { type: 'tool_call_start', index: 0, id: 'tc-1', name: 'echo' };
+      yield { type: 'tool_call_args_delta', index: 0, delta: JSON.stringify({ text: 'hello' }) };
+      yield { type: 'done', stopReason: 'tool_calls' };
+    },
+  };
+  const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
+
+  const toolRegistry = new ToolRegistry();
+  toolRegistry.register({
+    name: 'echo',
+    description: 'echo',
+    parameters: {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    } as JSONSchema,
+    async execute(args) {
+      return { status: 'success', data: (args as { text: string }).text };
+    },
+  });
+
+  const pendingApprovalRegistry = new PendingApprovalRegistry();
+
+  const context: RuntimeContext = {
+    participant: collective.getOrThrow('agent-1'),
+    conversationId: thread.id,
+    conversation: thread,
+    collective,
+    config: { version: '2' },
+    eventBus,
+    storage,
+    workspaceRoot: tmpDir,
+    communicationDepth: 0,
+    toolRegistry,
+    authEngine: new AuthEngine(),
+    pendingApprovalRegistry,
+    messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
+  } as unknown as RuntimeContext;
+
+  const incoming: MessageData = {
+    id: 'msg-1',
+    parentId: null,
+    conversationId: thread.id,
+    senderId: 'op',
+    recipientId: 'agent-1',
+    role: 'user',
+    content: 'use echo',
+    status: 'active',
+    timestamp: new Date().toISOString(),
+  };
+
+  const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+  return {
+    runtime: new AgentRuntime('agent-1', router, calc),
+    incoming,
+    context,
+    thread,
+    pendingApprovalRegistry,
+  };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('AgentRuntime', () => {
@@ -728,97 +819,6 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  async function setupApprovalScenario(tmpDir: string) {
-    const storage = new MemoryStorage();
-    await storage.writeJson('collective/participants/agent-1.json', {
-      id: 'agent-1',
-      name: 'A',
-      type: 'agent',
-      status: 'active',
-      tools: { echo: 'requires_approval' },
-      systemPrompt: 'You are an assistant.',
-      model: { model: 'test' },
-    });
-    const collective = await Collective.load(storage);
-    const store = new FileConversationStore(new FileStorage(tmpDir));
-    const eventBus = new EventBus();
-    const thread = new ConversationThread(
-      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
-      store,
-    );
-
-    const provider: Provider = {
-      async *stream(msgs, _tools) {
-        const last = msgs[msgs.length - 1];
-        if (last.role === 'tool') {
-          const parsed = JSON.parse(last.content ?? '{}');
-          if (parsed.status !== 'pending_approval') {
-            yield { type: 'text_delta', delta: 'Done' };
-            yield { type: 'done', stopReason: 'stop' };
-            return;
-          }
-        }
-        yield { type: 'tool_call_start', index: 0, id: 'tc-1', name: 'echo' };
-        yield { type: 'tool_call_args_delta', index: 0, delta: JSON.stringify({ text: 'hello' }) };
-        yield { type: 'done', stopReason: 'tool_calls' };
-      },
-    };
-    const router = new MockModelRouter(new Map([['test', provider]])) as ModelRouter;
-
-    const toolRegistry = new ToolRegistry();
-    toolRegistry.register({
-      name: 'echo',
-      description: 'echo',
-      parameters: {
-        type: 'object',
-        properties: { text: { type: 'string' } },
-        required: ['text'],
-      } as JSONSchema,
-      async execute(args) {
-        return { status: 'success', data: (args as { text: string }).text };
-      },
-    });
-
-    const pendingApprovalRegistry = new PendingApprovalRegistry();
-
-    const context: RuntimeContext = {
-      participant: collective.getOrThrow('agent-1'),
-      conversationId: thread.id,
-      conversation: thread,
-      collective,
-      config: { version: '2' },
-      eventBus,
-      storage,
-      workspaceRoot: tmpDir,
-      communicationDepth: 0,
-      toolRegistry,
-      authEngine: new AuthEngine(),
-      pendingApprovalRegistry,
-      messageRouter: { send: vi.fn(), resume: vi.fn() } as unknown as MessageRouterPort,
-    } as unknown as RuntimeContext;
-
-    const incoming: MessageData = {
-      id: 'msg-1',
-      parentId: null,
-      conversationId: thread.id,
-      senderId: 'op',
-      recipientId: 'agent-1',
-      role: 'user',
-      content: 'use echo',
-      status: 'active',
-      timestamp: new Date().toISOString(),
-    };
-
-    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
-    return {
-      runtime: new AgentRuntime('agent-1', router, calc),
-      incoming,
-      context,
-      thread,
-      pendingApprovalRegistry,
-    };
-  }
-
   it('returns pending_approval when a tool requires approval', async () => {
     const { runtime, incoming, context } = await setupApprovalScenario(dir);
     const result = await runtime.handle(incoming, context);
@@ -1238,5 +1238,75 @@ describe('AgentRuntime: middleware prompts', () => {
       ),
     ).resolves.toEqual({ kind: 'middleware_abort', error: 'Invalid middleware provider resume' });
     expect(providerRequests).toHaveLength(0);
+  });
+});
+
+describe('AgentRuntime: auth – argument scope', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-ar-scope-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('does not execute a tool whose arguments violate its scope', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'Done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const execute = vi.spyOn(context.toolRegistry, 'execute');
+    context.participant.tools = {
+      echo: { policy: 'auto', scope: { text: { enum: ['ok'] } } },
+    };
+
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
+    const result = await runtime.handle(inbound, context);
+
+    expect(result.kind).toBe('response');
+    expect(execute).not.toHaveBeenCalled();
+    const toolTurn = context.conversation.activeChain.find((m) => m.toolResults?.length);
+    expect(toolTurn?.toolResults?.[0].result.status).toBe('error');
+    expect(toolTurn?.toolResults?.[0].result.error).toMatch(/argument scope violation: echo\.text/);
+  });
+
+  it('re-checks scope on approval resume and fails closed after a policy change', async () => {
+    const { runtime, incoming, context, thread, pendingApprovalRegistry } =
+      await setupApprovalScenario(dir);
+    context.participant.tools = {
+      echo: { policy: 'requires_approval', scope: { text: { enum: ['hello'] } } },
+    };
+
+    const result = await runtime.handle(incoming, context);
+    expect(result.kind).toBe('pending_approval');
+    const approvalId = (result as { approvalRequests: { approvalId: string }[] })
+      .approvalRequests[0].approvalId;
+
+    await pendingApprovalRegistry.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: new Date().toISOString(),
+    });
+
+    context.participant.tools = {
+      echo: { policy: 'requires_approval', scope: { text: { enum: ['other'] } } },
+    };
+
+    const resumeResult = await runtime.handle(incoming, context);
+    expect(resumeResult.kind).toBe('response');
+    const scopeError = thread.activeChain
+      .flatMap((m) => m.toolResults ?? [])
+      .find((tr) => tr.result.error?.includes('argument scope violation'));
+    expect(scopeError).toBeDefined();
+    expect(
+      thread.activeChain
+        .flatMap((m) => m.toolResults ?? [])
+        .some((tr) => tr.result.status === 'success'),
+    ).toBe(false);
   });
 });
