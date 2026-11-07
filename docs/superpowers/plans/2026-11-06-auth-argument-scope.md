@@ -2206,7 +2206,7 @@ function updateRule(tool: string, arg: string, patch: Partial<ArgScope>) {
 }
 
 function onArgName(tool: string, from: string, event: Event) {
-  renameArgument(tool, from, (event.target as HTMLSelectElement).value);
+  renameArgument(tool, from, (event.target as HTMLInputElement).value);
 }
 
 function onRequired(tool: string, arg: string, event: Event) {
@@ -2282,22 +2282,23 @@ Inside each `[data-tool-row]`, after the approval button, add:
         data-scope-editor
         class="w-full mt-1 space-y-1 rounded border border-line bg-surface p-2"
       >
+        <datalist :id="`scope-args-${tool}`">
+          <option v-for="name in argumentNames(tool, '')" :key="name" :value="name" />
+        </datalist>
         <div
           v-for="[arg, rule] in scopeRows(override)"
           :key="arg"
           data-scope-row
           class="grid grid-cols-2 gap-1 items-center"
         >
-          <select
+          <input
             :value="arg"
+            :list="`scope-args-${tool}`"
             :disabled="readonly"
+            placeholder="argument name"
             class="rounded border border-line bg-surface px-1 py-0.5 font-mono text-[10px]"
             @change="onArgName(tool, arg, $event)"
-          >
-            <option v-for="name in argumentNames(tool, arg)" :key="name" :value="name">
-              {{ name }}
-            </option>
-          </select>
+          />
           <label class="flex items-center gap-1 text-[10px] text-faint">
             <input
               type="checkbox"
