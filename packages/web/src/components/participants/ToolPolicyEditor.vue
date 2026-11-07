@@ -73,13 +73,14 @@ function scopeRows(override: ToolOverride): Array<[string, ArgScope]> {
   return Object.entries(override.scope ?? {});
 }
 
-function argumentNames(tool: string, current: string): string[] {
+function declaredArgumentNames(tool: string): string[] {
   const properties = props.parameters?.[tool]?.properties;
-  const names =
-    properties && typeof properties === 'object'
-      ? Object.keys(properties as Record<string, unknown>)
-      : [];
-  return names.includes(current) ? names : [...names, current];
+  if (!properties || typeof properties !== 'object') return [];
+  return Object.keys(properties as Record<string, unknown>).filter((name) => name !== '');
+}
+
+function scopeCount(override: ToolOverride): number {
+  return Object.keys(override.scope ?? {}).length;
 }
 
 function replaceOverride(tool: string, patch: Partial<ToolOverride>) {
@@ -98,8 +99,15 @@ function addArgument(tool: string) {
   if (!override) return;
   const existing = override.scope ?? {};
   const used = new Set(Object.keys(existing));
-  const declared = argumentNames(tool, '').filter((name) => name !== '');
-  const next = declared.find((name) => !used.has(name)) ?? `arg${Object.keys(existing).length + 1}`;
+  const declared = declaredArgumentNames(tool);
+  let next = declared.find((name) => !used.has(name));
+  if (!next) {
+    // Fallback names must not collide with an existing rule (e.g. scope { arg2 }
+    // with no declared parameters must yield arg3, not overwrite arg2).
+    let index = Object.keys(existing).length + 1;
+    while (used.has(`arg${index}`)) index += 1;
+    next = `arg${index}`;
+  }
   updateScope(tool, { ...existing, [next]: {} });
 }
 
@@ -111,14 +119,19 @@ function removeArgument(tool: string, arg: string) {
   updateScope(tool, next);
 }
 
-function renameArgument(tool: string, from: string, to: string) {
+function renameArgument(tool: string, from: string, to: string): boolean {
   const override = props.overrides.find((o) => o.tool === tool);
-  if (!override || to === '' || from === to) return;
+  if (!override || to === '' || from === to) return false;
+  const scope = override.scope ?? {};
+  // Refuse to rename onto an existing key: the server would accept the
+  // resulting scope, silently discarding the other argument's rule.
+  if (Object.prototype.hasOwnProperty.call(scope, to)) return false;
   const next: ToolScope = {};
-  for (const [key, rule] of Object.entries(override.scope ?? {})) {
+  for (const [key, rule] of Object.entries(scope)) {
     next[key === from ? to : key] = rule;
   }
   updateScope(tool, next);
+  return true;
 }
 
 function updateRule(tool: string, arg: string, patch: Partial<ArgScope>) {
@@ -132,7 +145,10 @@ function updateRule(tool: string, arg: string, patch: Partial<ArgScope>) {
 }
 
 function onArgName(tool: string, from: string, event: Event) {
-  renameArgument(tool, from, (event.target as HTMLInputElement).value);
+  const input = event.target as HTMLInputElement;
+  // A rejected rename leaves state untouched, so reset the input to the name
+  // that is actually stored (otherwise it would display an unsaved value).
+  if (!renameArgument(tool, from, input.value)) input.value = from;
 }
 
 function onRequired(tool: string, arg: string, event: Event) {
@@ -223,13 +239,12 @@ function scopeError(rule: ArgScope): string | null {
       <button
         v-if="override?.enabled"
         type="button"
-        :disabled="readonly"
         data-scope-toggle
         class="text-[9px] px-2 py-0.5 rounded border border-line text-faint"
         @click="toggleScope(tool)"
       >
-        scope<span data-scope-count v-if="override?.scope">
-          {{ Object.keys(override.scope).length }}</span
+        scope<span data-scope-count v-if="scopeCount(override) > 0">
+          {{ scopeCount(override) }}</span
         >
       </button>
       <div
@@ -238,7 +253,7 @@ function scopeError(rule: ArgScope): string | null {
         class="w-full mt-1 space-y-1 rounded border border-line bg-surface p-2"
       >
         <datalist :id="`scope-args-${tool}`">
-          <option v-for="name in argumentNames(tool, '')" :key="name" :value="name" />
+          <option v-for="name in declaredArgumentNames(tool)" :key="name" :value="name" />
         </datalist>
         <div
           v-for="[arg, rule] in scopeRows(override)"
