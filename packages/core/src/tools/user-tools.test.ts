@@ -72,6 +72,23 @@ describe('create_user', () => {
     expect(result.error).toContain('Participant already exists');
   });
 
+  it('create_user accepts an object policy form', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createUserTool.execute(
+      {
+        id: 'dave',
+        name: 'Dave',
+        tools: { communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect((collective.get('dave') as UserConfig).tools['communicate']).toEqual({
+      policy: 'auto',
+      scope: { message: { maxLength: 50 } },
+    });
+  });
+
   it('accepts operator and tools overrides', async () => {
     const { context, collective } = await makeContext();
     const result = await createUserTool.execute(

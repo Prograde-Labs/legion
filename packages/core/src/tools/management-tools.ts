@@ -9,7 +9,10 @@ import type {
   MessageData,
   JSONValue,
   MiddlewareInstanceConfig,
+  ToolScope,
 } from '@legion-collective/types';
+import { normalizeToolPolicy } from '@legion-collective/types';
+import { validateToolPolicy, validateToolsMap } from '../auth/validateToolPolicy.js';
 import { editMessage, getActiveChain, pruneMessage } from '../conversation/conversation-ops.js';
 import type { Tool, ToolContext, ToolRegistryLike } from './Tool.js';
 import type { SecretStore } from '../secrets/SecretStore.js';
@@ -214,6 +217,10 @@ export const createAgentTool: Tool = {
       if (tools !== undefined && context.participant.operator !== true) {
         throw new Error('Only an operator can change tool policies');
       }
+      if (tools !== undefined) {
+        const validated = validateToolsMap(context.toolRegistry, tools);
+        if (!validated.ok) throw new Error(validated.error);
+      }
       if (middleware !== undefined && !Array.isArray(middleware)) {
         throw new Error('middleware must be an array when provided');
       }
@@ -321,14 +328,20 @@ export const setToolPolicyTool: Tool = {
       participantId: { type: 'string' },
       tool: { type: 'string' },
       policy: { type: 'string', enum: ['auto', 'requires_approval'] },
+      scope: {
+        type: 'object',
+        description:
+          'Argument scope keyed by argument name. Pass {} to clear; omit to keep the existing scope.',
+      },
     },
     required: ['participantId', 'tool', 'policy'],
   },
   async execute(args, context): Promise<ToolResult> {
-    const { participantId, tool, policy } = args as {
+    const { participantId, tool, policy, scope } = args as {
       participantId: string;
       tool: string;
-      policy: ToolPolicy;
+      policy: 'auto' | 'requires_approval';
+      scope?: ToolScope;
     };
     // Tool policies are privilege-bearing (save_mcp_sources runs arbitrary
     // commands on the next boot). Without this guard a non-operator holding
@@ -339,9 +352,24 @@ export const setToolPolicyTool: Tool = {
     try {
       const collective = requireCollective(context);
       const participant = collective.getOrThrow(participantId);
-      const tools = { ...participant.tools, [tool]: policy };
+      const existing = normalizeToolPolicy(participant.tools[tool]);
+
+      let next: ToolPolicy;
+      if (scope === undefined) {
+        const validated = validateToolPolicy(context.toolRegistry?.get(tool), policy);
+        if (!validated.ok) return { status: 'error', error: validated.error };
+        next = existing?.scope ? { policy, scope: existing.scope } : policy;
+      } else if (Object.keys(scope).length === 0) {
+        next = policy;
+      } else {
+        const validated = validateToolPolicy(context.toolRegistry?.get(tool), { policy, scope });
+        if (!validated.ok) return { status: 'error', error: validated.error };
+        next = validated.policy;
+      }
+
+      const tools = { ...participant.tools, [tool]: next };
       await collective.update(participantId, { tools });
-      return { status: 'success', data: { participantId, tool, policy } };
+      return { status: 'success', data: { participantId, tool, policy: next } };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
@@ -849,6 +877,10 @@ export const modifyAgentTool: Tool = {
       if (tools !== undefined && context.participant.operator !== true) {
         throw new Error('Only an operator can change tool policies');
       }
+      if (tools !== undefined) {
+        const validated = validateToolsMap(context.toolRegistry, tools);
+        if (!validated.ok) throw new Error(validated.error);
+      }
       const collective = requireCollective(context);
       const existing = collective.get(id);
       if (!existing) return { status: 'error', error: `Agent not found: ${id}` };
@@ -888,11 +920,23 @@ export const listToolsTool: Tool = {
   async execute(_rawArgs: unknown, context: ToolContext): Promise<ToolResult> {
     const toolRegistry = context.toolRegistry;
     if (!toolRegistry) return { status: 'error', error: 'toolRegistry unavailable' };
-    const callerPolicy: Record<string, ToolPolicy> = {};
+
+    const callerPolicy: Record<
+      string,
+      { policy: 'auto' | 'requires_approval'; scope?: ToolScope }
+    > = {};
     for (const [tool, policy] of Object.entries(context.participant.tools ?? {})) {
-      if (policy === 'auto' || policy === 'requires_approval') callerPolicy[tool] = policy;
+      const normalized = normalizeToolPolicy(policy);
+      if (normalized) callerPolicy[tool] = normalized;
     }
-    return { status: 'success', data: { tools: toolRegistry.listAll(), callerPolicy } };
+
+    const parameters: Record<string, JSONSchema> = {};
+    for (const name of toolRegistry.listAll()) {
+      const tool = toolRegistry.get(name);
+      if (tool) parameters[name] = tool.parameters;
+    }
+
+    return { status: 'success', data: { tools: toolRegistry.listAll(), callerPolicy, parameters } };
   },
 };
 

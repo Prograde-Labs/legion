@@ -147,6 +147,34 @@ describe('management tools', () => {
     expect(collective.get('agent-x')?.type).toBe('agent');
   });
 
+  it('create_agent accepts the object policy form', async () => {
+    const { context, collective } = await makeContext();
+    context.toolRegistry.register({
+      name: 'notify',
+      description: 'notify',
+      parameters: {
+        type: 'object',
+        properties: { message: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    const result = await createAgentTool.execute(
+      {
+        id: 'agent-x',
+        name: 'X',
+        systemPrompt: 's',
+        model: { model: 'm' },
+        tools: { notify: { policy: 'auto', scope: { message: { maxLength: 100 } } } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['notify']).toEqual({
+      policy: 'auto',
+      scope: { message: { maxLength: 100 } },
+    });
+  });
+
   it('create_agent validates enabled middleware and persists a cloned revision-zero list', async () => {
     const { context, collective, storage } = await makeContext();
     const validate = vi.fn().mockResolvedValue(undefined);
@@ -354,6 +382,78 @@ describe('management tools', () => {
     );
     expect((result as { status: string }).status).toBe('success');
     expect(deps.collective.get('plain-user')?.tools['save_mcp_sources']).toBe('auto');
+  });
+
+  it('set_tool_policy stores a validated scope', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
+  });
+
+  it('set_tool_policy rejects an unknown argument for a known tool', async () => {
+    const { context } = await makeContext();
+    context.toolRegistry.register({
+      name: 'file_write',
+      description: 'write',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { destination: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    expect(result.status).toBe('error');
+    expect((result as { error: string }).error).toMatch(/unknown argument "destination"/);
+  });
+
+  it('set_tool_policy clears a scope with an empty object', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      { participantId: 'agent-x', tool: 'file_write', policy: 'auto', scope: {} },
+      context,
+    );
+    expect(collective.get('agent-x')?.tools['file_write']).toBe('auto');
   });
 
   it('get_conversation returns the active chain of a conversation', async () => {
@@ -1789,14 +1889,21 @@ describe('list_tools', () => {
     const deps = await buildTestDeps({});
     const result = (await invokeManagementTool('list_tools', {}, deps)) as {
       status: string;
-      data: { tools: string[]; callerPolicy: Record<string, string> };
+      data: {
+        tools: string[];
+        callerPolicy: Record<string, { policy: string }>;
+        parameters: Record<string, unknown>;
+      };
     };
     expect(Array.isArray(result.data.tools)).toBe(true);
     expect(result.data.tools).toContain('list_tools');
     // Seeded operator maps every management tool to 'auto'.
-    expect(result.data.callerPolicy['list_tools']).toBe('auto');
-    expect(result.data.callerPolicy['create_agent']).toBe('auto');
-    expect(Object.values(result.data.callerPolicy).every((p) => p === 'auto')).toBe(true);
+    expect(result.data.callerPolicy['list_tools']).toEqual({ policy: 'auto' });
+    expect(result.data.callerPolicy['create_agent']).toEqual({ policy: 'auto' });
+    expect(Object.values(result.data.callerPolicy).every((p) => p.policy === 'auto')).toBe(true);
+    expect(result.data.parameters['list_tools']).toEqual(
+      expect.objectContaining({ type: 'object' }),
+    );
   });
 
   it('returns the registry tool list plus the caller policy map', async () => {
@@ -1806,14 +1913,14 @@ describe('list_tools', () => {
     });
     const result = (await invokeManagementTool('list_tools', {}, deps)) as {
       status: string;
-      data: { tools: string[]; callerPolicy: Record<string, string> };
+      data: { tools: string[]; callerPolicy: Record<string, { policy: string }> };
     };
     expect(result.status).toBe('success');
     expect(result.data.tools).toContain('list_tools');
     expect(result.data.tools).toContain('edit_message');
     expect(result.data.callerPolicy).toEqual({
-      communicate: 'auto',
-      edit_message: 'requires_approval',
+      communicate: { policy: 'auto' },
+      edit_message: { policy: 'requires_approval' },
     });
   });
 
@@ -1822,7 +1929,7 @@ describe('list_tools', () => {
     await deps.collective.update('operator', { tools: {} });
     const result = (await invokeManagementTool('list_tools', {}, deps)) as {
       status: string;
-      data: { tools: string[]; callerPolicy: Record<string, string> };
+      data: { tools: string[]; callerPolicy: Record<string, { policy: string }> };
     };
     expect(result.status).toBe('success');
     expect(result.data.tools).toContain('list_tools');

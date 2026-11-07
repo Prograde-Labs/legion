@@ -1,5 +1,6 @@
 import type { ToolPolicy, ToolResult, UserConfig } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
+import { validateToolsMap } from '../auth/validateToolPolicy.js';
 
 /**
  * Read/subscription tools every user needs for the web UI to be live: approval
@@ -70,6 +71,10 @@ export const createUserTool: Tool = {
     if (tools !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change tool policies' };
     }
+    if (tools !== undefined) {
+      const validated = validateToolsMap(context.toolRegistry, tools);
+      if (!validated.ok) return { status: 'error', error: validated.error };
+    }
     try {
       const config: UserConfig = {
         id,
@@ -120,6 +125,10 @@ export const modifyUserTool: Tool = {
     }
     if (tools !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change tool policies' };
+    }
+    if (tools !== undefined) {
+      const validated = validateToolsMap(context.toolRegistry, tools);
+      if (!validated.ok) return { status: 'error', error: validated.error };
     }
     try {
       const collective = requireCollective(context);
