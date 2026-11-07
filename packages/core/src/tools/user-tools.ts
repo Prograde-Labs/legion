@@ -47,9 +47,11 @@ export const createUserTool: Tool = {
       tools: {
         type: 'object',
         description:
-          'Map of tool name to policy (auto or requires_approval). Merged over the ' +
-          'default read/subscription tools (approvals, conversation and activity ' +
-          'streams, cancel_stream); explicit policies override the defaults.',
+          'Map of tool name to policy. A policy is "auto", "requires_approval", or ' +
+          '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
+          'is keyed by top-level argument name. Merged over the default read/subscription ' +
+          'tools (approvals, conversation and activity streams, cancel_stream); explicit ' +
+          'policies override the defaults.',
       },
     },
     required: ['id', 'name'],
@@ -108,7 +110,10 @@ export const modifyUserTool: Tool = {
       tools: {
         type: 'object',
         description:
-          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access.',
+          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access. ' +
+          'Each policy is "auto", "requires_approval", or ' +
+          '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
+          'is keyed by top-level argument name.',
       },
     },
     required: ['id'],

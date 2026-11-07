@@ -263,6 +263,76 @@ describe('MiddlewareRunner', () => {
     });
   });
 
+  it('re-authorizes a resumed approval and rejects a now-out-of-scope action', async () => {
+    const f = await fixture([instance('request', { failureMode: 'open' }), instance('following')]);
+    f.participant.tools = {
+      risky: { policy: 'requires_approval', scope: { text: { enum: ['ok'] } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const calls: string[] = [];
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          calls.push(context.instance.id);
+          if (context.instance.id === 'request') {
+            return {
+              kind: 'tool',
+              requestId: 'scope-resume',
+              tool: 'risky',
+              arguments: { text: 'ok' },
+            };
+          }
+          expect(context.actions).toMatchObject([
+            {
+              requestId: 'scope-resume',
+              status: 'rejected',
+              result: {
+                status: 'rejected',
+                message: 'argument scope violation: risky.text must be one of: other',
+              },
+            },
+          ]);
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+
+    const pending = await f.runner.runMessagePhase({
+      operationId: 'scope-resume',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    if (pending.kind !== 'pending_approval') throw new Error('Expected pending approval');
+
+    // The policy narrows while the approval is pending; the resume must fail closed.
+    f.participant.tools = {
+      risky: { policy: 'requires_approval', scope: { text: { enum: ['other'] } } },
+    };
+    await f.pendingApprovals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(f.runner.resumeApproval(pending.approvalId, f.thread)).resolves.toMatchObject({
+      kind: 'continue',
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(calls).toEqual(['request', 'following']);
+    expect(f.pendingApprovals.getRecord(pending.approvalId)).toMatchObject({
+      resumeResult: {
+        status: 'rejected',
+        message: 'argument scope violation: risky.text must be one of: other',
+      },
+    });
+  });
+
   it('fails stale checkpoints before executing external tool and retains continuation', async () => {
     const f = await fixture([instance('request')]);
     f.participant.tools = { risky: 'requires_approval' };

@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ToolScope } from '@legion-collective/types';
 import { evaluateScope } from './ArgumentScope.js';
 
 describe('evaluateScope', () => {
@@ -206,6 +207,69 @@ describe('evaluateScope', () => {
         { workspaceRoot: root },
       ),
     ).toEqual({ ok: false, arg: 'path', reason: 'could not be resolved' });
+  });
+
+  it('fails a parent-directory escape after a symlinked directory', async () => {
+    await mkdir(join(root, 'outside'), { recursive: true });
+    await symlink(join(root, 'outside'), join(root, 'work', 'link'));
+    expect(
+      evaluateScope(
+        't',
+        { path: 'work/link/../escape.txt' },
+        { path: { pathPrefix: 'work' } },
+        { workspaceRoot: root },
+      ),
+    ).toEqual({ ok: false, arg: 'path', reason: 'must be under work' });
+  });
+
+  it('fails a backslash parent-directory escape', () => {
+    expect(
+      evaluateScope(
+        't',
+        { path: 'work\\link\\..\\escape.txt' },
+        { path: { pathPrefix: 'work' } },
+        { workspaceRoot: root },
+      ),
+    ).toEqual({ ok: false, arg: 'path', reason: 'must be under work' });
+  });
+
+  it.each([['work'], [[]], [42], [true], [null]])('fails a malformed scope %j closed', (scope) => {
+    expect(evaluateScope('t', {}, scope as unknown as ToolScope, { workspaceRoot: root })).toEqual({
+      ok: false,
+      arg: '<scope>',
+      reason: 'scope must be an object',
+    });
+  });
+
+  it.each(['work', null])('fails a malformed rule %j closed', (rule) => {
+    expect(
+      evaluateScope('t', { text: 'x' }, { text: rule } as unknown as ToolScope, {
+        workspaceRoot: root,
+      }),
+    ).toEqual({ ok: false, arg: 'text', reason: 'rule must be an object' });
+  });
+
+  it.each([
+    { rule: { enum: 'abc' }, reason: 'enum must be a non-empty array of non-empty strings' },
+    { rule: { enum: [] }, reason: 'enum must be a non-empty array of non-empty strings' },
+    {
+      rule: { enum: ['ok', ''] },
+      reason: 'enum must be a non-empty array of non-empty strings',
+    },
+    { rule: { pattern: '' }, reason: 'pattern must be a non-empty string' },
+    { rule: { minLength: -1 }, reason: 'minLength must be a non-negative integer' },
+    { rule: { maxLength: 1.5 }, reason: 'maxLength must be a non-negative integer' },
+    { rule: { min: 1e999 }, reason: 'min must be a finite number' },
+    { rule: { max: Number.NEGATIVE_INFINITY }, reason: 'max must be a finite number' },
+    { rule: { required: 'yes' }, reason: 'required must be a boolean' },
+    { rule: { pathPrefix: '' }, reason: 'pathPrefix must be a non-empty string' },
+    { rule: { enum: ['x'], bogus: true }, reason: 'has an unknown constraint "bogus"' },
+  ])('fails a malformed constraint $rule closed', ({ rule, reason }) => {
+    expect(
+      evaluateScope('t', { text: 'x' }, { text: rule } as unknown as ToolScope, {
+        workspaceRoot: root,
+      }),
+    ).toEqual({ ok: false, arg: 'text', reason });
   });
 
   it('fails when arguments are not an object', () => {

@@ -194,7 +194,9 @@ export const createAgentTool: Tool = {
       tools: {
         type: 'object',
         description:
-          'Map of tool name to policy (auto or requires_approval). Absent tools are hidden from the agent.',
+          'Map of tool name to policy. A policy is "auto", "requires_approval", or ' +
+          '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
+          'is keyed by top-level argument name. Absent tools are hidden from the agent.',
       },
       maxIterations: { type: 'number' },
       middleware: middlewareSchema,
@@ -861,7 +863,10 @@ export const modifyAgentTool: Tool = {
       tools: {
         type: 'object',
         description:
-          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access.',
+          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access. ' +
+          'Each policy is "auto", "requires_approval", or ' +
+          '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
+          'is keyed by top-level argument name.',
       },
     },
     required: ['id'],

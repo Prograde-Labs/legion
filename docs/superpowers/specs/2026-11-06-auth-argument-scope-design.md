@@ -116,16 +116,19 @@ Rules:
 - `pattern` uses `new RegExp(pattern).test(value)`. The pattern is validated when the
   policy is set; an invalid pattern that reaches evaluation fails closed.
 - `pathPrefix` requires a string value:
-  1. Resolve `prefix = path.resolve(ctx.workspaceRoot, rule.pathPrefix)` and
+  1. Reject any `..` path segment in `value` (split on both `/` and `\`) before resolving.
+     Lexical resolution would otherwise collapse `..` before symlinks are resolved, so
+     `link/../file` could pass the prefix check while the OS writes outside it.
+  2. Resolve `prefix = path.resolve(ctx.workspaceRoot, rule.pathPrefix)` and
      `target = path.resolve(ctx.workspaceRoot, value)`. An absolute prefix resolves to
      itself; a relative one resolves under `workspaceRoot`.
-  2. Resolve symlinks before comparing. If `target` exists, use
+  3. Resolve symlinks before comparing. If `target` exists, use
      `fs.realpathSync(target)`. If it does not, find the deepest existing ancestor,
      `realpath` it, and append the remaining segments. Apply the same treatment to the
      prefix when it exists.
-  3. Pass when `resolvedTarget === resolvedPrefix` or
+  4. Pass when `resolvedTarget === resolvedPrefix` or
      `resolvedTarget.startsWith(resolvedPrefix + path.sep)`.
-  4. Any filesystem or resolution error fails closed.
+  5. Any filesystem or resolution error fails closed.
 - Failure detail is human-readable and names the tool and argument, e.g.
   `file_write.path must be under work/`.
 

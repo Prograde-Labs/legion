@@ -118,6 +118,9 @@ effect on the caller's stream) remains open — see
 
 `authorize()` and `hasAuthority()` already take `args` but ignore them. Needed:
 
+> **Note:** The bullets below are the pre-implementation plan; they are superseded by the
+> **Landed** block below.
+
 - A policy schema for argument constraints (allowed values, path prefixes, size caps, etc.).
 - An enforcement point in `ToolRegistry`/`AgentRuntime` before execution.
 - Approval semantics when args fail scope: deny, or escalate?

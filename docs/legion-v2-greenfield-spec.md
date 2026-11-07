@@ -432,11 +432,12 @@ When `MessageRouter` routes a message to a connector-bound participant (normal d
 `AuthEngine` answers exactly two questions and orchestrates nothing:
 
 ```typescript
-authorize(participantId, tool, args, participantPolicies?)
-  // → { authorized: boolean, reason? }
+authorize(participantId, tool, args, participantPolicies?, ctx?)
+  // → { authorized: boolean, reason?: 'auto' | 'requires_approval' | 'hidden' | 'scope', detail? }
   //   'auto'              → { authorized: true }
   //   'requires_approval' → { authorized: false } — must be approved by someone with authority
   //   absent from map     → { authorized: false, reason: 'hidden' } — not visible to LLM
+  //   scope violation     → { authorized: false, reason: 'scope' } — hard deny, never approvable
 
 hasAuthority(approverAuthority, requesterId, tool, args)
   // → boolean
@@ -448,6 +449,9 @@ A participant's per-tool policy may also carry an argument scope:
 type ToolPolicy =
   'auto' | 'requires_approval' | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
 ```
+
+`ToolScope` maps top-level argument names to `ArgScope` rules (allowed values, regex,
+length/numeric bounds, and path containment).
 
 `authorize(..., ctx)` evaluates the scope before returning `auto` or `requires_approval`.
 Scope keys are top-level argument names; supported constraints are `required`, `enum`,

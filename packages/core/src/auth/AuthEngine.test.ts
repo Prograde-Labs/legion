@@ -126,6 +126,24 @@ describe('AuthEngine.authorize argument scope', () => {
     expect(result.detail).toBe('argument scope unavailable: workspaceRoot missing');
   });
 
+  it('fails closed when a stored scope is malformed', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_read',
+      {},
+      {
+        file_read: { policy: 'auto', scope: null },
+      } as unknown as Record<string, ToolPolicy>,
+      ctx,
+    );
+    expect(result.authorized).toBe(false);
+    expect(result.reason).toBe('scope');
+    expect(result.detail).toBe(
+      'argument scope violation: file_read.<scope> scope must be an object',
+    );
+  });
+
   it('keeps the legacy string policies working without a scope context', () => {
     const engine = new AuthEngine();
     expect(engine.authorize('p1', 'file_read', {}, { file_read: 'auto' }).reason).toBe('auto');

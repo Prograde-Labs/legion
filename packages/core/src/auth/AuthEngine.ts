@@ -20,7 +20,7 @@ export class AuthEngine {
     const policy = normalizeToolPolicy(participantPolicies?.[tool]);
     if (!policy) return { authorized: false, reason: 'hidden' };
 
-    if (policy.scope) {
+    if (policy.scope !== undefined) {
       if (!ctx) {
         return {
           authorized: false,
