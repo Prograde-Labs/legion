@@ -196,6 +196,18 @@ describe('evaluateScope', () => {
     ).toEqual({ ok: false, arg: 'path', reason: 'must be under work' });
   });
 
+  it('fails a dangling symlink that escapes the allowed prefix', async () => {
+    await symlink(join(root, 'outside.txt'), join(root, 'work', 'link.txt'));
+    expect(
+      evaluateScope(
+        't',
+        { path: 'work/link.txt' },
+        { path: { pathPrefix: 'work' } },
+        { workspaceRoot: root },
+      ),
+    ).toEqual({ ok: false, arg: 'path', reason: 'could not be resolved' });
+  });
+
   it('fails when arguments are not an object', () => {
     expect(evaluateScope('t', 'nope', { path: { enum: ['a'] } }, { workspaceRoot: root })).toEqual({
       ok: false,

@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { ArgScope, ToolScope } from '@legion-collective/types';
 
@@ -16,17 +16,30 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * True when the path exists as a directory entry, without following symlinks.
+ * A dangling symlink counts as existing, so realpathSync will fail on it.
+ */
+function entryExists(target: string): boolean {
+  try {
+    lstatSync(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolves symlinks in the deepest existing ancestor and appends missing segments. */
 function realpathWithMissingTail(target: string): string {
   let current = target;
   const tail: string[] = [];
-  while (!existsSync(current)) {
+  while (!entryExists(current)) {
     const parent = dirname(current);
     if (parent === current) break;
     tail.unshift(basename(current));
     current = parent;
   }
-  const base = existsSync(current) ? realpathSync(current) : current;
+  const base = entryExists(current) ? realpathSync(current) : current;
   return join(base, ...tail);
 }
 
