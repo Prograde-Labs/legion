@@ -122,6 +122,21 @@ effect on the caller's stream) remains open — see
 - An enforcement point in `ToolRegistry`/`AgentRuntime` before execution.
 - Approval semantics when args fail scope: deny, or escalate?
 
+**Landed** (2026-11-06, `feat/auth-argument-scope`):
+
+- `ToolPolicy` accepts an object form `{ policy, scope? }`; legacy string policies still
+  work.
+- Scope constraints: `required`, `enum`, `pattern`, `minLength`/`maxLength`, `min`/`max`,
+  and `pathPrefix` with resolved containment under the workspace root.
+- Enforcement at every `AuthEngine.authorize` site, including a re-check on approval
+  resume; a violation is a structured error and is never approvable.
+- `set_tool_policy` accepts a `scope`; agent and user create/modify tools validate the
+  object form; `list_tools` returns normalized policies and tool parameter schemas.
+- The web `ToolPolicyEditor` can add, edit, and clear scopes.
+
+Deferred: scoped approval authority, nested argument paths, multiple allowed roots, and
+re-validating stored configs at boot.
+
 ### #7 — Participant contact/group control
 
 - Grouping system for participants.

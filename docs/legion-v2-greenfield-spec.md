@@ -442,6 +442,19 @@ hasAuthority(approverAuthority, requesterId, tool, args)
   // → boolean
 ```
 
+A participant's per-tool policy may also carry an argument scope:
+
+```typescript
+type ToolPolicy =
+  'auto' | 'requires_approval' | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
+```
+
+`authorize(..., ctx)` evaluates the scope before returning `auto` or `requires_approval`.
+Scope keys are top-level argument names; supported constraints are `required`, `enum`,
+`pattern`, `minLength`/`maxLength`, `min`/`max`, and `pathPrefix` (resolved containment
+under the workspace root). A violation returns `reason: 'scope'` and is a hard deny, never
+an approval request. `hasAuthority` remains unscoped.
+
 Policy resolution: participant per-tool policy. Tools absent from the participant's `tools` map are hidden from the LLM and cannot be called.
 
 The principal is always `context.participant`. An agent's LLM tool call, a service's `callTool`, and a participant acting through a boundary connector are all authorized identically — no special-casing by type or channel.
