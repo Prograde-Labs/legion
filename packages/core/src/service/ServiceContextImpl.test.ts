@@ -177,6 +177,23 @@ describe('ServiceContextImpl', () => {
       expect(result.status).toBe('error');
       expect((result as any).error).toMatch(/requires_approval/i);
     });
+
+    it('fails closed when arguments violate the tool scope', async () => {
+      const { dir: d, deps } = await setup();
+      dir = d;
+      const ctx = new ServiceContextImpl({
+        ...deps,
+        participant: {
+          ...BASE_CONFIG,
+          tools: { file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } } },
+        },
+      });
+      const result = await ctx.callTool('file_read', { path: '../escape.txt' });
+      expect(result.status).toBe('error');
+      expect((result as { error: string }).error).toMatch(
+        /argument scope violation: file_read\.path/,
+      );
+    });
   });
 
   describe('communicate', () => {
