@@ -385,7 +385,7 @@ Create `packages/core/src/auth/ArgumentScope.ts`:
 
 ```ts
 import { existsSync, realpathSync } from 'node:fs';
-import path from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import type { ArgScope, ToolScope } from '@legion-collective/types';
 
 export interface ScopeContext {
@@ -407,17 +407,17 @@ function realpathWithMissingTail(target: string): string {
   let current = target;
   const tail: string[] = [];
   while (!existsSync(current)) {
-    const parent = path.dirname(current);
+    const parent = dirname(current);
     if (parent === current) break;
-    tail.unshift(path.basename(current));
+    tail.unshift(basename(current));
     current = parent;
   }
   const base = existsSync(current) ? realpathSync(current) : current;
-  return path.join(base, ...tail);
+  return join(base, ...tail);
 }
 
 function resolvePath(value: string, ctx: ScopeContext): string {
-  return realpathWithMissingTail(path.resolve(ctx.workspaceRoot, value));
+  return realpathWithMissingTail(resolve(ctx.workspaceRoot, value));
 }
 
 function evaluateArg(arg: string, value: unknown, rule: ArgScope, ctx: ScopeContext): ScopeResult {
@@ -460,7 +460,7 @@ function evaluateArg(arg: string, value: unknown, rule: ArgScope, ctx: ScopeCont
     try {
       const prefix = resolvePath(rule.pathPrefix, ctx);
       const target = resolvePath(value, ctx);
-      if (target !== prefix && !target.startsWith(prefix + path.sep)) {
+      if (target !== prefix && !target.startsWith(prefix + sep)) {
         return fail(arg, `must be under ${rule.pathPrefix}`);
       }
     } catch {
