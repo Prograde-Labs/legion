@@ -132,6 +132,130 @@ describe('validateToolPolicy', () => {
   });
 });
 
+const numericTool: AnyTool = {
+  name: 'set_timeout',
+  description: 'set a timeout',
+  parameters: {
+    type: 'object',
+    properties: {
+      timeoutMs: { type: 'integer' },
+      label: { type: 'string' },
+    },
+  },
+  execute: async () => ({ status: 'success' }),
+};
+
+const booleanTool: AnyTool = {
+  name: 'toggle',
+  description: 'toggle a flag',
+  parameters: {
+    type: 'object',
+    properties: { enabled: { type: 'boolean' } },
+  },
+  execute: async () => ({ status: 'success' }),
+};
+
+const unknownTypeTool: AnyTool = {
+  name: 'untyped',
+  description: 'an untyped argument',
+  parameters: {
+    type: 'object',
+    properties: { value: {} },
+  },
+  execute: async () => ({ status: 'success' }),
+};
+
+describe('constraint compatibility', () => {
+  it('accepts combined string constraints', () => {
+    expect(
+      validateToolPolicy(fileTool, {
+        policy: 'auto',
+        scope: {
+          path: {
+            enum: ['work/a.txt'],
+            pattern: '^work/',
+            minLength: 1,
+            maxLength: 100,
+            pathPrefix: 'work',
+          },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts a numeric range', () => {
+    expect(
+      validateToolPolicy(numericTool, {
+        policy: 'auto',
+        scope: { timeoutMs: { min: 1, max: 60000 } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('allows required alongside numeric constraints', () => {
+    expect(
+      validateToolPolicy(numericTool, {
+        policy: 'auto',
+        scope: { timeoutMs: { required: true, min: 1 } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('rejects numeric constraints on a declared string argument', () => {
+    const result = validateToolPolicy(fileTool, {
+      policy: 'auto',
+      scope: { path: { min: 1 } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/numeric constraints require a number argument/);
+  });
+
+  it('rejects string constraints on a declared number argument', () => {
+    const result = validateToolPolicy(numericTool, {
+      policy: 'auto',
+      scope: { timeoutMs: { enum: ['1000'] } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/string constraints require a string argument/);
+  });
+
+  it('rejects constraints on an unsupported argument type', () => {
+    const result = validateToolPolicy(booleanTool, {
+      policy: 'auto',
+      scope: { enabled: { maxLength: 5 } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/not supported for this argument type/);
+  });
+
+  it('allows required on an unsupported argument type', () => {
+    expect(
+      validateToolPolicy(booleanTool, {
+        policy: 'auto',
+        scope: { enabled: { required: true } },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('rejects mixed constraints on an argument with no declared type', () => {
+    const result = validateToolPolicy(unknownTypeTool, {
+      policy: 'auto',
+      scope: { value: { pattern: '^x', min: 1 } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/cannot combine string and numeric constraints/);
+  });
+
+  it('rejects mixed constraints when the tool is unknown', () => {
+    const result = validateToolPolicy(undefined, {
+      policy: 'auto',
+      scope: { anything: { enum: ['x'], min: 1 } },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/cannot combine string and numeric constraints/);
+  });
+});
+
 describe('validateToolsMap', () => {
   it('validates every entry', () => {
     const registry = { get: (name: string) => (name === 'file_write' ? fileTool : undefined) };

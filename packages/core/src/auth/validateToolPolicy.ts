@@ -12,11 +12,71 @@ const CONSTRAINT_KEYS = [
   'pathPrefix',
 ] as const;
 
+const STRING_CONSTRAINT_KEYS = ['enum', 'pattern', 'minLength', 'maxLength', 'pathPrefix'] as const;
+const NUMERIC_CONSTRAINT_KEYS = ['min', 'max'] as const;
+
+type DeclaredArgumentType = 'string' | 'number' | 'unsupported' | undefined;
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function validateArgScope(arg: string, value: unknown): string | null {
+/** Reads the declared JSON-schema type for one argument, when the tool provides one. */
+function declaredArgumentType(tool: AnyTool | undefined, arg: string): DeclaredArgumentType {
+  const properties = tool?.parameters?.properties;
+  if (!isPlainObject(properties)) return undefined;
+  const property = properties[arg];
+  if (!isPlainObject(property)) return undefined;
+  const type = property['type'];
+  if (type === 'string') return 'string';
+  if (type === 'integer' || type === 'number') return 'number';
+  if (typeof type === 'string') return 'unsupported';
+  return undefined;
+}
+
+function hasStringConstraints(value: Record<string, unknown>): boolean {
+  return STRING_CONSTRAINT_KEYS.some((key) => value[key] !== undefined);
+}
+
+function hasNumericConstraints(value: Record<string, unknown>): boolean {
+  return NUMERIC_CONSTRAINT_KEYS.some((key) => value[key] !== undefined);
+}
+
+function validateConstraintCompatibility(
+  arg: string,
+  value: Record<string, unknown>,
+  declaredType: DeclaredArgumentType,
+): string | null {
+  const hasString = hasStringConstraints(value);
+  const hasNumeric = hasNumericConstraints(value);
+
+  if (declaredType === 'unsupported') {
+    if (hasString || hasNumeric) {
+      return `scope.${arg} constraints are not supported for this argument type`;
+    }
+    return null;
+  }
+
+  if (declaredType === 'string' && hasNumeric) {
+    return `scope.${arg} numeric constraints require a number argument`;
+  }
+
+  if (declaredType === 'number' && hasString) {
+    return `scope.${arg} string constraints require a string argument`;
+  }
+
+  if (hasString && hasNumeric) {
+    return `scope.${arg} cannot combine string and numeric constraints`;
+  }
+
+  return null;
+}
+
+function validateArgScope(
+  arg: string,
+  value: unknown,
+  declaredType: DeclaredArgumentType,
+): string | null {
   if (!isPlainObject(value)) return `scope.${arg} must be an object`;
 
   for (const key of Object.keys(value)) {
@@ -94,7 +154,7 @@ function validateArgScope(arg: string, value: unknown): string | null {
     return `scope.${arg}.pathPrefix must be a non-empty string`;
   }
 
-  return null;
+  return validateConstraintCompatibility(arg, value, declaredType);
 }
 
 export function validateToolPolicy(
@@ -133,7 +193,7 @@ export function validateToolPolicy(
           error: `unknown argument "${arg}" for tool ${tool?.name ?? '<unknown>'}`,
         };
       }
-      const error = validateArgScope(arg, rule);
+      const error = validateArgScope(arg, rule, declaredArgumentType(tool, arg));
       if (error) return { ok: false, error };
     }
   }

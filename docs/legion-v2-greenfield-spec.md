@@ -456,8 +456,11 @@ length/numeric bounds, and path containment).
 `authorize(..., ctx)` evaluates the scope before returning `auto` or `requires_approval`.
 Scope keys are top-level argument names; supported constraints are `required`, `enum`,
 `pattern`, `minLength`/`maxLength`, `min`/`max`, and `pathPrefix` (resolved containment
-under the workspace root). A violation returns `reason: 'scope'` and is a hard deny, never
-an approval request. `hasAuthority` remains unscoped.
+under the workspace root). Constraints on one argument are ANDed; string-only constraints
+and numeric constraints cannot be combined on the same argument, and when the tool declares
+an argument type only matching constraints are accepted (unsupported types accept only
+`required`). A violation returns `reason: 'scope'` and is a hard deny, never an approval
+request. `hasAuthority` remains unscoped.
 
 Policy resolution: participant per-tool policy. Tools absent from the participant's `tools` map are hidden from the LLM and cannot be called.
 

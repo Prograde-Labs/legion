@@ -110,6 +110,11 @@ Rules:
 - An absent argument passes unless its rule sets `required: true`.
 - `required: true` fails when the argument is missing, `undefined`, or `null`.
 - All constraints on one argument are ANDed. The first failure is reported.
+- String-only constraints (`enum`, `pattern`, `minLength`, `maxLength`, `pathPrefix`) and
+  numeric constraints (`min`, `max`) cannot be combined on one argument: a value cannot be
+  both a string and a finite number, so a mixed rule is rejected when the policy is set.
+  When the tool declares an argument type, only matching constraints are accepted;
+  unsupported argument types accept only `required`.
 - Type mismatches fail closed: `enum`, `pattern`, `minLength`, `maxLength` require a
   string; `min` and `max` require a finite number.
 - `enum` compares the string exactly.
@@ -226,6 +231,9 @@ Checks:
 - `pattern` compiles with `new RegExp`.
 - `minLength`/`maxLength`/`min`/`max` are finite numbers, with `min <= max` and
   `minLength <= maxLength` when both are present.
+- String-only and numeric constraints are not combined on one argument; when the tool
+  declares the argument's type, only matching constraint kinds are accepted and
+  unsupported types accept only `required`.
 - `pathPrefix` is a non-empty string.
 - When `tool.parameters.properties` exists, every scope key must name a declared
   argument; unknown names are rejected.

@@ -79,6 +79,73 @@ function declaredArgumentNames(tool: string): string[] {
   return Object.keys(properties as Record<string, unknown>).filter((name) => name !== '');
 }
 
+const STRING_CONSTRAINT_KEYS = ['enum', 'pattern', 'minLength', 'maxLength', 'pathPrefix'] as const;
+const NUMERIC_CONSTRAINT_KEYS = ['min', 'max'] as const;
+
+type ScopeKind = 'string' | 'number' | 'unsupported';
+
+/** Remembers an explicit Text/Number choice for tools with no declared arg type. */
+const kindOverrides = ref<Record<string, 'string' | 'number'>>({});
+
+function argumentSchema(tool: string, arg: string): JSONSchema | undefined {
+  const properties = props.parameters?.[tool]?.properties;
+  if (!properties || typeof properties !== 'object') return undefined;
+  return (properties as Record<string, JSONSchema>)[arg];
+}
+
+function declaredKind(tool: string, arg: string): ScopeKind | undefined {
+  const type = argumentSchema(tool, arg)?.type;
+  if (type === 'string') return 'string';
+  if (type === 'integer' || type === 'number') return 'number';
+  if (type !== undefined) return 'unsupported';
+  return undefined;
+}
+
+function hasStringConstraints(rule: ArgScope): boolean {
+  return STRING_CONSTRAINT_KEYS.some((key) => rule[key] !== undefined);
+}
+
+function hasNumericConstraints(rule: ArgScope): boolean {
+  return NUMERIC_CONSTRAINT_KEYS.some((key) => rule[key] !== undefined);
+}
+
+function scopeKind(tool: string, arg: string, rule: ArgScope): ScopeKind {
+  const declared = declaredKind(tool, arg);
+  if (declared) return declared;
+  const override = kindOverrides.value[`${tool}:${arg}`];
+  if (override) return override;
+  if (hasNumericConstraints(rule)) return 'number';
+  if (hasStringConstraints(rule)) return 'string';
+  return 'string';
+}
+
+function setKind(tool: string, arg: string, kind: 'string' | 'number') {
+  const override = props.overrides.find((o) => o.tool === tool);
+  if (!override) return;
+  kindOverrides.value = { ...kindOverrides.value, [`${tool}:${arg}`]: kind };
+  const rule = { ...(override.scope?.[arg] ?? {}) };
+  const remove = kind === 'string' ? NUMERIC_CONSTRAINT_KEYS : STRING_CONSTRAINT_KEYS;
+  for (const key of remove) delete rule[key];
+  updateScope(tool, { ...(override.scope ?? {}), [arg]: rule });
+}
+
+function onKind(tool: string, arg: string, event: Event) {
+  setKind(tool, arg, (event.target as HTMLSelectElement).value as 'string' | 'number');
+}
+
+function argumentNameOptions(tool: string, current: string): string[] {
+  const names = declaredArgumentNames(tool);
+  return names.includes(current) ? names : [...names, current];
+}
+
+function canAddArgument(tool: string): boolean {
+  const names = declaredArgumentNames(tool);
+  if (names.length === 0) return true;
+  const override = props.overrides.find((o) => o.tool === tool);
+  const used = new Set(Object.keys(override?.scope ?? {}));
+  return names.some((name) => !used.has(name));
+}
+
 function scopeCount(override: ToolOverride): number {
   return Object.keys(override.scope ?? {}).length;
 }
@@ -102,6 +169,9 @@ function addArgument(tool: string) {
   const declared = declaredArgumentNames(tool);
   let next = declared.find((name) => !used.has(name));
   if (!next) {
+    // A tool that declares arguments only accepts declared names, so adding
+    // beyond them would create a rule the server rejects.
+    if (declared.length > 0) return;
     // Fallback names must not collide with an existing rule (e.g. scope { arg2 }
     // with no declared parameters must yield arg3, not overwrite arg2).
     let index = Object.keys(existing).length + 1;
@@ -145,10 +215,10 @@ function updateRule(tool: string, arg: string, patch: Partial<ArgScope>) {
 }
 
 function onArgName(tool: string, from: string, event: Event) {
-  const input = event.target as HTMLInputElement;
-  // A rejected rename leaves state untouched, so reset the input to the name
+  const control = event.target as HTMLInputElement | HTMLSelectElement;
+  // A rejected rename leaves state untouched, so reset the control to the name
   // that is actually stored (otherwise it would display an unsaved value).
-  if (!renameArgument(tool, from, input.value)) input.value = from;
+  if (!renameArgument(tool, from, control.value)) control.value = from;
 }
 
 function onRequired(tool: string, arg: string, event: Event) {
@@ -177,16 +247,48 @@ function onNumber(
   event: Event,
 ) {
   const raw = (event.target as HTMLInputElement).value;
-  updateRule(tool, arg, { [key]: raw === '' ? undefined : Number(raw) });
+  const value = raw === '' ? undefined : Number(raw);
+  updateRule(tool, arg, {
+    [key]: value !== undefined && Number.isFinite(value) ? value : undefined,
+  });
 }
 
 /** Lightweight mirror of the server rules for immediate feedback (spec §9). */
-function scopeError(rule: ArgScope): string | null {
+function scopeError(tool: string, arg: string, rule: ArgScope): string | null {
+  const declaredNames = declaredArgumentNames(tool);
+  if (declaredNames.length > 0 && !declaredNames.includes(arg)) {
+    return 'unknown argument for this tool';
+  }
+
+  const declared = declaredKind(tool, arg);
+  const hasString = hasStringConstraints(rule);
+  const hasNumeric = hasNumericConstraints(rule);
+
+  if (declared === 'unsupported') {
+    if (hasString || hasNumeric) return 'constraints are not supported for this argument type';
+    return null;
+  }
+  if (declared === 'string' && hasNumeric) {
+    return 'numeric constraints require a number argument';
+  }
+  if (declared === 'number' && hasString) {
+    return 'string constraints require a string argument';
+  }
+  if (hasString && hasNumeric) return 'cannot combine string and numeric constraints';
+
   if (rule.pattern !== undefined) {
     try {
       new RegExp(rule.pattern);
     } catch {
       return 'invalid pattern';
+    }
+  }
+  for (const key of ['minLength', 'maxLength'] as const) {
+    const bound = rule[key];
+    if (bound !== undefined && (!Number.isInteger(bound) || bound < 0)) {
+      return key === 'minLength'
+        ? 'min length must be a non-negative integer'
+        : 'max length must be a non-negative integer';
     }
   }
   if (
@@ -195,6 +297,12 @@ function scopeError(rule: ArgScope): string | null {
     rule.minLength > rule.maxLength
   ) {
     return 'min length exceeds max length';
+  }
+  for (const key of ['min', 'max'] as const) {
+    const bound = rule[key];
+    if (bound !== undefined && !Number.isFinite(bound)) {
+      return key === 'min' ? 'min must be a finite number' : 'max must be a finite number';
+    }
   }
   if (rule.min !== undefined && rule.max !== undefined && rule.min > rule.max) {
     return 'min exceeds max';
@@ -252,19 +360,29 @@ function scopeError(rule: ArgScope): string | null {
         data-scope-editor
         class="w-full mt-1 space-y-1 rounded border border-line bg-surface p-2"
       >
-        <datalist :id="`scope-args-${tool}`">
-          <option v-for="name in declaredArgumentNames(tool)" :key="name" :value="name" />
-        </datalist>
         <div
           v-for="[arg, rule] in scopeRows(override)"
           :key="arg"
           data-scope-row
           class="grid grid-cols-2 gap-1 items-center"
         >
-          <input
+          <select
+            v-if="declaredArgumentNames(tool).length"
             :value="arg"
-            :list="`scope-args-${tool}`"
             :disabled="readonly"
+            data-arg-name
+            class="rounded border border-line bg-surface px-1 py-0.5 font-mono text-[10px]"
+            @change="onArgName(tool, arg, $event)"
+          >
+            <option v-for="name in argumentNameOptions(tool, arg)" :key="name" :value="name">
+              {{ name }}
+            </option>
+          </select>
+          <input
+            v-else
+            :value="arg"
+            :disabled="readonly"
+            data-arg-name
             placeholder="argument name"
             class="rounded border border-line bg-surface px-1 py-0.5 font-mono text-[10px]"
             @change="onArgName(tool, arg, $event)"
@@ -278,59 +396,77 @@ function scopeError(rule: ArgScope): string | null {
             />
             required
           </label>
-          <input
-            placeholder="enum (comma separated)"
-            :value="rule.enum?.join(', ') ?? ''"
+          <select
+            v-if="!declaredKind(tool, arg)"
+            :value="scopeKind(tool, arg, rule)"
             :disabled="readonly"
+            data-scope-kind
             class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onEnum(tool, arg, $event)"
-          />
-          <input
-            placeholder="pattern"
-            :value="rule.pattern ?? ''"
-            :disabled="readonly"
-            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onText(tool, arg, 'pattern', $event)"
-          />
-          <input
-            type="number"
-            placeholder="min"
-            :value="rule.min ?? ''"
-            :disabled="readonly"
-            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onNumber(tool, arg, 'min', $event)"
-          />
-          <input
-            type="number"
-            placeholder="max"
-            :value="rule.max ?? ''"
-            :disabled="readonly"
-            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onNumber(tool, arg, 'max', $event)"
-          />
-          <input
-            type="number"
-            placeholder="min length"
-            :value="rule.minLength ?? ''"
-            :disabled="readonly"
-            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onNumber(tool, arg, 'minLength', $event)"
-          />
-          <input
-            type="number"
-            placeholder="max length"
-            :value="rule.maxLength ?? ''"
-            :disabled="readonly"
-            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onNumber(tool, arg, 'maxLength', $event)"
-          />
-          <input
-            placeholder="path prefix"
-            :value="rule.pathPrefix ?? ''"
-            :disabled="readonly"
-            class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
-            @change="onText(tool, arg, 'pathPrefix', $event)"
-          />
+            @change="onKind(tool, arg, $event)"
+          >
+            <option value="string">Text</option>
+            <option value="number">Number</option>
+          </select>
+          <template v-if="scopeKind(tool, arg, rule) === 'string'">
+            <input
+              placeholder="enum (comma separated)"
+              :value="rule.enum?.join(', ') ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onEnum(tool, arg, $event)"
+            />
+            <input
+              placeholder="pattern"
+              :value="rule.pattern ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onText(tool, arg, 'pattern', $event)"
+            />
+            <input
+              type="number"
+              placeholder="min length"
+              :value="rule.minLength ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onNumber(tool, arg, 'minLength', $event)"
+            />
+            <input
+              type="number"
+              placeholder="max length"
+              :value="rule.maxLength ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onNumber(tool, arg, 'maxLength', $event)"
+            />
+            <input
+              placeholder="path prefix"
+              :value="rule.pathPrefix ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onText(tool, arg, 'pathPrefix', $event)"
+            />
+          </template>
+          <template v-else-if="scopeKind(tool, arg, rule) === 'number'">
+            <input
+              type="number"
+              placeholder="min"
+              :value="rule.min ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onNumber(tool, arg, 'min', $event)"
+            />
+            <input
+              type="number"
+              placeholder="max"
+              :value="rule.max ?? ''"
+              :disabled="readonly"
+              class="rounded border border-line bg-surface px-1 py-0.5 text-[10px]"
+              @change="onNumber(tool, arg, 'max', $event)"
+            />
+          </template>
+          <p v-else class="col-span-2 text-[9px] text-faint" data-scope-unsupported>
+            This argument type does not support scope constraints.
+          </p>
           <button
             type="button"
             :disabled="readonly"
@@ -339,14 +475,18 @@ function scopeError(rule: ArgScope): string | null {
           >
             remove
           </button>
-          <p v-if="scopeError(rule)" data-scope-error class="col-span-2 text-[9px] text-warning">
-            {{ scopeError(rule) }}
+          <p
+            v-if="scopeError(tool, arg, rule)"
+            data-scope-error
+            class="col-span-2 text-[9px] text-warning"
+          >
+            {{ scopeError(tool, arg, rule) }}
           </p>
         </div>
         <div class="flex gap-2">
           <button
             type="button"
-            :disabled="readonly"
+            :disabled="readonly || !canAddArgument(tool)"
             data-add-arg
             class="text-[9px] px-2 py-0.5 rounded border border-line text-faint"
             @click="addArgument(tool)"
@@ -362,6 +502,9 @@ function scopeError(rule: ArgScope): string | null {
             clear scope
           </button>
         </div>
+        <p v-if="!canAddArgument(tool)" class="text-[9px] text-faint">
+          Every declared argument is already scoped.
+        </p>
       </div>
     </div>
     <p v-if="availableTools.length === 0" class="text-[10px] text-faint italic py-2">

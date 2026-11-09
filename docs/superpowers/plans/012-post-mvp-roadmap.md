@@ -135,7 +135,11 @@ effect on the caller's stream) remains open — see
   resume; a violation is a structured error and is never approvable.
 - `set_tool_policy` accepts a `scope`; agent and user create/modify tools validate the
   object form; `list_tools` returns normalized policies and tool parameter schemas.
-- The web `ToolPolicyEditor` can add, edit, and clear scopes.
+- Constraint kinds are validated against the tool's declared argument type; string-only
+  and numeric constraints cannot be combined on one argument.
+- The web `ToolPolicyEditor` can add, edit, and clear scopes; it picks from declared
+  arguments, shows only the fields that fit the argument type, and mirrors the server's
+  compatibility rules.
 
 Deferred: scoped approval authority, nested argument paths, multiple allowed roots, and
 re-validating stored configs at boot.
