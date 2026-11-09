@@ -137,6 +137,9 @@ effect on the caller's stream) remains open — see
   object form; `list_tools` returns normalized policies and tool parameter schemas.
 - Constraint kinds are validated against the tool's declared argument type; string-only
   and numeric constraints cannot be combined on one argument.
+- Tool-policy and scope management is authorized by the caller's own tool policy; any
+  participant holding the management tool may manage any participant's policies, and the
+  operator flag no longer gates these operations.
 - The web `ToolPolicyEditor` can add, edit, and clear scopes; it picks from declared
   arguments, shows only the fields that fit the argument type, and mirrors the server's
   compatibility rules.

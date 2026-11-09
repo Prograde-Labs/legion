@@ -132,15 +132,17 @@ describe('create_user', () => {
     expect(collective.get('u2')).toBeUndefined();
   });
 
-  it('refuses a tools map from a non-operator (no privilege escalation)', async () => {
+  it('lets a non-operator supply a tools map', async () => {
     const { context, collective } = await makeContext(caller({ id: 'u1', operator: false }));
     const result = await createUserTool.execute(
       { id: 'u2', name: 'U2', tools: { save_mcp_sources: 'auto' } },
       context,
     );
-    expect(result.status).toBe('error');
-    expect(result.error).toContain('tool polic');
-    expect(collective.get('u2')).toBeUndefined();
+    expect(result.status).toBe('success');
+    expect((collective.get('u2') as UserConfig).tools).toEqual({
+      ...SUBSCRIPTION_TOOLS,
+      save_mcp_sources: 'auto',
+    });
   });
 
   it('lets a non-operator create a user without a tools map', async () => {
@@ -245,10 +247,9 @@ describe('modify_user', () => {
     expect((collective.get('u2') as UserConfig).name).toBe('U2 renamed');
   });
 
-  it('refuses a non-operator self-granting save_mcp_sources via modify_user', async () => {
-    // Regression for the critical review finding: modify_user accepted `tools`
-    // verbatim, so a non-operator with modify_user could grant itself
-    // save_mcp_sources (arbitrary command execution on the next boot).
+  it('lets a non-operator replace its own tools through modify_user', async () => {
+    // Tool-policy management is authorized by holding modify_user, not by the
+    // operator flag.
     const { context: nonOperatorContext, collective } = await makeContext(
       caller({ id: 'u1', operator: false }),
     );
@@ -257,10 +258,8 @@ describe('modify_user', () => {
       { id: 'u1', tools: { save_mcp_sources: 'auto' } },
       nonOperatorContext,
     );
-    expect(result.status).toBe('error');
-    expect(result.error).toContain('tool polic');
-    // The pre-existing policy map is untouched.
-    expect((collective.get('u1') as UserConfig).tools).toEqual(SUBSCRIPTION_TOOLS);
+    expect(result.status).toBe('success');
+    expect((collective.get('u1') as UserConfig).tools).toEqual({ save_mcp_sources: 'auto' });
   });
 
   it('lets an operator replace tools through modify_user', async () => {

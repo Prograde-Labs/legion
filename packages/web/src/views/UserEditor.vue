@@ -188,11 +188,8 @@ async function save(): Promise<void> {
       await execute('create_user', {
         id,
         name: name.value,
-        // Tool-policy mutations require an operator server-side; a non-operator
-        // must omit the map so creation still succeeds with the default policies.
-        ...(callerIsOperator.value
-          ? { tools: overridesToToolsMap(overrides.value), operator: operator.value }
-          : {}),
+        tools: overridesToToolsMap(overrides.value),
+        ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
       if (
         canSetCredentialForTarget.value &&
@@ -212,9 +209,8 @@ async function save(): Promise<void> {
       await execute('modify_user', {
         id: props.participantId,
         name: name.value,
-        ...(callerIsOperator.value
-          ? { tools: overridesToToolsMap(overrides.value), operator: operator.value }
-          : {}),
+        tools: overridesToToolsMap(overrides.value),
+        ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
       if (
         canSetCredentialForTarget.value &&
@@ -303,12 +299,8 @@ async function retire(): Promise<void> {
         :available-tools="availableTools"
         :parameters="toolParameters"
         :overrides="overrides"
-        :readonly="!callerIsOperator"
         @update:overrides="overrides = $event"
       />
-      <p v-if="!callerIsOperator" data-test="tools-readonly" class="text-xs text-muted">
-        You do not have permission to change tool policies; the existing configuration is preserved.
-      </p>
     </div>
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>

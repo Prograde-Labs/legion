@@ -38,7 +38,7 @@ interface BaseParticipant {
   approvalAuthority?: ApprovalAuthority; // whose tool calls this participant may approve
   status?: 'active' | 'retired';
   identities?: ConnectorIdentity[]; // external identities that map to this participant
-  operator?: boolean; // broad administrative authority (by convention)
+  operator?: boolean; // administrative convention (not required to manage tool policies)
   protected?: boolean; // cannot be retired; last operator cannot be removed
 }
 ```
@@ -463,6 +463,11 @@ an argument type only matching constraints are accepted (unsupported types accep
 request. `hasAuthority` remains unscoped.
 
 Policy resolution: participant per-tool policy. Tools absent from the participant's `tools` map are hidden from the LLM and cannot be called.
+
+Tool-policy management is authorized by the caller's own tool policy: any participant
+holding `set_tool_policy`, `remove_tool_policy`, `create_agent`, `modify_agent`,
+`create_user`, or `modify_user` may manage any participant's policies and argument scopes.
+The `operator` flag does not gate these operations.
 
 The principal is always `context.participant`. An agent's LLM tool call, a service's `callTool`, and a participant acting through a boundary connector are all authorized identically — no special-casing by type or channel.
 

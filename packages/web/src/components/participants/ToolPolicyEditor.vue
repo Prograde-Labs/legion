@@ -14,7 +14,7 @@ const props = defineProps<{
   overrides: ToolOverride[];
   availableTools: string[];
   parameters?: Record<string, JSONSchema>;
-  /** Render the current policies without letting a non-operator mutate them. */
+  /** Render the current policies without allowing edits. */
   readonly?: boolean;
 }>();
 

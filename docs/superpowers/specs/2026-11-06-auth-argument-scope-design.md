@@ -28,7 +28,8 @@ Two consequences:
 - Keep the existing `'auto' | 'requires_approval'` strings working unchanged.
 - Evaluate scope as part of authorization, at every place authorization already happens.
 - Re-check scope when an approved tool resumes, so a policy change fails closed.
-- Let operators set scopes through the existing management tools and edit them in the web UI.
+- Let any participant holding the management tools set scopes through them, and edit
+  them in the web UI.
 - Start with the constraints that cover the concrete cases: allowed values, regex, length,
   numeric bounds, and path containment.
 
@@ -215,6 +216,11 @@ change between approval and execution fails closed.
 in their `tools` maps. Their schema descriptions change from "(auto or requires_approval)"
 to describe the optional scope object.
 
+These management tools are authorized by the caller's own tool policy, not by an operator
+flag: any participant holding `set_tool_policy`, `remove_tool_policy`, `create_agent`,
+`modify_agent`, `create_user`, or `modify_user` may manage any participant's policies and
+scopes.
+
 A shared validator in core, e.g. `packages/core/src/auth/validateToolPolicy.ts`:
 
 ```ts
@@ -265,7 +271,7 @@ working. The auth route continues to expose tool names only.
   - argument name picker populated from `list_tools.parameters` (free text allowed);
   - constraint fields for the supported kinds;
   - add/remove argument rows and a clear-scope action;
-  - read-only rendering for non-operators.
+  - editable for every caller that can invoke the owning management tool.
 - Client-side validation mirrors the server rules for immediate feedback; the server
   remains authoritative.
 
@@ -304,7 +310,7 @@ working. The auth route continues to expose tool names only.
 **Web**
 
 - Editor emits the object form only when a scope exists; loads both stored forms;
-  read-only mode for non-operators.
+  editable for every caller that can invoke the owning management tool.
 - `useToolAccess` gating works with object policies.
 
 **Gate**

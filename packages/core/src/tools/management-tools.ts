@@ -214,11 +214,6 @@ export const createAgentTool: Tool = {
       middleware?: unknown;
     };
     try {
-      // Tool policies are privilege-bearing (save_mcp_sources can run arbitrary
-      // commands on next boot), so any tools map mutation requires an operator.
-      if (tools !== undefined && context.participant.operator !== true) {
-        throw new Error('Only an operator can change tool policies');
-      }
       if (tools !== undefined) {
         const validated = validateToolsMap(context.toolRegistry, tools);
         if (!validated.ok) throw new Error(validated.error);
@@ -345,12 +340,8 @@ export const setToolPolicyTool: Tool = {
       policy: 'auto' | 'requires_approval';
       scope?: ToolScope;
     };
-    // Tool policies are privilege-bearing (save_mcp_sources runs arbitrary
-    // commands on the next boot). Without this guard a non-operator holding
-    // set_tool_policy could grant itself any tool, including its own.
-    if (context.participant.operator !== true) {
-      return { status: 'error', error: 'Only an operator can change tool policies' };
-    }
+    // Authorization is the caller's own tool policy: holding set_tool_policy is
+    // the grant to manage policies for any participant, regardless of type.
     try {
       const collective = requireCollective(context);
       const participant = collective.getOrThrow(participantId);
@@ -395,9 +386,6 @@ export const removeToolPolicyTool: Tool = {
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
     const { participantId, tool } = args as { participantId: string; tool: string };
-    if (context.participant.operator !== true) {
-      return { status: 'error', error: 'Only an operator can change tool policies' };
-    }
     try {
       const collective = requireCollective(context);
       const participant = collective.getOrThrow(participantId);
@@ -881,9 +869,6 @@ export const modifyAgentTool: Tool = {
       tools?: Record<string, ToolPolicy>;
     };
     try {
-      if (tools !== undefined && context.participant.operator !== true) {
-        throw new Error('Only an operator can change tool policies');
-      }
       if (tools !== undefined) {
         const validated = validateToolsMap(context.toolRegistry, tools);
         if (!validated.ok) throw new Error(validated.error);
