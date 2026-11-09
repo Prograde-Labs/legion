@@ -137,6 +137,8 @@ export interface MiddlewareRunnerDependencies {
   conversationStore: ConversationStore;
   /** Authoritative participant lookup used while resuming durable checkpoints. */
   collective?: Collective;
+  /** Workspace root used to resolve path-based argument scopes. */
+  workspaceRoot: string;
   buildToolContext: (
     participant: ParticipantConfig,
     thread: ConversationThread,
@@ -930,46 +932,72 @@ export class MiddlewareRunner {
     if (claimed.kind === 'completed') {
       action = claimed.result;
     } else {
-      let result: ToolResult;
-      try {
-        result = this.safeToolResult(
-          await this.dependencies.toolRegistry.execute(request.tool, actionInput.args, {
-            ...this.dependencies.buildToolContext(
-              participant,
-              thread,
-              new AbortController().signal,
-            ),
-            middlewareCheckpoint: checkpoint,
-          }),
-        );
-      } catch {
-        result = this.safeToolFailure('error');
-      }
-      if (result.status === 'pending_approval') {
-        await this.dependencies.pendingApprovals.suspendMiddlewareAction(actionInput);
-        const data = result.data as { checkpointId: string; pendingParticipantId: string };
-        return {
-          kind: 'pending_approval',
-          approvalId: result.approvalId!,
-          checkpointId: data.checkpointId,
-          participantId: data.pendingParticipantId,
+      // Re-authorize before executing: a policy or scope change since the
+      // approval was granted must fail closed.
+      const authorization = this.dependencies.authEngine.authorize(
+        participant.id,
+        request.tool,
+        actionInput.args,
+        participant.tools,
+        { workspaceRoot: this.dependencies.workspaceRoot },
+      );
+      if (!authorization.authorized && authorization.reason !== 'requires_approval') {
+        const message =
+          authorization.reason === 'scope'
+            ? (authorization.detail ?? `argument scope violation: ${request.tool}`)
+            : `Tool '${request.tool}' not available`;
+        const result: ToolResult = { status: 'rejected', message };
+        action = {
+          requestId: request.requestId,
+          participantId: participant.id,
+          instanceId: instance.id,
+          tool: request.tool,
+          status: 'rejected',
+          result,
         };
+        await this.dependencies.pendingApprovals.recordMiddlewareActionResult(actionInput, action);
+      } else {
+        let result: ToolResult;
+        try {
+          result = this.safeToolResult(
+            await this.dependencies.toolRegistry.execute(request.tool, actionInput.args, {
+              ...this.dependencies.buildToolContext(
+                participant,
+                thread,
+                new AbortController().signal,
+              ),
+              middlewareCheckpoint: checkpoint,
+            }),
+          );
+        } catch {
+          result = this.safeToolFailure('error');
+        }
+        if (result.status === 'pending_approval') {
+          await this.dependencies.pendingApprovals.suspendMiddlewareAction(actionInput);
+          const data = result.data as { checkpointId: string; pendingParticipantId: string };
+          return {
+            kind: 'pending_approval',
+            approvalId: result.approvalId!,
+            checkpointId: data.checkpointId,
+            participantId: data.pendingParticipantId,
+          };
+        }
+        const status: MiddlewareActionResult['status'] =
+          result.status === 'success'
+            ? 'success'
+            : result.status === 'rejected'
+              ? 'rejected'
+              : 'error';
+        action = {
+          requestId: request.requestId,
+          participantId: participant.id,
+          instanceId: instance.id,
+          tool: request.tool,
+          status,
+          result,
+        };
+        await this.dependencies.pendingApprovals.recordMiddlewareActionResult(actionInput, action);
       }
-      const status: MiddlewareActionResult['status'] =
-        result.status === 'success'
-          ? 'success'
-          : result.status === 'rejected'
-            ? 'rejected'
-            : 'error';
-      action = {
-        requestId: request.requestId,
-        participantId: participant.id,
-        instanceId: instance.id,
-        tool: request.tool,
-        status,
-        result,
-      };
-      await this.dependencies.pendingApprovals.recordMiddlewareActionResult(actionInput, action);
     }
     if (!resumeRecorded) {
       await this.dependencies.pendingApprovals.recordResumeResult(
@@ -1623,7 +1651,21 @@ export class MiddlewareRunner {
         request.tool,
         request.arguments,
         input.participant.tools,
+        { workspaceRoot: this.dependencies.workspaceRoot },
       );
+      if (authorization.reason === 'scope') {
+        const message = authorization.detail ?? `argument scope violation: ${request.tool}`;
+        return this.toolFailure(
+          instance,
+          phase,
+          input,
+          snapshots,
+          request,
+          'rejected',
+          new Error(message),
+          { status: 'rejected', message },
+        );
+      }
       if (!authorization.authorized && authorization.reason !== 'requires_approval') {
         return this.toolFailure(
           instance,

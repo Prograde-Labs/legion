@@ -415,7 +415,20 @@ export class AgentRuntime implements Runtime {
             tc.name,
             tc.arguments,
             agent.tools,
+            { workspaceRoot: context.workspaceRoot },
           );
+
+          if (authResult.reason === 'scope') {
+            toolResults.push({
+              id: tc.id,
+              name: tc.name,
+              result: {
+                status: 'error',
+                error: authResult.detail ?? `argument scope violation: ${tc.name}`,
+              },
+            });
+            continue;
+          }
 
           if (authResult.reason === 'hidden') {
             // Unreachable in normal operation — filter above excludes absent tools.
@@ -584,6 +597,32 @@ export class AgentRuntime implements Runtime {
         updatedResults[i] = {
           ...tr,
           result: { status: 'error', error: 'Tool call data missing from conversation' },
+        };
+        continue;
+      }
+
+      // Re-authorize: policies or scopes may have changed since the approval was requested.
+      const authResult = context.authEngine.authorize(
+        this.participantId,
+        tr.name,
+        toolCall.arguments,
+        context.participant.tools,
+        { workspaceRoot: context.workspaceRoot },
+      );
+      if (authResult.reason === 'scope') {
+        updatedResults[i] = {
+          ...tr,
+          result: {
+            status: 'error',
+            error: authResult.detail ?? `argument scope violation: ${tr.name}`,
+          },
+        };
+        continue;
+      }
+      if (authResult.reason === 'hidden') {
+        updatedResults[i] = {
+          ...tr,
+          result: { status: 'error', error: `Tool '${tr.name}' not available` },
         };
         continue;
       }

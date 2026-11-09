@@ -118,9 +118,34 @@ effect on the caller's stream) remains open — see
 
 `authorize()` and `hasAuthority()` already take `args` but ignore them. Needed:
 
+> **Note:** The bullets below are the pre-implementation plan; they are superseded by the
+> **Landed** block below.
+
 - A policy schema for argument constraints (allowed values, path prefixes, size caps, etc.).
 - An enforcement point in `ToolRegistry`/`AgentRuntime` before execution.
 - Approval semantics when args fail scope: deny, or escalate?
+
+**Landed** (2026-11-06, `feat/auth-argument-scope`):
+
+- `ToolPolicy` accepts an object form `{ policy, scope? }`; legacy string policies still
+  work.
+- Scope constraints: `required`, `enum`, `pattern`, `minLength`/`maxLength`, `min`/`max`,
+  and `pathPrefix` with resolved containment under the workspace root.
+- Enforcement at every `AuthEngine.authorize` site, including a re-check on approval
+  resume; a violation is a structured error and is never approvable.
+- `set_tool_policy` accepts a `scope`; agent and user create/modify tools validate the
+  object form; `list_tools` returns normalized policies and tool parameter schemas.
+- Constraint kinds are validated against the tool's declared argument type; string-only
+  and numeric constraints cannot be combined on one argument.
+- Tool-policy and scope management is authorized by the caller's own tool policy; any
+  participant holding the management tool may manage any participant's policies, and the
+  operator flag no longer gates these operations.
+- The web `ToolPolicyEditor` can add, edit, and clear scopes; it picks from declared
+  arguments, shows only the fields that fit the argument type, and mirrors the server's
+  compatibility rules.
+
+Deferred: scoped approval authority, nested argument paths, multiple allowed roots, and
+re-validating stored configs at boot.
 
 ### #7 — Participant contact/group control
 

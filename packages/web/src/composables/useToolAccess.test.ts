@@ -34,6 +34,16 @@ describe('useToolAccess', () => {
     await useToolAccess().refresh();
     expect(useToolAccess().can('mcp__docs__search')).toBe('requires_approval');
   });
+  it('normalizes object caller policies', async () => {
+    executeMock.mockResolvedValue({
+      tools: ['file_write'],
+      callerPolicy: {
+        file_write: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } },
+      },
+    });
+    await useToolAccess().refresh();
+    expect(useToolAccess().can('file_write')).toBe('requires_approval');
+  });
   it('fails closed when refresh rejects', async () => {
     executeMock.mockRejectedValue(new Error('boom'));
     await expect(useToolAccess().refresh()).rejects.toThrow('boom');

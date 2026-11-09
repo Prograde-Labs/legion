@@ -1,5 +1,6 @@
 import type { ToolPolicy, ToolResult, UserConfig } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
+import { validateToolsMap } from '../auth/validateToolPolicy.js';
 
 /**
  * Read/subscription tools every user needs for the web UI to be live: approval
@@ -46,9 +47,11 @@ export const createUserTool: Tool = {
       tools: {
         type: 'object',
         description:
-          'Map of tool name to policy (auto or requires_approval). Merged over the ' +
-          'default read/subscription tools (approvals, conversation and activity ' +
-          'streams, cancel_stream); explicit policies override the defaults.',
+          'Map of tool name to policy. A policy is "auto", "requires_approval", or ' +
+          '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
+          'is keyed by top-level argument name. Merged over the default read/subscription ' +
+          'tools (approvals, conversation and activity streams, cancel_stream); explicit ' +
+          'policies override the defaults.',
       },
     },
     required: ['id', 'name'],
@@ -63,12 +66,9 @@ export const createUserTool: Tool = {
     if (operator !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change the operator flag' };
     }
-    // Tool policies are privilege-bearing: save_mcp_sources can run arbitrary
-    // commands on the next boot and save_provider/set_secret/set_approval_authority
-    // widen access. A non-operator must not be able to grant them, even to
-    // itself, so any `tools` mutation requires an operator.
-    if (tools !== undefined && !callerIsOperator(context)) {
-      return { status: 'error', error: 'Only an operator can change tool policies' };
+    if (tools !== undefined) {
+      const validated = validateToolsMap(context.toolRegistry, tools);
+      if (!validated.ok) return { status: 'error', error: validated.error };
     }
     try {
       const config: UserConfig = {
@@ -103,7 +103,10 @@ export const modifyUserTool: Tool = {
       tools: {
         type: 'object',
         description:
-          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access.',
+          'Full replacement tools map. Omit to keep existing. Pass {} to clear all tool access. ' +
+          'Each policy is "auto", "requires_approval", or ' +
+          '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
+          'is keyed by top-level argument name.',
       },
     },
     required: ['id'],
@@ -118,8 +121,9 @@ export const modifyUserTool: Tool = {
     if (operator !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change the operator flag' };
     }
-    if (tools !== undefined && !callerIsOperator(context)) {
-      return { status: 'error', error: 'Only an operator can change tool policies' };
+    if (tools !== undefined) {
+      const validated = validateToolsMap(context.toolRegistry, tools);
+      if (!validated.ok) return { status: 'error', error: validated.error };
     }
     try {
       const collective = requireCollective(context);

@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue';
 import { useLegionApi } from '../composables/useLegionApi.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useToolAccess } from '../composables/useToolAccess.js';
-import { useParticipants } from '../composables/useParticipants.js';
 import { friendlyToolError } from '../composables/friendlyToolError.js';
 import ToolPolicyEditor, {
   type ToolOverride,
@@ -14,7 +13,12 @@ import type {
   SkillInfo,
 } from '../components/participants/middleware-ui-types.js';
 import ApprovalAuthorityEditor from '../components/common/ApprovalAuthorityEditor.vue';
-import type { MiddlewareInstanceConfig } from '@legion-collective/types';
+import {
+  normalizeToolPolicy,
+  type JSONSchema,
+  type MiddlewareInstanceConfig,
+  type ToolPolicy,
+} from '@legion-collective/types';
 
 const props = defineProps<{ participantId: string | 'new' }>();
 
@@ -23,12 +27,8 @@ const emit = defineEmits<{ saved: [id: string]; retired: [] }>();
 const { execute } = useLegionApi();
 const auth = useAuth();
 const toolAccess = useToolAccess();
-const { participants } = useParticipants();
-// Tool-policy mutations are operator-only server-side. A non-operator with
-// create_agent/modify_agent can still save the agent, but must omit `tools` and
-// see the existing policies read-only (same treatment as UserEditor).
-const self = computed(() => participants.value.find((p) => p.id === auth.participantId.value));
-const callerIsOperator = computed(() => self.value?.operator === true);
+// Tool-policy management is authorized by the caller's own tool policy, not an
+// operator flag, so every caller that can save the agent can edit its policies.
 // Declared before `canSave`, which reads both, so the computed has no
 // forward reference to a later `const`.
 const middlewareErrors = ref<string[]>([]);
@@ -53,6 +53,7 @@ const systemPrompt = ref('');
 const maxIterations = ref(20);
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
+const toolParameters = ref<Record<string, JSONSchema>>({});
 const modelOptions = ref<{ provider: string; model: { id: string; name?: string } }[]>([]);
 const middleware = ref<MiddlewareInstanceConfig[]>([]);
 const middlewareDefinitions = ref<MiddlewareDefinitionInfo[]>([]);
@@ -76,11 +77,17 @@ function slugify(value: string): string {
   );
 }
 
-function overridesToToolsMap(list: ToolOverride[]): Record<string, 'auto' | 'requires_approval'> {
+function overridesToToolsMap(list: ToolOverride[]): Record<string, ToolPolicy> {
   return Object.fromEntries(
     list
       .filter((o) => o.enabled)
-      .map((o) => [o.tool, o.requireApproval ? 'requires_approval' : 'auto']),
+      .map((o) => {
+        const policy = o.requireApproval ? 'requires_approval' : 'auto';
+        return [
+          o.tool,
+          o.scope && Object.keys(o.scope).length > 0 ? { policy, scope: o.scope } : policy,
+        ];
+      }),
   );
 }
 
@@ -92,6 +99,7 @@ async function load(): Promise<void> {
   skills.value = [];
   credentialKeys.value = [];
   overrides.value = [];
+  toolParameters.value = {};
   middleware.value = [];
   authorityModel.value = null;
   if (props.participantId === 'new') {
@@ -111,13 +119,20 @@ async function load(): Promise<void> {
       modelText.value = model?.model ?? '';
       systemPrompt.value = String(p['systemPrompt'] ?? '');
       maxIterations.value = Number(p['maxIterations'] ?? 20);
-      const toolsMap = (p['tools'] ?? {}) as Record<string, string>;
-      overrides.value = Object.entries(toolsMap).map(([tool, policy]) => ({
-        tool,
-        source: 'built-in',
-        enabled: true,
-        requireApproval: policy === 'requires_approval',
-      }));
+      const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
+      overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
+        const normalized = normalizeToolPolicy(value);
+        if (!normalized) return [];
+        return [
+          {
+            tool,
+            source: 'built-in',
+            enabled: true,
+            requireApproval: normalized.policy === 'requires_approval',
+            ...(normalized.scope ? { scope: normalized.scope } : {}),
+          },
+        ];
+      });
       middleware.value = (p['middleware'] as MiddlewareInstanceConfig[]) ?? [];
       // Approval authority carries both tool approvals and participant approvals;
       // keep `participants` so saving authority round-trips it instead of erasing it.
@@ -140,10 +155,15 @@ async function load(): Promise<void> {
   // Convenience lists are loaded for new AND existing agents: a new agent needs
   // the model picker and middleware definitions too. Only credential keys stay
   // gated to an existing participant (list_secrets needs a real target).
-  void execute<{ tools: string[]; callerPolicy: Record<string, string> }>('list_tools', {})
+  void execute<{
+    tools: string[];
+    callerPolicy: Record<string, unknown>;
+    parameters?: Record<string, JSONSchema>;
+  }>('list_tools', {})
     .then((data) => {
       const tools = Array.isArray(data?.tools) ? data.tools : [];
       availableTools.value = tools;
+      toolParameters.value = data?.parameters ?? {};
       overrides.value = [
         ...overrides.value.filter((o) => tools.includes(o.tool) || o.enabled),
         ...tools
@@ -195,9 +215,7 @@ async function save(): Promise<void> {
         name: name.value,
         systemPrompt: systemPrompt.value,
         model: { model: modelText.value },
-        // Tool-policy changes require an operator server-side; omit the map for
-        // non-operators so creation/rename still succeeds and policies are kept.
-        ...(callerIsOperator.value ? { tools: overridesToToolsMap(overrides.value) } : {}),
+        tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
       });
       // modify_agent/create_agent have no middleware parameter — middleware goes
@@ -218,7 +236,7 @@ async function save(): Promise<void> {
         name: name.value,
         systemPrompt: systemPrompt.value,
         model: { model: modelText.value },
-        ...(callerIsOperator.value ? { tools: overridesToToolsMap(overrides.value) } : {}),
+        tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
       });
       if (canSetMiddleware.value) {
@@ -354,13 +372,10 @@ const groupedModels = computed(() => {
       <span class="text-xs text-faint">Tool policies</span>
       <ToolPolicyEditor
         :available-tools="availableTools"
+        :parameters="toolParameters"
         :overrides="overrides"
-        :readonly="!callerIsOperator"
         @update:overrides="overrides = $event"
       />
-      <p v-if="!callerIsOperator" data-test="tools-readonly" class="text-xs text-muted">
-        You do not have permission to change tool policies; the existing configuration is preserved.
-      </p>
     </div>
     <div class="flex flex-col gap-1">
       <span class="text-xs text-faint">Middleware</span>

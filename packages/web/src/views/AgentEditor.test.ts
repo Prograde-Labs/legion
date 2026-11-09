@@ -649,7 +649,7 @@ describe('AgentEditor', () => {
     expect(wrapper.find('[data-test="agent-retire"]').exists()).toBe(false);
   });
 
-  it('saves without a tools arg and renders policies read-only for a non-operator', async () => {
+  it('saves the tools arg and renders policies editable for a non-operator', async () => {
     useParticipants().__setParticipantsForTests([
       { id: 'user-1', name: 'User', type: 'user', status: 'active', tools: {}, operator: false },
     ] as never);
@@ -674,11 +674,11 @@ describe('AgentEditor', () => {
     );
     await vi.waitFor(() => expect(wrapper.find('[data-tool-row]').exists()).toBe(true));
 
-    // The server rejects any tools map from a non-operator, so the editor must
-    // render it read-only and omit it from the save payload.
-    expect(wrapper.find('[data-test="tools-readonly"]').text()).toContain('preserved');
+    // Tool-policy management is authorized by the caller's own tool policy, so
+    // the editor is editable and the save payload carries the tools map.
+    expect(wrapper.find('[data-test="tools-readonly"]').exists()).toBe(false);
     for (const checkbox of wrapper.findAll('[data-tool-row] input')) {
-      expect((checkbox.element as HTMLInputElement).disabled).toBe(true);
+      expect((checkbox.element as HTMLInputElement).disabled).toBe(false);
     }
 
     await wrapper.find('[data-test="agent-save"]').trigger('click');
@@ -687,7 +687,7 @@ describe('AgentEditor', () => {
         ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
       );
       expect(call).toBeDefined();
-      expect(JSON.parse(String(call![1]?.body)).args.tools).toBeUndefined();
+      expect(JSON.parse(String(call![1]?.body)).args.tools).toEqual({});
     });
     expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
   });
@@ -700,5 +700,58 @@ describe('AgentEditor', () => {
     expect(wrapper.find('[data-test="agent-save"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="agent-retire"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="authority-save"]').exists()).toBe(false);
+  });
+
+  it('saves the object policy form when a scope is present', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        if (body.tool === 'get_participant')
+          return toolResponse('get_participant', {
+            ...AGENT,
+            tools: {
+              file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+            },
+          });
+        if (body.tool === 'list_tools')
+          return toolResponse('list_tools', { tools: ['file_write'], callerPolicy: {} });
+        if (body.tool === 'list_models')
+          return toolResponse('list_models', [
+            { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+          ]);
+        if (body.tool === 'list_middleware')
+          return toolResponse('list_middleware', { definitions: [] });
+        if (body.tool === 'modify_agent') return toolResponse('modify_agent', { id: 'agent-a' });
+        return toolResponse(body.tool, {});
+      }),
+    );
+    // Save always carries the tools map now that policy management is not
+    // operator-gated; seed the caller identity for the object-form path.
+    useAuth().participantId.value = 'operator';
+    useParticipants().__setParticipantsForTests([
+      {
+        id: 'operator',
+        name: 'Operator',
+        type: 'user',
+        status: 'active',
+        tools: {},
+        operator: true,
+      } as never,
+    ]);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect((wrapper.find('[data-test="agent-name"]').element as HTMLInputElement).value).toBe(
+        'Agent A',
+      ),
+    );
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await flushPromises();
+    const saveCall = (vi.mocked(fetch).mock.calls as Array<[string, RequestInit]>).find(
+      ([, init]) => JSON.parse(String(init?.body)).tool === 'modify_agent',
+    );
+    expect(JSON.parse(String(saveCall?.[1].body)).args.tools).toEqual({
+      file_write: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    });
   });
 });

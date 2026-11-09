@@ -112,6 +112,7 @@ async function fixture(instances: MiddlewareInstanceConfig[] = []) {
     logger,
     conversationStore,
     collective,
+    workspaceRoot: '/workspace',
     buildToolContext: (principal, activeThread, signal) => ({
       participant: principal,
       conversationId: activeThread.id,
@@ -259,6 +260,76 @@ describe('MiddlewareRunner', () => {
     expect(f.pendingApprovals.getRecord(pending.approvalId)).toMatchObject({
       lifecycle: 'decided',
       continuation: { kind: 'middleware' },
+    });
+  });
+
+  it('re-authorizes a resumed approval and rejects a now-out-of-scope action', async () => {
+    const f = await fixture([instance('request', { failureMode: 'open' }), instance('following')]);
+    f.participant.tools = {
+      risky: { policy: 'requires_approval', scope: { text: { enum: ['ok'] } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const calls: string[] = [];
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: (context) => {
+          calls.push(context.instance.id);
+          if (context.instance.id === 'request') {
+            return {
+              kind: 'tool',
+              requestId: 'scope-resume',
+              tool: 'risky',
+              arguments: { text: 'ok' },
+            };
+          }
+          expect(context.actions).toMatchObject([
+            {
+              requestId: 'scope-resume',
+              status: 'rejected',
+              result: {
+                status: 'rejected',
+                message: 'argument scope violation: risky.text must be one of: other',
+              },
+            },
+          ]);
+          return { kind: 'continue' };
+        },
+      }),
+      'test:runner',
+    );
+
+    const pending = await f.runner.runMessagePhase({
+      operationId: 'scope-resume',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+    if (pending.kind !== 'pending_approval') throw new Error('Expected pending approval');
+
+    // The policy narrows while the approval is pending; the resume must fail closed.
+    f.participant.tools = {
+      risky: { policy: 'requires_approval', scope: { text: { enum: ['other'] } } },
+    };
+    await f.pendingApprovals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    await expect(f.runner.resumeApproval(pending.approvalId, f.thread)).resolves.toMatchObject({
+      kind: 'continue',
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(calls).toEqual(['request', 'following']);
+    expect(f.pendingApprovals.getRecord(pending.approvalId)).toMatchObject({
+      resumeResult: {
+        status: 'rejected',
+        message: 'argument scope violation: risky.text must be one of: other',
+      },
     });
   });
 
@@ -473,6 +544,165 @@ describe('MiddlewareRunner', () => {
     ).resolves.toMatchObject({ kind: 'continue', value: draft({ content: 'continued' }) });
     expect(calls).toEqual(['participant']);
     expect(f.thread.data.middlewareState).toEqual({ participant: { request: { ok: true } } });
+  });
+
+  it('rejects a middleware tool whose arguments violate its scope', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = {
+      risky: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const authorize = vi.spyOn(f.runnerDependencies.authEngine, 'authorize');
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-risky',
+          tool: 'risky',
+          arguments: { path: '../escape.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-rejected',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('abort');
+    expect(execute).not.toHaveBeenCalled();
+    expect(authorize).toHaveBeenCalledWith(
+      'participant',
+      'risky',
+      { path: '../escape.txt' },
+      f.participant.tools,
+      { workspaceRoot: '/workspace' },
+    );
+  });
+
+  it('records the scope detail on the rejected middleware action', async () => {
+    const f = await fixture([instance('request', { failureMode: 'open' })]);
+    f.participant.tools = {
+      risky: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-detail',
+          tool: 'risky',
+          arguments: { path: '../escape.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-detail',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('continue');
+    if (result.kind !== 'continue') throw new Error('expected continue');
+    expect(result.actions).toEqual([
+      {
+        requestId: 'scope-detail',
+        participantId: 'participant',
+        instanceId: 'request',
+        tool: 'risky',
+        status: 'rejected',
+        result: {
+          status: 'rejected',
+          message: 'argument scope violation: risky.path must be under work',
+        },
+      },
+    ]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects a scoped requires_approval middleware tool before requesting approval', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = {
+      risky: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const create = vi.spyOn(f.pendingApprovals, 'create');
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-before-approval',
+          tool: 'risky',
+          arguments: { path: '../escape.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-before-approval',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('abort');
+    expect(create).not.toHaveBeenCalled();
+    expect(f.pendingApprovals.listPending(f.thread.id)).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('executes a middleware tool whose arguments satisfy its scope', async () => {
+    const f = await fixture([instance('request')]);
+    f.participant.tools = {
+      risky: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+    };
+    const execute = vi.fn(async () => ({ status: 'success' as const, data: { ok: true } }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'scope-allowed',
+          tool: 'risky',
+          arguments: { path: 'work/file.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'scope-allowed',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('continue');
+    expect(execute).toHaveBeenCalledTimes(1);
+    if (result.kind !== 'continue') throw new Error('expected continue');
+    expect(result.actions).toMatchObject([{ requestId: 'scope-allowed', status: 'success' }]);
   });
 
   it('suspends an auto-authorized middleware action when its tool returns helper approval', async () => {

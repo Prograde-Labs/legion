@@ -9,6 +9,7 @@ import ToolPolicyEditor, {
   type ToolOverride,
 } from '../components/participants/ToolPolicyEditor.vue';
 import ApprovalAuthorityEditor from '../components/common/ApprovalAuthorityEditor.vue';
+import { normalizeToolPolicy, type JSONSchema, type ToolPolicy } from '@legion-collective/types';
 
 const props = defineProps<{ participantId: string | 'new' }>();
 
@@ -38,6 +39,7 @@ const name = ref('');
 const operator = ref(false);
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
+const toolParameters = ref<Record<string, JSONSchema>>({});
 const authority = ref<{
   tools?: Record<string, boolean> | '*';
   participants?: string[] | '*';
@@ -49,11 +51,17 @@ const error = ref<string | null>(null);
 const busy = ref(false);
 const confirmingRetire = ref(false);
 
-function overridesToToolsMap(list: ToolOverride[]): Record<string, 'auto' | 'requires_approval'> {
+function overridesToToolsMap(list: ToolOverride[]): Record<string, ToolPolicy> {
   return Object.fromEntries(
     list
       .filter((o) => o.enabled)
-      .map((o) => [o.tool, o.requireApproval ? 'requires_approval' : 'auto']),
+      .map((o) => {
+        const policy = o.requireApproval ? 'requires_approval' : 'auto';
+        return [
+          o.tool,
+          o.scope && Object.keys(o.scope).length > 0 ? { policy, scope: o.scope } : policy,
+        ];
+      }),
   );
 }
 
@@ -61,6 +69,8 @@ async function load(): Promise<void> {
   error.value = null;
   newPassword.value = '';
   confirmPassword.value = '';
+  // Drop the previous participant's argument schemas so a switch cannot show stale ones.
+  toolParameters.value = {};
   if (props.participantId === 'new') {
     loaded.value = null;
     name.value = '';
@@ -76,13 +86,20 @@ async function load(): Promise<void> {
     loaded.value = p;
     name.value = String(p['name'] ?? '');
     operator.value = Boolean(p['operator']);
-    const toolsMap = (p['tools'] ?? {}) as Record<string, string>;
-    overrides.value = Object.entries(toolsMap).map(([tool, policy]) => ({
-      tool,
-      source: 'built-in',
-      enabled: true,
-      requireApproval: policy === 'requires_approval',
-    }));
+    const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
+    overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
+      const normalized = normalizeToolPolicy(value);
+      if (!normalized) return [];
+      return [
+        {
+          tool,
+          source: 'built-in',
+          enabled: true,
+          requireApproval: normalized.policy === 'requires_approval',
+          ...(normalized.scope ? { scope: normalized.scope } : {}),
+        },
+      ];
+    });
     // Keep the whole authority object (including `participants`) so saving it
     // round-trips instead of erasing the participant-approval axis.
     const a = p['approvalAuthority'] as {
@@ -93,9 +110,15 @@ async function load(): Promise<void> {
   } catch (err) {
     error.value = friendlyToolError(err);
   }
-  void execute<{ tools: string[]; callerPolicy: Record<string, string> }>('list_tools', {})
-    .then(({ tools }) => {
+  void execute<{
+    tools: string[];
+    callerPolicy: Record<string, unknown>;
+    parameters?: Record<string, JSONSchema>;
+  }>('list_tools', {})
+    .then((data) => {
+      const tools = Array.isArray(data?.tools) ? data.tools : [];
       availableTools.value = tools;
+      toolParameters.value = data?.parameters ?? {};
       overrides.value = [
         ...overrides.value,
         ...tools
@@ -165,11 +188,8 @@ async function save(): Promise<void> {
       await execute('create_user', {
         id,
         name: name.value,
-        // Tool-policy mutations require an operator server-side; a non-operator
-        // must omit the map so creation still succeeds with the default policies.
-        ...(callerIsOperator.value
-          ? { tools: overridesToToolsMap(overrides.value), operator: operator.value }
-          : {}),
+        tools: overridesToToolsMap(overrides.value),
+        ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
       if (
         canSetCredentialForTarget.value &&
@@ -189,9 +209,8 @@ async function save(): Promise<void> {
       await execute('modify_user', {
         id: props.participantId,
         name: name.value,
-        ...(callerIsOperator.value
-          ? { tools: overridesToToolsMap(overrides.value), operator: operator.value }
-          : {}),
+        tools: overridesToToolsMap(overrides.value),
+        ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
       if (
         canSetCredentialForTarget.value &&
@@ -278,13 +297,10 @@ async function retire(): Promise<void> {
       <span class="text-xs text-faint">Tool policies</span>
       <ToolPolicyEditor
         :available-tools="availableTools"
+        :parameters="toolParameters"
         :overrides="overrides"
-        :readonly="!callerIsOperator"
         @update:overrides="overrides = $event"
       />
-      <p v-if="!callerIsOperator" data-test="tools-readonly" class="text-xs text-muted">
-        You do not have permission to change tool policies; the existing configuration is preserved.
-      </p>
     </div>
     <div class="flex flex-col gap-1 rounded-md border border-line p-2">
       <span class="text-xs text-faint">Approval authority</span>

@@ -97,6 +97,7 @@ export class LegionProcess {
     readonly middlewareDiagnostics: readonly MiddlewareDiagnostic[],
     private readonly mcpSources: ToolSource[],
     private readonly processManager: ProcessManager,
+    readonly connectorContext: ConnectorContext,
   ) {}
 
   /**
@@ -196,6 +197,7 @@ export class LegionProcess {
       logger: middlewareLogger,
       conversationStore: store,
       collective,
+      workspaceRoot,
       buildToolContext: (participant, conversation, signal) =>
         buildMiddlewareToolContext({
           participant,
@@ -423,6 +425,7 @@ export class LegionProcess {
       middlewareDiagnostics,
       mcpSources,
       processManager,
+      connectorContext,
     );
   }
 
@@ -855,10 +858,18 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         };
       }
 
-      const authResult = authEngine.authorize(participantId, toolName, args, participant.tools);
+      const authResult = authEngine.authorize(participantId, toolName, args, participant.tools, {
+        workspaceRoot,
+      });
       if (!authResult.authorized) {
         return {
-          result: { status: 'error', error: authResult.reason ?? 'Not authorized' },
+          result: {
+            status: 'error',
+            error:
+              authResult.reason === 'scope'
+                ? (authResult.detail ?? `argument scope violation: ${toolName}`)
+                : (authResult.reason ?? 'Not authorized'),
+          },
           conversationId: '',
         };
       }
@@ -943,13 +954,16 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         return { gen, conversationId: '' };
       }
 
-      const authResult = authEngine.authorize(participantId, toolName, args, participant.tools);
+      const authResult = authEngine.authorize(participantId, toolName, args, participant.tools, {
+        workspaceRoot,
+      });
       if (!authResult.authorized) {
+        const error =
+          authResult.reason === 'scope'
+            ? (authResult.detail ?? `argument scope violation: ${toolName}`)
+            : (authResult.reason ?? 'Not authorized');
         const gen = (async function* () {
-          yield {
-            type: 'stream:error',
-            error: authResult.reason ?? 'Not authorized',
-          } as const;
+          yield { type: 'stream:error', error } as const;
         })();
         return { gen, conversationId: '' };
       }

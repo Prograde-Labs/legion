@@ -57,3 +57,98 @@ describe('AuthEngine.hasAuthority', () => {
     expect(engine.hasAuthority(undefined, 'b', 'x', {})).toBe(false);
   });
 });
+
+describe('AuthEngine.authorize argument scope', () => {
+  const ctx = { workspaceRoot: '/tmp' };
+
+  it('authorizes an object policy whose arguments fit the scope', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_read',
+      { path: 'work/a.txt' },
+      { file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } } },
+      ctx,
+    );
+    expect(result.authorized).toBe(true);
+    expect(result.reason).toBe('auto');
+  });
+
+  it('returns a scope reason with detail when an argument is out of scope', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_read',
+      { path: '../escape.txt' },
+      { file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } } },
+      ctx,
+    );
+    expect(result.authorized).toBe(false);
+    expect(result.reason).toBe('scope');
+    expect(result.detail).toBe('argument scope violation: file_read.path must be under work');
+  });
+
+  it('checks scope before requires_approval', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_write',
+      { path: '../escape.txt' },
+      { file_write: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } } },
+      ctx,
+    );
+    expect(result.reason).toBe('scope');
+  });
+
+  it('returns requires_approval when the scope passes', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_write',
+      { path: 'work/a.txt' },
+      { file_write: { policy: 'requires_approval', scope: { path: { pathPrefix: 'work' } } } },
+      ctx,
+    );
+    expect(result.reason).toBe('requires_approval');
+  });
+
+  it('fails closed when a scope is configured but context is missing', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_read',
+      { path: 'work/a.txt' },
+      {
+        file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+      },
+    );
+    expect(result.reason).toBe('scope');
+    expect(result.detail).toBe('argument scope unavailable: workspaceRoot missing');
+  });
+
+  it('fails closed when a stored scope is malformed', () => {
+    const engine = new AuthEngine();
+    const result = engine.authorize(
+      'p1',
+      'file_read',
+      {},
+      {
+        file_read: { policy: 'auto', scope: null },
+      } as unknown as Record<string, ToolPolicy>,
+      ctx,
+    );
+    expect(result.authorized).toBe(false);
+    expect(result.reason).toBe('scope');
+    expect(result.detail).toBe(
+      'argument scope violation: file_read.<scope> scope must be an object',
+    );
+  });
+
+  it('keeps the legacy string policies working without a scope context', () => {
+    const engine = new AuthEngine();
+    expect(engine.authorize('p1', 'file_read', {}, { file_read: 'auto' }).reason).toBe('auto');
+    expect(engine.authorize('p1', 'danger', {}, { danger: 'requires_approval' }).reason).toBe(
+      'requires_approval',
+    );
+  });
+});

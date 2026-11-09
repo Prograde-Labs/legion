@@ -147,6 +147,34 @@ describe('management tools', () => {
     expect(collective.get('agent-x')?.type).toBe('agent');
   });
 
+  it('create_agent accepts the object policy form', async () => {
+    const { context, collective } = await makeContext();
+    context.toolRegistry.register({
+      name: 'notify',
+      description: 'notify',
+      parameters: {
+        type: 'object',
+        properties: { message: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    const result = await createAgentTool.execute(
+      {
+        id: 'agent-x',
+        name: 'X',
+        systemPrompt: 's',
+        model: { model: 'm' },
+        tools: { notify: { policy: 'auto', scope: { message: { maxLength: 100 } } } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['notify']).toEqual({
+      policy: 'auto',
+      scope: { message: { maxLength: 100 } },
+    });
+  });
+
   it('create_agent validates enabled middleware and persists a cloned revision-zero list', async () => {
     const { context, collective, storage } = await makeContext();
     const validate = vi.fn().mockResolvedValue(undefined);
@@ -315,16 +343,15 @@ describe('management tools', () => {
     expect(collective.get('agent-x')?.tools['file_read']).toBe('auto');
   });
 
-  it('set_tool_policy rejects a non-operator acting on itself', async () => {
-    // Regression for the critical review finding: set_tool_policy had no
-    // privilege guard, so a non-operator could grant itself save_mcp_sources
-    // (arbitrary command execution on the next boot).
+  it('set_tool_policy lets any participant manage policies, including its own', async () => {
+    // Tool-policy management is authorized by the caller's own tool policy, not
+    // an operator flag: holding set_tool_policy is the grant.
     const deps = await buildTestDeps({});
     await deps.collective.add({
       id: 'non-op',
       name: 'Non Op',
       type: 'user',
-      tools: {},
+      tools: { set_tool_policy: 'auto' },
       status: 'active',
     });
     const result = await invokeManagementTool(
@@ -333,9 +360,48 @@ describe('management tools', () => {
       deps,
       'non-op',
     );
-    expect((result as { status: string }).status).toBe('error');
-    expect((result as { error: string }).error).toContain('operator');
-    expect(deps.collective.get('non-op')?.tools['save_mcp_sources']).toBeUndefined();
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('non-op')?.tools['save_mcp_sources']).toBe('auto');
+  });
+
+  it('set_tool_policy lets an agent manage another participant’s scope', async () => {
+    const deps = await buildTestDeps({});
+    await deps.collective.add({
+      id: 'agent-manager',
+      name: 'Manager',
+      type: 'agent',
+      systemPrompt: 's',
+      model: { model: 'm' },
+      tools: { set_tool_policy: 'auto' },
+      maxIterations: 20,
+      status: 'active',
+    });
+    await deps.collective.add({
+      id: 'agent-target',
+      name: 'Target',
+      type: 'agent',
+      systemPrompt: 's',
+      model: { model: 'm' },
+      tools: { file_write: 'auto' },
+      maxIterations: 20,
+      status: 'active',
+    });
+    const result = await invokeManagementTool(
+      'set_tool_policy',
+      {
+        participantId: 'agent-target',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      deps,
+      'agent-manager',
+    );
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('agent-target')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
   });
 
   it('set_tool_policy lets an operator grant a tool', async () => {
@@ -354,6 +420,186 @@ describe('management tools', () => {
     );
     expect((result as { status: string }).status).toBe('success');
     expect(deps.collective.get('plain-user')?.tools['save_mcp_sources']).toBe('auto');
+  });
+
+  it('set_tool_policy stores a validated scope', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
+  });
+
+  it('set_tool_policy rejects an unknown argument for a known tool', async () => {
+    const { context } = await makeContext();
+    context.toolRegistry.register({
+      name: 'file_write',
+      description: 'write',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { destination: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    expect(result.status).toBe('error');
+    expect((result as { error: string }).error).toMatch(/unknown argument "destination"/);
+  });
+
+  it('set_tool_policy clears a scope with an empty object', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      { participantId: 'agent-x', tool: 'file_write', policy: 'auto', scope: {} },
+      context,
+    );
+    expect(collective.get('agent-x')?.tools['file_write']).toBe('auto');
+  });
+
+  it('set_tool_policy preserves an existing scope when scope is omitted', async () => {
+    const { context, collective } = await makeContext();
+    context.toolRegistry.register({
+      name: 'file_write',
+      description: 'write',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      { participantId: 'agent-x', tool: 'file_write', policy: 'auto' },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
+  });
+
+  it('set_tool_policy replaces an existing scope with a new one', async () => {
+    const { context, collective } = await makeContext();
+    context.toolRegistry.register({
+      name: 'file_write',
+      description: 'write',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+      },
+      execute: async () => ({ status: 'success' }),
+    });
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { content: { maxLength: 10 } },
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { content: { maxLength: 10 } },
+    });
+  });
+
+  it('set_tool_policy validates the policy when clearing a scope', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      { id: 'agent-x', name: 'X', systemPrompt: 's', model: { model: 'm' }, tools: {} },
+      context,
+    );
+    await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'auto',
+        scope: { path: { pathPrefix: 'work' } },
+      },
+      context,
+    );
+    const result = await setToolPolicyTool.execute(
+      {
+        participantId: 'agent-x',
+        tool: 'file_write',
+        policy: 'hidden' as unknown as 'auto',
+        scope: {},
+      },
+      context,
+    );
+    expect(result.status).toBe('error');
+    expect((result as { error: string }).error).toMatch(/policy must be/);
+    // The failed clear must not corrupt the stored policy.
+    expect(collective.get('agent-x')?.tools['file_write']).toEqual({
+      policy: 'auto',
+      scope: { path: { pathPrefix: 'work' } },
+    });
   });
 
   it('get_conversation returns the active chain of a conversation', async () => {
@@ -965,22 +1211,20 @@ describe('management tools', () => {
     expect(result.status).toBe('error');
   });
 
-  it('create_agent rejects a tools map from a non-operator', async () => {
-    // Regression for the escalation path: create_agent accepted an arbitrary
-    // tools map, so a non-operator could grant save_mcp_sources.
+  it('create_agent lets a non-operator supply a tools map', async () => {
     const deps = await buildTestDeps({});
     await deps.collective.add({
       id: 'non-op',
       name: 'Non Op',
       type: 'user',
-      tools: {},
+      tools: { create_agent: 'auto' },
       status: 'active',
     });
     const result = await invokeManagementTool(
       'create_agent',
       {
-        id: 'agent-escalated',
-        name: 'Escalated',
+        id: 'agent-granted',
+        name: 'Granted',
         systemPrompt: 's',
         model: { model: 'm' },
         tools: { save_mcp_sources: 'auto' },
@@ -988,9 +1232,8 @@ describe('management tools', () => {
       deps,
       'non-op',
     );
-    expect((result as { status: string }).status).toBe('error');
-    expect((result as { error: string }).error).toContain('operator');
-    expect(deps.collective.get('agent-escalated')).toBeUndefined();
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('agent-granted')?.tools).toEqual({ save_mcp_sources: 'auto' });
   });
 
   it('create_agent lets a non-operator create an agent without tools', async () => {
@@ -1604,13 +1847,13 @@ describe('modify_agent', () => {
     expect(p.tools['list_participants']).toBeUndefined(); // replaced, not merged
   });
 
-  it('modify_agent rejects tools changes from a non-operator', async () => {
+  it('modify_agent lets a non-operator replace tools', async () => {
     const deps = await buildTestDeps({});
     await deps.collective.add({
       id: 'non-op',
       name: 'Non Op',
       type: 'user',
-      tools: {},
+      tools: { modify_agent: 'auto' },
       status: 'active',
     });
     await deps.collective.add({
@@ -1629,9 +1872,8 @@ describe('modify_agent', () => {
       deps,
       'non-op',
     );
-    expect((result as { status: string }).status).toBe('error');
-    expect((result as { error: string }).error).toContain('operator');
-    expect(deps.collective.get('mod-target')?.tools).toEqual({ communicate: 'auto' });
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('mod-target')?.tools).toEqual({ save_mcp_sources: 'auto' });
   });
 
   it('modify_agent lets an operator replace tools', async () => {
@@ -1763,7 +2005,7 @@ describe('remove_tool_policy', () => {
     expect((result as { status: string }).status).toBe('success');
   });
 
-  it('rejects a non-operator', async () => {
+  it('lets a non-operator remove a tool policy', async () => {
     const deps = await buildTestDeps({});
     await deps.collective.add({
       id: 'non-op',
@@ -1778,9 +2020,8 @@ describe('remove_tool_policy', () => {
       deps,
       'non-op',
     );
-    expect((result as { status: string }).status).toBe('error');
-    expect((result as { error: string }).error).toContain('operator');
-    expect(deps.collective.get('non-op')?.tools['communicate']).toBe('auto');
+    expect((result as { status: string }).status).toBe('success');
+    expect(deps.collective.get('non-op')?.tools['communicate']).toBeUndefined();
   });
 });
 
@@ -1789,14 +2030,21 @@ describe('list_tools', () => {
     const deps = await buildTestDeps({});
     const result = (await invokeManagementTool('list_tools', {}, deps)) as {
       status: string;
-      data: { tools: string[]; callerPolicy: Record<string, string> };
+      data: {
+        tools: string[];
+        callerPolicy: Record<string, { policy: string }>;
+        parameters: Record<string, unknown>;
+      };
     };
     expect(Array.isArray(result.data.tools)).toBe(true);
     expect(result.data.tools).toContain('list_tools');
     // Seeded operator maps every management tool to 'auto'.
-    expect(result.data.callerPolicy['list_tools']).toBe('auto');
-    expect(result.data.callerPolicy['create_agent']).toBe('auto');
-    expect(Object.values(result.data.callerPolicy).every((p) => p === 'auto')).toBe(true);
+    expect(result.data.callerPolicy['list_tools']).toEqual({ policy: 'auto' });
+    expect(result.data.callerPolicy['create_agent']).toEqual({ policy: 'auto' });
+    expect(Object.values(result.data.callerPolicy).every((p) => p.policy === 'auto')).toBe(true);
+    expect(result.data.parameters['list_tools']).toEqual(
+      expect.objectContaining({ type: 'object' }),
+    );
   });
 
   it('returns the registry tool list plus the caller policy map', async () => {
@@ -1806,14 +2054,14 @@ describe('list_tools', () => {
     });
     const result = (await invokeManagementTool('list_tools', {}, deps)) as {
       status: string;
-      data: { tools: string[]; callerPolicy: Record<string, string> };
+      data: { tools: string[]; callerPolicy: Record<string, { policy: string }> };
     };
     expect(result.status).toBe('success');
     expect(result.data.tools).toContain('list_tools');
     expect(result.data.tools).toContain('edit_message');
     expect(result.data.callerPolicy).toEqual({
-      communicate: 'auto',
-      edit_message: 'requires_approval',
+      communicate: { policy: 'auto' },
+      edit_message: { policy: 'requires_approval' },
     });
   });
 
@@ -1822,7 +2070,7 @@ describe('list_tools', () => {
     await deps.collective.update('operator', { tools: {} });
     const result = (await invokeManagementTool('list_tools', {}, deps)) as {
       status: string;
-      data: { tools: string[]; callerPolicy: Record<string, string> };
+      data: { tools: string[]; callerPolicy: Record<string, { policy: string }> };
     };
     expect(result.status).toBe('success');
     expect(result.data.tools).toContain('list_tools');

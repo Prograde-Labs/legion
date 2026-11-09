@@ -156,6 +156,7 @@ async function setupMiddlewareRouter(dir: string, definition: MiddlewareDefiniti
       logger,
       conversationStore: base.store,
       collective: base.collective,
+      workspaceRoot: '/workspace',
       buildToolContext: (participant, thread, signal) => ({
         ...context,
         participant,

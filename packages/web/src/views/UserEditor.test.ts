@@ -360,7 +360,7 @@ describe('UserEditor', () => {
     expect(wrapper.text()).toContain('Operator: yes (read-only)');
   });
 
-  it('does not send the operator flag or tools map when the caller cannot change them', async () => {
+  it('does not send the operator flag but sends the tools map for a non-operator', async () => {
     seedParticipants(false);
     const fetchMock = stubFetch({ ...USER, operator: true });
     vi.stubGlobal('fetch', fetchMock);
@@ -374,9 +374,9 @@ describe('UserEditor', () => {
       expect(call).toBeDefined();
       const args = JSON.parse(String(call![1]?.body)).args;
       expect(args).not.toHaveProperty('operator');
-      // Non-operator tool-policy mutations are rejected server-side; omit the
-      // map so the rename still succeeds and existing policies are preserved.
-      expect(args).not.toHaveProperty('tools');
+      // Tool-policy management is authorized by the caller's own tool policy,
+      // not the operator flag, so the map is always written.
+      expect(args.tools).toEqual({ communicate: 'auto' });
     });
   });
 
@@ -479,7 +479,7 @@ describe('UserEditor', () => {
     expect(note.text()).toContain('preserved');
   });
 
-  it('renders tool policies read-only for a non-operator with a preserved note', async () => {
+  it('renders tool policies editable for a non-operator', async () => {
     seedAuth('alice');
     seedRoster([{ id: 'alice', operator: false }]);
     mockCan((tool) => (tool === 'modify_user' ? 'auto' : 'hidden'));
@@ -488,13 +488,11 @@ describe('UserEditor', () => {
     await waitLoaded(wrapper);
     await vi.waitFor(() => expect(wrapper.find('[data-tool-row]').exists()).toBe(true));
 
-    const note = wrapper.find('[data-test="tools-readonly"]');
-    expect(note.exists()).toBe(true);
-    expect(note.text()).toContain('preserved');
+    expect(wrapper.find('[data-test="tools-readonly"]').exists()).toBe(false);
     const checkboxes = wrapper.findAll('[data-tool-row] input');
     expect(checkboxes.length).toBeGreaterThan(0);
     for (const checkbox of checkboxes) {
-      expect((checkbox.element as HTMLInputElement).disabled).toBe(true);
+      expect((checkbox.element as HTMLInputElement).disabled).toBe(false);
     }
   });
 
@@ -516,5 +514,35 @@ describe('UserEditor', () => {
     expect(calls).toContain('create_user');
     expect(calls).not.toContain('set_approval_authority');
     expect(wrapper.find('[data-test="editor-error"]').exists()).toBe(false);
+  });
+
+  it('saves the object policy form when a scope is present', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant')
+        return toolResponse('get_participant', {
+          ...USER,
+          tools: {
+            communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } },
+          },
+        });
+      if (body.tool === 'list_tools')
+        return toolResponse('list_tools', { tools: ['communicate'], callerPolicy: {} });
+      if (body.tool === 'modify_user') return toolResponse('modify_user', { id: 'alice' });
+      return toolResponse(body.tool, {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    await wrapper.find('form').trigger('submit');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_user',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.tools).toEqual({
+        communicate: { policy: 'auto', scope: { message: { maxLength: 50 } } },
+      });
+    });
   });
 });

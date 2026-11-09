@@ -253,6 +253,36 @@ describe('LegionProcess config and runtime tools', () => {
       readFile(join(homeRoot, '.config', 'legion', 'config.json'), 'utf8'),
     ).resolves.toContain('keep-system-field');
   });
+
+  it('enforces argument scope for connector tool calls and streams', async () => {
+    await mkdir(join(workspaceRoot, '.legion'), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, '.legion', 'config.json'),
+      JSON.stringify({ version: '2', server: { port: 0, host: '127.0.0.1' } }),
+    );
+    process_ = await LegionProcess.start(workspaceRoot);
+    const operator = process_.collective.getOrThrow('operator');
+    await process_.collective.update('operator', {
+      tools: {
+        ...operator.tools,
+        file_read: { policy: 'auto', scope: { path: { pathPrefix: 'work' } } },
+      },
+    });
+
+    const call = await process_.connectorContext.callTool('operator', 'file_read', {
+      path: '../escape.txt',
+    });
+    expect(call.result.status).toBe('error');
+    expect(call.result.error).toMatch(/argument scope violation: file_read\.path/);
+
+    const stream = await process_.connectorContext.streamTool('operator', 'file_read', {
+      path: '../escape.txt',
+    });
+    const chunks: Array<{ type: string; error?: string }> = [];
+    for await (const chunk of stream.gen) chunks.push(chunk);
+    expect(chunks[0]).toMatchObject({ type: 'stream:error' });
+    expect(chunks[0].error).toMatch(/argument scope violation: file_read\.path/);
+  });
 });
 
 describe.skipIf(!LIVE)('LegionProcess (integration)', () => {

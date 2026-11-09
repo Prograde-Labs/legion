@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { useLegionApi } from './useLegionApi.js';
 
 export type ToolAccessPolicy = 'auto' | 'requires_approval';
+type CallerPolicyEntry = ToolAccessPolicy | { policy: ToolAccessPolicy; scope?: unknown };
 
 const access = ref<Record<string, ToolAccessPolicy>>({});
 const loaded = ref(false);
@@ -12,12 +13,16 @@ export function useToolAccess() {
   async function refresh(): Promise<void> {
     const requestGeneration = generation;
     const { execute } = useLegionApi();
-    const data = await execute<{ tools: string[]; callerPolicy: Record<string, ToolAccessPolicy> }>(
-      'list_tools',
-      {},
-    );
+    const data = await execute<{
+      tools: string[];
+      callerPolicy: Record<string, CallerPolicyEntry>;
+    }>('list_tools', {});
     if (requestGeneration !== generation) return; // reset while in flight — stale identity's response is dropped
-    access.value = data.callerPolicy ?? {};
+    const normalized: Record<string, ToolAccessPolicy> = {};
+    for (const [tool, entry] of Object.entries(data.callerPolicy ?? {})) {
+      normalized[tool] = typeof entry === 'string' ? entry : entry.policy;
+    }
+    access.value = normalized;
     loaded.value = true;
   }
   function reset(): void {

@@ -25,7 +25,7 @@ test.describe('POST /api/execute — management tools', () => {
   test('list_tools returns tool names plus the caller policy map', async ({ api }) => {
     const { result } = await api.execute<{
       tools: string[];
-      callerPolicy: Record<string, 'auto' | 'requires_approval'>;
+      callerPolicy: Record<string, { policy: 'auto' | 'requires_approval'; scope?: unknown }>;
     }>(token, 'list_tools');
     expect(result.status).toBe('success');
     expect(Array.isArray(result.data!.tools)).toBe(true);

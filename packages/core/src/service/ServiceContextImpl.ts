@@ -96,14 +96,18 @@ export class ServiceContextImpl implements ServiceContext {
   async callTool(toolName: string, args: unknown): Promise<ToolResult> {
     const { participant, authEngine } = this.deps;
 
-    const authResult = authEngine.authorize(participant.id, toolName, args, participant.tools);
+    const authResult = authEngine.authorize(participant.id, toolName, args, participant.tools, {
+      workspaceRoot: this.deps.workspaceRoot,
+    });
     if (!authResult.authorized) {
       const reason =
-        authResult.reason === 'requires_approval'
-          ? 'requires_approval — no authority chain in service context'
-          : authResult.reason === 'hidden'
-            ? 'tool not available to this participant'
-            : (authResult.reason ?? 'not authorized');
+        authResult.reason === 'scope'
+          ? (authResult.detail ?? `argument scope violation: ${toolName}`)
+          : authResult.reason === 'requires_approval'
+            ? 'requires_approval — no authority chain in service context'
+            : authResult.reason === 'hidden'
+              ? 'tool not available to this participant'
+              : (authResult.reason ?? 'not authorized');
       return { status: 'error', error: reason };
     }
 

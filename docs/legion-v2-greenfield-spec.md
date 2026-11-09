@@ -38,7 +38,7 @@ interface BaseParticipant {
   approvalAuthority?: ApprovalAuthority; // whose tool calls this participant may approve
   status?: 'active' | 'retired';
   identities?: ConnectorIdentity[]; // external identities that map to this participant
-  operator?: boolean; // broad administrative authority (by convention)
+  operator?: boolean; // administrative convention (not required to manage tool policies)
   protected?: boolean; // cannot be retired; last operator cannot be removed
 }
 ```
@@ -432,17 +432,42 @@ When `MessageRouter` routes a message to a connector-bound participant (normal d
 `AuthEngine` answers exactly two questions and orchestrates nothing:
 
 ```typescript
-authorize(participantId, tool, args, participantPolicies?)
-  // → { authorized: boolean, reason? }
+authorize(participantId, tool, args, participantPolicies?, ctx?)
+  // → { authorized: boolean, reason?: 'auto' | 'requires_approval' | 'hidden' | 'scope', detail? }
   //   'auto'              → { authorized: true }
   //   'requires_approval' → { authorized: false } — must be approved by someone with authority
   //   absent from map     → { authorized: false, reason: 'hidden' } — not visible to LLM
+  //   scope violation     → { authorized: false, reason: 'scope' } — hard deny, never approvable
 
 hasAuthority(approverAuthority, requesterId, tool, args)
   // → boolean
 ```
 
+A participant's per-tool policy may also carry an argument scope:
+
+```typescript
+type ToolPolicy =
+  'auto' | 'requires_approval' | { policy: 'auto' | 'requires_approval'; scope?: ToolScope };
+```
+
+`ToolScope` maps top-level argument names to `ArgScope` rules (allowed values, regex,
+length/numeric bounds, and path containment).
+
+`authorize(..., ctx)` evaluates the scope before returning `auto` or `requires_approval`.
+Scope keys are top-level argument names; supported constraints are `required`, `enum`,
+`pattern`, `minLength`/`maxLength`, `min`/`max`, and `pathPrefix` (resolved containment
+under the workspace root). Constraints on one argument are ANDed; string-only constraints
+and numeric constraints cannot be combined on the same argument, and when the tool declares
+an argument type only matching constraints are accepted (unsupported types accept only
+`required`). A violation returns `reason: 'scope'` and is a hard deny, never an approval
+request. `hasAuthority` remains unscoped.
+
 Policy resolution: participant per-tool policy. Tools absent from the participant's `tools` map are hidden from the LLM and cannot be called.
+
+Tool-policy management is authorized by the caller's own tool policy: any participant
+holding `set_tool_policy`, `remove_tool_policy`, `create_agent`, `modify_agent`,
+`create_user`, or `modify_user` may manage any participant's policies and argument scopes.
+The `operator` flag does not gate these operations.
 
 The principal is always `context.participant`. An agent's LLM tool call, a service's `callTool`, and a participant acting through a boundary connector are all authorized identically — no special-casing by type or channel.
 
