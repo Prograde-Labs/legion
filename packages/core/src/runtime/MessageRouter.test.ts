@@ -314,6 +314,66 @@ describe('MessageRouter: synchronous send', () => {
     expect(delivered).toBe(1);
   });
 
+  it('maps a runtime error result to status error without delivering a message', async () => {
+    const { baseContext, store, eventBus, collective } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        return {
+          kind: 'error' as const,
+          error: 'Response truncated at max_tokens before any content was produced',
+          storedMessageId: 'msg-truncated',
+        };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    let delivered = 0;
+    eventBus.on('message:delivered', () => (delivered += 1));
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: 'Response truncated at max_tokens before any content was produced',
+      partial: true,
+      storedMessageId: 'msg-truncated',
+    });
+    expect(delivered).toBe(0);
+    const conv = await store.load(result.conversationId);
+    const messages = Object.values(conv!.messages);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe('user');
+  });
+
+  it('persists stopReason from the runtime response', async () => {
+    const { baseContext, store, eventBus, collective } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        return { kind: 'response' as const, content: 'partial', stopReason: 'max_tokens' as const };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+
+    expect(result.status).toBe('success');
+    const conv = await store.load(result.conversationId);
+    const assistant = Object.values(conv!.messages).find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBe('partial');
+    expect(assistant?.stopReason).toBe('max_tokens');
+  });
+
   it('stamps parentConversationId and parentToolCallId on child when caller has a conversation', async () => {
     const { router, baseContext, store } = await setup(dir);
     // First send creates a parent conversation

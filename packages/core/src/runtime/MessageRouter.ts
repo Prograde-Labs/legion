@@ -25,6 +25,7 @@ import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   AgentConfig,
   ConversationOrigin,
+  MessageStopReason,
   MessageUsage,
   LLMChunk,
   MessageDraft,
@@ -276,7 +277,12 @@ export class MessageRouter implements MessageRouterPort {
     thread: ConversationThread,
     senderId: string,
     recipientId: string,
-    response: { content: string; reasoning?: string; usage?: MessageUsage },
+    response: {
+      content: string;
+      reasoning?: string;
+      stopReason?: MessageStopReason;
+      usage?: MessageUsage;
+    },
     lifecycleState?: {
       operationId: string;
       actions: MiddlewareActionResult[];
@@ -293,6 +299,7 @@ export class MessageRouter implements MessageRouterPort {
           role: 'assistant',
           content: response.content,
           ...(response.reasoning === undefined ? {} : { reasoning: response.reasoning }),
+          ...(response.stopReason === undefined ? {} : { stopReason: response.stopReason }),
         },
         lifecycleState,
         response.usage,
@@ -304,6 +311,7 @@ export class MessageRouter implements MessageRouterPort {
       role: 'assistant',
       content: response.content,
       reasoning: response.reasoning,
+      stopReason: response.stopReason,
       usage: response.usage,
     });
     this.eventBus.emit('message:delivered', {
@@ -2254,6 +2262,16 @@ export class MessageRouter implements MessageRouterPort {
         ...(lifecycleState?.storedMessageId === undefined
           ? {}
           : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+      };
+    }
+    if (result.kind === 'error') {
+      return {
+        conversationId: operation.thread.id,
+        status: 'error',
+        error: result.error,
+        ...(result.storedMessageId === undefined
+          ? {}
+          : { partial: true, storedMessageId: result.storedMessageId }),
       };
     }
     // kind === 'void'

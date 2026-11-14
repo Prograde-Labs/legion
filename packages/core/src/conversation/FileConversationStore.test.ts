@@ -80,6 +80,28 @@ describe('FileConversationStore', () => {
     expect((await store.load(created.id))?.messages['m1'].reasoning).toBe('analysis');
   });
 
+  it('round-trips optional message stopReason', async () => {
+    const created = await store.create({
+      schemaVersion: '2.0',
+      activeBranchHead: '',
+      messages: {},
+    });
+    await store.appendMessage(created.id, {
+      id: 'm1',
+      parentId: null,
+      conversationId: created.id,
+      senderId: 'a',
+      recipientId: 'u',
+      role: 'assistant',
+      content: 'partial',
+      reasoning: 'analysis',
+      stopReason: 'max_tokens',
+      status: 'active',
+      timestamp: new Date().toISOString(),
+    });
+    expect((await store.load(created.id))?.messages['m1'].stopReason).toBe('max_tokens');
+  });
+
   it('loads legacy conversations without reasoning', async () => {
     const storage = new MemoryStorage();
     const legacyStore = new FileConversationStore(storage);
@@ -104,6 +126,7 @@ describe('FileConversationStore', () => {
       },
     });
     expect((await legacyStore.load('conv-old'))?.messages['m1'].reasoning).toBeUndefined();
+    expect((await legacyStore.load('conv-old'))?.messages['m1'].stopReason).toBeUndefined();
   });
 
   it('patches a message in place', async () => {

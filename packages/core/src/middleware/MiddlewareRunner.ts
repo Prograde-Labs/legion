@@ -343,10 +343,11 @@ function cloneWithOptionalFields<T extends object>(
   return cloneJsonSafe(normalized, path) as T;
 }
 
-const DRAFT_OPTIONAL_FIELDS = new Set(['replyTo', 'reasoning']);
+const DRAFT_OPTIONAL_FIELDS = new Set(['replyTo', 'reasoning', 'stopReason']);
 const MESSAGE_OPTIONAL_FIELDS = new Set([
   'replyTo',
   'reasoning',
+  'stopReason',
   'type',
   'toolCalls',
   'toolResults',
@@ -438,7 +439,15 @@ function validatePersistedMessageId(thread: ConversationThread, value: string | 
 function validateDraft(value: unknown, original?: MessageDraft): MessageDraft {
   if (!isPlainRecord(value))
     throw new TypeError('Middleware result message must be a plain object');
-  const allowed = new Set(['senderId', 'recipientId', 'role', 'replyTo', 'content', 'reasoning']);
+  const allowed = new Set([
+    'senderId',
+    'recipientId',
+    'role',
+    'replyTo',
+    'content',
+    'reasoning',
+    'stopReason',
+  ]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new TypeError(`Middleware result message may not change ${key}`);
   }
@@ -458,6 +467,9 @@ function validateDraft(value: unknown, original?: MessageDraft): MessageDraft {
     ...(value.reasoning === undefined
       ? {}
       : { reasoning: requireString(value.reasoning, 'message.reasoning') }),
+    // Provider-owned metadata: middleware may echo it, but the value is preserved
+    // from the original draft rather than taken from middleware output.
+    ...(original?.stopReason === undefined ? {} : { stopReason: original.stopReason }),
   };
   if (original) {
     for (const field of ['senderId', 'recipientId', 'role', 'replyTo'] as const) {

@@ -29,6 +29,12 @@ export interface AgentConfig extends BaseParticipant {
   model: ModelConfig;
   systemPrompt: string;
   maxIterations: number;
+  /**
+   * How many times to re-request a generation that stopped at `max_tokens`
+   * before producing any content. Defaults to 0 (fail immediately). Retries
+   * re-send the identical request — no prompt text is injected.
+   */
+  truncationRetries?: number;
   runtimeConfig?: Record<string, unknown>;
 }
 

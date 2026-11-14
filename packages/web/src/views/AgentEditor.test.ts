@@ -296,6 +296,39 @@ describe('AgentEditor', () => {
     });
   });
 
+  it('hydrates and saves truncationRetries', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant')
+        return toolResponse('get_participant', { ...AGENT, truncationRetries: 2 });
+      if (body.tool === 'list_tools')
+        return toolResponse('list_tools', { tools: [], callerPolicy: {} });
+      if (body.tool === 'list_models')
+        return toolResponse('list_models', [
+          { provider: 'openai', model: { id: 'gpt-4o', name: 'GPT-4o' } },
+        ]);
+      if (body.tool === 'list_middleware')
+        return toolResponse('list_middleware', { definitions: [] });
+      return toolResponse(body.tool, {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect(
+        (wrapper.find('[data-test="agent-truncation-retries"]').element as HTMLInputElement).value,
+      ).toBe('2'),
+    );
+    await wrapper.find('[data-test="agent-truncation-retries"]').setValue('3');
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_agent',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.truncationRetries).toBe(3);
+    });
+  });
+
   it('save on new calls create_agent', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);

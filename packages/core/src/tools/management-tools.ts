@@ -41,6 +41,14 @@ function sanitizeModelConfig(model: ModelConfig): ModelConfig {
   return sanitized;
 }
 
+function validateTruncationRetries(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    return 'truncationRetries must be a non-negative integer';
+  }
+  return undefined;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -199,25 +207,35 @@ export const createAgentTool: Tool = {
           'is keyed by top-level argument name. Absent tools are hidden from the agent.',
       },
       maxIterations: { type: 'number' },
+      truncationRetries: {
+        type: 'number',
+        description:
+          'How many times to re-request a generation truncated at max_tokens before ' +
+          'failing. Defaults to 0.',
+      },
       middleware: middlewareSchema,
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, systemPrompt, model, tools, maxIterations, middleware } = args as {
-      id: string;
-      name: string;
-      systemPrompt: string;
-      model: ModelConfig;
-      tools?: Record<string, ToolPolicy>;
-      maxIterations?: number;
-      middleware?: unknown;
-    };
+    const { id, name, systemPrompt, model, tools, maxIterations, truncationRetries, middleware } =
+      args as {
+        id: string;
+        name: string;
+        systemPrompt: string;
+        model: ModelConfig;
+        tools?: Record<string, ToolPolicy>;
+        maxIterations?: number;
+        truncationRetries?: number;
+        middleware?: unknown;
+      };
     try {
       if (tools !== undefined) {
         const validated = validateToolsMap(context.toolRegistry, tools);
         if (!validated.ok) throw new Error(validated.error);
       }
+      const truncationError = validateTruncationRetries(truncationRetries);
+      if (truncationError !== undefined) throw new Error(truncationError);
       if (middleware !== undefined && !Array.isArray(middleware)) {
         throw new Error('middleware must be an array when provided');
       }
@@ -235,6 +253,7 @@ export const createAgentTool: Tool = {
         model: sanitizeModelConfig(model),
         maxIterations: maxIterations ?? 20,
         status: 'active',
+        ...(truncationRetries === undefined ? {} : { truncationRetries }),
         ...(validatedMiddleware === undefined
           ? {}
           : { middleware: validatedMiddleware, middlewareRevision: 0 }),
@@ -848,6 +867,12 @@ export const modifyAgentTool: Tool = {
       model: { type: 'object', properties: { model: { type: 'string' } }, required: ['model'] },
       systemPrompt: { type: 'string' },
       maxIterations: { type: 'number' },
+      truncationRetries: {
+        type: 'number',
+        description:
+          'How many times to re-request a generation truncated at max_tokens before ' +
+          'failing. Defaults to 0.',
+      },
       tools: {
         type: 'object',
         description:
@@ -860,12 +885,13 @@ export const modifyAgentTool: Tool = {
     required: ['id'],
   } as JSONSchema,
   async execute(args, context: ToolContext): Promise<ToolResult> {
-    const { id, name, model, systemPrompt, maxIterations, tools } = args as {
+    const { id, name, model, systemPrompt, maxIterations, truncationRetries, tools } = args as {
       id: string;
       name?: string;
       model?: ModelConfig | string;
       systemPrompt?: string;
       maxIterations?: number;
+      truncationRetries?: number;
       tools?: Record<string, ToolPolicy>;
     };
     try {
@@ -873,6 +899,8 @@ export const modifyAgentTool: Tool = {
         const validated = validateToolsMap(context.toolRegistry, tools);
         if (!validated.ok) throw new Error(validated.error);
       }
+      const truncationError = validateTruncationRetries(truncationRetries);
+      if (truncationError !== undefined) throw new Error(truncationError);
       const collective = requireCollective(context);
       const existing = collective.get(id);
       if (!existing) return { status: 'error', error: `Agent not found: ${id}` };
@@ -895,6 +923,7 @@ export const modifyAgentTool: Tool = {
         systemPrompt: systemPrompt ?? agent.systemPrompt,
         maxIterations: maxIterations ?? agent.maxIterations,
         tools: tools ?? agent.tools,
+        ...(truncationRetries === undefined ? {} : { truncationRetries }),
       });
 
       return { status: 'success', data: collective.getOrThrow(id) };

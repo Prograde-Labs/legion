@@ -52,6 +52,13 @@ function chipStatus(result?: ToolCallResult): 'running' | 'done' | 'error' {
       >
         <MarkdownContent :content="message.content" class="md-content" />
       </div>
+      <div
+        v-if="message.stopReason === 'max_tokens'"
+        data-test="truncated"
+        class="rounded border border-warning/20 bg-warning/10 px-2 py-1 text-xs text-warning"
+      >
+        Truncated at max_tokens — the reply was cut off
+      </div>
       <div v-if="toolPairs.length" class="flex flex-col gap-1.5">
         <div v-for="pair in toolPairs" :key="pair.call.id" class="flex flex-col gap-1">
           <ToolCallChip
