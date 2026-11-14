@@ -24,6 +24,15 @@ import type { ConversationThread } from '../conversation/ConversationThread.js';
 import { snapshotMiddlewareActions } from '../auth/PendingApprovalRegistry.js';
 
 const DEFAULT_MAX_ITERATIONS = 20;
+const DEFAULT_TRUNCATION_RETRIES = 0;
+const TRUNCATED_TOOL_CALL_ERROR = 'Tool call truncated at max_tokens; not executed';
+
+/** Clamp the per-agent truncation retry budget to a non-negative integer. */
+function normalizeTruncationRetries(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : DEFAULT_TRUNCATION_RETRIES;
+}
 
 /**
  * Build the provider message list from the conversation chain + system prompt.
@@ -52,6 +61,11 @@ function buildProviderMessages(chain: MessageData[], systemPrompt: string): Prov
   const messages: ProviderMessage[] = [{ role: 'system', content: effectiveSystemPrompt }];
 
   for (const msg of regularChain) {
+    // Truncated turns are persisted for diagnosis with empty content; replaying
+    // an empty assistant message would only confuse the next provider call.
+    if (msg.role === 'assistant' && msg.content.trim() === '' && !msg.toolCalls?.length) {
+      continue;
+    }
     if (msg.toolCalls && msg.toolCalls.length > 0) {
       messages.push({
         role: 'assistant',
@@ -290,6 +304,8 @@ export class AgentRuntime implements Runtime {
     // LLM agentic loop
     // -------------------------------------------------------------------------
     const maxIterations = (agent.runtimeConfig?.maxIterations ?? DEFAULT_MAX_ITERATIONS) as number;
+    const truncationRetries = normalizeTruncationRetries(agent.truncationRetries);
+    let truncationRetryCount = 0;
 
     // Present only tools in the participant's tools map to the LLM. Auth check runs at execution time.
     const providerTools: ProviderTool[] = context.toolRegistry
@@ -320,13 +336,18 @@ export class AgentRuntime implements Runtime {
 
     try {
       const firstIteration = start.iteration ?? 0;
+      let retryPrompt: string | undefined;
       for (let i = firstIteration; i < maxIterations; i++) {
         if (context.signal?.aborted) {
           return await cancellationResult();
         }
         await context.conversation.reload();
-        let prompt = agent.systemPrompt;
-        if (i === firstIteration && start.preparedPrompt !== undefined) {
+        let prompt: string;
+        if (retryPrompt !== undefined) {
+          // A truncation retry re-sends the exact prompt that was truncated.
+          prompt = retryPrompt;
+          retryPrompt = undefined;
+        } else if (i === firstIteration && start.preparedPrompt !== undefined) {
           prompt = start.preparedPrompt;
         } else if (context.buildSystemPrompt) {
           const promptResult = await context.buildSystemPrompt({
@@ -353,6 +374,8 @@ export class AgentRuntime implements Runtime {
           }
           prompt = promptResult.prompt;
           actions = snapshotMiddlewareActions(promptResult.actions, '$.buildSystemPrompt.actions');
+        } else {
+          prompt = agent.systemPrompt;
         }
 
         const messages = buildProviderMessages(context.conversation.activeChain, prompt);
@@ -383,6 +406,73 @@ export class AgentRuntime implements Runtime {
         }
         const response = accumulatorToResponse(acc);
 
+        // A generation cut off at max_tokens is not a deliberate empty answer.
+        // Truncated tool calls are never executed: partial JSON parses to {} and
+        // would run the tool with missing arguments.
+        if (response.stopReason === 'max_tokens') {
+          const usage = await this.computeUsage(providerId, agent, response, modelId);
+          if (context.signal?.aborted) {
+            return await cancellationResult();
+          }
+
+          if (response.toolCalls.length > 0) {
+            const toolCallData: ToolCallData[] = response.toolCalls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+            }));
+            const toolResults: ToolCallResult[] = toolCallData.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              result: { status: 'error', error: TRUNCATED_TOOL_CALL_ERROR },
+            }));
+            const stored = await context.conversation.append({
+              senderId: this.participantId,
+              recipientId: this.participantId,
+              role: 'assistant',
+              content: response.content ?? '',
+              reasoning: response.reasoning || undefined,
+              toolCalls: toolCallData,
+              toolResults,
+              usage,
+              stopReason: response.stopReason,
+            });
+            this.reportTruncation(context, usage, 'tool call');
+            return this.withActions(
+              { kind: 'error', error: TRUNCATED_TOOL_CALL_ERROR, storedMessageId: stored.id },
+              actions,
+            );
+          }
+
+          if ((response.content ?? '').trim() === '') {
+            // Persist the diagnostic turn (reasoning + usage) even though it is
+            // not delivered; it is what makes truncation visible after the fact.
+            const stored = await context.conversation.append({
+              senderId: this.participantId,
+              recipientId: this.participantId,
+              role: 'assistant',
+              content: '',
+              reasoning: response.reasoning || undefined,
+              usage,
+              stopReason: response.stopReason,
+            });
+            if (truncationRetryCount < truncationRetries) {
+              truncationRetryCount += 1;
+              retryPrompt = prompt;
+              continue;
+            }
+            this.reportTruncation(context, usage, 'response');
+            return this.withActions(
+              {
+                kind: 'error',
+                error: 'Response truncated at max_tokens before any content was produced',
+                storedMessageId: stored.id,
+              },
+              actions,
+            );
+          }
+        }
+
         if (response.stopReason !== 'tool_calls' || response.toolCalls.length === 0) {
           const usage = await this.computeUsage(providerId, agent, response, modelId);
           return this.withActions(
@@ -390,6 +480,7 @@ export class AgentRuntime implements Runtime {
               kind: 'response',
               content: response.content ?? '',
               ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+              stopReason: response.stopReason,
               ...(usage ? { usage } : {}),
             },
             actions,
@@ -483,6 +574,7 @@ export class AgentRuntime implements Runtime {
           toolCalls: toolCallData,
           toolResults,
           usage,
+          stopReason: response.stopReason,
         });
         unpersistedApprovalIds.clear();
         for (const event of approvalEvents) {
@@ -659,6 +751,25 @@ export class AgentRuntime implements Runtime {
       updatedResults,
     );
     return null;
+  }
+
+  private reportTruncation(
+    context: RuntimeContext,
+    usage: MessageUsage | undefined,
+    detail: 'response' | 'tool call',
+  ): void {
+    const counts =
+      usage === undefined
+        ? ''
+        : ` (reasoning ${usage.reasoning} tokens, output ${usage.output} tokens)`;
+    const reason = detail === 'response' ? 'before any content was produced' : 'mid-tool-call';
+    context.eventBus.emit('error', {
+      conversationId: context.conversationId,
+      error: {
+        name: 'ProviderTruncationError',
+        message: `Generation stopped at max_tokens ${reason}${counts}`,
+      },
+    });
   }
 
   private async computeUsage(

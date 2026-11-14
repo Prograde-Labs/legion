@@ -1,6 +1,7 @@
 import type {
   LLMChunk,
   MessageData,
+  MessageStopReason,
   MessageUsage,
   MiddlewareActionResult,
   ParticipantConfig,
@@ -17,7 +18,16 @@ export type RuntimeResult =
       kind: 'response';
       content: string;
       reasoning?: string;
+      /** Why the provider stopped. Absent only for synthetic/legacy runtimes. */
+      stopReason?: MessageStopReason;
       usage?: MessageUsage;
+      actions?: MiddlewareActionResult[];
+    }
+  | {
+      kind: 'error';
+      error: string;
+      /** Set when the runtime persisted a diagnostic message before failing. */
+      storedMessageId?: string;
       actions?: MiddlewareActionResult[];
     }
   | {

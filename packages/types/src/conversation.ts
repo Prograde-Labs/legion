@@ -4,6 +4,11 @@ import type { JSONValue } from './middleware.js';
 
 export type MessageRole = 'user' | 'assistant';
 export type MessageType = 'message' | 'summary';
+/**
+ * Why the model stopped generating. Absent on legacy messages and on turns that
+ * never reached a provider (summaries, user messages).
+ */
+export type MessageStopReason = 'stop' | 'tool_calls' | 'max_tokens';
 export type MessageStatus = 'active' | 'superseded' | 'pruned' | 'compacted';
 export type ConversationStatus = 'active' | 'archived';
 export type ConversationStatusFilter = ConversationStatus | 'all';
@@ -15,6 +20,7 @@ export interface MessageDraft {
   readonly replyTo?: string;
   content: string;
   reasoning?: string;
+  stopReason?: MessageStopReason;
 }
 
 export interface ConversationOrigin {
@@ -69,6 +75,8 @@ export interface MessageData {
   role: MessageRole;
   content: string;
   reasoning?: string;
+  /** Why generation stopped; absent for legacy messages and non-provider turns. */
+  stopReason?: MessageStopReason;
   type?: MessageType;
   status: MessageStatus;
   toolCalls?: ToolCallData[];

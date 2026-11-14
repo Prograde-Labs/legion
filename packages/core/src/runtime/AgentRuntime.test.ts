@@ -65,7 +65,10 @@ interface ScriptedProviderResponse {
   errorAfterChunks?: string;
 }
 
-async function makeSetup(providerResponses: ScriptedProviderResponse[]) {
+async function makeSetup(
+  providerResponses: ScriptedProviderResponse[],
+  options: { truncationRetries?: number } = {},
+) {
   const storage = new MemoryStorage();
   const conversationStore = new FileConversationStore(storage);
 
@@ -77,6 +80,9 @@ async function makeSetup(providerResponses: ScriptedProviderResponse[]) {
     model: { model: 'test-model' },
     tools: { echo: 'auto' },
     status: 'active',
+    ...(options.truncationRetries === undefined
+      ? {}
+      : { truncationRetries: options.truncationRetries }),
   };
   await storage.writeJson('collective/participants/agent-1.json', agentConfig);
   const collective = await Collective.load(storage);
@@ -272,6 +278,7 @@ describe('AgentRuntime', () => {
       kind: 'response',
       content: 'I am happy to help!',
       reasoning: 'brief analysis',
+      stopReason: 'stop',
     });
     // No extra messages persisted — only the inbound message
     expect(context.conversation.activeChain).toHaveLength(1);
@@ -286,6 +293,7 @@ describe('AgentRuntime', () => {
     expect(await runtime.handle(inbound, context)).toEqual({
       kind: 'response',
       content: 'plain answer',
+      stopReason: 'stop',
     });
   });
 
@@ -342,7 +350,7 @@ describe('AgentRuntime', () => {
     const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
 
-    expect(result).toEqual({ kind: 'response', content: 'Done echoing!' });
+    expect(result).toEqual({ kind: 'response', content: 'Done echoing!', stopReason: 'stop' });
 
     // Tool-call turn persisted as a second message in the conversation
     const chain = context.conversation.activeChain;
@@ -510,6 +518,7 @@ describe('AgentRuntime', () => {
     expect(result).toEqual({
       kind: 'response',
       content: 'I used some tokens',
+      stopReason: 'stop',
       usage: {
         input: 86,
         output: 250,
@@ -561,7 +570,7 @@ describe('AgentRuntime', () => {
     const runtime = new AgentRuntime('agent-1', router, calc);
     const result = await runtime.handle(inbound, context);
 
-    expect(result).toEqual({ kind: 'response', content: 'no usage' });
+    expect(result).toEqual({ kind: 'response', content: 'no usage', stopReason: 'stop' });
   });
 
   it('uses a model override for provider resolution and streaming', async () => {
@@ -606,6 +615,148 @@ describe('AgentRuntime', () => {
       kind: 'middleware_abort',
       error: 'model override unavailable: missing-model',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// max_tokens truncation
+// ---------------------------------------------------------------------------
+describe('AgentRuntime: max_tokens truncation', () => {
+  it('returns an error and persists the truncated turn when no content was produced', async () => {
+    const { context, inbound, router, eventBus } = await makeSetup([
+      {
+        content: null,
+        reasoning: 'thinking until the wall',
+        toolCalls: [],
+        stopReason: 'max_tokens',
+        usage: { inputTokens: 100, outputTokens: 32768, reasoningTokens: 32768 },
+      },
+    ]);
+    const calc = new UsageCalculator(new MockPricingSource({}), new Map());
+    const runtime = new AgentRuntime('agent-1', router, calc);
+    const errors: string[] = [];
+    eventBus.on('error', (payload) => errors.push(payload.error.message));
+
+    const result = await runtime.handle(inbound, context);
+
+    expect(result.kind).toBe('error');
+    if (result.kind !== 'error') return;
+    expect(result.error).toMatch(/truncated at max_tokens/i);
+    expect(result.storedMessageId).toBeDefined();
+    expect(errors).toHaveLength(1);
+
+    const chain = context.conversation.activeChain;
+    expect(chain).toHaveLength(2);
+    const truncated = chain[1];
+    expect(truncated.role).toBe('assistant');
+    expect(truncated.content).toBe('');
+    expect(truncated.reasoning).toBe('thinking until the wall');
+    expect(truncated.stopReason).toBe('max_tokens');
+    expect(truncated.usage?.reasoning).toBe(32768);
+    expect(truncated.usage?.output).toBe(0);
+  });
+
+  it('retries the identical request when truncationRetries is configured', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup(
+      [
+        {
+          content: null,
+          reasoning: 'wall',
+          toolCalls: [],
+          stopReason: 'max_tokens',
+          usage: { inputTokens: 100, outputTokens: 32768, reasoningTokens: 32768 },
+        },
+        { content: 'recovered', toolCalls: [], stopReason: 'stop' },
+      ],
+      { truncationRetries: 1 },
+    );
+    const runtime = new AgentRuntime('agent-1', router);
+
+    const result = await runtime.handle(inbound, context);
+
+    expect(result).toMatchObject({ kind: 'response', content: 'recovered', stopReason: 'stop' });
+    expect(providerRequests).toHaveLength(2);
+    // Retry re-sends the identical request.
+    expect(providerRequests[1]).toEqual(providerRequests[0]);
+    // The persisted truncated turn must not be replayed to the provider.
+    expect(
+      providerRequests[1].some((m) => m.role === 'assistant' && (m.content ?? '').trim() === ''),
+    ).toBe(false);
+    // AgentRuntime persists the diagnostic turn; the final response is the caller's job.
+    expect(context.conversation.activeChain).toHaveLength(2);
+  });
+
+  it('gives up after the configured retries are exhausted', async () => {
+    const responses: ScriptedProviderResponse[] = Array.from({ length: 3 }, () => ({
+      content: null,
+      reasoning: 'wall',
+      toolCalls: [],
+      stopReason: 'max_tokens',
+    }));
+    const { context, inbound, router, providerRequests } = await makeSetup(responses, {
+      truncationRetries: 2,
+    });
+    const runtime = new AgentRuntime('agent-1', router);
+
+    const result = await runtime.handle(inbound, context);
+
+    expect(result.kind).toBe('error');
+    expect(providerRequests).toHaveLength(3);
+  });
+
+  it('does not execute a tool call truncated at max_tokens', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'partial' } }],
+        stopReason: 'max_tokens',
+      },
+    ]);
+    const executeSpy = vi.spyOn(context.toolRegistry, 'execute');
+    const runtime = new AgentRuntime('agent-1', router);
+
+    const result = await runtime.handle(inbound, context);
+
+    expect(result.kind).toBe('error');
+    if (result.kind !== 'error') return;
+    expect(result.error).toMatch(/tool call truncated at max_tokens/i);
+    expect(executeSpy).not.toHaveBeenCalled();
+
+    const turn = context.conversation.activeChain[1];
+    expect(turn.stopReason).toBe('max_tokens');
+    expect(turn.toolResults).toHaveLength(1);
+    expect(turn.toolResults?.[0].result.status).toBe('error');
+  });
+
+  it('delivers partial content and marks the turn truncated', async () => {
+    const { context, inbound, router } = await makeSetup([
+      { content: 'partial answer', toolCalls: [], stopReason: 'max_tokens' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    expect(await runtime.handle(inbound, context)).toMatchObject({
+      kind: 'response',
+      content: 'partial answer',
+      stopReason: 'max_tokens',
+    });
+    // Final responses are persisted by the caller, not AgentRuntime.
+    expect(context.conversation.activeChain).toHaveLength(1);
+  });
+
+  it('persists tool_calls as the stop reason on tool-call turns', async () => {
+    const { context, inbound, router } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hi' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await runtime.handle(inbound, context);
+
+    expect(context.conversation.activeChain[1].stopReason).toBe('tool_calls');
   });
 });
 
@@ -991,6 +1142,7 @@ describe('AgentRuntime.handleStream()', () => {
       kind: 'response',
       content: 'final answer',
       reasoning: 'final reasoning',
+      stopReason: 'stop',
     });
     expect(context.conversation.activeChain[1]).toMatchObject({
       content: 'calling tool',
@@ -1107,6 +1259,7 @@ describe('AgentRuntime: middleware prompts', () => {
     expect(result).toEqual({
       kind: 'response',
       content: 'done',
+      stopReason: 'stop',
       actions: [inboundAction, firstPromptAction, secondPromptAction],
     });
     if (result.kind !== 'response') throw new Error('expected response');
@@ -1174,7 +1327,7 @@ describe('AgentRuntime: middleware prompts', () => {
         },
         context,
       ),
-    ).resolves.toEqual({ kind: 'response', content: 'done' });
+    ).resolves.toEqual({ kind: 'response', content: 'done', stopReason: 'stop' });
 
     expect(buildSystemPrompt.mock.calls.map(([input]) => input.iteration)).toEqual([5]);
     expect(providerRequests.map(([message]) => message.content)).toEqual([

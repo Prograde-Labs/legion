@@ -43,4 +43,26 @@ describe('MessagePart', () => {
     expect(w.find('[data-test="bubble"]').exists()).toBe(false);
     expect(w.text()).toContain('compacted 10 messages');
   });
+
+  it('marks assistant messages truncated at max_tokens', () => {
+    const w = mount(MessagePart, {
+      props: {
+        message: mkMsg({
+          role: 'assistant',
+          content: 'partial answer',
+          stopReason: 'max_tokens',
+        }),
+      },
+    });
+    const badge = w.find('[data-test="truncated"]');
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toContain('max_tokens');
+  });
+
+  it('does not mark messages that stopped normally', () => {
+    const w = mount(MessagePart, {
+      props: { message: mkMsg({ role: 'assistant', content: 'answer', stopReason: 'stop' }) },
+    });
+    expect(w.find('[data-test="truncated"]').exists()).toBe(false);
+  });
 });

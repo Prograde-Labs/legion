@@ -477,6 +477,7 @@ class ResponseStreamTransformerImpl implements ResponseStreamTransformer {
         ...this.baseDraft(),
         content: result.content,
         ...(result.reasoning === undefined ? {} : { reasoning: result.reasoning }),
+        ...(result.stopReason === undefined ? {} : { stopReason: result.stopReason }),
       },
       true,
       actions,

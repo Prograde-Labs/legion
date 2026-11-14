@@ -147,6 +147,41 @@ describe('management tools', () => {
     expect(collective.get('agent-x')?.type).toBe('agent');
   });
 
+  it('create_agent persists truncationRetries', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createAgentTool.execute(
+      {
+        id: 'agent-r',
+        name: 'R',
+        systemPrompt: 'be helpful',
+        model: { model: 'm' },
+        truncationRetries: 2,
+      },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect((collective.get('agent-r') as AgentConfig).truncationRetries).toBe(2);
+  });
+
+  it('create_agent rejects an invalid truncationRetries value', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createAgentTool.execute(
+      {
+        id: 'agent-bad',
+        name: 'B',
+        systemPrompt: 's',
+        model: { model: 'm' },
+        truncationRetries: -1,
+      },
+      context,
+    );
+    expect(result).toEqual({
+      status: 'error',
+      error: 'truncationRetries must be a non-negative integer',
+    });
+    expect(collective.get('agent-bad')).toBeUndefined();
+  });
+
   it('create_agent accepts the object policy form', async () => {
     const { context, collective } = await makeContext();
     context.toolRegistry.register({
@@ -1811,6 +1846,26 @@ describe('modify_agent', () => {
     const p = deps.collective.get(id) as any;
     expect(p.model).toEqual({ model: 'gpt-4o-mini' });
     expect(p.systemPrompt).toBe('Be concise.');
+  });
+
+  it('modify_agent updates truncationRetries', async () => {
+    const { context, collective } = await makeContext();
+    await createAgentTool.execute(
+      {
+        id: 'retry-agent',
+        name: 'Retry',
+        systemPrompt: 's',
+        model: { model: 'gpt-4o' },
+        truncationRetries: 1,
+      },
+      context,
+    );
+    const result = await modifyAgentTool.execute(
+      { id: 'retry-agent', truncationRetries: 3 },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect((collective.get('retry-agent') as AgentConfig).truncationRetries).toBe(3);
   });
 
   it('modify_agent replaces tools map when tools arg is provided', async () => {

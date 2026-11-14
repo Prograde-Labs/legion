@@ -16,7 +16,12 @@ export function createConversation(title?: string): ConversationData {
 }
 
 export type NewMessageInput = MessageDraft &
-  Partial<Pick<MessageData, 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'>>;
+  Partial<
+    Pick<
+      MessageData,
+      'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage' | 'stopReason'
+    >
+  >;
 
 export function createMessage(
   conversationId: string,
@@ -33,6 +38,7 @@ export function createMessage(
     role: input.role,
     content: input.content,
     reasoning: input.reasoning,
+    stopReason: input.stopReason,
     type: input.type ?? 'message',
     status: 'active',
     toolCalls: input.toolCalls,

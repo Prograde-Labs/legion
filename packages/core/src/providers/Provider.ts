@@ -1,4 +1,9 @@
-import type { JSONSchema, ModelConfig, ProviderModel } from '@legion-collective/types';
+import type {
+  JSONSchema,
+  MessageStopReason,
+  ModelConfig,
+  ProviderModel,
+} from '@legion-collective/types';
 
 import type { PricingSource } from './PricingSource.js';
 
@@ -30,7 +35,7 @@ export interface ProviderTool {
   parameters: JSONSchema;
 }
 
-export type ProviderStopReason = 'stop' | 'tool_calls' | 'max_tokens';
+export type ProviderStopReason = MessageStopReason;
 
 /** Raw usage from the provider API. inputTokens includes cached tokens on OpenAI/AI SDK v6. */
 export interface ProviderUsage {

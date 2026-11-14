@@ -51,6 +51,7 @@ const name = ref('');
 const modelText = ref('');
 const systemPrompt = ref('');
 const maxIterations = ref(20);
+const truncationRetries = ref(0);
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
 const toolParameters = ref<Record<string, JSONSchema>>({});
@@ -108,6 +109,7 @@ async function load(): Promise<void> {
     modelText.value = '';
     systemPrompt.value = '';
     maxIterations.value = 20;
+    truncationRetries.value = 0;
   } else {
     try {
       const p = await execute<Record<string, unknown>>('get_participant', {
@@ -119,6 +121,7 @@ async function load(): Promise<void> {
       modelText.value = model?.model ?? '';
       systemPrompt.value = String(p['systemPrompt'] ?? '');
       maxIterations.value = Number(p['maxIterations'] ?? 20);
+      truncationRetries.value = Number(p['truncationRetries'] ?? 0);
       const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
       overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
         const normalized = normalizeToolPolicy(value);
@@ -217,6 +220,7 @@ async function save(): Promise<void> {
         model: { model: modelText.value },
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
+        truncationRetries: truncationRetries.value,
       });
       // modify_agent/create_agent have no middleware parameter — middleware goes
       // through set_participant_middleware (final-review B2 fix; same two-phase
@@ -238,6 +242,7 @@ async function save(): Promise<void> {
         model: { model: modelText.value },
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
+        truncationRetries: truncationRetries.value,
       });
       if (canSetMiddleware.value) {
         await execute('set_participant_middleware', {
@@ -367,6 +372,20 @@ const groupedModels = computed(() => {
         data-test="agent-max-iterations"
         class="rounded border border-line bg-surface px-2 py-1"
       />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs text-faint">Truncation retries</span>
+      <input
+        v-model.number="truncationRetries"
+        type="number"
+        min="0"
+        step="1"
+        data-test="agent-truncation-retries"
+        class="rounded border border-line bg-surface px-2 py-1"
+      />
+      <span class="text-[10px] text-muted">
+        Re-request a generation that stops at max_tokens before producing content.
+      </span>
     </label>
     <div v-if="availableTools.length" class="flex flex-col gap-1">
       <span class="text-xs text-faint">Tool policies</span>
