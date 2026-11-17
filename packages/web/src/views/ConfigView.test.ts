@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import ConfigView from './ConfigView.vue';
+import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import { useToolAccess } from '../composables/useToolAccess.js';
 
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
@@ -20,6 +21,229 @@ vi.hoisted(() => {
   const exp = Math.floor(Date.now() / 1000) + 3600;
   localStorage.setItem('legion-token', 'tok-123');
   localStorage.setItem('legion-expires-at', String(exp));
+});
+
+const CODEX_PROVIDER = {
+  name: 'Codex',
+  type: 'codex' as const,
+  priority: 5,
+};
+
+function stubCodexFetch(
+  status: Record<string, unknown>,
+  usage: Record<string, unknown>,
+): ReturnType<typeof vi.fn> {
+  return vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      tool: string;
+      args: { providerName?: string };
+    };
+    if (body.tool === 'list_providers') return toolResponse('list_providers', [CODEX_PROVIDER]);
+    if (body.tool === 'get_routing') {
+      return toolResponse('get_routing', { system: {}, workspace: {} });
+    }
+    if (body.tool === 'openai_auth_status') {
+      const value = status[body.args.providerName ?? ''];
+      if (value instanceof Error) throw value;
+      return toolResponse('openai_auth_status', value);
+    }
+    if (body.tool === 'openai_usage') {
+      const value = usage[body.args.providerName ?? ''];
+      if (value instanceof Error) throw value;
+      return toolResponse('openai_usage', value);
+    }
+    return toolResponse(body.tool, {});
+  });
+}
+
+describe('ConfigView codex usage', () => {
+  it('ignores stale account results after a newer load completes', async () => {
+    let finishOld!: (value: Response) => void;
+    const oldStatus = new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    });
+    let statuses = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const { tool } = JSON.parse(String(init?.body));
+        if (tool === 'list_providers') return toolResponse(tool, [CODEX_PROVIDER]);
+        if (tool === 'get_routing') return toolResponse(tool, { system: {}, workspace: {} });
+        if (tool === 'openai_auth_status') {
+          statuses++;
+          return statuses === 1
+            ? oldStatus
+            : toolResponse(tool, { signedIn: true, email: 'new@example.com' });
+        }
+        if (tool === 'openai_usage') return toolResponse(tool, { windows: [], capturedAt: '' });
+        return toolResponse(tool, {});
+      }),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+    await vi.waitFor(() => expect(statuses).toBe(1));
+    wrapper.findComponent(ProviderSlideOver).vm.$emit('saved');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('new@example.com'));
+    finishOld(toolResponse('openai_auth_status', { signedIn: true, email: 'old@example.com' }));
+    await flushPromises();
+    expect(wrapper.text()).toContain('new@example.com');
+    expect(wrapper.text()).not.toContain('old@example.com');
+    wrapper.unmount();
+  });
+
+  it('ignores an older provider list after a newer load', async () => {
+    let finishOld!: (value: Response) => void;
+    const oldList = new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    });
+    let lists = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const { tool } = JSON.parse(String(init?.body));
+        if (tool === 'list_providers')
+          return ++lists === 1 ? oldList : toolResponse(tool, [CODEX_PROVIDER]);
+        if (tool === 'get_routing') return toolResponse(tool, { system: {}, workspace: {} });
+        if (tool === 'openai_auth_status') return toolResponse(tool, { signedIn: false });
+        return toolResponse(tool, {});
+      }),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+    await vi.waitFor(() => expect(lists).toBe(1));
+    wrapper.findComponent(ProviderSlideOver).vm.$emit('saved');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Codex'));
+    finishOld(
+      toolResponse('list_providers', [{ name: 'Old', type: 'openai-compatible', priority: 1 }]),
+    );
+    await flushPromises();
+    expect(wrapper.text()).toContain('Codex');
+    expect(wrapper.text()).not.toContain('Old');
+    wrapper.unmount();
+  });
+  it('renders the account and remaining usage for codex providers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubCodexFetch(
+        { Codex: { signedIn: true, email: 'user@example.com', plan: 'plus' } },
+        {
+          Codex: {
+            planType: 'plus',
+            windows: [
+              {
+                label: '5-hour',
+                usedPercent: 12,
+                remainingPercent: 88,
+                windowSeconds: 18000,
+                resetAt: null,
+              },
+              {
+                label: 'Weekly',
+                usedPercent: 40,
+                remainingPercent: 60,
+                windowSeconds: 604800,
+                resetAt: null,
+              },
+            ],
+            capturedAt: '2026-11-17T05:00:00.000Z',
+          },
+        },
+      ),
+    );
+    await router.push('/config');
+    await router.isReady();
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('user@example.com'));
+    expect(wrapper.text()).toContain('plus');
+    expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('5h 88% · 7d 60%');
+    const link = wrapper.find('a[href="https://chatgpt.com/settings/usage"]');
+    expect(link.text()).toBe('Manage usage');
+    expect(link.attributes('target')).toBe('_blank');
+    expect(link.attributes('rel')).toBe('noreferrer');
+    wrapper.unmount();
+  });
+
+  it('shows sign-in and an em dash for unsigned codex providers', async () => {
+    vi.stubGlobal('fetch', stubCodexFetch({ Codex: { signedIn: false } }, {}));
+    await router.push('/config');
+    await router.isReady();
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-usage"]').text()).toContain('Sign in'),
+    );
+    wrapper.unmount();
+  });
+
+  it('shows an em dash for non-codex providers', async () => {
+    vi.stubGlobal('fetch', stubProviderFetch());
+    await router.push('/config');
+    await router.isReady();
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() => expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('—'));
+    expect(wrapper.text()).not.toContain('Manage usage');
+    wrapper.unmount();
+  });
+
+  it('keeps the table available when usage fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubCodexFetch(
+        { Codex: { signedIn: true, email: 'user@example.com' } },
+        { Codex: new Error('usage failed') },
+      ),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('Unavailable'),
+    );
+    expect(wrapper.text()).toContain('user@example.com · ChatGPT');
+    expect(wrapper.find('[data-test="provider-row"]').text()).toContain('Codex');
+    expect(wrapper.text()).not.toContain('usage failed');
+    wrapper.unmount();
+  });
+
+  it('keeps the table available when auth status fails', async () => {
+    vi.stubGlobal('fetch', stubCodexFetch({ Codex: new Error('status failed') }, {}));
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await flushPromises();
+    expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('Sign in');
+    expect(wrapper.find('[data-test="provider-row"]').text()).toContain('Codex');
+    expect(wrapper.text()).not.toContain('status failed');
+    wrapper.unmount();
+  });
+
+  it.each([
+    { windows: [], expected: '—' },
+    {
+      windows: [
+        {
+          label: 'Daily',
+          usedPercent: null,
+          remainingPercent: null,
+          windowSeconds: 86400,
+          resetAt: null,
+        },
+      ],
+      expected: 'Daily —',
+    },
+  ])('renders $expected for incomplete usage windows', async ({ windows, expected }) => {
+    vi.stubGlobal(
+      'fetch',
+      stubCodexFetch(
+        { Codex: { signedIn: true } },
+        { Codex: { windows, capturedAt: '2026-11-17T05:00:00.000Z' } },
+      ),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-usage"]').text()).toBe(expected),
+    );
+    wrapper.unmount();
+  });
 });
 
 const router = createRouter({

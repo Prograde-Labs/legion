@@ -23,6 +23,7 @@ import {
   AgentRuntime,
   MockRuntime,
   ServiceManager,
+  CodexAuthStore,
   SystemProviderStore,
   ModelRouter,
   ModelsDevPricingSource,
@@ -229,7 +230,8 @@ export class LegionProcess {
 
     // ── Step 5b: Create system provider store + model router ─────────────────
     const systemStorage = new FileStorage(systemConfigDir);
-    const systemStore = new SystemProviderStore(systemStorage);
+    const codexAuth = new CodexAuthStore(join(systemConfigDir, 'providers', '.codex-auth'));
+    const systemStore = new SystemProviderStore(systemStorage, codexAuth);
     const systemRouting = deepMerge({}, systemConfig.routing ?? {}) as RoutingConfig;
     const workspaceRouting = deepMerge({}, localConfig.routing ?? {}) as RoutingConfig;
     modelRouter = new ModelRouter(systemStore, systemRouting, workspaceRouting);
@@ -286,6 +288,7 @@ export class LegionProcess {
       saveWorkspaceRouting,
       pendingApprovalRegistry,
       authEngine,
+      codexAuth,
       // Read live workspace state, not the startup snapshot: save_mcp_sources
       // writes .legion/config.json, and list_mcp_sources must read back what
       // was saved (spec §6 read-back contract).
@@ -474,6 +477,11 @@ const RUNTIME_TOOL_NAMES = [
   'save_mcp_sources',
   'list_middleware',
   'list_skills',
+  'openai_login_start',
+  'openai_login_poll',
+  'openai_auth_status',
+  'openai_logout',
+  'openai_usage',
 ] as const;
 
 const SUBSCRIPTION_TOOL_NAMES = [

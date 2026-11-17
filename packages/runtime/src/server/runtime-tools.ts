@@ -6,14 +6,14 @@ import type {
   ToolResult,
 } from '@legion-collective/types';
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
-import type { AuthEngine, PendingApprovalRegistry } from '@legion-collective/core';
+import type { AuthEngine, PendingApprovalRegistry, CodexAuthStore } from '@legion-collective/core';
+import { CodexLoginManager } from '@legion-collective/core';
 
-// Types SystemProviderStore can actually construct. copilot/codex throw
-// NotImplementedError, and anthropic is only a legacy mapping (its Messages API
-// is not OpenAI-compatible), so new saves are restricted to the two real types.
+// Only provider types that can be constructed and are suitable for new saves.
 const SUPPORTED_PROVIDER_TYPES = new Set<ProviderConfig['type']>([
   'openai-compatible',
   'openai-responses',
+  'codex',
 ]);
 
 interface RuntimeToolDeps {
@@ -26,6 +26,7 @@ interface RuntimeToolDeps {
   authEngine: AuthEngine;
   getMCPServers: () => Promise<MCPServerConfig[]>;
   saveMCPServers: (servers: MCPServerConfig[]) => Promise<void>;
+  codexAuth?: CodexAuthStore;
 }
 
 export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
@@ -39,7 +40,9 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
     authEngine,
     getMCPServers,
     saveMCPServers,
+    codexAuth,
   } = deps;
+  const codexLogin = codexAuth ? new CodexLoginManager(codexAuth) : null;
 
   return [
     {
@@ -64,7 +67,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           name: { type: 'string' },
           type: {
             type: 'string',
-            enum: ['openai-compatible', 'openai-responses'],
+            enum: ['openai-compatible', 'openai-responses', 'codex'],
           },
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },
@@ -282,6 +285,142 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           });
           await saveMCPServers(validated);
           return { status: 'success', data: { saved: validated.length } };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+    {
+      name: 'openai_login_start',
+      description: 'Start an OpenAI Codex device-code login for a provider.',
+      parameters: {
+        type: 'object',
+        properties: {
+          providerName: { type: 'string' },
+          priority: { type: 'number' },
+        },
+        required: ['providerName'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          if (!codexLogin) throw new Error('Codex auth store not configured');
+          const { providerName, priority } = rawArgs as {
+            providerName: string;
+            priority?: number;
+          };
+          return {
+            status: 'success',
+            data: await codexLogin.start(providerName, priority ?? 10),
+          };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'openai_login_poll',
+      description: 'Poll an in-progress OpenAI Codex device-code login.',
+      parameters: {
+        type: 'object',
+        properties: { flowId: { type: 'string' } },
+        required: ['flowId'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          if (!codexLogin) throw new Error('Codex auth store not configured');
+          const { flowId } = rawArgs as { flowId: string };
+          const result = await codexLogin.poll(flowId);
+
+          if (result.status === 'complete') {
+            const existing = (await systemStore.list()).find(
+              (config) => config.name === result.providerName,
+            );
+            if (!existing) {
+              await systemStore.save({
+                name: result.providerName,
+                type: 'codex',
+                priority: result.priority,
+              });
+            }
+          }
+
+          return { status: 'success', data: result };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'openai_auth_status',
+      description: 'Report whether a Codex provider is signed in, without exposing tokens.',
+      parameters: {
+        type: 'object',
+        properties: { providerName: { type: 'string' } },
+        required: ['providerName'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          if (!codexAuth) throw new Error('Codex auth store not configured');
+          const { providerName } = rawArgs as { providerName: string };
+          const auth = await codexAuth.read(providerName);
+          if (!auth) return { status: 'success', data: { signedIn: false } };
+
+          return {
+            status: 'success',
+            data: {
+              signedIn: true,
+              email: auth.email,
+              plan: auth.plan,
+              accountId: auth.accountId,
+              expiresAt: auth.expiresAt,
+              expired: auth.expiresAt <= Math.floor(Date.now() / 1000),
+            },
+          };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'openai_logout',
+      description: 'Revoke and delete stored OpenAI Codex credentials for a provider.',
+      parameters: {
+        type: 'object',
+        properties: { providerName: { type: 'string' } },
+        required: ['providerName'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          if (!codexAuth) throw new Error('Codex auth store not configured');
+          const { providerName } = rawArgs as { providerName: string };
+          codexLogin?.cancel(providerName);
+          return { status: 'success', data: await codexAuth.logout(providerName) };
+        } catch (err) {
+          return toErrorResult(err);
+        }
+      },
+    },
+
+    {
+      name: 'openai_usage',
+      description: 'Return the ChatGPT plan usage windows for a Codex provider.',
+      parameters: {
+        type: 'object',
+        properties: { providerName: { type: 'string' } },
+        required: ['providerName'],
+      },
+      execute: async (rawArgs: unknown): Promise<ToolResult> => {
+        try {
+          const { providerName } = rawArgs as { providerName: string };
+          const provider = await systemStore.get(providerName);
+          if (!provider) throw new Error(`Provider '${providerName}' not found`);
+          if (!provider.usage) {
+            throw new Error(`Provider '${providerName}' does not expose usage`);
+          }
+          return { status: 'success', data: await provider.usage() };
         } catch (err) {
           return toErrorResult(err);
         }

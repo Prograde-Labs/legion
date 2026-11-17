@@ -90,21 +90,39 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
   ): AsyncGenerator<ProviderStreamChunk> {
     const body = this.buildRequestBody(messages, tools, model);
 
-    const res = await fetch(`${this.baseUrl}/responses`, {
+    const res = await fetch(this.responsesUrl(), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(this.apiKey),
-      },
+      headers: this.requestHeaders(),
       body: JSON.stringify(body),
       signal: options?.signal,
     });
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new ProviderError(`OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`);
+      throw new ProviderError(
+        `OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`,
+        res.status,
+      );
     }
 
+    yield* this.parseStream(res, options);
+  }
+
+  protected responsesUrl(): string {
+    return `${this.baseUrl}/responses`;
+  }
+
+  protected requestHeaders(): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      ...authHeaders(this.apiKey),
+    };
+  }
+
+  protected async *parseStream(
+    res: Response,
+    options?: { signal?: AbortSignal },
+  ): AsyncGenerator<ProviderStreamChunk> {
     if (!res.body) {
       throw new ProviderError('OpenAI-compatible API returned no response body');
     }
@@ -173,7 +191,7 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     yield { type: 'done', stopReason, usage, cost: undefined };
   }
 
-  private buildRequestBody(
+  protected buildRequestBody(
     messages: ProviderMessage[],
     tools: ProviderTool[],
     model: ModelConfig,

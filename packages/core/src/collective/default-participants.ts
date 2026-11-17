@@ -36,6 +36,11 @@ const MANAGEMENT_TOOLS = [
   'list_models',
   'get_routing',
   'save_routing',
+  'openai_login_start',
+  'openai_login_poll',
+  'openai_auth_status',
+  'openai_logout',
+  'openai_usage',
 ] as const;
 
 export function createDefaultParticipants(): ParticipantConfig[] {

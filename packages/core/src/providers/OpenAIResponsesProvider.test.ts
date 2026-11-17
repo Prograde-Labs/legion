@@ -90,6 +90,31 @@ async function drain(
 }
 
 describe('OpenAIResponsesProvider', () => {
+  class ExposedResponsesProvider extends OpenAIResponsesProvider {
+    async *parse(res: Response, options?: { signal?: AbortSignal }) {
+      yield* this.parseStream(res, options);
+    }
+    headers(): Record<string, string> {
+      return this.requestHeaders();
+    }
+    url(): string {
+      return this.responsesUrl();
+    }
+  }
+
+  it('exposes parseStream, requestHeaders, and responsesUrl to subclasses', async () => {
+    const provider = new ExposedResponsesProvider('https://example.test/v1/', 'sk-key');
+    expect(provider.url()).toBe('https://example.test/v1/responses');
+    expect(provider.headers()).toMatchObject({ Authorization: 'Bearer sk-key' });
+
+    const chunks: ProviderStreamChunk[] = [];
+    for await (const chunk of provider.parse(sse(textCompleted('Hi')) as unknown as Response)) {
+      chunks.push(chunk);
+    }
+    expect(chunks.filter((c) => c.type === 'text_delta').map((c) => c.delta)).toEqual(['Hi']);
+    expect(chunks.at(-1)?.type).toBe('done');
+  });
+
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {

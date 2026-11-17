@@ -22,8 +22,11 @@ export class ToolNotFoundError extends LegionError {
 }
 
 export class ProviderError extends LegionError {
-  constructor(message: string) {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
     super(message, 'PROVIDER_ERROR');
+    this.status = status;
   }
 }
 

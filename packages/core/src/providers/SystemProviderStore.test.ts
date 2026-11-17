@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProviderConfig } from '@legion-collective/types';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
+import { CodexAuthStore } from './CodexAuthStore.js';
 import { SystemProviderStore } from './SystemProviderStore.js';
 
 function providerConfig(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
@@ -56,7 +57,7 @@ describe('SystemProviderStore', () => {
     await expect(store.get('copilot')).rejects.toMatchObject({ name: 'NotImplementedError' });
   });
 
-  it('get() throws NotImplementedError for codex', async () => {
+  it('get() throws ProviderError for codex when no auth store is configured', async () => {
     const storage = new MemoryStorage();
     await storage.writeJson(
       'providers/codex.json',
@@ -64,7 +65,22 @@ describe('SystemProviderStore', () => {
     );
     const store = new SystemProviderStore(storage);
 
-    await expect(store.get('codex')).rejects.toMatchObject({ name: 'NotImplementedError' });
+    await expect(store.get('codex')).rejects.toMatchObject({ name: 'ProviderError' });
+  });
+
+  it('get() constructs a CodexProvider when an auth store is configured', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson(
+      'providers/codex.json',
+      providerConfig({ name: 'codex', type: 'codex' }),
+    );
+    const store = new SystemProviderStore(storage, new CodexAuthStore('/tmp/codex-auth-test'));
+
+    const provider = await store.get('codex');
+
+    expect(provider).not.toBeNull();
+    expect(typeof provider!.stream).toBe('function');
+    expect(typeof provider!.usage).toBe('function');
   });
 
   it('get() returns Provider with stream for openai-responses', async () => {
@@ -88,6 +104,29 @@ describe('SystemProviderStore', () => {
     const result = await store.list();
 
     expect(result).toEqual([]);
+  });
+
+  it('list() ignores the .codex-auth credential directory', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('providers/local.json', providerConfig());
+    await storage.writeJson('providers/.codex-auth/Codex.json', {
+      accessToken: 'a',
+      refreshToken: 'r',
+    });
+    const store = new SystemProviderStore(storage);
+
+    const configs = await store.list();
+
+    expect(configs.map((c) => c.name)).toEqual(['test-provider']);
+  });
+
+  it('list() ignores non-JSON entries', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('providers/local.json', providerConfig());
+    await storage.writeJson('providers/credentials', { accessToken: 'a' });
+    const store = new SystemProviderStore(storage);
+
+    expect((await store.list()).map((config) => config.name)).toEqual(['test-provider']);
   });
 
   it('list() returns all saved configs sorted by priority ascending', async () => {

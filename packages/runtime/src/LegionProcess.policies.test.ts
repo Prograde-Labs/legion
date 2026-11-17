@@ -51,4 +51,32 @@ describe('ensureBootstrapRuntimeToolPolicies', () => {
     expect(second.tools['watch_activity']).toBe('auto');
     expect(second.tools).toEqual(first.tools);
   });
+
+  it('migrates missing Codex tools without changing explicitly configured policies', async () => {
+    const collective = await makeCollective();
+    await ensureBootstrapRuntimeToolPolicies(collective);
+    const operator = collective.get('operator') as UserConfig;
+    const tools = { ...operator.tools };
+    const names = [
+      'openai_login_start',
+      'openai_login_poll',
+      'openai_auth_status',
+      'openai_logout',
+      'openai_usage',
+    ];
+    for (const name of names) delete tools[name];
+    tools['openai_logout'] = 'requires_approval';
+    await collective.update('operator', { tools });
+
+    await ensureBootstrapRuntimeToolPolicies(collective);
+
+    const migrated = (collective.get('operator') as UserConfig).tools;
+    expect(migrated).toEqual({
+      ...tools,
+      openai_login_start: 'auto',
+      openai_login_poll: 'auto',
+      openai_auth_status: 'auto',
+      openai_usage: 'auto',
+    });
+  });
 });

@@ -1,4 +1,9 @@
-import type { JSONSchema, ModelConfig, ProviderModel } from '@legion-collective/types';
+import type {
+  JSONSchema,
+  ModelConfig,
+  ProviderModel,
+  ProviderUsageSummary,
+} from '@legion-collective/types';
 
 import type { PricingSource } from './PricingSource.js';
 
@@ -89,6 +94,8 @@ export interface Provider {
 
   /** Optional: enumerate models available from this provider. */
   listModels?(): Promise<ProviderModel[]>;
+  /** Optional: report the provider account's plan usage windows. */
+  usage?(): Promise<ProviderUsageSummary>;
   /** Optional: override system-wide pricing for this provider. */
   pricingSource?(): PricingSource;
 }

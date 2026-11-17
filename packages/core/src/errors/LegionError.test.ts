@@ -33,4 +33,9 @@ describe('LegionError', () => {
     expect(new ProviderError('rate limited').code).toBe('PROVIDER_ERROR');
     expect(new ConfigError('bad config').code).toBe('CONFIG_ERROR');
   });
+
+  it('ProviderError carries an optional HTTP status', () => {
+    expect(new ProviderError('unauthorized', 401).status).toBe(401);
+    expect(new ProviderError('plain').status).toBeUndefined();
+  });
 });
