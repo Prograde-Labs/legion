@@ -70,6 +70,7 @@ export class CodexAuthStore {
   async save(name: string, auth: CodexAuth): Promise<void> {
     const target = this.path(name);
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    await chmod(dirname(target), 0o700);
     const tmp = `${target}.${randomUUID()}.tmp`;
     await writeFile(tmp, JSON.stringify(auth, null, 2), { encoding: 'utf8', mode: 0o600 });
     await rename(tmp, target);

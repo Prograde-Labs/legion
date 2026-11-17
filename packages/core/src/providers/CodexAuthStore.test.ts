@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -32,6 +32,19 @@ afterEach(() => {
 });
 
 describe('CodexAuthStore', () => {
+  it('restricts permissions on an existing credential directory', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'codex-auth-'));
+    const dir = join(parent, 'credentials');
+    try {
+      await mkdir(dir, { mode: 0o755 });
+      await chmod(dir, 0o755);
+      await new CodexAuthStore(dir).save('Codex', auth());
+      expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it('saves with mode 0600, reads, and deletes', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'codex-auth-'));
     const store = new CodexAuthStore(dir);
