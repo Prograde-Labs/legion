@@ -1,6 +1,8 @@
 import type { ProviderConfig } from '@legion-collective/types';
-import { NotImplementedError } from '../errors/LegionError.js';
+import { NotImplementedError, ProviderError } from '../errors/LegionError.js';
 import type { Storage } from '../storage/Storage.js';
+import type { CodexAuthStore } from './CodexAuthStore.js';
+import { CodexProvider } from './CodexProvider.js';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
 import type { Provider } from './Provider.js';
@@ -15,7 +17,10 @@ function assertValidProviderName(name: string): void {
 }
 
 export class SystemProviderStore {
-  constructor(private storage: Storage) {}
+  constructor(
+    private storage: Storage,
+    private codexAuth?: CodexAuthStore,
+  ) {}
 
   async get(name: string): Promise<Provider | null> {
     assertValidProviderName(name);
@@ -27,7 +32,9 @@ export class SystemProviderStore {
   async list(): Promise<ProviderConfig[]> {
     const keys = await this.storage.list('providers/');
     const configs = await Promise.all(
-      keys.map((key) => this.storage.readJson<ProviderConfig>(`providers/${key}`)),
+      keys
+        .filter((key) => key.endsWith('.json'))
+        .map((key) => this.storage.readJson<ProviderConfig>(`providers/${key}`)),
     );
     const valid = configs.filter((config): config is ProviderConfig => config !== null);
     return valid.sort((a, b) => a.priority - b.priority);
@@ -50,8 +57,12 @@ export class SystemProviderStore {
         return new OpenAICompatibleProvider(config.baseUrl, config.apiKey);
       case 'openai-responses':
         return new OpenAIResponsesProvider(config.baseUrl, config.apiKey);
-      case 'copilot':
       case 'codex':
+        if (!this.codexAuth) {
+          throw new ProviderError('Codex auth store not configured');
+        }
+        return new CodexProvider(config, this.codexAuth);
+      case 'copilot':
         throw new NotImplementedError(
           `Provider type '${config.type}' is not yet implemented. OAuth support coming soon.`,
         );
