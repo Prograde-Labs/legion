@@ -35,6 +35,15 @@ describe('createDefaultParticipants', () => {
     expect(operator.tools['list_models']).toBe('auto');
     expect(operator.tools['get_routing']).toBe('auto');
     expect(operator.tools['save_routing']).toBe('auto');
+    for (const toolName of [
+      'openai_login_start',
+      'openai_login_poll',
+      'openai_auth_status',
+      'openai_logout',
+      'openai_usage',
+    ]) {
+      expect(operator.tools[toolName]).toBe('auto');
+    }
     expect(operator.tools['configure_provider']).toBeUndefined();
     expect(operator.tools['list_credentials']).toBeUndefined();
     expect(operator.tools['set_credential_with_meta']).toBeUndefined();
