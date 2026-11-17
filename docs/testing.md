@@ -87,6 +87,7 @@ Integration tests live alongside unit tests but use the `.integration.test.ts` s
 | `LEGION_MCP_INTEGRATION=1`              | `MCPToolSource.integration.test.ts`                                        | Spawns real MCP subprocess                                                                                                                                                                      |
 | `LEGION_OPENAI_INTEGRATION=1`           | `agent-runtime.integration.test.ts`                                        | Requires a live OpenAI-compatible API key; uses `gpt-4o-mini` by default (override with `OPENAI_MODEL`)                                                                                         |
 | `LEGION_OPENAI_RESPONSES_INTEGRATION=1` | `OpenAIResponsesProvider.integration.test.ts`                              | Requires a live OpenAI API key; exercises the Responses wire (`/responses`); model `gpt-4o-mini` by default (override with `OPENAI_RESPONSES_MODEL`, base URL with `OPENAI_RESPONSES_BASE_URL`) |
+| `LEGION_OPENAI_CODEX_INTEGRATION=1`     | `CodexProvider.integration.test.ts`                                        | Requires a Codex auth file; set `LEGION_CODEX_AUTH_FILE` to its path; model `gpt-5.5` by default (override with `LEGION_CODEX_MODEL`)                                                           |
 
 ### Running with integration tests
 
@@ -99,6 +100,9 @@ npm run test:coverage:integration
 
 # All integration tests including OpenAI (requires API key)
 LEGION_INTEGRATION=1 LEGION_MCP_INTEGRATION=1 LEGION_OPENAI_INTEGRATION=1 npm run test:coverage
+
+# Codex login integration (requires a completed device login)
+LEGION_OPENAI_CODEX_INTEGRATION=1 LEGION_CODEX_AUTH_FILE=~/.config/legion/providers/.codex-auth/Codex.json npm run test:coverage
 ```
 
 `npm run test:coverage:integration` is shorthand for `LEGION_INTEGRATION=1 LEGION_MCP_INTEGRATION=1 vitest run --coverage`. It does **not** include `LEGION_OPENAI_INTEGRATION` since that requires external credentials.
