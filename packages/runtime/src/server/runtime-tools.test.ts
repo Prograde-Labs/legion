@@ -1,3 +1,5 @@
+import type { CodexAuthStore } from '@legion-collective/core';
+import type { ProviderUsageSummary } from '@legion-collective/types';
 import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthEngine, PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
@@ -11,7 +13,10 @@ function makeAuthEngine(
   } as unknown as AuthEngine;
 }
 
-type ProviderStub = { listModels?: () => Promise<ProviderModel[]> };
+type ProviderStub = {
+  listModels?: () => Promise<ProviderModel[]>;
+  usage?: () => Promise<ProviderUsageSummary>;
+};
 
 function makeSystemStore(
   initial: ProviderConfig[] = [],
@@ -35,6 +40,20 @@ function makeSystemStore(
   };
 }
 
+function makeCodexAuth(
+  overrides: Partial<Record<'read' | 'save' | 'delete' | 'ensureFresh', unknown>> = {},
+): CodexAuthStore {
+  return {
+    read: async () => null,
+    save: async () => undefined,
+    delete: async () => undefined,
+    ensureFresh: async () => {
+      throw new Error('not signed in');
+    },
+    ...overrides,
+  } as unknown as CodexAuthStore;
+}
+
 function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> = {}) {
   const systemRouting: RoutingConfig = { models: { existing: ['system-provider'] } };
   const workspaceRouting: RoutingConfig = { models: { local: ['workspace-provider'] } };
@@ -54,6 +73,7 @@ function makeDeps(overrides: Partial<Parameters<typeof createRuntimeTools>[0]> =
     authEngine: makeAuthEngine(),
     getMCPServers: async () => [],
     saveMCPServers: async () => {},
+    codexAuth: undefined,
     ...overrides,
   };
 }
@@ -94,10 +114,269 @@ describe('runtime tools', () => {
       'list_pending_approvals',
       'list_mcp_sources',
       'save_mcp_sources',
+      'openai_login_start',
+      'openai_login_poll',
+      'openai_auth_status',
+      'openai_logout',
+      'openai_usage',
     ]);
     expect(tools.some((t) => t.name === 'set_credential_with_meta')).toBe(false);
     expect(tools.some((t) => t.name === 'list_credentials')).toBe(false);
     expect(tools.some((t) => t.name === 'configure_provider')).toBe(false);
+  });
+
+  it('save_provider accepts codex without a base URL or API key', async () => {
+    const systemStore = makeSystemStore();
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(
+      tool(tools, 'save_provider').execute({ name: 'Codex', type: 'codex', priority: 5 }),
+    ).resolves.toEqual({
+      status: 'success',
+      data: { name: 'Codex', type: 'codex', priority: 5 },
+    });
+    expect(systemStore._store.get('Codex')).toEqual({
+      name: 'Codex',
+      type: 'codex',
+      priority: 5,
+    });
+  });
+
+  it('openai_login_start returns device-code display data', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          device_auth_id: 'd1',
+          user_code: 'CODE-1',
+          interval: '5',
+          expires_at: '2026-11-17T06:00:00Z',
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const tools = createRuntimeTools(makeDeps({ codexAuth: makeCodexAuth() }));
+
+    try {
+      const result = await tool(tools, 'openai_login_start').execute({ providerName: 'Codex' });
+      expect(result.status).toBe('success');
+      expect(result.data).toMatchObject({
+        providerName: 'Codex',
+        userCode: 'CODE-1',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('openai_login_poll creates the provider config on completion', async () => {
+    const idToken = `x.${Buffer.from(
+      JSON.stringify({
+        email: 'user@example.com',
+        'https://api.openai.com/auth': { chatgpt_account_id: 'acct', chatgpt_plan_type: 'plus' },
+      }),
+    ).toString('base64url')}.y`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ device_auth_id: 'd1', user_code: 'CODE-1', interval: '5' }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ authorization_code: 'ac', code_verifier: 'cv' }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'a', refresh_token: 'r', id_token: idToken }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const systemStore = makeSystemStore();
+    const tools = createRuntimeTools(makeDeps({ systemStore, codexAuth: makeCodexAuth() }));
+
+    try {
+      const started = await tool(tools, 'openai_login_start').execute({ providerName: 'Codex' });
+      const flowId = (started.data as { flowId: string }).flowId;
+      const result = await tool(tools, 'openai_login_poll').execute({ flowId });
+
+      expect(result).toMatchObject({
+        status: 'success',
+        data: { status: 'complete', providerName: 'Codex', priority: 10 },
+      });
+      expect(systemStore._store.get('Codex')).toEqual({
+        name: 'Codex',
+        type: 'codex',
+        priority: 10,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('openai_login_poll preserves an existing provider config on completion', async () => {
+    const idToken = `x.${Buffer.from(
+      JSON.stringify({
+        email: 'user@example.com',
+        'https://api.openai.com/auth': { chatgpt_account_id: 'acct', chatgpt_plan_type: 'plus' },
+      }),
+    ).toString('base64url')}.y`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ device_auth_id: 'd1', user_code: 'CODE-1', interval: '5' }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ authorization_code: 'ac', code_verifier: 'cv' }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'a', refresh_token: 'r', id_token: idToken }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const systemStore = makeSystemStore([{ name: 'Codex', type: 'codex', priority: 42 }]);
+    const tools = createRuntimeTools(makeDeps({ systemStore, codexAuth: makeCodexAuth() }));
+
+    try {
+      const started = await tool(tools, 'openai_login_start').execute({ providerName: 'Codex' });
+      const flowId = (started.data as { flowId: string }).flowId;
+      const result = await tool(tools, 'openai_login_poll').execute({ flowId });
+
+      expect(result).toMatchObject({
+        status: 'success',
+        data: { status: 'complete', providerName: 'Codex', priority: 10 },
+      });
+      expect(systemStore._store.get('Codex')).toEqual({
+        name: 'Codex',
+        type: 'codex',
+        priority: 42,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('openai_auth_status reports account metadata without tokens', async () => {
+    const codexAuth = makeCodexAuth({
+      read: async () => ({
+        clientId: 'c',
+        issuer: 'https://auth.openai.com',
+        accountId: 'acct',
+        email: 'user@example.com',
+        plan: 'plus',
+        accessToken: 'secret',
+        refreshToken: 'secret',
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        savedAt: '2026-11-17T05:00:00.000Z',
+      }),
+    });
+    const tools = createRuntimeTools(makeDeps({ codexAuth }));
+
+    const result = await tool(tools, 'openai_auth_status').execute({ providerName: 'Codex' });
+    expect(result).toEqual({
+      status: 'success',
+      data: {
+        signedIn: true,
+        email: 'user@example.com',
+        plan: 'plus',
+        accountId: 'acct',
+        expiresAt: expect.any(Number),
+        expired: false,
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
+  it('openai_auth_status reports signed out when no auth file exists', async () => {
+    const tools = createRuntimeTools(makeDeps({ codexAuth: makeCodexAuth() }));
+    await expect(
+      tool(tools, 'openai_auth_status').execute({ providerName: 'Codex' }),
+    ).resolves.toEqual({ status: 'success', data: { signedIn: false } });
+  });
+
+  it('openai_logout revokes and deletes the auth file', async () => {
+    const deleted: string[] = [];
+    const codexAuth = makeCodexAuth({
+      read: async () => ({
+        clientId: 'c',
+        issuer: 'https://auth.openai.com',
+        accessToken: 'a',
+        refreshToken: 'r',
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        savedAt: '2026-11-17T05:00:00.000Z',
+      }),
+      delete: async (name: string) => void deleted.push(name),
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })));
+    const tools = createRuntimeTools(makeDeps({ codexAuth }));
+
+    try {
+      await expect(
+        tool(tools, 'openai_logout').execute({ providerName: 'Codex' }),
+      ).resolves.toEqual({
+        status: 'success',
+        data: { signedOut: true, revoked: true },
+      });
+      expect(deleted).toEqual(['Codex']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('openai_logout succeeds when there is nothing to revoke', async () => {
+    const tools = createRuntimeTools(makeDeps({ codexAuth: makeCodexAuth() }));
+    await expect(tool(tools, 'openai_logout').execute({ providerName: 'Codex' })).resolves.toEqual({
+      status: 'success',
+      data: { signedOut: true, revoked: false },
+    });
+  });
+
+  it('openai_usage delegates to the provider usage method', async () => {
+    const summary = {
+      planType: 'plus',
+      windows: [
+        {
+          label: '5-hour',
+          usedPercent: 12,
+          remainingPercent: 88,
+          windowSeconds: 18000,
+          resetAt: 1790036132,
+        },
+      ],
+      capturedAt: '2026-11-17T05:00:00.000Z',
+    };
+    const systemStore = makeSystemStore([{ name: 'Codex', type: 'codex', priority: 10 }], {
+      Codex: { usage: async () => summary },
+    });
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(tool(tools, 'openai_usage').execute({ providerName: 'Codex' })).resolves.toEqual({
+      status: 'success',
+      data: summary,
+    });
+  });
+
+  it('openai_usage errors for a provider without usage support', async () => {
+    const systemStore = makeSystemStore(
+      [{ name: 'local', type: 'openai-compatible', priority: 1 }],
+      {
+        local: {},
+      },
+    );
+    const tools = createRuntimeTools(makeDeps({ systemStore }));
+
+    await expect(tool(tools, 'openai_usage').execute({ providerName: 'local' })).resolves.toEqual({
+      status: 'error',
+      error: expect.stringContaining('does not expose usage'),
+    });
   });
 
   it('list_providers returns system provider configs', async () => {
@@ -146,9 +425,11 @@ describe('runtime tools', () => {
     const schema = tool(tools, 'save_provider').parameters as {
       properties?: { type?: { enum?: string[] } };
     };
-    // copilot/codex throw NotImplementedError and anthropic is only a legacy
-    // mapping, so none of them may be advertised for new saves.
-    expect(schema.properties?.type?.enum).toEqual(['openai-compatible', 'openai-responses']);
+    expect(schema.properties?.type?.enum).toEqual([
+      'openai-compatible',
+      'openai-responses',
+      'codex',
+    ]);
   });
 
   it('save_provider rejects unsupported provider types', async () => {
@@ -156,8 +437,8 @@ describe('runtime tools', () => {
     const tools = createRuntimeTools(makeDeps({ systemStore }));
 
     await expect(
-      tool(tools, 'save_provider').execute({ name: 'unsupported', type: 'codex', priority: 1 }),
-    ).resolves.toEqual({ status: 'error', error: expect.stringContaining('codex') });
+      tool(tools, 'save_provider').execute({ name: 'unsupported', type: 'copilot', priority: 1 }),
+    ).resolves.toEqual({ status: 'error', error: expect.stringContaining('copilot') });
     expect(systemStore._store.has('unsupported')).toBe(false);
 
     // Legacy anthropic configs still construct through the store, but new saves
