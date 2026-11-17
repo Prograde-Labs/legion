@@ -32,6 +32,96 @@ describe('ProviderSlideOver codex', () => {
     vi.clearAllMocks();
   });
 
+  it.each(['Other Codex', 'Codex'])(
+    'ignores old auth after reopening the panel for %s',
+    async (nextName) => {
+      let finishAuth!: (value: unknown) => void;
+      const oldAuth = new Promise((resolve) => {
+        finishAuth = resolve;
+      });
+      let reopened = false;
+      const usageProviders: unknown[] = [];
+      execute.mockImplementation(async (tool: string, args: { providerName: string }) => {
+        if (tool === 'openai_auth_status') {
+          if (!reopened) return oldAuth;
+          return { signedIn: true, email: 'b@example.com', plan: 'plus' };
+        }
+        if (tool === 'openai_usage') {
+          usageProviders.push(args.providerName);
+          return { planType: 'plus', windows: [], capturedAt: '2026-11-17T05:00:00.000Z' };
+        }
+        throw new Error(`unexpected tool ${tool}`);
+      });
+      const wrapper = await openCodexForm();
+      await flushPromises();
+      await wrapper.setProps({ open: false });
+      reopened = true;
+      await wrapper.setProps({
+        open: true,
+        provider: { name: nextName, type: 'codex', priority: 10 },
+      });
+      await flushPromises();
+      expect(wrapper.get('[data-test="codex-account"]').text()).toContain('b@example.com');
+      const usageCount = usageProviders.length;
+      finishAuth({ signedIn: true, email: 'a@example.com', plan: 'pro' });
+      await flushPromises();
+      expect(wrapper.get('[data-test="codex-account"]').text()).toContain('b@example.com');
+      expect(wrapper.text()).not.toContain('a@example.com');
+      expect(usageProviders).toEqual(Array(usageCount).fill(nextName));
+    },
+  );
+
+  it.each(['success', 'error'])(
+    'ignores stale usage %s after opening another provider',
+    async (outcome) => {
+      let finishUsage!: (value: unknown) => void;
+      let failUsage!: (reason: Error) => void;
+      const oldUsage = new Promise((resolve, reject) => {
+        finishUsage = resolve;
+        failUsage = reject;
+      });
+      execute.mockImplementation(async (tool: string, args: { providerName: string }) => {
+        if (tool === 'openai_auth_status') {
+          return { signedIn: true, email: `${args.providerName}@example.com`, plan: 'plus' };
+        }
+        if (tool === 'openai_usage') {
+          if (args.providerName === 'Codex') return oldUsage;
+          return {
+            planType: 'plus',
+            windows: [
+              {
+                label: '5-hour',
+                usedPercent: 12,
+                remainingPercent: 88,
+                windowSeconds: 18000,
+                resetAt: null,
+              },
+            ],
+            capturedAt: '2026-11-17T05:00:00.000Z',
+          };
+        }
+        throw new Error(`unexpected tool ${tool}`);
+      });
+      const wrapper = await openCodexForm();
+      await flushPromises();
+      await wrapper.setProps({ open: false });
+      await wrapper.setProps({
+        open: true,
+        provider: { name: 'Other Codex', type: 'codex', priority: 10 },
+      });
+      await flushPromises();
+      expect(wrapper.get('[data-test="codex-usage-window"]').text()).toContain('88% remaining');
+      if (outcome === 'success') {
+        finishUsage({ planType: 'pro', windows: [], capturedAt: '2026-11-17T05:00:00.000Z' });
+      } else {
+        failUsage(new Error('old provider usage failed'));
+      }
+      await flushPromises();
+      expect(wrapper.get('[data-test="codex-usage-window"]').text()).toContain('88% remaining');
+      expect(wrapper.find('[data-test="codex-usage-error"]').exists()).toBe(false);
+    },
+  );
+
   it('shows the device code when re-signing in an existing account', async () => {
     execute.mockImplementation(async (tool: string) => {
       if (tool === 'openai_auth_status') {

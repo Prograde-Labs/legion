@@ -56,6 +56,7 @@ const login = ref<LoginStart | null>(null);
 const loginStatus = ref<'idle' | 'starting' | 'waiting' | 'complete'>('idle');
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let loginGeneration = 0;
+let panelGeneration = 0;
 
 const isCodex = computed(() => type.value === 'codex');
 
@@ -73,27 +74,45 @@ function cancelLogin() {
   loginStatus.value = 'idle';
 }
 
+function isCurrentPanel(providerName: string, generation: number) {
+  return (
+    props.open && isCodex.value && name.value === providerName && panelGeneration === generation
+  );
+}
+
 async function refreshUsage() {
+  const providerName = name.value;
+  const generation = panelGeneration;
+  if (!isCurrentPanel(providerName, generation)) return;
   usageError.value = null;
   try {
-    usage.value = await execute<ProviderUsageSummary>('openai_usage', {
-      providerName: name.value,
+    const result = await execute<ProviderUsageSummary>('openai_usage', {
+      providerName,
     });
+    if (!isCurrentPanel(providerName, generation)) return;
+    usage.value = result;
   } catch (err) {
+    if (!isCurrentPanel(providerName, generation)) return;
     usage.value = null;
     usageError.value = friendlyToolError(err);
   }
 }
 
 async function refreshAuth() {
-  if (!name.value) {
+  const providerName = name.value;
+  const generation = panelGeneration;
+  if (!isCurrentPanel(providerName, generation)) return;
+  if (!providerName) {
     auth.value = null;
     usage.value = null;
     return;
   }
   try {
-    auth.value = await execute<AuthStatus>('openai_auth_status', { providerName: name.value });
+    const result = await execute<AuthStatus>('openai_auth_status', { providerName });
+    if (!isCurrentPanel(providerName, generation)) return;
+    auth.value = result;
   } catch {
+    if (!isCurrentPanel(providerName, generation)) return;
     auth.value = { signedIn: false };
   }
   if (auth.value?.signedIn) await refreshUsage();
@@ -179,6 +198,7 @@ function copyCode() {
 watch(
   () => props.open,
   (open) => {
+    panelGeneration++;
     if (!open) {
       cancelLogin();
       return;
@@ -200,11 +220,15 @@ watch(
 );
 
 watch(type, (next) => {
+  panelGeneration++;
   if (next !== 'codex') cancelLogin();
   if (next === 'codex' && props.open) void refreshAuth();
 });
 
-onBeforeUnmount(cancelLogin);
+onBeforeUnmount(() => {
+  panelGeneration++;
+  cancelLogin();
+});
 
 async function save() {
   saving.value = true;
