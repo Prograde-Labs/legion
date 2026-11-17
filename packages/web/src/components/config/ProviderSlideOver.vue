@@ -147,7 +147,8 @@ async function pollLogin() {
     }
     loginStatus.value = 'idle';
     login.value = null;
-    error.value = 'The sign-in code expired. Start again.';
+    error.value =
+      'The sign-in code expired. Start again. If the code was not accepted, enable device-code login in ChatGPT → Settings → Security (workspace admins may need to allow it).';
   } catch (err) {
     if (generation !== loginGeneration) return;
     loginStatus.value = 'idle';
@@ -178,14 +179,18 @@ async function startLogin() {
 }
 
 async function logout() {
+  const providerName = name.value;
+  const generation = panelGeneration;
   error.value = null;
   try {
-    await execute('openai_logout', { providerName: name.value });
+    await execute('openai_logout', { providerName });
+    if (!isCurrentPanel(providerName, generation)) return;
     auth.value = { signedIn: false };
     usage.value = null;
     loginStatus.value = 'idle';
     emit('saved');
   } catch (err) {
+    if (!isCurrentPanel(providerName, generation)) return;
     error.value = friendlyToolError(err);
   }
 }
@@ -409,6 +414,10 @@ async function save() {
             </button>
           </div>
           <p class="text-[10px] text-faint">Waiting for approval…</p>
+          <p class="text-[10px] text-faint">
+            If this code is not accepted, enable device-code login in ChatGPT → Settings → Security
+            (workspace admins may need to allow it).
+          </p>
         </template>
 
         <template v-else>

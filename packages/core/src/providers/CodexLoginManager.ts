@@ -43,15 +43,27 @@ interface PendingLogin {
 
 export class CodexLoginManager {
   private readonly flows = new Map<string, PendingLogin>();
+  private readonly generations = new Map<string, number>();
 
   constructor(private readonly authStore: CodexAuthStore) {}
+
+  cancel(providerName: string): void {
+    this.generations.set(providerName, (this.generations.get(providerName) ?? 0) + 1);
+    for (const [id, flow] of this.flows) {
+      if (flow.providerName === providerName) this.flows.delete(id);
+    }
+  }
 
   async start(providerName: string, priority: number): Promise<LoginStartResult> {
     if (!PROVIDER_NAME_PATTERN.test(providerName)) {
       throw new ProviderError('Invalid provider name');
     }
 
+    const generation = this.generations.get(providerName) ?? 0;
     const code = await requestDeviceCode(getClientId());
+    if ((this.generations.get(providerName) ?? 0) !== generation) {
+      throw new ProviderError('Login cancelled');
+    }
     const flow: PendingLogin = {
       flowId: randomUUID(),
       providerName,
@@ -87,6 +99,7 @@ export class CodexLoginManager {
       deviceAuthId: flow.deviceAuthId,
       userCode: flow.userCode,
     });
+    if (this.flows.get(flowId) !== flow) return { status: 'expired' };
     if (!tokens) return { status: 'pending', intervalSeconds: flow.intervalSeconds };
 
     const clientId = getClientId();
@@ -96,7 +109,12 @@ export class CodexLoginManager {
       codeVerifier: tokens.codeVerifier,
     });
     const auth = buildAuth(exchanged, clientId);
-    await this.authStore.save(flow.providerName, auth);
+    const saved = await this.authStore.saveIfActive(
+      flow.providerName,
+      auth,
+      () => this.flows.get(flowId) === flow,
+    );
+    if (!saved || this.flows.get(flowId) !== flow) return { status: 'expired' };
     this.flows.delete(flowId);
 
     return {

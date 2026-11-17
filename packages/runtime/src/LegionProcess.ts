@@ -477,6 +477,11 @@ const RUNTIME_TOOL_NAMES = [
   'save_mcp_sources',
   'list_middleware',
   'list_skills',
+  'openai_login_start',
+  'openai_login_poll',
+  'openai_auth_status',
+  'openai_logout',
+  'openai_usage',
 ] as const;
 
 const SUBSCRIPTION_TOOL_NAMES = [

@@ -30,8 +30,9 @@ interface CodexStatus {
 const codexStatus = ref<Record<string, CodexStatus>>({});
 const codexUsage = ref<Record<string, ProviderUsageSummary | null>>({});
 const hasCodex = computed(() => providers.value.some((p) => p.type === 'codex'));
+let loadGeneration = 0;
 
-async function loadCodexInfo(list: ProviderConfig[]) {
+async function loadCodexInfo(list: ProviderConfig[], generation: number) {
   const status: Record<string, CodexStatus> = {};
   const usage: Record<string, ProviderUsageSummary | null> = {};
 
@@ -58,22 +59,28 @@ async function loadCodexInfo(list: ProviderConfig[]) {
       }),
   );
 
+  if (generation !== loadGeneration) return;
   codexStatus.value = status;
   codexUsage.value = usage;
 }
 
 async function load() {
+  const generation = ++loadGeneration;
   try {
-    providers.value = await execute<ProviderConfig[]>('list_providers', {});
+    const list = await execute<ProviderConfig[]>('list_providers', {});
+    if (generation !== loadGeneration) return;
+    providers.value = list;
     const routing = await execute<{ system: RoutingConfig; workspace: RoutingConfig }>(
       'get_routing',
       {},
     );
+    if (generation !== loadGeneration) return;
     systemRouting.value = routing.system ?? {};
     workspaceRouting.value = routing.workspace ?? {};
     loadError.value = null;
-    await loadCodexInfo(providers.value);
+    await loadCodexInfo(list, generation);
   } catch (err) {
+    if (generation !== loadGeneration) return;
     loadError.value = friendlyToolError(err);
   }
 }

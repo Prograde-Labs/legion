@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import ConfigView from './ConfigView.vue';
+import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import { useToolAccess } from '../composables/useToolAccess.js';
 
 vi.mock('../composables/useToolAccess.js', () => ({ useToolAccess: vi.fn() }));
@@ -56,6 +57,68 @@ function stubCodexFetch(
 }
 
 describe('ConfigView codex usage', () => {
+  it('ignores stale account results after a newer load completes', async () => {
+    let finishOld!: (value: Response) => void;
+    const oldStatus = new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    });
+    let statuses = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const { tool } = JSON.parse(String(init?.body));
+        if (tool === 'list_providers') return toolResponse(tool, [CODEX_PROVIDER]);
+        if (tool === 'get_routing') return toolResponse(tool, { system: {}, workspace: {} });
+        if (tool === 'openai_auth_status') {
+          statuses++;
+          return statuses === 1
+            ? oldStatus
+            : toolResponse(tool, { signedIn: true, email: 'new@example.com' });
+        }
+        if (tool === 'openai_usage') return toolResponse(tool, { windows: [], capturedAt: '' });
+        return toolResponse(tool, {});
+      }),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+    await vi.waitFor(() => expect(statuses).toBe(1));
+    wrapper.findComponent(ProviderSlideOver).vm.$emit('saved');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('new@example.com'));
+    finishOld(toolResponse('openai_auth_status', { signedIn: true, email: 'old@example.com' }));
+    await flushPromises();
+    expect(wrapper.text()).toContain('new@example.com');
+    expect(wrapper.text()).not.toContain('old@example.com');
+    wrapper.unmount();
+  });
+
+  it('ignores an older provider list after a newer load', async () => {
+    let finishOld!: (value: Response) => void;
+    const oldList = new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    });
+    let lists = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const { tool } = JSON.parse(String(init?.body));
+        if (tool === 'list_providers')
+          return ++lists === 1 ? oldList : toolResponse(tool, [CODEX_PROVIDER]);
+        if (tool === 'get_routing') return toolResponse(tool, { system: {}, workspace: {} });
+        if (tool === 'openai_auth_status') return toolResponse(tool, { signedIn: false });
+        return toolResponse(tool, {});
+      }),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+    await vi.waitFor(() => expect(lists).toBe(1));
+    wrapper.findComponent(ProviderSlideOver).vm.$emit('saved');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Codex'));
+    finishOld(
+      toolResponse('list_providers', [{ name: 'Old', type: 'openai-compatible', priority: 1 }]),
+    );
+    await flushPromises();
+    expect(wrapper.text()).toContain('Codex');
+    expect(wrapper.text()).not.toContain('Old');
+    wrapper.unmount();
+  });
   it('renders the account and remaining usage for codex providers', async () => {
     vi.stubGlobal(
       'fetch',

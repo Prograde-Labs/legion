@@ -32,6 +32,40 @@ describe('ProviderSlideOver codex', () => {
     vi.clearAllMocks();
   });
 
+  it.each(['success', 'error'])(
+    'ignores stale logout %s after opening another provider',
+    async (outcome) => {
+      let finish!: (value: unknown) => void;
+      let fail!: (reason: Error) => void;
+      const pending = new Promise((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+      });
+      execute.mockImplementation(async (tool: string, args: { providerName: string }) => {
+        if (tool === 'openai_auth_status')
+          return { signedIn: true, email: `${args.providerName}@example.com` };
+        if (tool === 'openai_usage') return { windows: [], capturedAt: '' };
+        if (tool === 'openai_logout') return pending;
+        throw new Error(`unexpected tool ${tool}`);
+      });
+      const wrapper = await openCodexForm();
+      await flushPromises();
+      await wrapper.get('[data-test="codex-sign-out"]').trigger('click');
+      await wrapper.setProps({ open: false });
+      await wrapper.setProps({
+        open: true,
+        provider: { name: 'Other', type: 'codex', priority: 10 },
+      });
+      await flushPromises();
+      if (outcome === 'success') finish({ signedOut: true });
+      else fail(new Error('old logout failed'));
+      await flushPromises();
+      expect(wrapper.get('[data-test="codex-account"]').text()).toContain('Other@example.com');
+      expect(wrapper.text()).not.toContain('old logout failed');
+      expect(wrapper.emitted('saved')).toBeUndefined();
+    },
+  );
+
   it.each(['Other Codex', 'Codex'])(
     'ignores old auth after reopening the panel for %s',
     async (nextName) => {
@@ -190,6 +224,36 @@ describe('ProviderSlideOver codex', () => {
     }
   });
 
+  it('shows device-code settings guidance when a code expires', async () => {
+    vi.useFakeTimers();
+    try {
+      execute.mockImplementation(async (tool: string) => {
+        if (tool === 'openai_auth_status') return { signedIn: false };
+        if (tool === 'openai_login_start')
+          return {
+            flowId: 'flow-1',
+            providerName: 'Codex',
+            verificationUrl: 'https://auth.openai.com/codex/device',
+            userCode: 'CODE-1',
+            intervalSeconds: 5,
+            expiresAt: '2026-11-17T06:00:00.000Z',
+          };
+        if (tool === 'openai_login_poll') return { status: 'expired' };
+        throw new Error(`unexpected tool ${tool}`);
+      });
+      const wrapper = await openCodexForm();
+      await flushPromises();
+      await wrapper.get('[data-test="codex-sign-in"]').trigger('click');
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(5000);
+      await flushPromises();
+      expect(wrapper.get('[data-test="provider-error"]').text()).toContain('Settings → Security');
+      expect(wrapper.get('[data-test="provider-error"]').text()).toContain('workspace admins');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('hides base URL and API key for codex', async () => {
     const wrapper = await openForm();
     await wrapper.find('[data-test="provider-name"]').setValue('Codex');
@@ -304,6 +368,8 @@ describe('ProviderSlideOver codex', () => {
       'https://auth.openai.com/codex/device',
     );
     expect(wrapper.text()).toContain('Waiting for approval');
+    expect(wrapper.text()).toContain('enable device-code login in ChatGPT');
+    expect(wrapper.text()).toContain('workspace admins');
   });
 
   it('polls to completion and emits saved', async () => {

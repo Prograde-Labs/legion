@@ -115,9 +115,22 @@ export class CodexProvider extends OpenAIResponsesProvider {
       throw await this.responseError(res, tokens, 'Codex API error');
     }
 
-    for await (const chunk of this.parseStream(res, options)) {
-      if (chunk.type === 'done') yield { ...chunk, cost: 0 };
-      else yield chunk;
+    try {
+      for await (const chunk of this.parseStream(res, options)) {
+        if (chunk.type === 'done') yield { ...chunk, cost: 0 };
+        else yield chunk;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const safe = tokens
+        .filter((token) => token.length > 0)
+        .sort((a, b) => b.length - a.length)
+        .reduce((text, token) => text.replaceAll(token, '[redacted]'), message);
+      const status =
+        typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number'
+          ? err.status
+          : undefined;
+      throw new ProviderError(safe, status);
     }
   }
 

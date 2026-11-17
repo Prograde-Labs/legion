@@ -41,12 +41,16 @@ function makeSystemStore(
 }
 
 function makeCodexAuth(
-  overrides: Partial<Record<'read' | 'save' | 'delete' | 'ensureFresh', unknown>> = {},
+  overrides: Partial<
+    Record<'read' | 'save' | 'saveIfActive' | 'delete' | 'ensureFresh' | 'logout', unknown>
+  > = {},
 ): CodexAuthStore {
   return {
     read: async () => null,
     save: async () => undefined,
+    saveIfActive: async (_name: string, _auth: unknown, active: () => boolean) => active(),
     delete: async () => undefined,
+    logout: async () => ({ signedOut: true, revoked: false }),
     ensureFresh: async () => {
       throw new Error('not signed in');
     },
@@ -102,6 +106,30 @@ function makeContext(overrides: Partial<ToolContext['participant']> = {}): ToolC
 }
 
 describe('runtime tools', () => {
+  it('cancels a pending login when that provider is logged out', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ device_auth_id: 'd1', user_code: 'CODE-1', interval: '5' }),
+          ),
+        ),
+    );
+    try {
+      const tools = createRuntimeTools(makeDeps({ codexAuth: makeCodexAuth() }));
+      const started = await tool(tools, 'openai_login_start').execute({ providerName: 'Codex' });
+      const flowId = (started.data as { flowId: string }).flowId;
+      await tool(tools, 'openai_logout').execute({ providerName: 'Codex' });
+      await expect(tool(tools, 'openai_login_poll').execute({ flowId })).resolves.toEqual({
+        status: 'success',
+        data: { status: 'expired' },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('exposes only provider and routing tools', () => {
     const tools = createRuntimeTools(makeDeps());
     expect(tools.map((t) => t.name)).toEqual([
@@ -302,18 +330,10 @@ describe('runtime tools', () => {
     ).resolves.toEqual({ status: 'success', data: { signedIn: false } });
   });
 
-  it('openai_logout revokes and deletes the auth file', async () => {
-    const deleted: string[] = [];
+  it('openai_logout delegates to the auth store', async () => {
+    const logout = vi.fn(async () => ({ signedOut: true, revoked: true }));
     const codexAuth = makeCodexAuth({
-      read: async () => ({
-        clientId: 'c',
-        issuer: 'https://auth.openai.com',
-        accessToken: 'a',
-        refreshToken: 'r',
-        expiresAt: Math.floor(Date.now() / 1000) + 3600,
-        savedAt: '2026-11-17T05:00:00.000Z',
-      }),
-      delete: async (name: string) => void deleted.push(name),
+      logout,
     });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200 })));
     const tools = createRuntimeTools(makeDeps({ codexAuth }));
@@ -325,7 +345,7 @@ describe('runtime tools', () => {
         status: 'success',
         data: { signedOut: true, revoked: true },
       });
-      expect(deleted).toEqual(['Codex']);
+      expect(logout).toHaveBeenCalledWith('Codex');
     } finally {
       vi.unstubAllGlobals();
     }

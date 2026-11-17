@@ -66,6 +66,43 @@ afterEach(() => {
 });
 
 describe('CodexProvider', () => {
+  it('preserves the status of a redacted stream error', async () => {
+    class FailingProvider extends CodexProvider {
+      protected override async *parseStream(): AsyncGenerator<ProviderStreamChunk> {
+        throw new ProviderError('access-token failed', 429);
+      }
+    }
+    fetchMock.mockResolvedValue(sse([]));
+    const provider = new FailingProvider(
+      { name: 'Codex', type: 'codex', priority: 10 },
+      makeStore(),
+    );
+    const error = await drain(provider, []).catch((err: unknown) => err);
+    expect(error).toMatchObject({ status: 429, message: '[redacted] failed' });
+  });
+  it('redacts all attempted tokens in a failed SSE event', async () => {
+    const ensureFresh = vi
+      .fn()
+      .mockResolvedValueOnce(AUTH)
+      .mockResolvedValueOnce({ ...AUTH, accessToken: 'new-token' });
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 401 })).mockResolvedValueOnce(
+      sse([
+        {
+          type: 'response.failed',
+          response: { error: { code: 'failed', message: 'access-token and new-token' } },
+        },
+      ]),
+    );
+    const provider = new CodexProvider(
+      { name: 'Codex', type: 'codex', priority: 10 },
+      makeStore(ensureFresh),
+    );
+    const error = await drain(provider, []).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain('[redacted] and [redacted]');
+    expect((error as Error).message).not.toContain('access-token');
+    expect((error as Error).message).not.toContain('new-token');
+  });
   it('posts sanitized body and Codex headers, and records cost 0', async () => {
     fetchMock.mockResolvedValue(sse(textEvents('Hello')));
 

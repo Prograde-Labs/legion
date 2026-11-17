@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -32,6 +32,61 @@ afterEach(() => {
 });
 
 describe('CodexAuthStore', () => {
+  it('deletes stray temporary credentials for only the named provider', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'codex-auth-'));
+    const store = new CodexAuthStore(dir);
+    await writeFile(join(dir, 'Codex.json.stray.tmp'), 'secret');
+    await writeFile(join(dir, 'Codex2.json.stray.tmp'), 'other');
+    await store.delete('Codex');
+    expect(await readdir(dir)).toEqual(['Codex2.json.stray.tmp']);
+  });
+
+  it('cleans temporary credentials when rename fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'codex-auth-'));
+    await mkdir(join(dir, 'Codex.json'));
+    await expect(new CodexAuthStore(dir).save('Codex', auth())).rejects.toThrow();
+    expect(await readdir(dir)).toEqual(['Codex.json']);
+  });
+
+  it('waits for an in-flight refresh before revoking and deleting credentials', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'codex-auth-'));
+    const store = new CodexAuthStore(dir);
+    await store.save('Codex', auth({ expiresAt: 0 }));
+    let resolveRefresh!: (response: Response) => void;
+    let refreshStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      refreshStarted = resolve;
+    });
+    fetchMock
+      .mockImplementationOnce(() => {
+        refreshStarted();
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      })
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    const refresh = store.ensureFresh('Codex');
+    await started;
+    const logout = store.logout('Codex');
+    resolveRefresh(
+      new Response(JSON.stringify({ access_token: 'new-access', refresh_token: 'new-refresh' })),
+    );
+    await refresh;
+    await expect(logout).resolves.toEqual({ signedOut: true, revoked: true });
+    expect(await store.read('Codex')).toBeNull();
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain('new-refresh');
+  });
+
+  it('deletes credentials and stray temporary files even when revocation fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'codex-auth-'));
+    const store = new CodexAuthStore(dir);
+    await store.save('Codex', auth());
+    await writeFile(join(dir, 'Codex.json.leftover.tmp'), 'secret');
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    await expect(store.logout('Codex')).resolves.toEqual({ signedOut: true, revoked: false });
+    expect(await readdir(dir)).toEqual([]);
+    await expect(store.logout('Codex')).resolves.toEqual({ signedOut: true, revoked: false });
+  });
   it('restricts permissions on an existing credential directory', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'codex-auth-'));
     const dir = join(parent, 'credentials');

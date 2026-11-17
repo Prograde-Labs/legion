@@ -7,7 +7,7 @@ import type {
 } from '@legion-collective/types';
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
 import type { AuthEngine, PendingApprovalRegistry, CodexAuthStore } from '@legion-collective/core';
-import { CodexLoginManager, revokeToken } from '@legion-collective/core';
+import { CodexLoginManager } from '@legion-collective/core';
 
 // Only provider types that can be constructed and are suitable for new saves.
 const SUPPORTED_PROVIDER_TYPES = new Set<ProviderConfig['type']>([
@@ -396,15 +396,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
         try {
           if (!codexAuth) throw new Error('Codex auth store not configured');
           const { providerName } = rawArgs as { providerName: string };
-          const auth = await codexAuth.read(providerName);
-          if (!auth) return { status: 'success', data: { signedOut: true, revoked: false } };
-
-          const revoked = await revokeToken({
-            clientId: auth.clientId,
-            token: auth.refreshToken,
-          });
-          await codexAuth.delete(providerName);
-          return { status: 'success', data: { signedOut: true, revoked } };
+          codexLogin?.cancel(providerName);
+          return { status: 'success', data: await codexAuth.logout(providerName) };
         } catch (err) {
           return toErrorResult(err);
         }
