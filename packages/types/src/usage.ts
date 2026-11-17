@@ -16,3 +16,27 @@ export interface MessageUsage {
   /** Provider ID (e.g. "anthropic", "openai"). */
   providerId: string;
 }
+
+export interface ProviderUsageWindow {
+  /** Human label: "5-hour", "Weekly", or an additional-limit name. */
+  label: string;
+  /** 0-100 as reported by the provider, or null when unknown. */
+  usedPercent: number | null;
+  /** clamp(100 - usedPercent, 0, 100), or null when unknown. */
+  remainingPercent: number | null;
+  windowSeconds: number | null;
+  /** Unix seconds. */
+  resetAt: number | null;
+}
+
+export interface ProviderUsageSummary {
+  planType?: string;
+  windows: ProviderUsageWindow[];
+  credits?: {
+    hasCredits: boolean;
+    unlimited: boolean;
+    balance: string | null;
+  } | null;
+  /** ISO 8601 timestamp of the fetch. */
+  capturedAt: string;
+}
