@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CodexAuthStore } from './CodexAuthStore.js';
 import { CodexProvider } from './CodexProvider.js';
 
-const LIVE = !!process.env['LEGION_OPENAI_CODEX_INTEGRATION'];
+const LIVE = process.env['LEGION_OPENAI_CODEX_INTEGRATION'] === '1';
 const AUTH_FILE = process.env['LEGION_CODEX_AUTH_FILE'];
 const MODEL_ID = process.env['LEGION_CODEX_MODEL'] ?? 'gpt-5.5';
 
