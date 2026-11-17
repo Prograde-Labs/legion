@@ -40,23 +40,28 @@ export class CodexProvider extends OpenAIResponsesProvider {
 
   private async authenticatedRequest(
     request: (auth: CodexAuth) => Promise<Response>,
-  ): Promise<{ res: Response; auth: CodexAuth }> {
+  ): Promise<{ res: Response; tokens: string[] }> {
     let auth = await this.authStore.ensureFresh(this.providerName);
+    const tokens = [auth.accessToken];
     let res = await request(auth);
     if (res.status === 401) {
       auth = await this.authStore.ensureFresh(this.providerName, true);
+      tokens.push(auth.accessToken);
       res = await request(auth);
     }
-    return { res, auth };
+    return { res, tokens };
   }
 
   private async responseError(
     res: Response,
-    auth: CodexAuth,
+    tokens: string[],
     context: string,
   ): Promise<ProviderError> {
     const text = await res.text().catch(() => '');
-    const safe = auth.accessToken ? text.replaceAll(auth.accessToken, '[redacted]') : text;
+    const safe = tokens
+      .filter((token) => token.length > 0)
+      .sort((a, b) => b.length - a.length)
+      .reduce((body, token) => body.replaceAll(token, '[redacted]'), text);
     return new ProviderError(`${context} ${res.status}: ${safe.slice(0, 200)}`, res.status);
   }
 
@@ -102,12 +107,12 @@ export class CodexProvider extends OpenAIResponsesProvider {
     options?: { signal?: AbortSignal },
   ): AsyncGenerator<ProviderStreamChunk> {
     const body = this.sanitizeBody(this.buildRequestBody(messages, tools, model));
-    const { res, auth } = await this.authenticatedRequest((currentAuth) =>
+    const { res, tokens } = await this.authenticatedRequest((currentAuth) =>
       this.post(body, currentAuth, options?.signal),
     );
 
     if (!res.ok) {
-      throw await this.responseError(res, auth, 'Codex API error');
+      throw await this.responseError(res, tokens, 'Codex API error');
     }
 
     for await (const chunk of this.parseStream(res, options)) {
@@ -118,10 +123,10 @@ export class CodexProvider extends OpenAIResponsesProvider {
 
   override async listModels(): Promise<ProviderModel[]> {
     try {
-      const { res } = await this.authenticatedRequest((auth) =>
+      const { res, tokens } = await this.authenticatedRequest((auth) =>
         fetch(`${this.baseUrl}/models`, { headers: this.headers(auth, 'application/json') }),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw await this.responseError(res, tokens, 'Codex models error');
 
       const data = (await res.json()) as Record<string, unknown>;
       const raw = Array.isArray(data['models'])
@@ -161,13 +166,13 @@ export class CodexProvider extends OpenAIResponsesProvider {
   }
 
   async usage(): Promise<ProviderUsageSummary> {
-    const { res, auth } = await this.authenticatedRequest((currentAuth) => {
+    const { res, tokens } = await this.authenticatedRequest((currentAuth) => {
       if (!currentAuth.accountId)
         throw new ProviderError('Codex account id missing; sign in again');
       return fetch(this.usageUrl, { headers: this.headers(currentAuth, 'application/json') });
     });
     if (!res.ok) {
-      throw await this.responseError(res, auth, 'Codex usage error');
+      throw await this.responseError(res, tokens, 'Codex usage error');
     }
     return normalizeCodexUsage(await res.json());
   }

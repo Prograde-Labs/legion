@@ -250,6 +250,54 @@ describe('CodexProvider', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('parses models after refreshing on a 401', async () => {
+    const ensureFresh = vi.fn().mockResolvedValue(AUTH);
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ models: [{ slug: 'gpt-5.5' }] })));
+    const provider = new CodexProvider(
+      { name: 'Codex', type: 'codex', priority: 10 },
+      makeStore(ensureFresh),
+    );
+    await expect(provider.listModels()).resolves.toMatchObject([{ id: 'gpt-5.5' }]);
+    expect(ensureFresh.mock.calls).toEqual([['Codex'], ['Codex', true]]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns an empty model list for a server error', async () => {
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 500 }));
+    const provider = new CodexProvider({ name: 'Codex', type: 'codex', priority: 10 }, makeStore());
+    await expect(provider.listModels()).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['stream', 'usage'] as const)(
+    'redacts the original token in a retried %s error',
+    async (method) => {
+      const ensureFresh = vi
+        .fn()
+        .mockResolvedValueOnce(AUTH)
+        .mockResolvedValueOnce({
+          ...AUTH,
+          accessToken: 'new-token',
+        });
+      fetchMock
+        .mockResolvedValueOnce(new Response('', { status: 401 }))
+        .mockResolvedValueOnce(new Response('access-token and new-token', { status: 500 }));
+      const provider = new CodexProvider(
+        { name: 'Codex', type: 'codex', priority: 10 },
+        makeStore(ensureFresh),
+      );
+      const result = method === 'stream' ? drain(provider, []) : provider.usage();
+      const error = await result.catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error).toMatchObject({ status: 500 });
+      expect((error as Error).message).not.toContain('access-token');
+      expect((error as Error).message).not.toContain('new-token');
+      expect((error as Error).message).toContain('[redacted] and [redacted]');
+    },
+  );
+
   it('fails usage with a clear error when the account id is missing', async () => {
     const provider = new CodexProvider(
       { name: 'Codex', type: 'codex', priority: 10 },
