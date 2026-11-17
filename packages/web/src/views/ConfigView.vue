@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { ProviderConfig, RoutingConfig } from '@legion-collective/types';
+import type { ProviderConfig, ProviderUsageSummary, RoutingConfig } from '@legion-collective/types';
 import ProviderSlideOver from '../components/config/ProviderSlideOver.vue';
 import RoutingEditor from '../components/config/RoutingEditor.vue';
 import McpSourcesEditor from './McpSourcesEditor.vue';
@@ -21,6 +21,47 @@ const editingProvider = ref<ProviderConfig | null>(null);
 const loadError = ref<string | null>(null);
 const deleteError = ref<string | null>(null);
 
+interface CodexStatus {
+  signedIn: boolean;
+  email?: string;
+  plan?: string;
+}
+
+const codexStatus = ref<Record<string, CodexStatus>>({});
+const codexUsage = ref<Record<string, ProviderUsageSummary | null>>({});
+const hasCodex = computed(() => providers.value.some((p) => p.type === 'codex'));
+
+async function loadCodexInfo(list: ProviderConfig[]) {
+  const status: Record<string, CodexStatus> = {};
+  const usage: Record<string, ProviderUsageSummary | null> = {};
+
+  await Promise.all(
+    list
+      .filter((p) => p.type === 'codex')
+      .map(async (p) => {
+        try {
+          status[p.name] = await execute<CodexStatus>('openai_auth_status', {
+            providerName: p.name,
+          });
+        } catch {
+          status[p.name] = { signedIn: false };
+        }
+        if (status[p.name]?.signedIn) {
+          try {
+            usage[p.name] = await execute<ProviderUsageSummary>('openai_usage', {
+              providerName: p.name,
+            });
+          } catch {
+            usage[p.name] = null;
+          }
+        }
+      }),
+  );
+
+  codexStatus.value = status;
+  codexUsage.value = usage;
+}
+
 async function load() {
   try {
     providers.value = await execute<ProviderConfig[]>('list_providers', {});
@@ -31,12 +72,29 @@ async function load() {
     systemRouting.value = routing.system ?? {};
     workspaceRouting.value = routing.workspace ?? {};
     loadError.value = null;
+    await loadCodexInfo(providers.value);
   } catch (err) {
     loadError.value = friendlyToolError(err);
   }
 }
 
 onMounted(load);
+
+function shortLabel(label: string): string {
+  if (label === '5-hour') return '5h';
+  if (label === 'Weekly') return '7d';
+  return label;
+}
+
+function usageSummary(name: string): string {
+  if (!codexStatus.value[name]?.signedIn) return 'Sign in';
+  const usage = codexUsage.value[name];
+  if (!usage) return 'Unavailable';
+  const parts = usage.windows.map(
+    (w) => `${shortLabel(w.label)} ${w.remainingPercent === null ? '—' : `${w.remainingPercent}%`}`,
+  );
+  return parts.length > 0 ? parts.join(' · ') : '—';
+}
 
 function openProvider(p: ProviderConfig | null) {
   editingProvider.value = p;
@@ -86,14 +144,24 @@ async function deleteProvider(name: string) {
             <code class="font-mono text-ink">~/.config/legion/providers/</code> and shared across
             all workspaces.
           </p>
-          <button
-            v-if="canSaveProvider"
-            data-test="add-provider"
-            @click="openProvider(null)"
-            class="shrink-0 ml-4 text-xs px-3 py-1.5 border border-line text-accent rounded"
-          >
-            + Add provider
-          </button>
+          <div class="flex items-center gap-4 shrink-0 ml-4">
+            <a
+              v-if="hasCodex"
+              href="https://chatgpt.com/settings/usage"
+              target="_blank"
+              rel="noreferrer"
+              class="text-[10px] text-accent"
+              >Manage usage</a
+            >
+            <button
+              v-if="canSaveProvider"
+              data-test="add-provider"
+              @click="openProvider(null)"
+              class="text-xs px-3 py-1.5 border border-line text-accent rounded"
+            >
+              + Add provider
+            </button>
+          </div>
         </div>
         <div
           v-if="deleteError"
@@ -109,7 +177,7 @@ async function deleteProvider(name: string) {
           <thead class="bg-surface-raised">
             <tr>
               <th
-                v-for="h in ['Priority', 'Name', 'Type', 'Base URL', 'API Key', '']"
+                v-for="h in ['Priority', 'Name', 'Type', 'Base URL', 'API Key', 'Usage', '']"
                 :key="h"
                 class="text-left text-[9px] uppercase tracking-wider text-faint px-3 py-2 font-semibold"
               >
@@ -125,7 +193,15 @@ async function deleteProvider(name: string) {
               class="border-t border-line hover:bg-surface-raised"
             >
               <td class="px-3 py-2.5 text-muted text-center">{{ p.priority }}</td>
-              <td class="px-3 py-2.5 font-mono text-ink font-medium">{{ p.name }}</td>
+              <td class="px-3 py-2.5 font-mono text-ink font-medium">
+                {{ p.name }}
+                <div
+                  v-if="p.type === 'codex' && codexStatus[p.name]?.email"
+                  class="font-sans text-[10px] text-faint"
+                >
+                  {{ codexStatus[p.name]?.email }} · {{ codexStatus[p.name]?.plan ?? 'ChatGPT' }}
+                </div>
+              </td>
               <td class="px-3 py-2.5">
                 <span
                   :class="[
@@ -141,6 +217,10 @@ async function deleteProvider(name: string) {
               </td>
               <td class="px-3 py-2.5 font-mono text-faint text-[10px] tracking-wider">
                 {{ p.apiKey ? '••••' + p.apiKey.slice(-4) : '—' }}
+              </td>
+              <td class="px-3 py-2.5 text-muted text-[10px]" data-test="provider-usage">
+                <template v-if="p.type === 'codex'">{{ usageSummary(p.name) }}</template>
+                <template v-else>—</template>
               </td>
               <td class="px-3 py-2.5 text-right space-x-3">
                 <button
@@ -161,7 +241,7 @@ async function deleteProvider(name: string) {
               </td>
             </tr>
             <tr v-if="providers.length === 0">
-              <td colspan="6" class="px-3 py-6 text-center text-faint text-xs italic">
+              <td colspan="7" class="px-3 py-6 text-center text-faint text-xs italic">
                 No providers configured. Add one to get started.
               </td>
             </tr>

@@ -22,6 +22,167 @@ vi.hoisted(() => {
   localStorage.setItem('legion-expires-at', String(exp));
 });
 
+const CODEX_PROVIDER = {
+  name: 'Codex',
+  type: 'codex' as const,
+  priority: 5,
+};
+
+function stubCodexFetch(
+  status: Record<string, unknown>,
+  usage: Record<string, unknown>,
+): ReturnType<typeof vi.fn> {
+  return vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      tool: string;
+      args: { providerName?: string };
+    };
+    if (body.tool === 'list_providers') return toolResponse('list_providers', [CODEX_PROVIDER]);
+    if (body.tool === 'get_routing') {
+      return toolResponse('get_routing', { system: {}, workspace: {} });
+    }
+    if (body.tool === 'openai_auth_status') {
+      const value = status[body.args.providerName ?? ''];
+      if (value instanceof Error) throw value;
+      return toolResponse('openai_auth_status', value);
+    }
+    if (body.tool === 'openai_usage') {
+      const value = usage[body.args.providerName ?? ''];
+      if (value instanceof Error) throw value;
+      return toolResponse('openai_usage', value);
+    }
+    return toolResponse(body.tool, {});
+  });
+}
+
+describe('ConfigView codex usage', () => {
+  it('renders the account and remaining usage for codex providers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubCodexFetch(
+        { Codex: { signedIn: true, email: 'user@example.com', plan: 'plus' } },
+        {
+          Codex: {
+            planType: 'plus',
+            windows: [
+              {
+                label: '5-hour',
+                usedPercent: 12,
+                remainingPercent: 88,
+                windowSeconds: 18000,
+                resetAt: null,
+              },
+              {
+                label: 'Weekly',
+                usedPercent: 40,
+                remainingPercent: 60,
+                windowSeconds: 604800,
+                resetAt: null,
+              },
+            ],
+            capturedAt: '2026-11-17T05:00:00.000Z',
+          },
+        },
+      ),
+    );
+    await router.push('/config');
+    await router.isReady();
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('user@example.com'));
+    expect(wrapper.text()).toContain('plus');
+    expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('5h 88% · 7d 60%');
+    const link = wrapper.find('a[href="https://chatgpt.com/settings/usage"]');
+    expect(link.text()).toBe('Manage usage');
+    expect(link.attributes('target')).toBe('_blank');
+    expect(link.attributes('rel')).toBe('noreferrer');
+    wrapper.unmount();
+  });
+
+  it('shows sign-in and an em dash for unsigned codex providers', async () => {
+    vi.stubGlobal('fetch', stubCodexFetch({ Codex: { signedIn: false } }, {}));
+    await router.push('/config');
+    await router.isReady();
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-usage"]').text()).toContain('Sign in'),
+    );
+    wrapper.unmount();
+  });
+
+  it('shows an em dash for non-codex providers', async () => {
+    vi.stubGlobal('fetch', stubProviderFetch());
+    await router.push('/config');
+    await router.isReady();
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() => expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('—'));
+    expect(wrapper.text()).not.toContain('Manage usage');
+    wrapper.unmount();
+  });
+
+  it('keeps the table available when usage fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubCodexFetch(
+        { Codex: { signedIn: true, email: 'user@example.com' } },
+        { Codex: new Error('usage failed') },
+      ),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('Unavailable'),
+    );
+    expect(wrapper.text()).toContain('user@example.com · ChatGPT');
+    expect(wrapper.find('[data-test="provider-row"]').text()).toContain('Codex');
+    expect(wrapper.text()).not.toContain('usage failed');
+    wrapper.unmount();
+  });
+
+  it('keeps the table available when auth status fails', async () => {
+    vi.stubGlobal('fetch', stubCodexFetch({ Codex: new Error('status failed') }, {}));
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await flushPromises();
+    expect(wrapper.find('[data-test="provider-usage"]').text()).toBe('Sign in');
+    expect(wrapper.find('[data-test="provider-row"]').text()).toContain('Codex');
+    expect(wrapper.text()).not.toContain('status failed');
+    wrapper.unmount();
+  });
+
+  it.each([
+    { windows: [], expected: '—' },
+    {
+      windows: [
+        {
+          label: 'Daily',
+          usedPercent: null,
+          remainingPercent: null,
+          windowSeconds: 86400,
+          resetAt: null,
+        },
+      ],
+      expected: 'Daily —',
+    },
+  ])('renders $expected for incomplete usage windows', async ({ windows, expected }) => {
+    vi.stubGlobal(
+      'fetch',
+      stubCodexFetch(
+        { Codex: { signedIn: true } },
+        { Codex: { windows, capturedAt: '2026-11-17T05:00:00.000Z' } },
+      ),
+    );
+    const wrapper = mount(ConfigView, { global: { plugins: [router] } });
+
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-test="provider-usage"]').text()).toBe(expected),
+    );
+    wrapper.unmount();
+  });
+});
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [{ path: '/config', component: ConfigView }],
