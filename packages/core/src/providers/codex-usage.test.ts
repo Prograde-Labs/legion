@@ -56,4 +56,17 @@ describe('normalizeCodexUsage', () => {
   it('returns empty windows for an unrecognized body', () => {
     expect(normalizeCodexUsage({}).windows).toEqual([]);
   });
+
+  it('preserves additional limit names when window duration is missing', () => {
+    const summary = normalizeCodexUsage({
+      additional_rate_limits: [
+        { limit_name: 'Codex', rate_limit: { primary_window: { used_percent: 10 } } },
+        { limit_name: 'Other', rate_limit: { secondary_window: { used_percent: 20 } } },
+      ],
+    });
+    expect(summary.windows.map((window) => window.label)).toEqual([
+      'Codex Primary',
+      'Other Secondary',
+    ]);
+  });
 });

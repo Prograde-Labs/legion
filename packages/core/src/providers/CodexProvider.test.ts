@@ -183,7 +183,71 @@ describe('CodexProvider', () => {
     expect(init.headers).toMatchObject({
       Authorization: 'Bearer access-token',
       'chatgpt-account-id': 'acct-1',
+      'OpenAI-Beta': 'responses=experimental',
     });
+  });
+
+  it.each(['usage', 'listModels'] as const)('refreshes once after a 401 for %s', async (method) => {
+    const ensureFresh = vi
+      .fn()
+      .mockResolvedValueOnce(AUTH)
+      .mockResolvedValueOnce({
+        ...AUTH,
+        accessToken: 'new-token',
+      });
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ models: [], plan_type: 'plus' })));
+    const provider = new CodexProvider(
+      { name: 'Codex', type: 'codex', priority: 10 },
+      makeStore(ensureFresh),
+    );
+    await provider[method]();
+    expect(ensureFresh.mock.calls).toEqual([['Codex'], ['Codex', true]]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[1] as [string, RequestInit])[1].headers).toMatchObject({
+      Authorization: 'Bearer new-token',
+      'OpenAI-Beta': 'responses=experimental',
+    });
+  });
+
+  it.each(['stream', 'usage'] as const)(
+    'redacts the refreshed token in %s errors after a single retry',
+    async (method) => {
+      const ensureFresh = vi
+        .fn()
+        .mockResolvedValueOnce(AUTH)
+        .mockResolvedValueOnce({
+          ...AUTH,
+          accessToken: 'new-token',
+        });
+      fetchMock
+        .mockResolvedValueOnce(new Response('', { status: 401 }))
+        .mockResolvedValueOnce(new Response('new-token new-token', { status: 401 }));
+      const provider = new CodexProvider(
+        { name: 'Codex', type: 'codex', priority: 10 },
+        makeStore(ensureFresh),
+      );
+      const result = method === 'stream' ? drain(provider, []) : provider.usage();
+      const error = await result.catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error).toMatchObject({ status: 401 });
+      expect((error as Error).message).not.toContain('new-token');
+      expect((error as Error).message).toContain('[redacted] [redacted]');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('returns an empty model list after a second 401', async () => {
+    const ensureFresh = vi.fn(async () => AUTH);
+    fetchMock.mockResolvedValue(new Response('', { status: 401 }));
+    const provider = new CodexProvider(
+      { name: 'Codex', type: 'codex', priority: 10 },
+      makeStore(ensureFresh),
+    );
+    await expect(provider.listModels()).resolves.toEqual([]);
+    expect(ensureFresh.mock.calls).toEqual([['Codex'], ['Codex', true]]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('fails usage with a clear error when the account id is missing', async () => {

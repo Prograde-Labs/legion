@@ -38,6 +38,28 @@ export class CodexProvider extends OpenAIResponsesProvider {
     return headers;
   }
 
+  private async authenticatedRequest(
+    request: (auth: CodexAuth) => Promise<Response>,
+  ): Promise<{ res: Response; auth: CodexAuth }> {
+    let auth = await this.authStore.ensureFresh(this.providerName);
+    let res = await request(auth);
+    if (res.status === 401) {
+      auth = await this.authStore.ensureFresh(this.providerName, true);
+      res = await request(auth);
+    }
+    return { res, auth };
+  }
+
+  private async responseError(
+    res: Response,
+    auth: CodexAuth,
+    context: string,
+  ): Promise<ProviderError> {
+    const text = await res.text().catch(() => '');
+    const safe = auth.accessToken ? text.replaceAll(auth.accessToken, '[redacted]') : text;
+    return new ProviderError(`${context} ${res.status}: ${safe.slice(0, 200)}`, res.status);
+  }
+
   private sanitizeBody(body: Record<string, unknown>): Record<string, unknown> {
     const out = { ...body };
     delete out['temperature'];
@@ -79,18 +101,13 @@ export class CodexProvider extends OpenAIResponsesProvider {
     model: ModelConfig,
     options?: { signal?: AbortSignal },
   ): AsyncGenerator<ProviderStreamChunk> {
-    let auth = await this.authStore.ensureFresh(this.providerName);
     const body = this.sanitizeBody(this.buildRequestBody(messages, tools, model));
-
-    let res = await this.post(body, auth, options?.signal);
-    if (res.status === 401) {
-      auth = await this.authStore.ensureFresh(this.providerName, true);
-      res = await this.post(body, auth, options?.signal);
-    }
+    const { res, auth } = await this.authenticatedRequest((currentAuth) =>
+      this.post(body, currentAuth, options?.signal),
+    );
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new ProviderError(`Codex API error ${res.status}: ${text.slice(0, 200)}`, res.status);
+      throw await this.responseError(res, auth, 'Codex API error');
     }
 
     for await (const chunk of this.parseStream(res, options)) {
@@ -101,10 +118,9 @@ export class CodexProvider extends OpenAIResponsesProvider {
 
   override async listModels(): Promise<ProviderModel[]> {
     try {
-      const auth = await this.authStore.ensureFresh(this.providerName);
-      const res = await fetch(`${this.baseUrl}/models`, {
-        headers: this.headers(auth, 'application/json'),
-      });
+      const { res } = await this.authenticatedRequest((auth) =>
+        fetch(`${this.baseUrl}/models`, { headers: this.headers(auth, 'application/json') }),
+      );
       if (!res.ok) return [];
 
       const data = (await res.json()) as Record<string, unknown>;
@@ -145,21 +161,13 @@ export class CodexProvider extends OpenAIResponsesProvider {
   }
 
   async usage(): Promise<ProviderUsageSummary> {
-    const auth = await this.authStore.ensureFresh(this.providerName);
-    if (!auth.accountId) throw new ProviderError('Codex account id missing; sign in again');
-
-    const res = await fetch(this.usageUrl, {
-      headers: {
-        Authorization: `Bearer ${auth.accessToken}`,
-        'chatgpt-account-id': auth.accountId,
-        originator: 'codex_cli_rs',
-        'User-Agent': USER_AGENT,
-        Accept: 'application/json',
-      },
+    const { res, auth } = await this.authenticatedRequest((currentAuth) => {
+      if (!currentAuth.accountId)
+        throw new ProviderError('Codex account id missing; sign in again');
+      return fetch(this.usageUrl, { headers: this.headers(currentAuth, 'application/json') });
     });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new ProviderError(`Codex usage error ${res.status}: ${text.slice(0, 200)}`, res.status);
+      throw await this.responseError(res, auth, 'Codex usage error');
     }
     return normalizeCodexUsage(await res.json());
   }

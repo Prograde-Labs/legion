@@ -33,7 +33,9 @@ function mapWindow(
 
   const label =
     windowSeconds === null
-      ? fallbackLabel
+      ? prefix
+        ? `${prefix} ${fallbackLabel}`
+        : fallbackLabel
       : prefix
         ? `${prefix} ${windowLabel(windowSeconds)}`
         : windowLabel(windowSeconds);
