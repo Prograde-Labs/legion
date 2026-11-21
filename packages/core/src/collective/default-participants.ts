@@ -26,6 +26,7 @@ const MANAGEMENT_TOOLS = [
   'list_secrets',
   'create_user',
   'modify_user',
+  'pair',
   'set_approval_authority',
   'set_participant_middleware',
   'approval_response',

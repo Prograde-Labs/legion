@@ -1,6 +1,7 @@
 import type { ToolPolicy, ToolResult, UserConfig } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 import { validateToolsMap } from '../auth/validateToolPolicy.js';
+import { pairTool } from './pair-tool.js';
 
 /**
  * Read/subscription tools every user needs for the web UI to be live: approval
@@ -143,4 +144,4 @@ export const modifyUserTool: Tool = {
   },
 };
 
-export const userTools: Tool[] = [createUserTool, modifyUserTool];
+export const userTools: Tool[] = [createUserTool, modifyUserTool, pairTool];
