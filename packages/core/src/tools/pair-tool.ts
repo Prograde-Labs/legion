@@ -6,6 +6,23 @@ function requireCollective(context: ToolContext): NonNullable<ToolContext['colle
   return context.collective;
 }
 
+/**
+ * Serializes the ownership-check/dedupe/update sequence. Legion runs in a single
+ * process, so a module-level promise chain makes pairing atomic across concurrent
+ * calls without changing `Collective`. Each task starts only after the previous
+ * one settles, and a rejected task does not stall the queue.
+ */
+let mutationQueue: Promise<unknown> = Promise.resolve();
+
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const result = mutationQueue.then(task);
+  mutationQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 export const pairTool: Tool = {
   name: 'pair',
   description: 'Merge an external identity into a participant (connector-agnostic).',
@@ -28,27 +45,30 @@ export const pairTool: Tool = {
       return { status: 'error', error: 'participantId, connector, and externalId are required' };
     }
     const collective = requireCollective(context);
-    const target = collective.get(participantId);
-    if (!target) return { status: 'error', error: `Participant not found: ${participantId}` };
 
-    const owner = collective.findByIdentity(connector, externalId);
-    if (owner && owner.id !== participantId) {
-      return {
-        status: 'error',
-        error: `Identity ${connector}/${externalId} is already paired to ${owner.id}`,
-      };
-    }
+    return serialize(async () => {
+      const target = collective.get(participantId);
+      if (!target) return { status: 'error', error: `Participant not found: ${participantId}` };
 
-    const identities = target.identities ?? [];
-    if (identities.some((i) => i.connector === connector && i.externalId === externalId)) {
-      return {
-        status: 'success',
-        data: { participantId, connector, externalId, alreadyPaired: true },
-      };
-    }
+      const owner = collective.findByIdentity(connector, externalId);
+      if (owner && owner.id !== participantId) {
+        return {
+          status: 'error',
+          error: `Identity ${connector}/${externalId} is already paired to ${owner.id}`,
+        };
+      }
 
-    const next: ConnectorIdentity[] = [...identities, { connector, externalId }];
-    await collective.update(participantId, { identities: next });
-    return { status: 'success', data: { participantId, connector, externalId } };
+      const identities = target.identities ?? [];
+      if (identities.some((i) => i.connector === connector && i.externalId === externalId)) {
+        return {
+          status: 'success',
+          data: { participantId, connector, externalId, alreadyPaired: true },
+        };
+      }
+
+      const next: ConnectorIdentity[] = [...identities, { connector, externalId }];
+      await collective.update(participantId, { identities: next });
+      return { status: 'success', data: { participantId, connector, externalId } };
+    });
   },
 };

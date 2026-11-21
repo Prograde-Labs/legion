@@ -3,7 +3,10 @@ import { pairTool } from './pair-tool.js';
 import type { ToolContext } from './Tool.js';
 import type { ParticipantConfig } from '@legion-collective/types';
 
-function makeContext(participants: Record<string, ParticipantConfig>) {
+function makeContext(
+  participants: Record<string, ParticipantConfig>,
+  options: { deferUpdate?: boolean } = {},
+) {
   const updates: Array<{ id: string; patch: Partial<ParticipantConfig> }> = [];
   const collective = {
     get: (id: string) => participants[id],
@@ -13,6 +16,9 @@ function makeContext(participants: Record<string, ParticipantConfig>) {
       ),
     update: async (id: string, patch: Partial<ParticipantConfig>) => {
       updates.push({ id, patch });
+      // Simulate asynchronous persistence so concurrent callers can interleave
+      // between the read and the write unless the tool serializes them.
+      if (options.deferUpdate) await new Promise((resolve) => setTimeout(resolve, 0));
       participants[id] = { ...participants[id], ...patch } as ParticipantConfig;
     },
   };
@@ -92,5 +98,51 @@ describe('pair tool', () => {
     );
     expect(result).toMatchObject({ status: 'error' });
     expect((result as { error: string }).error).toMatch(/already paired to bob/);
+  });
+
+  it('allows only one concurrent pairing of the same identity', async () => {
+    const { context, participants } = makeContext(
+      { alice: user('alice'), bob: user('bob') },
+      { deferUpdate: true },
+    );
+    const results = (await Promise.all([
+      pairTool.execute(
+        { participantId: 'alice', connector: 'teams', externalId: 'aad-1' },
+        context,
+      ),
+      pairTool.execute({ participantId: 'bob', connector: 'teams', externalId: 'aad-1' }, context),
+    ])) as Array<{ status: string; error?: string; data?: { participantId?: string } }>;
+
+    expect(results.filter((r) => r.status === 'success')).toHaveLength(1);
+    const errors = results.filter((r) => r.status === 'error');
+    expect(errors).toHaveLength(1);
+    const winner = results.find((r) => r.status === 'success');
+    const winnerId = winner?.data?.participantId as string;
+    expect(errors[0].error).toMatch(new RegExp(`already paired to ${winnerId}`));
+    expect(participants[winnerId].identities).toEqual([
+      { connector: 'teams', externalId: 'aad-1' },
+    ]);
+    const loserId = winnerId === 'alice' ? 'bob' : 'alice';
+    expect(participants[loserId].identities ?? []).toEqual([]);
+  });
+
+  it('merges concurrent pairings of different identities into the same participant', async () => {
+    const { context, participants } = makeContext({ alice: user('alice') }, { deferUpdate: true });
+    const results = await Promise.all([
+      pairTool.execute(
+        { participantId: 'alice', connector: 'teams', externalId: 'aad-1' },
+        context,
+      ),
+      pairTool.execute(
+        { participantId: 'alice', connector: 'teams', externalId: 'aad-2' },
+        context,
+      ),
+    ]);
+
+    expect(results).toMatchObject([{ status: 'success' }, { status: 'success' }]);
+    expect(participants.alice.identities).toEqual([
+      { connector: 'teams', externalId: 'aad-1' },
+      { connector: 'teams', externalId: 'aad-2' },
+    ]);
   });
 });
