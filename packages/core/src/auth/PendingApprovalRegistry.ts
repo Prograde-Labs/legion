@@ -510,10 +510,8 @@ function middlewareActionKey(input: MiddlewareActionInput): string {
   ]);
 }
 
-function genericResumeKey(conversationId: string, requesterId: string): string {
-  requiredString(conversationId, 'genericResume.conversationId');
-  requiredString(requesterId, 'genericResume.requesterId');
-  return JSON.stringify([conversationId, requesterId]);
+function genericResumeKey(approvalId: string): string {
+  return requiredString(approvalId, 'genericResume.approvalId');
 }
 
 function unknownMiddlewareActionResult(input: MiddlewareActionInput): MiddlewareActionResult {
@@ -1943,11 +1941,8 @@ export class PendingApprovalRegistry {
     });
   }
 
-  async claimGenericResume(
-    conversationId: string,
-    requesterId: string,
-  ): Promise<'claimed' | 'completed'> {
-    const key = genericResumeKey(conversationId, requesterId);
+  async claimGenericResume(approvalId: string): Promise<'claimed' | 'completed'> {
+    const key = genericResumeKey(approvalId);
     return this.mutate((data) => {
       if (data.genericResumes[key] !== undefined) return 'completed';
       data.genericResumes[key] = 'executing';
@@ -1955,8 +1950,8 @@ export class PendingApprovalRegistry {
     });
   }
 
-  async completeGenericResume(conversationId: string, requesterId: string): Promise<void> {
-    const key = genericResumeKey(conversationId, requesterId);
+  async completeGenericResume(approvalId: string): Promise<void> {
+    const key = genericResumeKey(approvalId);
     await this.mutate((data) => {
       if (data.genericResumes[key] === undefined) {
         throw new LegionError(
@@ -1969,8 +1964,8 @@ export class PendingApprovalRegistry {
     });
   }
 
-  async releaseGenericResume(conversationId: string, requesterId: string): Promise<void> {
-    const key = genericResumeKey(conversationId, requesterId);
+  async releaseGenericResume(approvalId: string): Promise<void> {
+    const key = genericResumeKey(approvalId);
     await this.mutate((data) => {
       if (data.genericResumes[key] === 'executing') delete data.genericResumes[key];
       return undefined;

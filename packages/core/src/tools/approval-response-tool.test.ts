@@ -209,6 +209,85 @@ describe('approval_response tool', () => {
     ]);
   });
 
+  it('resumes consecutive approvals in the same conversation', async () => {
+    const reg = new PendingApprovalRegistry();
+    const first = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'one.txt' },
+    });
+    const second = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'two.txt' },
+    });
+    const resume = vi
+      .fn()
+      .mockResolvedValueOnce({ conversationId: 'c1', status: 'success', response: 'first done' })
+      .mockResolvedValueOnce({ conversationId: 'c1', status: 'success', response: 'second done' });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume,
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    const one = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: first.approvalId, decision: 'approve' }] },
+      context,
+    );
+    const two = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: second.approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect(resume).toHaveBeenCalledTimes(2);
+    expect((one.data as { resumed?: unknown }).resumed).toEqual([
+      { conversationId: 'c1', response: 'first done' },
+    ]);
+    expect((two.data as { resumed?: unknown }).resumed).toEqual([
+      { conversationId: 'c1', response: 'second done' },
+    ]);
+  });
+
+  it('does not resume the same approval twice', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const resume = vi
+      .fn()
+      .mockResolvedValue({ conversationId: 'c1', status: 'success', response: 'once' });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume,
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    const first = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+    const second = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect((first.data as { resumed?: unknown }).resumed).toEqual([
+      { conversationId: 'c1', response: 'once' },
+    ]);
+    expect((second.data as { resumed?: unknown }).resumed).toBeUndefined();
+  });
+
   it('rejects a request with a message', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
