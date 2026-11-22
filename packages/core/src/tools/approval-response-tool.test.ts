@@ -140,6 +140,75 @@ describe('approval_response tool', () => {
     expect(resumeSpy).toHaveBeenCalledWith('c1', 'agent-b', context);
   });
 
+  it('returns resumed replies so connectors can deliver them', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume: vi.fn().mockResolvedValue({
+          conversationId: 'c1',
+          status: 'success',
+          response: 'written and verified',
+        }),
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    const result = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect((result.data as { resumed?: unknown }).resumed).toEqual([
+      { conversationId: 'c1', response: 'written and verified' },
+    ]);
+  });
+
+  it('returns successor approval requests raised during resume', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const successor = {
+      approvalId: 'appr-successor',
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'next.txt' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      messageRouter: {
+        send: vi.fn(),
+        resume: vi.fn().mockResolvedValue({
+          conversationId: 'c1',
+          status: 'pending_approval',
+          approvalRequests: [successor],
+        }),
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    const result = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect((result.data as { resumed?: unknown }).resumed).toEqual([
+      { conversationId: 'c1', approvalRequests: [successor] },
+    ]);
+  });
+
   it('rejects a request with a message', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({

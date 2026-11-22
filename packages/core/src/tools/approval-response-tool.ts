@@ -1,5 +1,5 @@
 import type { JSONSchema, ToolResult } from '@legion-collective/types';
-import type { Tool, ToolContext } from './Tool.js';
+import type { MessageRouterResult, Tool, ToolContext } from './Tool.js';
 import type { PendingApprovalRegistry, ApprovalDecision } from '../auth/PendingApprovalRegistry.js';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { ApprovalLog } from '../auth/ApprovalLog.js';
@@ -58,6 +58,24 @@ export const approvalResponseTool: Tool = {
     const results: Array<{ approvalId: string; outcome: string }> = [];
     const toResume = new Map<string, { conversationId: string; requesterId: string }>();
     const seen = new Set<string>();
+    // Responses produced by resuming an approved turn are not delivered by the
+    // router itself (the caller normally sends the reply). Return them so
+    // connectors can push the continuation to the requesting conversation.
+    const resumed: Array<{
+      conversationId: string;
+      response?: string;
+      approvalRequests?: MessageRouterResult['approvalRequests'];
+    }> = [];
+    const recordResume = (result: MessageRouterResult): void => {
+      if (result.status === 'success' && result.response !== undefined) {
+        resumed.push({ conversationId: result.conversationId, response: result.response });
+      } else if (result.status === 'pending_approval' && result.approvalRequests?.length) {
+        resumed.push({
+          conversationId: result.conversationId,
+          approvalRequests: result.approvalRequests,
+        });
+      }
+    };
 
     for (const { approvalId, decision, message: rawMessage } of decisions) {
       // Treat an empty reason the same as no reason so that callers which
@@ -130,7 +148,7 @@ export const approvalResponseTool: Tool = {
           continue;
         }
         try {
-          await messageRouter.resumeApproval(approvalId, context);
+          recordResume(await messageRouter.resumeApproval(approvalId, context));
         } catch {
           // Durable continuation stays retryable; approval response stays idempotent.
         }
@@ -163,21 +181,25 @@ export const approvalResponseTool: Tool = {
     if (!messageRouter) return { status: 'success', data: { results } };
 
     for (const pending of toResume.values()) {
-      let resumed = false;
+      let resumeSucceeded = false;
       try {
         const result = await messageRouter.resume(
           pending.conversationId,
           pending.requesterId,
           context,
         );
-        resumed = result.status !== 'error';
+        resumeSucceeded = result.status !== 'error';
+        recordResume(result);
       } finally {
-        await (resumed
+        await (resumeSucceeded
           ? pendingRegistry.completeGenericResume(pending.conversationId, pending.requesterId)
           : pendingRegistry.releaseGenericResume(pending.conversationId, pending.requesterId));
       }
     }
 
-    return { status: 'success', data: { results } };
+    return {
+      status: 'success',
+      data: { results, ...(resumed.length > 0 ? { resumed } : {}) },
+    };
   },
 };
