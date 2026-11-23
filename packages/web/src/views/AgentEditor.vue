@@ -51,6 +51,7 @@ const name = ref('');
 const modelText = ref('');
 const systemPrompt = ref('');
 const maxIterations = ref(20);
+const workspaceRoot = ref('');
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
 const toolParameters = ref<Record<string, JSONSchema>>({});
@@ -108,6 +109,7 @@ async function load(): Promise<void> {
     modelText.value = '';
     systemPrompt.value = '';
     maxIterations.value = 20;
+    workspaceRoot.value = '';
   } else {
     try {
       const p = await execute<Record<string, unknown>>('get_participant', {
@@ -119,6 +121,7 @@ async function load(): Promise<void> {
       modelText.value = model?.model ?? '';
       systemPrompt.value = String(p['systemPrompt'] ?? '');
       maxIterations.value = Number(p['maxIterations'] ?? 20);
+      workspaceRoot.value = String(p['workspaceRoot'] ?? '');
       const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
       overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
         const normalized = normalizeToolPolicy(value);
@@ -217,6 +220,7 @@ async function save(): Promise<void> {
         model: { model: modelText.value },
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
+        workspaceRoot: workspaceRoot.value,
       });
       // modify_agent/create_agent have no middleware parameter — middleware goes
       // through set_participant_middleware (final-review B2 fix; same two-phase
@@ -238,6 +242,7 @@ async function save(): Promise<void> {
         model: { model: modelText.value },
         tools: overridesToToolsMap(overrides.value),
         maxIterations: maxIterations.value,
+        workspaceRoot: workspaceRoot.value,
       });
       if (canSetMiddleware.value) {
         await execute('set_participant_middleware', {
@@ -367,6 +372,19 @@ const groupedModels = computed(() => {
         data-test="agent-max-iterations"
         class="rounded border border-line bg-surface px-2 py-1"
       />
+    </label>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs text-faint">Workspace root</span>
+      <input
+        v-model="workspaceRoot"
+        data-test="agent-workspace-root"
+        placeholder="Inherit collective workspace root"
+        class="rounded border border-line bg-surface px-2 py-1"
+      />
+      <span class="text-xs text-muted">
+        Base directory for file and process tools. Absolute or relative to the collective root.
+        Empty inherits the collective root.
+      </span>
     </label>
     <div v-if="availableTools.length" class="flex flex-col gap-1">
       <span class="text-xs text-faint">Tool policies</span>

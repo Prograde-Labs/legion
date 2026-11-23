@@ -296,6 +296,36 @@ describe('AgentEditor', () => {
     });
   });
 
+  it('loads, edits, and clears the workspace root', async () => {
+    const baseFetch = stubFetch() as unknown as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant') {
+        return toolResponse('get_participant', { ...AGENT, workspaceRoot: 'projects/a' });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(AgentEditor, { props: { participantId: 'agent-a' } });
+    await vi.waitFor(() =>
+      expect(
+        (wrapper.find('[data-test="agent-workspace-root"]').element as HTMLInputElement).value,
+      ).toBe('projects/a'),
+    );
+    await wrapper.find('[data-test="agent-workspace-root"]').setValue('');
+    await wrapper.find('[data-test="agent-save"]').trigger('click');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_agent',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.workspaceRoot).toBe('');
+    });
+  });
+
   it('save on new calls create_agent', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);
