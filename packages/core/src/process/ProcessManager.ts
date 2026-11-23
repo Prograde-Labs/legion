@@ -94,7 +94,11 @@ export class ProcessManager {
     return entry ? this.toHandle(entry.meta) : undefined;
   }
 
-  async start(config: SpawnConfig, startedByParticipantId: string): Promise<ProcessHandle> {
+  async start(
+    config: SpawnConfig,
+    startedByParticipantId: string,
+    onOutput?: (stream: 'stdout' | 'stderr' | 'combined', chunk: Buffer) => void,
+  ): Promise<ProcessHandle> {
     const id = createId('proc');
     const cwd = config.cwd ?? this.workspaceRoot;
     const args = config.args ?? [];
@@ -173,7 +177,7 @@ export class ProcessManager {
     meta.pid = (child as ChildProcess).pid ?? (child as IPty).pid ?? 0;
 
     // Attach output handlers
-    this.attachOutputHandlers(entry, tty);
+    this.attachOutputHandlers(entry, tty, onOutput);
 
     // Attach exit handler
     this.attachExitHandler(entry);
@@ -212,7 +216,11 @@ export class ProcessManager {
     return this.toHandle(meta);
   }
 
-  private attachOutputHandlers(entry: ProcessEntry, tty: boolean): void {
+  private attachOutputHandlers(
+    entry: ProcessEntry,
+    tty: boolean,
+    onOutput?: (stream: 'stdout' | 'stderr' | 'combined', chunk: Buffer) => void,
+  ): void {
     const { ringBuffer, emitter } = entry;
     const id = entry.meta.id;
 
@@ -225,6 +233,7 @@ export class ProcessManager {
         entry.logByteCount += chunk.length;
       }
       emitter.emit('output', { id, stream, data: chunk, timestamp: nowIso() });
+      onOutput?.(stream, chunk);
     };
 
     if (tty) {
@@ -364,12 +373,6 @@ export class ProcessManager {
     return () => entry.emitter.off(event, cb);
   }
 
-  // Private helper used by execute() to attach a one-off output listener
-  private subscribeOutput(entry: ProcessEntry, cb: (evt: unknown) => void): () => void {
-    entry.emitter.on('output', cb);
-    return () => entry.emitter.off('output', cb);
-  }
-
   async execute(
     config: SpawnConfig,
     startedByParticipantId: string,
@@ -380,46 +383,60 @@ export class ProcessManager {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
-    const handle = await this.start(config, startedByParticipantId);
+    // Collect output from the moment the child is spawned: subscribing after
+    // start() resolves can miss output from very fast commands.
+    const handle = await this.start(config, startedByParticipantId, (stream, chunk) => {
+      if (stream === 'stdout' || stream === 'combined') stdoutChunks.push(chunk);
+      if (stream === 'stderr') stderrChunks.push(chunk);
+    });
     const entry = this.live.get(handle.id)!;
 
-    // Accumulate output separately for the return value
-    const offOut = this.subscribeOutput(entry, (evt: any) => {
-      if (evt.stream === 'stdout' || evt.stream === 'combined') stdoutChunks.push(evt.data);
-      if (evt.stream === 'stderr') stderrChunks.push(evt.data);
-    });
-
+    // Pipe-mode children emit 'close' only after stdout/stderr are fully drained;
+    // waiting on 'exit' alone can drop the final output chunk. PTY runtimes have
+    // no 'close' event — their 'exited' emitter fires after the last onData.
+    const child = entry.child;
     const exitPromise = new Promise<{ exitCode: number | null }>((resolve) => {
-      entry.emitter.once('exited', (evt: any) => resolve({ exitCode: evt.exitCode }));
+      if (!child || entry.meta.tty) {
+        entry.emitter.once('exited', (evt: any) => resolve({ exitCode: evt.exitCode }));
+        return;
+      }
+      const cp = child as ChildProcess;
+      // A very fast child can exit and drain before the 'close' listener is
+      // attached (start() awaits metadata writes first); detect that case.
+      if (
+        cp.exitCode != null &&
+        (cp.stdout?.readableEnded ?? true) &&
+        (cp.stderr?.readableEnded ?? true)
+      ) {
+        resolve({ exitCode: cp.exitCode });
+        return;
+      }
+      cp.once('close', (code) => resolve({ exitCode: code ?? null }));
     });
 
     let timedOut = false;
     let exitCode: number | null = null;
 
-    try {
-      if (timeoutMs === 0) {
-        ({ exitCode } = await exitPromise);
-      } else {
-        const timeoutP = new Promise<'timeout'>((resolve) =>
-          setTimeout(() => resolve('timeout'), timeoutMs),
-        );
-        const result = await Promise.race([
-          exitPromise.then((r) => ({ ...r, _tag: 'exited' as const })),
-          timeoutP,
-        ]);
-        if (result === 'timeout') {
-          timedOut = true;
-          try {
-            await this.stop(handle.id, { signal: 'SIGTERM', graceMs: 5000 });
-          } catch {
-            // process may have exited between race and stop — best effort
-          }
-        } else {
-          exitCode = result.exitCode;
+    if (timeoutMs === 0) {
+      ({ exitCode } = await exitPromise);
+    } else {
+      const timeoutP = new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), timeoutMs),
+      );
+      const result = await Promise.race([
+        exitPromise.then((r) => ({ ...r, _tag: 'exited' as const })),
+        timeoutP,
+      ]);
+      if (result === 'timeout') {
+        timedOut = true;
+        try {
+          await this.stop(handle.id, { signal: 'SIGTERM', graceMs: 5000 });
+        } catch {
+          // process may have exited between race and stop — best effort
         }
+      } else {
+        exitCode = result.exitCode;
       }
-    } finally {
-      offOut();
     }
 
     return {
