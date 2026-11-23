@@ -295,12 +295,32 @@ export const fileListTool: Tool = {
     const { path } = args as { path: string };
     const target = resolveInWorkspace(context, path);
     if (!target) return { status: 'error', error: `Invalid path (outside workspace): ${path}` };
+
+    let dirents;
     try {
-      const entries = await readdir(target);
-      return { status: 'success', data: entries };
+      dirents = await readdir(target, { withFileTypes: true });
     } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return { status: 'error', error: `Directory not found: ${path}` };
+      if (code === 'ENOTDIR') return { status: 'error', error: `Path is not a directory: ${path}` };
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
+
+    type Entry = { name: string; type: 'file' | 'directory' | 'other' };
+    const order: Record<Entry['type'], number> = { directory: 0, file: 1, other: 2 };
+    const entries = dirents
+      .map((dirent): Entry => ({
+        name: dirent.name,
+        type: dirent.isDirectory() ? 'directory' : dirent.isFile() ? 'file' : 'other',
+      }))
+      .sort((a, b) => order[a.type] - order[b.type] || a.name.localeCompare(b.name));
+
+    const listing = entries.map((entry) =>
+      entry.type === 'directory' ? `${entry.name}/` : entry.name,
+    );
+    const content = [`Read directory ${path}, ${entries.length} entries`, ...listing].join('\n');
+
+    return { status: 'success', data: { path, entries }, content };
   },
 };
 

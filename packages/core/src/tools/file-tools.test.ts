@@ -36,12 +36,41 @@ describe('file tools', () => {
     expect(r.status).toBe('error');
   });
 
-  it('file_list lists directory entries', async () => {
-    await fileWriteTool.execute({ path: 'd/a.txt', content: '1' }, ctx(dir));
-    await fileWriteTool.execute({ path: 'd/b.txt', content: '2' }, ctx(dir));
-    const r = await fileListTool.execute({ path: 'd' }, ctx(dir));
-    expect(r.status).toBe('success');
-    expect((r.data as string[]).sort()).toEqual(['a.txt', 'b.txt']);
+  describe('file_list', () => {
+    it('returns typed entries sorted directories first', async () => {
+      await mkdir(join(dir, 'd', 'sub'), { recursive: true });
+      await writeFile(join(dir, 'd', 'b.txt'), '');
+      await writeFile(join(dir, 'd', 'a.txt'), '');
+      const r = await fileListTool.execute({ path: 'd' }, ctx(dir));
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({
+        path: 'd',
+        entries: [
+          { name: 'sub', type: 'directory' },
+          { name: 'a.txt', type: 'file' },
+          { name: 'b.txt', type: 'file' },
+        ],
+      });
+      expect(r.content).toBe('Read directory d, 3 entries\nsub/\na.txt\nb.txt');
+    });
+
+    it('returns zero entries for an empty directory', async () => {
+      await mkdir(join(dir, 'empty'), { recursive: true });
+      const r = await fileListTool.execute({ path: 'empty' }, ctx(dir));
+      expect(r.data).toEqual({ path: 'empty', entries: [] });
+      expect(r.content).toBe('Read directory empty, 0 entries');
+    });
+
+    it('reports a missing directory', async () => {
+      const r = await fileListTool.execute({ path: 'nope' }, ctx(dir));
+      expect(r.error).toBe('Directory not found: nope');
+    });
+
+    it('reports a path that is a file', async () => {
+      await writeFile(join(dir, 'f.txt'), 'x');
+      const r = await fileListTool.execute({ path: 'f.txt' }, ctx(dir));
+      expect(r.error).toBe('Path is not a directory: f.txt');
+    });
   });
 
   it('rejects path traversal outside the workspace', async () => {
