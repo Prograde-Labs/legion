@@ -74,6 +74,12 @@ export class ConnectorRegistry {
    * This is independent of `setActive`, which remains presence-only.
    */
   getDeliverableConnectors(participantId: string): Connector[] {
-    return this.getAll().filter((connector) => connector.canDeliver?.(participantId) ?? true);
+    return this.getAll().filter((connector) => {
+      try {
+        return connector.canDeliver?.(participantId) ?? true;
+      } catch {
+        return false;
+      }
+    });
   }
 }

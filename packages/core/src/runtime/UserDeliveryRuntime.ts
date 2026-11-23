@@ -21,21 +21,28 @@ export class UserDeliveryRuntime implements Runtime {
     } else {
       for (const connector of connectors) {
         try {
+          const outcome = (await connector.deliver({
+            id: incoming.id,
+            conversationId: incoming.conversationId,
+            senderId: incoming.senderId,
+            recipientId: incoming.recipientId,
+            replyTo: incoming.replyTo,
+            content: incoming.content,
+            timestamp: incoming.timestamp,
+          })) as DeliveryOutcome | undefined;
           outcomes.push(
-            await connector.deliver({
-              id: incoming.id,
-              conversationId: incoming.conversationId,
-              senderId: incoming.senderId,
-              recipientId: incoming.recipientId,
-              replyTo: incoming.replyTo,
-              content: incoming.content,
-              timestamp: incoming.timestamp,
-            }),
+            outcome && typeof outcome === 'object' && typeof outcome.status === 'string'
+              ? outcome
+              : {
+                  status: 'failed',
+                  reason: `connector '${connector.name}' returned no delivery outcome`,
+                },
           );
         } catch (error) {
+          console.error(`[delivery] connector '${connector.name}' threw during delivery`, error);
           outcomes.push({
             status: 'failed',
-            reason: error instanceof Error ? error.message : String(error),
+            reason: `connector '${connector.name}' failed during delivery`,
           });
         }
       }

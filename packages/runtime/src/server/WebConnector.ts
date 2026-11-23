@@ -195,7 +195,8 @@ export class WebConnector implements Connector {
 
   canDeliver(participantId: string): boolean {
     const participant = this.deps.collective.get(participantId);
-    return Boolean(participant?.identities?.some((identity) => identity.connector === 'web'));
+    if (participant?.identities?.some((identity) => identity.connector === 'web')) return true;
+    return (this.connections.get(participantId)?.size ?? 0) > 0;
   }
 
   async deliver(message: {

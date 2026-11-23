@@ -777,6 +777,9 @@ describe('WebConnector: deliver()', () => {
     const { connector } = await makeConnector();
     expect(connector.canDeliver('op-1')).toBe(true);
     expect(connector.canDeliver('nobody')).toBe(false);
+    (connector as any).connections.set('no-identity', new Set([{}]));
+    expect(connector.canDeliver('no-identity')).toBe(true);
+    (connector as any).connections.delete('no-identity');
     await connector.stop();
   });
 });

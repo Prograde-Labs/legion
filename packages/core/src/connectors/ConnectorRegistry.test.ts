@@ -116,4 +116,14 @@ describe('ConnectorRegistry', () => {
     expect(reg.getActiveConnectors('user-1')).toHaveLength(0);
     expect(reg.getDeliverableConnectors('user-1')).toHaveLength(1);
   });
+  it('isolates throwing deliverability predicates', () => {
+    const reg = new ConnectorRegistry();
+    reg.register(
+      makeConnector('broken', () => {
+        throw new Error('bad predicate');
+      }),
+    );
+    reg.register(makeConnector('good', () => true));
+    expect(reg.getDeliverableConnectors('user-1').map((c) => c.name)).toEqual(['good']);
+  });
 });

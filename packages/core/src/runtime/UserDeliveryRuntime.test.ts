@@ -163,7 +163,25 @@ describe('UserDeliveryRuntime', () => {
     const runtime = new UserDeliveryRuntime('user-a', registry);
     await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
       kind: 'void',
-      delivery: { status: 'failed', reason: 'network error' },
+      delivery: { status: 'failed', reason: "connector 'broken' failed during delivery" },
+    });
+  });
+  it.each([false, true])('handles a legacy undefined outcome (healthy=%s)', async (healthy) => {
+    const registry = new ConnectorRegistry();
+    registry.register({
+      ...makeConnector('broken'),
+      deliver: async () => undefined as unknown as DeliveryOutcome,
+    });
+    if (healthy) registry.register(makeConnector('good'));
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: healthy
+        ? { status: 'delivered' }
+        : {
+            status: 'failed',
+            reason: "connector 'broken' returned no delivery outcome",
+          },
     });
   });
 });
