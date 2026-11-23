@@ -3726,6 +3726,28 @@ describe('MessageRouter: resume()', () => {
     const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
   });
+
+  it('routes the resumed response to replyTo', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+    await thread.append({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      role: 'user',
+      content: 'original',
+      replyTo: 'op',
+    });
+
+    const resumeResult = await router.resume(thread.id, 'mock-1', baseContext);
+    expect(resumeResult.status).toBe('success');
+
+    const conv = await store.load(thread.id);
+    const assistant = Object.values(conv!.messages).find((m) => m.role === 'assistant');
+    expect(assistant?.recipientId).toBe('op');
+  });
 });
 
 describe('MessageRouter: generate()', () => {

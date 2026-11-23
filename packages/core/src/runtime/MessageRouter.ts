@@ -1298,7 +1298,7 @@ export class MessageRouter implements MessageRouterPort {
         {
           thread,
           recipientId: participant.id,
-          responseRecipientId: lastIncoming.senderId,
+          responseRecipientId: lastIncoming.replyTo ?? lastIncoming.senderId,
           lifecycleState: { operationId: createId('route'), actions: [], context: toolContext },
         },
         result,
