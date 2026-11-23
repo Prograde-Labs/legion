@@ -13,7 +13,7 @@ import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
-import type { RuntimeResult } from './Runtime.js';
+import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   ConversationOrigin,
   LLMChunk,
@@ -566,6 +566,48 @@ describe('MessageRouter: synchronous send', () => {
     });
 
     expect((await store.load(existing.id))?.origin).toEqual(originalOrigin);
+  });
+
+  it('gives the recipient its own workspace root instead of the sender root', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    await collective.add({
+      id: 'mock-root-b',
+      name: 'Mock Root B',
+      type: 'mock',
+      tools: {},
+      responses: [],
+      status: 'active',
+      workspaceRoot: join(dir, 'root-b'),
+    });
+    const registry = new RuntimeRegistry();
+    let seen: RuntimeContext | undefined;
+    registry.registerFactory('mock', () => ({
+      async handle(_incoming, context) {
+        seen = context;
+        return { kind: 'response' as const, content: 'ok' };
+      },
+      async *handleStream() {
+        yield { type: 'text_delta', delta: 'ok' } as const;
+        return { kind: 'response' as const, content: 'ok' };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const senderContext = {
+      ...baseContext,
+      workspaceRoot: join(dir, 'root-a'),
+      collectiveWorkspaceRoot: dir,
+    } as ToolContext;
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-root-b',
+      message: 'hi',
+      context: senderContext,
+    });
+
+    expect(result.status).toBe('success');
+    expect(seen?.workspaceRoot).toBe(join(dir, 'root-b'));
+    expect(seen?.collectiveWorkspaceRoot).toBe(dir);
   });
 });
 

@@ -20,6 +20,7 @@ import type {
   PendingApprovalRegistry,
 } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
+import { resolveParticipantWorkspaceRoot } from '../collective/workspace-root.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
@@ -320,9 +321,17 @@ export class MessageRouter implements MessageRouterPort {
     },
   ): RuntimeContext {
     const participant = this.collective.getOrThrow(participantId);
+    const collectiveWorkspaceRoot =
+      toolContext.collectiveWorkspaceRoot ?? toolContext.workspaceRoot;
     const context: RuntimeContext = {
       ...(toolContext as RuntimeContext),
       participant,
+      workspaceRoot: resolveParticipantWorkspaceRoot(
+        participant,
+        toolContext.config,
+        collectiveWorkspaceRoot,
+      ),
+      collectiveWorkspaceRoot,
       conversationId: thread.id,
       conversation: thread,
       communicationDepth: depth,
