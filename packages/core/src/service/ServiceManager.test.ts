@@ -181,6 +181,21 @@ describe('ServiceManager', () => {
     );
   });
 
+  it('builds error-notify tool contexts against the participant workspace root', async () => {
+    const { manager, deps, dir: d, mockRouter } = await setup();
+    dir = d;
+    (deps.collective as { getOrThrow: unknown }).getOrThrow = vi
+      .fn()
+      .mockReturnValue({ ...BASE_CONFIG, workspaceRoot: 'project' });
+    const modPath = await writeModule(d, CRASH_SRC);
+    await manager.loadService({ ...BASE_CONFIG, module: modPath, errorNotify: 'op-1' });
+    await manager.startService('svc-1');
+
+    const call = vi.mocked(mockRouter.send).mock.calls[0][0];
+    expect(call.context.workspaceRoot).toBe(join(d, 'project'));
+    expect(call.context.collectiveWorkspaceRoot).toBe(d);
+  });
+
   it('stopService transitions status to stopped', async () => {
     const { manager, dir: d } = await setup();
     dir = d;

@@ -320,11 +320,13 @@ describe('ServiceContextImpl', () => {
       } as ServiceConfig;
 
       let seenRoot: string | undefined;
+      let seenCollectiveRoot: string | undefined;
       const originalExecute = deps.toolRegistry.execute;
       deps.toolRegistry = {
         ...deps.toolRegistry,
         execute: async (name, args, ctx) => {
           seenRoot = (ctx as ToolContext).workspaceRoot;
+          seenCollectiveRoot = (ctx as ToolContext).collectiveWorkspaceRoot;
           return originalExecute(name, args, ctx);
         },
       };
@@ -333,6 +335,15 @@ describe('ServiceContextImpl', () => {
       const ok = await ctx.callTool('file_read', { path: 'allowed/ok.txt' });
       expect(ok.status).toBe('success');
       expect(seenRoot).toBe(participantRoot);
+      expect(seenCollectiveRoot).toBe(d);
+
+      // An absolute path discriminates the roots: it is outside `<launch>/allowed`
+      // but inside `<participant>/allowed`, so authorizing against the launch
+      // root would reject it.
+      const absolute = await ctx.callTool('file_read', {
+        path: join(participantRoot, 'allowed', 'ok.txt'),
+      });
+      expect(absolute.status).toBe('success');
 
       const outside = await ctx.callTool('file_read', { path: 'other.txt' });
       expect(outside.status).toBe('error');
