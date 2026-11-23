@@ -86,10 +86,10 @@ export class ServiceContextImpl implements ServiceContext {
       status:
         result.status === 'dispatched'
           ? 'dispatched'
-          : result.status === 'error'
+          : result.status === 'error' || result.status === 'timeout'
             ? 'error'
             : 'success',
-      error: result.error,
+      error: result.status === 'timeout' ? 'deadline exceeded' : result.error,
     };
   }
 

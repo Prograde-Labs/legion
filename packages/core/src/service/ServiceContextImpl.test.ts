@@ -237,6 +237,25 @@ describe('ServiceContextImpl', () => {
         expect.objectContaining({ conversationId: 'conv-override' }),
       );
     });
+
+    it('maps a router timeout to deadline exceeded', async () => {
+      const { dir: d, deps, mockRouter } = await setup();
+      dir = d;
+      vi.mocked(mockRouter.send).mockResolvedValueOnce({
+        conversationId: 'conv-timeout',
+        status: 'timeout',
+        partial: true,
+      });
+      const ctx = new ServiceContextImpl(deps);
+
+      const result = await ctx.communicate('op-1', 'question');
+
+      expect(result).toMatchObject({
+        conversationId: 'conv-timeout',
+        status: 'error',
+        error: 'deadline exceeded',
+      });
+    });
   });
 
   describe('sleep', () => {
