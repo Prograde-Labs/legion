@@ -172,7 +172,12 @@ describe('ServiceManager', () => {
     await manager.loadService({ ...BASE_CONFIG, module: modPath, errorNotify: 'op-1' });
     await manager.startService('svc-1');
     expect(mockRouter.send).toHaveBeenCalledWith(
-      expect.objectContaining({ senderId: 'svc-1', recipientId: 'op-1' }),
+      expect.objectContaining({
+        senderId: 'svc-1',
+        recipientId: 'op-1',
+        // Fire-and-forget: a synchronous send to a `user` would block startup.
+        replyTo: 'svc-1',
+      }),
     );
   });
 

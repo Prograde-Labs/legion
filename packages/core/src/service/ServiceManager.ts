@@ -137,6 +137,9 @@ export class ServiceManager {
             senderId: id,
             recipientId: entry.config.errorNotify,
             message: `Service '${id}' failed to start: ${err.message}`,
+            // Fire-and-forget: without replyTo a `user` recipient would block
+            // startup until the human's next message (up to 30 minutes).
+            replyTo: id,
             context: this.buildBaseToolContext(id, startupConv.id),
           });
         } catch {

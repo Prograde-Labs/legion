@@ -21,7 +21,7 @@ import type {
 } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
-import type { RuntimeContext, RuntimeResult } from './Runtime.js';
+import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   AgentConfig,
   CommunicationConfig,
@@ -783,27 +783,38 @@ export class MessageRouter implements MessageRouterPort {
       ? this.registerReplyWaiter(thread.id, recipient.id)
       : undefined;
 
-    const runtime = this.registry.build(recipient.type, recipient.id);
     const streamAbort = this.combineAbortSignals(opts.context.signal);
     const runtimeThread = this.createAbortSafeThread(thread, streamAbort.signal);
-    const runtimeContext = this.buildRuntimeContext(
-      runtimeThread,
-      recipient.id,
-      {
-        ...opts.context,
-        communicationDepth: depth,
-        modelOverride: opts.model,
-        signal: streamAbort.signal,
-      },
-      depth,
-      lifecycleState === undefined
-        ? undefined
-        : {
-            operationId: lifecycleState.operationId,
-            incomingMessageId: inbound.id,
-            actions: lifecycleState.actions,
-          },
-    );
+
+    // Registration must happen before delivery, but a failing build must not leak
+    // the waiter: a leaked waiter would silently consume the next human message.
+    let runtime: Runtime;
+    let runtimeContext: RuntimeContext;
+    try {
+      runtime = this.registry.build(recipient.type, recipient.id);
+      runtimeContext = this.buildRuntimeContext(
+        runtimeThread,
+        recipient.id,
+        {
+          ...opts.context,
+          communicationDepth: depth,
+          modelOverride: opts.model,
+          signal: streamAbort.signal,
+        },
+        depth,
+        lifecycleState === undefined
+          ? undefined
+          : {
+              operationId: lifecycleState.operationId,
+              incomingMessageId: inbound.id,
+              actions: lifecycleState.actions,
+            },
+      );
+    } catch (err) {
+      replyWaiter?.unregister();
+      streamAbort.dispose();
+      throw err;
+    }
 
     if (opts.replyTo) {
       const task = this.dispatchAsync(
@@ -1161,20 +1172,29 @@ export class MessageRouter implements MessageRouterPort {
       ? this.registerReplyWaiter(thread.id, recipient.id)
       : undefined;
 
-    const runtime = this.registry.build(recipient.type, recipient.id);
-    const runtimeContext = this.buildRuntimeContext(
-      thread,
-      recipient.id,
-      { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
-      depth,
-      lifecycleState === undefined
-        ? undefined
-        : {
-            operationId: lifecycleState.operationId,
-            incomingMessageId: inbound.id,
-            actions: lifecycleState.actions,
-          },
-    );
+    // Registration must happen before delivery, but a failing build must not leak
+    // the waiter: a leaked waiter would silently consume the next human message.
+    let runtime: Runtime;
+    let runtimeContext: RuntimeContext;
+    try {
+      runtime = this.registry.build(recipient.type, recipient.id);
+      runtimeContext = this.buildRuntimeContext(
+        thread,
+        recipient.id,
+        { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
+        depth,
+        lifecycleState === undefined
+          ? undefined
+          : {
+              operationId: lifecycleState.operationId,
+              incomingMessageId: inbound.id,
+              actions: lifecycleState.actions,
+            },
+      );
+    } catch (err) {
+      replyWaiter?.unregister();
+      throw err;
+    }
 
     if (opts.replyTo) {
       const task = this.dispatchAsync(

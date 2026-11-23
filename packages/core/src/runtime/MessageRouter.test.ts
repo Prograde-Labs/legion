@@ -5327,4 +5327,78 @@ describe('MessageRouter: synchronous human reply', () => {
     expect(next).toMatchObject({ done: true, value: { status: 'dispatched' } });
     await router.drain();
   });
+
+  async function setupFailingUserBuild() {
+    const base = await setup(dir);
+    const registry = new RuntimeRegistry();
+    let builds = 0;
+    registry.registerFactory('user', () => {
+      builds += 1;
+      if (builds === 1) throw new Error('user runtime unavailable');
+      return {
+        async handle() {
+          return { kind: 'void' as const, delivery: { status: 'delivered' as const } };
+        },
+      };
+    });
+    const handleCalls: string[] = [];
+    registry.registerFactory('mock', (id) => ({
+      async handle() {
+        handleCalls.push(id);
+        return { kind: 'response' as const, content: 'hello back' };
+      },
+    }));
+    const router = new MessageRouter(base.store, registry, base.collective, base.eventBus);
+    return { ...base, router, handleCalls };
+  }
+
+  it('does not leak a reply waiter when the user runtime fails to build', async () => {
+    const { router, baseContext, store, handleCalls } = await setupFailingUserBuild();
+    const conversation = await newConversation(store);
+
+    await expect(
+      router.send({
+        senderId: 'mock-1',
+        recipientId: 'op',
+        message: 'question?',
+        conversationId: conversation.id,
+        context: baseContext,
+      }),
+    ).rejects.toThrow('user runtime unavailable');
+
+    // A leaked waiter would swallow this human message instead of dispatching it.
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the human reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('does not leak a stream reply waiter when the user runtime fails to build', async () => {
+    const { router, baseContext, store, handleCalls } = await setupFailingUserBuild();
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await expect(stream.next()).rejects.toThrow('user runtime unavailable');
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the human reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
 });
