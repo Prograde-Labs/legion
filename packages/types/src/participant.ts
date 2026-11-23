@@ -30,8 +30,9 @@ export interface BaseParticipant {
   replyTimeoutMs?: number | null;
   /**
    * Base directory for file tools and default process execution. Absolute or
-   * relative to the collective workspace root. Absent inherits the collective
-   * default. This is a default base, not a sandbox.
+   * relative to the collective workspace root. Absent inherits
+   * `WorkspaceConfig.workspaceRoot`, else the collective (launch) root. This is
+   * a default base, not a sandbox.
    */
   workspaceRoot?: string;
 }

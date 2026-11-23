@@ -472,8 +472,9 @@ export class ProcessManager {
   private drainStdio(child: ChildProcess | IPty | null, tty: boolean): Promise<void> {
     if (!child || tty) return Promise.resolve();
     const cp = child as ChildProcess;
-    // 'close' already fired (or nothing was piped): output is complete.
-    if (cp.stdout?.readableEnded === true && cp.stderr?.readableEnded === true) {
+    // 'close' already fired (or nothing was piped): output is complete. A
+    // missing stream is treated as ended.
+    if ((cp.stdout?.readableEnded ?? true) && (cp.stderr?.readableEnded ?? true)) {
       return Promise.resolve();
     }
     return new Promise((resolve) => {
@@ -482,6 +483,7 @@ export class ProcessManager {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        cp.off('close', finish);
         resolve();
       };
       const timer = setTimeout(finish, STDIO_DRAIN_GRACE_MS);

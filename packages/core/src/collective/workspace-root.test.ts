@@ -40,6 +40,16 @@ describe('resolveParticipantWorkspaceRoot', () => {
     ).toBe('/launch/projects/a');
   });
 
+  it('treats an empty participant root as absent and uses the config default', () => {
+    expect(
+      resolveParticipantWorkspaceRoot({ workspaceRoot: '' }, { workspaceRoot: 'shared' }, launch),
+    ).toBe('/launch/shared');
+  });
+
+  it('treats an empty participant root with no config as the collective root', () => {
+    expect(resolveParticipantWorkspaceRoot({ workspaceRoot: '' }, undefined, launch)).toBe(launch);
+  });
+
   it('falls back to the collective root', () => {
     expect(resolveParticipantWorkspaceRoot(undefined, undefined, launch)).toBe(launch);
   });

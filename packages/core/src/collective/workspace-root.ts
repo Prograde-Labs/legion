@@ -14,8 +14,8 @@ export function resolveParticipantWorkspaceRoot(
   config: Pick<WorkspaceConfig, 'workspaceRoot'> | undefined,
   collectiveWorkspaceRoot: string,
 ): string {
-  const configured = participant?.workspaceRoot ?? config?.workspaceRoot;
-  if (!configured) return collectiveWorkspaceRoot;
+  const configured = participant?.workspaceRoot || config?.workspaceRoot;
+  if (!configured) return resolve(collectiveWorkspaceRoot);
   return isAbsolute(configured)
     ? resolve(configured)
     : resolve(collectiveWorkspaceRoot, configured);

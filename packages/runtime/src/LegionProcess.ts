@@ -211,7 +211,6 @@ export class LegionProcess {
           config: mergedConfig,
           eventBus,
           storage,
-          workspaceRoot,
           collectiveWorkspaceRoot: workspaceRoot,
           authEngine,
           pendingApprovalRegistry,
@@ -651,7 +650,6 @@ interface MiddlewareToolContextDeps {
   config: WorkspaceConfig;
   eventBus: EventBus;
   storage: FileStorage;
-  workspaceRoot: string;
   collectiveWorkspaceRoot: string;
   authEngine: AuthEngine;
   pendingApprovalRegistry: PendingApprovalRegistry;

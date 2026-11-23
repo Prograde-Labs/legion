@@ -80,7 +80,7 @@ export const createUserTool: Tool = {
       if (!validated.ok) return { status: 'error', error: validated.error };
     }
     let participantRoot: string | undefined;
-    if (workspaceRoot !== undefined && workspaceRoot.trim() !== '') {
+    if (typeof workspaceRoot === 'string' && workspaceRoot.trim() !== '') {
       const problem = await workspaceRootError(
         workspaceRoot.trim(),
         context.collectiveWorkspaceRoot ?? context.workspaceRoot,

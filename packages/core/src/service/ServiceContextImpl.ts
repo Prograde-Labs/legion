@@ -28,6 +28,7 @@ export interface ServiceContextDeps {
   scopedStorage: Storage;
   /** Process-level raw storage — placed in `ToolContext.storage` for tool execution. */
   rawStorage: Storage;
+  /** The collective (launch) root; tool roots resolve from participant config. */
   workspaceRoot: string;
   authEngine: AuthEngine;
   pendingApprovalRegistry: PendingApprovalRegistry;

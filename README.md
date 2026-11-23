@@ -42,6 +42,8 @@ Workspace config lives at `.legion/config.json`:
 
 Provider API keys belong in global config (`~/.config/legion/config.json`) or environment variables — never in workspace files.
 
+Each participant may set an optional `workspaceRoot` — a default base directory for its file and process tools, not a sandbox. It does not relocate `.legion/` storage, which always stays at the launch root. `WorkspaceConfig.workspaceRoot` supplies the default tool/process base when a participant does not set one.
+
 ### Environment variables
 
 | Variable                    | Purpose                                                                                           |

@@ -40,6 +40,7 @@ interface BaseParticipant {
   identities?: ConnectorIdentity[]; // external identities that map to this participant
   operator?: boolean; // administrative convention (not required to manage tool policies)
   protected?: boolean; // cannot be retired; last operator cannot be removed
+  workspaceRoot?: string; // default base for file/process tools; absolute or relative to the collective root; absent inherits config/launch root
 }
 ```
 
@@ -290,7 +291,8 @@ interface RuntimeContext {
   config: Config;
   eventBus: EventBus;
   storage: Storage;
-  workspaceRoot: string;
+  workspaceRoot: string; // effective base for this participant's file/process tools
+  collectiveWorkspaceRoot?: string; // launch root anchor; absent means workspaceRoot
   authEngine: AuthEngine;
   callingParticipantId?: string; // immediate caller (first approver candidate — §7)
   pendingApprovalRegistry: PendingApprovalRegistry;

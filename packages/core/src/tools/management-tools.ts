@@ -231,7 +231,7 @@ export const createAgentTool: Tool = {
         throw new Error('middleware must be an array when provided');
       }
       let participantRoot: string | undefined;
-      if (workspaceRoot !== undefined && workspaceRoot.trim() !== '') {
+      if (typeof workspaceRoot === 'string' && workspaceRoot.trim() !== '') {
         const problem = await workspaceRootError(
           workspaceRoot.trim(),
           context.collectiveWorkspaceRoot ?? context.workspaceRoot,

@@ -385,6 +385,29 @@ describe('ProcessManager.execute', () => {
     expect(result.exitCode).toBeNull();
     await rm(dir, { recursive: true, force: true });
   });
+
+  it('reports the real exit result when stop fails because the process already exited', async () => {
+    const { manager, dir } = await makeManager();
+
+    const resultP = manager.execute({ command: 'sleep', args: ['999'] }, 'user-1', {
+      timeoutMs: 50,
+    });
+
+    // Let start() settle, then mark the entry as already exited and make stop()
+    // fail the way it does when the child left the live map between the timeout
+    // firing and the stop call.
+    await new Promise<void>((r) => setTimeout(r, 20));
+    const entry = [...(manager as any).live.values()][0];
+    entry.meta.status = 'exited';
+    entry.meta.exitCode = 0;
+    entry.meta.exitedAt = new Date().toISOString();
+    vi.spyOn(manager, 'stop').mockRejectedValue(new Error('Process is not running'));
+
+    const result = await resultP;
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    await rm(dir, { recursive: true, force: true });
+  });
 });
 
 // ── list ──────────────────────────────────────────────────────────────────────

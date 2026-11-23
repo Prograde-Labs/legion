@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,15 @@ const PASSWORD = 'acceptance-password';
 function assert(condition, message) {
   if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
   console.log(`PASS: ${message}`);
+}
+
+async function exists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sse(res, chunks) {
@@ -228,6 +237,16 @@ try {
     model: { model: 'mock-model' },
     tools: { file_list: 'auto' },
   });
+
+  assert(
+    await exists(join(workspace, '.legion', 'collective', 'participants', 'agent-a.json')),
+    'participant storage stays under the launch root .legion',
+  );
+  assert(
+    !(await exists(join(dirs.a, '.legion'))),
+    'participant root does not relocate .legion storage',
+  );
+
   await call(operator, 'set_credential', { participantId: 'agent-a', secret: PASSWORD });
   await call(operator, 'set_credential', { participantId: 'agent-b', secret: PASSWORD });
   await call(operator, 'set_credential', { participantId: 'agent-c', secret: PASSWORD });
@@ -257,19 +276,28 @@ try {
   );
 
   const traversal = await rawCall(a, 'file_read', { path: '../b/root-b.txt' });
-  assert(traversal.status === 'error', '.. escape is rejected');
-
-  const pwd = await call(a, 'execute_command', { command: 'pwd' });
-  assert(pwd.stdout.trim() === dirs.a, 'execute_command defaults to the participant root');
-
-  const pwdRelative = await call(a, 'execute_command', { command: 'pwd', cwd: 'sub' });
   assert(
-    pwdRelative.stdout.trim() === join(dirs.a, 'sub'),
-    'relative cwd resolves under the participant root',
+    traversal.status === 'error' && /outside|invalid path/i.test(traversal.error),
+    '.. escape is rejected',
   );
 
+  const realA = await realpath(dirs.a);
+  const realB = await realpath(dirs.b);
+  const realSub = await realpath(join(dirs.a, 'sub'));
+
+  const pwd = await call(a, 'execute_command', { command: 'pwd' });
+  assert(pwd.stdout.trim() === realA, 'execute_command defaults to the participant root');
+
+  const pwdRelative = await call(a, 'execute_command', { command: 'pwd', cwd: 'sub' });
+  assert(pwdRelative.stdout.trim() === realSub, 'relative cwd resolves under the participant root');
+
   const pwdAbsolute = await call(a, 'execute_command', { command: 'pwd', cwd: dirs.b });
-  assert(pwdAbsolute.stdout.trim() === dirs.b, 'absolute cwd is used as-is');
+  assert(pwdAbsolute.stdout.trim() === realB, 'absolute cwd is used as-is');
+
+  const processDir = join(workspace, '.legion', 'processes');
+  assert(await exists(processDir), 'process logs stay under the launch root .legion');
+  const processEntries = await readdir(processDir);
+  assert(processEntries.length > 0, 'process log directories are created under .legion/processes');
 
   await call(operator, 'modify_agent', {
     id: 'agent-a',
@@ -299,8 +327,10 @@ try {
   console.log('ACCEPTANCE PASS');
 } finally {
   if (legion) {
-    legion.kill('SIGTERM');
-    await new Promise((resolveExit) => legion.once('exit', resolveExit));
+    if (legion.exitCode === null && legion.signalCode === null) {
+      legion.kill('SIGTERM');
+      await new Promise((resolveExit) => legion.once('exit', resolveExit));
+    }
   }
   if (provider) {
     await new Promise((resolveClose) => provider.close(resolveClose));

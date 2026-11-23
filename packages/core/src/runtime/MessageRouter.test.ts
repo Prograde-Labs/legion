@@ -13,7 +13,7 @@ import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
-import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
+import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   ConversationOrigin,
   LLMChunk,

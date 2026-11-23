@@ -184,6 +184,16 @@ describe('create_user', () => {
     expect(result.error).toMatch(/does not exist/);
     expect(collective.get('bad-user')).toBeUndefined();
   });
+
+  it('create_user treats an explicit null workspace root as inherit', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createUserTool.execute(
+      { id: 'null-root-user', name: 'Null Root User', workspaceRoot: null },
+      context,
+    );
+    expect(result.status).toBe('success');
+    expect((collective.get('null-root-user') as UserConfig).workspaceRoot).toBeUndefined();
+  });
 });
 
 describe('modify_user', () => {

@@ -29,6 +29,7 @@ export interface ServiceManagerDeps {
   eventBus: EventBus;
   storage: Storage;
   workspaceConfig: WorkspaceConfig;
+  /** The collective (launch) root; tool roots resolve from participant config. */
   workspaceRoot: string;
 }
 
