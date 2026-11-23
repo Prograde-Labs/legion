@@ -320,4 +320,16 @@ describe('file tools', () => {
       expect(r.error).toBe('Cannot edit binary file: bin.txt');
     });
   });
+
+  describe('file_write', () => {
+    it('reports created true for new files and false for overwrites', async () => {
+      const first = await fileWriteTool.execute({ path: 'notes/a.txt', content: 'one' }, ctx(dir));
+      expect(first.data).toEqual({ path: 'notes/a.txt', created: true });
+      expect(first.content).toBe('Created file successfully: notes/a.txt');
+
+      const second = await fileWriteTool.execute({ path: 'notes/a.txt', content: 'two' }, ctx(dir));
+      expect(second.data).toEqual({ path: 'notes/a.txt', created: false });
+      expect(second.content).toBe('Wrote file successfully: notes/a.txt');
+    });
+  });
 });

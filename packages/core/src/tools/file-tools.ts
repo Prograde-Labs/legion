@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile, readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
@@ -174,7 +174,8 @@ export const fileReadTool: Tool = {
 export const fileWriteTool: Tool = {
   name: 'file_write',
   description:
-    'Write a UTF-8 text file relative to the participant workspace root, creating parents; absolute paths inside it are accepted.',
+    'Write a UTF-8 text file relative to the participant workspace root, creating parents; absolute paths inside it are accepted. ' +
+    'Prefer file_edit for partial changes.',
   parameters: {
     type: 'object',
     properties: { path: { type: 'string' }, content: { type: 'string' } },
@@ -184,10 +185,23 @@ export const fileWriteTool: Tool = {
     const { path, content } = args as { path: string; content: string };
     const target = resolveInWorkspace(context, path);
     if (!target) return { status: 'error', error: `Invalid path (outside workspace): ${path}` };
+
+    let created = true;
+    try {
+      await stat(target);
+      created = false;
+    } catch {
+      created = true;
+    }
+
     try {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, content, 'utf8');
-      return { status: 'success', data: { path } };
+      return {
+        status: 'success',
+        data: { path, created },
+        content: `${created ? 'Created file successfully' : 'Wrote file successfully'}: ${path}`,
+      };
     } catch (err) {
       return { status: 'error', error: err instanceof Error ? err.message : String(err) };
     }
