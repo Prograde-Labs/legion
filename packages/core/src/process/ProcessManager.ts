@@ -26,6 +26,9 @@ try {
   // PTY mode unavailable; tty:true will throw at runtime
 }
 
+/** Grace period for pipe-mode stdio to flush after the child exits. */
+const STDIO_DRAIN_GRACE_MS = 100;
+
 export interface ProcessManagerDeps {
   storage: Storage;
   workspaceRoot: string;
@@ -391,27 +394,32 @@ export class ProcessManager {
     });
     const entry = this.live.get(handle.id)!;
 
-    // Pipe-mode children emit 'close' only after stdout/stderr are fully drained;
-    // waiting on 'exit' alone can drop the final output chunk. PTY runtimes have
-    // no 'close' event — their 'exited' emitter fires after the last onData.
+    // Resolve on the child's 'exit' (as before), then wait a short bounded grace
+    // for stdio to drain so the final chunk is not dropped. Waiting for 'close'
+    // alone would block for the full timeout when a background child inherits
+    // stdout/stderr and keeps the pipe open.
     const child = entry.child;
     const exitPromise = new Promise<{ exitCode: number | null }>((resolve) => {
-      if (!child || entry.meta.tty) {
+      // The exit handler may already have run before we got here.
+      if (entry.meta.exitedAt != null) {
+        resolve({ exitCode: entry.meta.exitCode });
+        return;
+      }
+      if (entry.meta.tty) {
         entry.emitter.once('exited', (evt: any) => resolve({ exitCode: evt.exitCode }));
         return;
       }
+      if (!child) {
+        resolve({ exitCode: entry.meta.exitCode });
+        return;
+      }
       const cp = child as ChildProcess;
-      // A very fast child can exit and drain before the 'close' listener is
-      // attached (start() awaits metadata writes first); detect that case.
-      if (
-        cp.exitCode != null &&
-        (cp.stdout?.readableEnded ?? true) &&
-        (cp.stderr?.readableEnded ?? true)
-      ) {
+      // A very fast child can exit before the listener is attached.
+      if (cp.exitCode != null) {
         resolve({ exitCode: cp.exitCode });
         return;
       }
-      cp.once('close', (code) => resolve({ exitCode: code ?? null }));
+      cp.once('exit', (code) => resolve({ exitCode: code ?? null }));
     });
 
     let timedOut = false;
@@ -429,15 +437,26 @@ export class ProcessManager {
       ]);
       if (result === 'timeout') {
         timedOut = true;
+        let stopFailed = false;
         try {
           await this.stop(handle.id, { signal: 'SIGTERM', graceMs: 5000 });
         } catch {
-          // process may have exited between race and stop — best effort
+          // Process may have exited between the race and stop — best effort.
+          stopFailed = true;
+        }
+        // If it had already exited on its own, report its real result.
+        if (stopFailed && entry.meta.exitedAt != null) {
+          timedOut = false;
+          exitCode = entry.meta.exitCode;
         }
       } else {
         exitCode = result.exitCode;
       }
     }
+
+    // Bounded drain: capture output that arrives between 'exit' and 'close'
+    // without waiting indefinitely for a pipe held open by a background child.
+    await this.drainStdio(child, entry.meta.tty);
 
     return {
       processId: handle.id,
@@ -447,6 +466,27 @@ export class ProcessManager {
       durationMs: Date.now() - startMs,
       timedOut,
     };
+  }
+
+  /** Wait briefly for pipe-mode stdio to flush after exit. */
+  private drainStdio(child: ChildProcess | IPty | null, tty: boolean): Promise<void> {
+    if (!child || tty) return Promise.resolve();
+    const cp = child as ChildProcess;
+    // 'close' already fired (or nothing was piped): output is complete.
+    if (cp.stdout?.readableEnded === true && cp.stderr?.readableEnded === true) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(finish, STDIO_DRAIN_GRACE_MS);
+      cp.once('close', finish);
+    });
   }
 
   async list(filter?: {

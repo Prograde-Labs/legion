@@ -303,7 +303,36 @@ describe('ProcessManager.execute', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('waits for stdio close so the final output chunk is not dropped', async () => {
+  it('captures output emitted before start() resolves', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'legion-pm-'));
+    const storage = new FileStorage(join(dir, '.legion'));
+    const child = new FakeChild();
+    // Emit after attachOutputHandlers but before start() resolves — the old
+    // implementation only subscribed to output once start() had returned.
+    const spawn = vi.fn(() => {
+      process.nextTick(() => child.stdout.emit('data', Buffer.from('early\n')));
+      return child;
+    });
+    const manager = new ProcessManager({
+      storage,
+      workspaceRoot: dir,
+      spawn: spawn as any,
+      ptySpawn: vi.fn() as any,
+    });
+
+    const resultP = manager.execute({ command: 'echo', args: ['early'] }, 'user-1');
+
+    await new Promise<void>((r) => setTimeout(r, 20));
+    child.emit('exit', 0, null);
+    child.emit('close', 0, null);
+
+    const result = await resultP;
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('early\n');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('captures output that arrives between exit and close', async () => {
     const { manager, child, dir } = await makeManager();
 
     const resultP = manager.execute({ command: 'echo', args: ['hi'] }, 'user-1');
@@ -317,6 +346,25 @@ describe('ProcessManager.execute', () => {
     const result = await resultP;
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe('hi\n');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns at exit when a background child keeps stdio open', async () => {
+    const { manager, child, dir } = await makeManager();
+
+    const resultP = manager.execute({ command: 'bash', args: ['-c', 'sleep 300 &'] }, 'user-1');
+
+    await new Promise<void>((r) => setTimeout(r, 20));
+    child.stdout.emit('data', Buffer.from('started\n'));
+    child.emit('exit', 0, null);
+    // No 'close' — the backgrounded grandchild still holds the pipe.
+
+    const started = Date.now();
+    const result = await resultP;
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('started\n');
     await rm(dir, { recursive: true, force: true });
   });
 
