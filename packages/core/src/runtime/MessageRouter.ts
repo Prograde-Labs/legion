@@ -2257,6 +2257,17 @@ export class MessageRouter implements MessageRouterPort {
       };
     }
     // kind === 'void'
+    if (
+      result.delivery &&
+      result.delivery.status !== 'delivered' &&
+      result.delivery.status !== 'accepted'
+    ) {
+      return {
+        conversationId: operation.thread.id,
+        status: 'error',
+        error: result.delivery.reason ?? result.delivery.status,
+      };
+    }
     return { conversationId: operation.thread.id, status: 'success' };
   }
 

@@ -13,6 +13,7 @@ import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { MessageRouter } from './MessageRouter.js';
+import type { RuntimeResult } from './Runtime.js';
 import type {
   ConversationOrigin,
   LLMChunk,
@@ -4738,5 +4739,87 @@ describe('MessageRouter: middleware response streaming', () => {
         context: baseContext,
       }),
     ).resolves.toMatchObject({ status: 'success' });
+  });
+});
+
+describe('MessageRouter: delivery outcomes', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-delivery-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function routerFor(outcome: RuntimeResult) {
+    const { baseContext, store, eventBus, collective } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle() {
+        return outcome;
+      },
+    }));
+    return {
+      router: new MessageRouter(store, registry, collective, eventBus),
+      baseContext,
+    };
+  }
+
+  it('maps a failed delivery outcome to an error', async () => {
+    const { router, baseContext } = await routerFor({
+      kind: 'void',
+      delivery: { status: 'failed', reason: 'no live Teams bot' },
+    });
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+    expect(result).toMatchObject({ status: 'error', error: 'no live Teams bot' });
+  });
+
+  it('maps a not-reachable delivery outcome to an error', async () => {
+    const { router, baseContext } = await routerFor({
+      kind: 'void',
+      delivery: { status: 'not-reachable', reason: 'no connector can reach user-a' },
+    });
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+    expect(result).toMatchObject({
+      status: 'error',
+      error: 'no connector can reach user-a',
+    });
+  });
+
+  it('keeps delivered and accepted outcomes as success', async () => {
+    for (const status of ['delivered', 'accepted'] as const) {
+      const { router, baseContext } = await routerFor({
+        kind: 'void',
+        delivery: { status },
+      });
+      const result = await router.send({
+        senderId: 'op',
+        recipientId: 'mock-1',
+        message: 'hello',
+        context: baseContext,
+      });
+      expect(result.status).toBe('success');
+    }
+  });
+
+  it('keeps a void result without a delivery outcome as success', async () => {
+    const { router, baseContext } = await routerFor({ kind: 'void' });
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      context: baseContext,
+    });
+    expect(result.status).toBe('success');
   });
 });
