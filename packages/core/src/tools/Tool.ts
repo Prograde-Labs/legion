@@ -49,8 +49,7 @@ export interface SendOptions {
   model?: string;
   /**
    * Per-call deadline for the recipient's response. Enforced by `sendStream`
-   * only — the synchronous `send` path ignores it (partial-response
-   * persistence is a streaming concept).
+   * and by synchronous sends to human participants (`type: 'user'`).
    */
   timeoutMs?: number;
   context: ToolContext;

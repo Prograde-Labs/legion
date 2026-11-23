@@ -216,6 +216,14 @@ Sender calls communicate(to="agent-b", message="...")
   → returns response as tool result
 ```
 
+For a `user` participant (`type: 'user'`), a synchronous `communicate` blocks
+until that human's next message in the same conversation arrives and returns its
+text as the tool result. The reply is persisted and consumed by the waiting
+call, so it is not also dispatched to the recipient's bot. The wait is bounded
+by the collective `communication.replyTimeoutMs` (default 30 minutes; `null`
+waits indefinitely), overridable per participant via `replyTimeoutMs` and per
+call via `timeoutMs`.
+
 ### Fire-and-forget (with `replyTo`)
 
 When `replyTo` is set, the call returns immediately with a `conversationId`. The recipient processes asynchronously. When done, `MessageRouter` routes the response to the `replyTo` participant (not back to `senderId`).

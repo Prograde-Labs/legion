@@ -4823,3 +4823,582 @@ describe('MessageRouter: delivery outcomes', () => {
     expect(result.status).toBe('success');
   });
 });
+
+describe('MessageRouter: synchronous human reply', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-human-reply-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  async function setupHumanRouter(options?: {
+    communication?: { replyTimeoutMs?: number | null };
+    userDelivery?: RuntimeResult;
+  }) {
+    const base = await setup(dir);
+    const registry = new RuntimeRegistry();
+    const handleCalls: string[] = [];
+    const delivered = withResolvers<void>();
+    registry.registerFactory('user', () => ({
+      async handle() {
+        delivered.resolve();
+        return (
+          options?.userDelivery ?? {
+            kind: 'void' as const,
+            delivery: { status: 'delivered' as const },
+          }
+        );
+      },
+    }));
+    registry.registerFactory('mock', (id) => ({
+      async handle() {
+        handleCalls.push(id);
+        return { kind: 'response' as const, content: 'hello back' };
+      },
+    }));
+    const router = new MessageRouter(
+      base.store,
+      registry,
+      base.collective,
+      base.eventBus,
+      undefined,
+      undefined,
+      options?.communication,
+    );
+    return { ...base, router, handleCalls, delivered: delivered.promise };
+  }
+
+  async function newConversation(store: Awaited<ReturnType<typeof setup>>['store']) {
+    return store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} });
+  }
+
+  it('consumes the human reply without dispatching the bot', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the answer',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success' });
+    expect(reply.response).toBeUndefined();
+
+    const result = await pending;
+    expect(result).toMatchObject({
+      conversationId: conversation.id,
+      status: 'success',
+      response: 'the answer',
+    });
+    expect(handleCalls).toEqual([]);
+
+    const loaded = await store.load(conversation.id);
+    const messages = Object.values(loaded!.messages);
+    expect(messages.map((m) => m.content)).toEqual(['question?', 'the answer']);
+    expect(messages.every((m) => m.role === 'user')).toBe(true);
+  });
+
+  it('dispatches a human message normally when no call is waiting', async () => {
+    const { router, baseContext, store, handleCalls } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hello',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+
+    expect(result).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('times out and leaves a late reply to route normally', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter({
+      communication: { replyTimeoutMs: 25 },
+    });
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: 'timeout', partial: true });
+    expect(handleCalls).toEqual([]);
+
+    const late = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(late).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('cancels on caller abort and removes the waiter', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+    const controller = new AbortController();
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: { ...baseContext, signal: controller.signal },
+    });
+    await delivered;
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'error',
+      error: 'Runtime cancelled',
+    });
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('returns the delivery error and removes the waiter', async () => {
+    const { router, baseContext, store, handleCalls } = await setupHumanRouter({
+      userDelivery: {
+        kind: 'void',
+        delivery: { status: 'failed', reason: 'no live bot' },
+      },
+    });
+    const conversation = await newConversation(store);
+
+    const result = await router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(result).toMatchObject({ status: 'error', error: 'no live bot' });
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('does not wait when replyTo is set', async () => {
+    const { router, baseContext, store } = await setupHumanRouter({
+      communication: { replyTimeoutMs: null },
+    });
+    const conversation = await newConversation(store);
+
+    const result = await router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'hi',
+      conversationId: conversation.id,
+      replyTo: 'mock-1',
+      context: baseContext,
+    });
+    expect(result).toMatchObject({ status: 'dispatched' });
+    await router.drain();
+  });
+
+  it('returns the response for non-user recipients without waiting', async () => {
+    const { router, baseContext } = await setupHumanRouter();
+
+    const result = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'hi',
+      context: baseContext,
+    });
+    expect(result).toMatchObject({ status: 'success', response: 'hello back' });
+  });
+
+  it('prefers the sender participant timeout over the collective default', async () => {
+    const { router, baseContext, store, collective, delivered } = await setupHumanRouter({
+      communication: { replyTimeoutMs: 5000 },
+    });
+    await collective.update('mock-1', { replyTimeoutMs: 25 });
+    const conversation = await newConversation(store);
+    const started = Date.now();
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: 'timeout', partial: true });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('prefers the explicit timeoutMs over the participant timeout', async () => {
+    const { router, baseContext, store, collective, delivered } = await setupHumanRouter();
+    await collective.update('mock-1', { replyTimeoutMs: 5000 });
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      timeoutMs: 25,
+      context: baseContext,
+    });
+    await delivered;
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: 'timeout', partial: true });
+  });
+
+  it('ignores a non-positive participant timeout and uses the collective value', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { router, baseContext, store, collective, delivered } = await setupHumanRouter({
+      communication: { replyTimeoutMs: 25 },
+    });
+    await collective.update('mock-1', { replyTimeoutMs: 0 });
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const result = await pending;
+    expect(result).toMatchObject({ status: 'timeout', partial: true });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('replyTimeoutMs'));
+    warn.mockRestore();
+  });
+
+  it('waits indefinitely when the collective timeout is null', async () => {
+    const { router, baseContext, store, delivered } = await setupHumanRouter({
+      communication: { replyTimeoutMs: null },
+    });
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const stillPending = await Promise.race([
+      pending.then(() => 'settled'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 30)),
+    ]);
+    expect(stillPending).toBe('pending');
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the answer',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success' });
+    await expect(pending).resolves.toMatchObject({
+      status: 'success',
+      response: 'the answer',
+    });
+  });
+
+  it('returns the human reply as the stream result', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    const iteration = (async () => {
+      const chunks: LLMChunk[] = [];
+      let next = await stream.next();
+      while (!next.done) {
+        chunks.push(next.value);
+        next = await stream.next();
+      }
+      return { chunks, result: next.value };
+    })();
+    await delivered;
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the answer',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success' });
+
+    const { chunks, result } = await iteration;
+    expect(chunks).toEqual([]);
+    expect(result).toMatchObject({ status: 'success', response: 'the answer' });
+    expect(handleCalls).toEqual([]);
+  });
+
+  it('consumes a reply routed through sendStream', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the answer',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+    expect(next.value).toMatchObject({ status: 'success' });
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'success',
+      response: 'the answer',
+    });
+    expect(handleCalls).toEqual([]);
+  });
+
+  it('times out the stream with a call_timeout chunk', async () => {
+    const { router, baseContext, store, handleCalls } = await setupHumanRouter({
+      communication: { replyTimeoutMs: 20 },
+    });
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
+    }
+
+    expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 20 });
+    expect(next.value).toMatchObject({ status: 'timeout', partial: true });
+
+    const late = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(late).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('uses explicit timeoutMs as the stream reply deadline', async () => {
+    const { router, baseContext, store } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      timeoutMs: 20,
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
+    }
+
+    expect(chunks).toEqual([{ type: 'call_timeout', timeoutMs: 20 }]);
+    expect(next.value).toMatchObject({ status: 'timeout', partial: true });
+  });
+
+  it('cancels the stream wait on caller abort', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter({
+      communication: { replyTimeoutMs: null },
+    });
+    const conversation = await newConversation(store);
+    const controller = new AbortController();
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: { ...baseContext, signal: controller.signal },
+    });
+    const terminal = (async () => {
+      let next = await stream.next();
+      while (!next.done) next = await stream.next();
+      return next.value;
+    })();
+    await delivered;
+    controller.abort();
+
+    await expect(terminal).resolves.toMatchObject({
+      status: 'error',
+      error: 'Runtime cancelled',
+    });
+
+    const late = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(late).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('returns dispatched immediately from sendStream when replyTo is set', async () => {
+    const { router, baseContext, store } = await setupHumanRouter({
+      communication: { replyTimeoutMs: null },
+    });
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'hi',
+      conversationId: conversation.id,
+      replyTo: 'mock-1',
+      context: baseContext,
+    });
+    const next = await stream.next();
+    expect(next).toMatchObject({ done: true, value: { status: 'dispatched' } });
+    await router.drain();
+  });
+
+  async function setupFailingUserBuild() {
+    const base = await setup(dir);
+    const registry = new RuntimeRegistry();
+    let builds = 0;
+    registry.registerFactory('user', () => {
+      builds += 1;
+      if (builds === 1) throw new Error('user runtime unavailable');
+      return {
+        async handle() {
+          return { kind: 'void' as const, delivery: { status: 'delivered' as const } };
+        },
+      };
+    });
+    const handleCalls: string[] = [];
+    registry.registerFactory('mock', (id) => ({
+      async handle() {
+        handleCalls.push(id);
+        return { kind: 'response' as const, content: 'hello back' };
+      },
+    }));
+    const router = new MessageRouter(base.store, registry, base.collective, base.eventBus);
+    return { ...base, router, handleCalls };
+  }
+
+  it('does not leak a reply waiter when the user runtime fails to build', async () => {
+    const { router, baseContext, store, handleCalls } = await setupFailingUserBuild();
+    const conversation = await newConversation(store);
+
+    await expect(
+      router.send({
+        senderId: 'mock-1',
+        recipientId: 'op',
+        message: 'question?',
+        conversationId: conversation.id,
+        context: baseContext,
+      }),
+    ).rejects.toThrow('user runtime unavailable');
+
+    // A leaked waiter would swallow this human message instead of dispatching it.
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the human reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+
+  it('does not leak a stream reply waiter when the user runtime fails to build', async () => {
+    const { router, baseContext, store, handleCalls } = await setupFailingUserBuild();
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await expect(stream.next()).rejects.toThrow('user runtime unavailable');
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the human reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
+  });
+});

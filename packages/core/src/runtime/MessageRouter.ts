@@ -21,9 +21,10 @@ import type {
 } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
 import type { RuntimeRegistry } from './RuntimeRegistry.js';
-import type { RuntimeContext, RuntimeResult } from './Runtime.js';
+import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   AgentConfig,
+  CommunicationConfig,
   ConversationOrigin,
   MessageUsage,
   LLMChunk,
@@ -41,6 +42,14 @@ import type { MiddlewareRunner } from '../middleware/MiddlewareRunner.js';
 import { compactRange, getActiveChain } from '../conversation/conversation-ops.js';
 
 const DEFAULT_DEPTH_LIMIT = 10;
+const DEFAULT_REPLY_TIMEOUT_MS = 30 * 60 * 1000;
+
+type ReplyWaiterHandle = {
+  promise: Promise<string>;
+  unregister: () => void;
+};
+
+type ReplyOutcome = { kind: 'reply'; text: string } | { kind: 'timeout' } | { kind: 'cancelled' };
 
 class RetryableAutomationError extends Error {}
 
@@ -59,6 +68,7 @@ type ResponseOperation = {
 export class MessageRouter implements MessageRouterPort {
   private background = new Set<Promise<void>>();
   private locks = new Map<string, Promise<void>>();
+  private replyWaiters = new Map<string, Set<(text: string) => void>>();
 
   constructor(
     private store: ConversationStore,
@@ -67,6 +77,7 @@ export class MessageRouter implements MessageRouterPort {
     private eventBus: EventBus,
     private lifecycle?: MiddlewareLifecycle,
     private middlewareRunner?: MiddlewareRunner,
+    private communication?: CommunicationConfig,
   ) {}
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
@@ -100,6 +111,99 @@ export class MessageRouter implements MessageRouterPort {
       release();
       if (this.locks.get(conversationId) === queued) this.locks.delete(conversationId);
     };
+  }
+
+  private replyWaiterKey(conversationId: string, participantId: string): string {
+    return `${conversationId}\u0000${participantId}`;
+  }
+
+  private registerReplyWaiter(conversationId: string, participantId: string): ReplyWaiterHandle {
+    const key = this.replyWaiterKey(conversationId, participantId);
+    let resolve!: (text: string) => void;
+    const promise = new Promise<string>((res) => {
+      resolve = res;
+    });
+    const waiters = this.replyWaiters.get(key) ?? new Set<(text: string) => void>();
+    waiters.add(resolve);
+    this.replyWaiters.set(key, waiters);
+    const unregister = () => {
+      waiters.delete(resolve);
+      if (waiters.size === 0 && this.replyWaiters.get(key) === waiters) {
+        this.replyWaiters.delete(key);
+      }
+    };
+    return { promise, unregister };
+  }
+
+  private resolveReplyWaiters(
+    conversationId: string,
+    participantId: string,
+    text: string,
+  ): boolean {
+    const key = this.replyWaiterKey(conversationId, participantId);
+    const waiters = this.replyWaiters.get(key);
+    if (!waiters || waiters.size === 0) return false;
+    this.replyWaiters.delete(key);
+    for (const resolve of waiters) resolve(text);
+    return true;
+  }
+
+  private async awaitReply(
+    waiter: Promise<string>,
+    timeoutMs: number | null,
+    signal: AbortSignal | undefined,
+  ): Promise<ReplyOutcome> {
+    if (signal?.aborted) return { kind: 'cancelled' };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const timedOut =
+      timeoutMs === null
+        ? new Promise<never>(() => undefined)
+        : new Promise<ReplyOutcome>((resolve) => {
+            timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+          });
+    const cancelled = new Promise<ReplyOutcome>((resolve) => {
+      onAbort = () => resolve({ kind: 'cancelled' });
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([
+        waiter.then((text): ReplyOutcome => ({ kind: 'reply', text })),
+        timedOut,
+        cancelled,
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
+  private resolveReplyTimeout(opts: SendOptions): number | null {
+    const candidates: Array<{ source: string; value: number | null | undefined }> = [
+      { source: 'timeoutMs', value: opts.timeoutMs },
+      {
+        source: `participant '${opts.senderId}'.replyTimeoutMs`,
+        value: this.collective.get(opts.senderId)?.replyTimeoutMs,
+      },
+      {
+        source: 'communication.replyTimeoutMs',
+        value: this.communication?.replyTimeoutMs,
+      },
+    ];
+    for (const { source, value } of candidates) {
+      if (value === undefined) continue;
+      if (value === null) return null;
+      if (Number.isInteger(value) && value > 0) return value;
+      console.warn(`[router] ignoring invalid ${source}: ${String(value)}`);
+    }
+    return DEFAULT_REPLY_TIMEOUT_MS;
+  }
+
+  private isDeliveredVoid(result: RuntimeResult): boolean {
+    return (
+      result.kind === 'void' &&
+      (result.delivery?.status === 'delivered' || result.delivery?.status === 'accepted')
+    );
   }
 
   private combineAbortSignals(signal?: AbortSignal): {
@@ -410,8 +514,11 @@ export class MessageRouter implements MessageRouterPort {
   }
 
   /**
-   * Synchronous send. Does NOT enforce `opts.timeoutMs` — callers that need a
-   * per-call deadline (and its partial-response persistence) use `sendStream`.
+   * Synchronous send. For human recipients (`type: 'user'`) this waits for the
+   * human's next message and returns its text as `response`. The reply deadline
+   * is `opts.timeoutMs` when supplied, else the sender participant's
+   * `replyTimeoutMs`, else the collective `communication.replyTimeoutMs`, else
+   * 30 minutes; `null` waits indefinitely.
    */
   async send(opts: SendOptions): Promise<MessageRouterResult> {
     if (!this.collective.get(opts.senderId)) {
@@ -428,10 +535,19 @@ export class MessageRouter implements MessageRouterPort {
         error: new ParticipantNotFoundError(opts.recipientId).message,
       };
     }
+    let release: (() => void) | undefined;
     if (opts.conversationId) {
-      return this.withLock(opts.conversationId, () => this.sendInner(opts));
+      release = await this.acquireLock(opts.conversationId);
     }
-    return this.sendInner(opts);
+    const releaseLock = () => {
+      release?.();
+      release = undefined;
+    };
+    try {
+      return await this.sendInner(opts, releaseLock);
+    } finally {
+      releaseLock();
+    }
   }
 
   sendStream(opts: SendOptions): AsyncGenerator<LLMChunk, MessageRouterResult> {
@@ -494,7 +610,7 @@ export class MessageRouter implements MessageRouterPort {
       };
       const result: MessageRouterResult = { ...next.value, meta };
       completed = true;
-      if (!timedOut) return result;
+      if (!timedOut || result.status === 'timeout') return result;
       yield { type: 'call_timeout', timeoutMs: opts.timeoutMs! };
       return { ...result, status: 'timeout', partial: true };
     } finally {
@@ -521,17 +637,23 @@ export class MessageRouter implements MessageRouterPort {
       release = await this.acquireLock(conversationId);
       lockedConversationId = conversationId;
     };
+    const releaseLock = () => {
+      release?.();
+      release = undefined;
+      lockedConversationId = undefined;
+    };
     try {
       if (opts.conversationId) await ensureLock(opts.conversationId);
-      return yield* this.sendStreamInner(opts, ensureLock);
+      return yield* this.sendStreamInner(opts, ensureLock, releaseLock);
     } finally {
-      release?.();
+      releaseLock();
     }
   }
 
   private async *sendStreamInner(
     opts: SendOptions,
     ensureLock: (conversationId: string) => Promise<void>,
+    releaseLock: () => void,
   ): AsyncGenerator<LLMChunk, MessageRouterResult> {
     if (opts.context.signal?.aborted) {
       return {
@@ -652,27 +774,47 @@ export class MessageRouter implements MessageRouterPort {
       });
     }
 
-    const runtime = this.registry.build(recipient.type, recipient.id);
+    if (this.resolveReplyWaiters(thread.id, opts.senderId, inbound.content)) {
+      return { conversationId: thread.id, status: 'success' };
+    }
+
+    const expectsHumanReply = recipient.type === 'user' && opts.replyTo === undefined;
+    const replyWaiter = expectsHumanReply
+      ? this.registerReplyWaiter(thread.id, recipient.id)
+      : undefined;
+
     const streamAbort = this.combineAbortSignals(opts.context.signal);
     const runtimeThread = this.createAbortSafeThread(thread, streamAbort.signal);
-    const runtimeContext = this.buildRuntimeContext(
-      runtimeThread,
-      recipient.id,
-      {
-        ...opts.context,
-        communicationDepth: depth,
-        modelOverride: opts.model,
-        signal: streamAbort.signal,
-      },
-      depth,
-      lifecycleState === undefined
-        ? undefined
-        : {
-            operationId: lifecycleState.operationId,
-            incomingMessageId: inbound.id,
-            actions: lifecycleState.actions,
-          },
-    );
+
+    // Registration must happen before delivery, but a failing build must not leak
+    // the waiter: a leaked waiter would silently consume the next human message.
+    let runtime: Runtime;
+    let runtimeContext: RuntimeContext;
+    try {
+      runtime = this.registry.build(recipient.type, recipient.id);
+      runtimeContext = this.buildRuntimeContext(
+        runtimeThread,
+        recipient.id,
+        {
+          ...opts.context,
+          communicationDepth: depth,
+          modelOverride: opts.model,
+          signal: streamAbort.signal,
+        },
+        depth,
+        lifecycleState === undefined
+          ? undefined
+          : {
+              operationId: lifecycleState.operationId,
+              incomingMessageId: inbound.id,
+              actions: lifecycleState.actions,
+            },
+      );
+    } catch (err) {
+      replyWaiter?.unregister();
+      streamAbort.dispose();
+      throw err;
+    }
 
     if (opts.replyTo) {
       const task = this.dispatchAsync(
@@ -849,6 +991,27 @@ export class MessageRouter implements MessageRouterPort {
         );
       } else {
         const result = await runtime.handle(inbound, runtimeContext);
+        let humanReply: string | undefined;
+        if (replyWaiter && this.isDeliveredVoid(result)) {
+          const timeoutMs = this.resolveReplyTimeout(opts);
+          releaseLock();
+          const outcome = await this.awaitReply(
+            replyWaiter.promise,
+            timeoutMs,
+            opts.context.signal,
+          );
+          if (outcome.kind === 'reply') {
+            humanReply = outcome.text;
+          } else {
+            replyWaiter.unregister();
+            if (outcome.kind === 'timeout') {
+              yield { type: 'call_timeout', timeoutMs: timeoutMs! };
+              return { conversationId: thread.id, status: 'timeout', partial: true };
+            }
+            return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+          }
+        }
+        replyWaiter?.unregister();
         if (transformer) {
           try {
             const finished = await transformer.finish(result);
@@ -862,7 +1025,7 @@ export class MessageRouter implements MessageRouterPort {
             throw error;
           }
         }
-        return await this.completeResponse(
+        const completed = await this.completeResponse(
           {
             thread,
             recipientId: recipient.id,
@@ -871,11 +1034,13 @@ export class MessageRouter implements MessageRouterPort {
           },
           result,
         );
+        return humanReply === undefined ? completed : { ...completed, response: humanReply };
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
     } finally {
+      replyWaiter?.unregister();
       if (!streamFinished && runtimeStream) {
         streamAbort.abort();
         transformer?.abort();
@@ -886,7 +1051,10 @@ export class MessageRouter implements MessageRouterPort {
     }
   }
 
-  private async sendInner(opts: SendOptions): Promise<MessageRouterResult> {
+  private async sendInner(
+    opts: SendOptions,
+    releaseLock: () => void,
+  ): Promise<MessageRouterResult> {
     const recipient = this.collective.get(opts.recipientId);
     if (!recipient) {
       return {
@@ -995,20 +1163,38 @@ export class MessageRouter implements MessageRouterPort {
       });
     }
 
-    const runtime = this.registry.build(recipient.type, recipient.id);
-    const runtimeContext = this.buildRuntimeContext(
-      thread,
-      recipient.id,
-      { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
-      depth,
-      lifecycleState === undefined
-        ? undefined
-        : {
-            operationId: lifecycleState.operationId,
-            incomingMessageId: inbound.id,
-            actions: lifecycleState.actions,
-          },
-    );
+    if (this.resolveReplyWaiters(thread.id, opts.senderId, inbound.content)) {
+      return { conversationId: thread.id, status: 'success' };
+    }
+
+    const expectsHumanReply = recipient.type === 'user' && opts.replyTo === undefined;
+    const replyWaiter = expectsHumanReply
+      ? this.registerReplyWaiter(thread.id, recipient.id)
+      : undefined;
+
+    // Registration must happen before delivery, but a failing build must not leak
+    // the waiter: a leaked waiter would silently consume the next human message.
+    let runtime: Runtime;
+    let runtimeContext: RuntimeContext;
+    try {
+      runtime = this.registry.build(recipient.type, recipient.id);
+      runtimeContext = this.buildRuntimeContext(
+        thread,
+        recipient.id,
+        { ...opts.context, communicationDepth: depth, modelOverride: opts.model },
+        depth,
+        lifecycleState === undefined
+          ? undefined
+          : {
+              operationId: lifecycleState.operationId,
+              incomingMessageId: inbound.id,
+              actions: lifecycleState.actions,
+            },
+      );
+    } catch (err) {
+      replyWaiter?.unregister();
+      throw err;
+    }
 
     if (opts.replyTo) {
       const task = this.dispatchAsync(
@@ -1026,7 +1212,22 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(inbound, runtimeContext);
-      return await this.completeResponse(
+      let humanReply: string | undefined;
+      if (replyWaiter && this.isDeliveredVoid(result)) {
+        const timeoutMs = this.resolveReplyTimeout(opts);
+        releaseLock();
+        const outcome = await this.awaitReply(replyWaiter.promise, timeoutMs, opts.context.signal);
+        if (outcome.kind === 'reply') {
+          humanReply = outcome.text;
+        } else {
+          replyWaiter.unregister();
+          if (outcome.kind === 'timeout') {
+            return { conversationId: thread.id, status: 'timeout', partial: true };
+          }
+          return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+        }
+      }
+      const completed = await this.completeResponse(
         {
           thread,
           recipientId: recipient.id,
@@ -1035,9 +1236,12 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      return humanReply === undefined ? completed : { ...completed, response: humanReply };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
+    } finally {
+      replyWaiter?.unregister();
     }
   }
 

@@ -22,6 +22,12 @@ export interface BaseParticipant {
   protected?: boolean;
   middleware?: MiddlewareInstanceConfig[];
   middlewareRevision?: number;
+  /**
+   * Milliseconds a synchronous communicate from this participant waits for a
+   * human reply. Overrides the collective `communication.replyTimeoutMs`.
+   * `null` waits indefinitely.
+   */
+  replyTimeoutMs?: number | null;
 }
 
 export interface AgentConfig extends BaseParticipant {
