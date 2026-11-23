@@ -74,6 +74,15 @@ export interface LoggingConfig {
   level?: 'debug' | 'info' | 'warn' | 'error';
 }
 
+export interface CommunicationConfig {
+  /**
+   * Milliseconds a synchronous communicate to a human participant waits for
+   * their next message in the conversation. `null` waits indefinitely.
+   * Defaults to 30 minutes when unset.
+   */
+  replyTimeoutMs?: number | null;
+}
+
 export interface WorkspaceConfig {
   version: '2';
   workspaceRoot?: string;
@@ -83,6 +92,7 @@ export interface WorkspaceConfig {
   mcpServers?: MCPServerConfig[];
   logging?: LoggingConfig;
   middlewareModules?: MiddlewareModuleConfig[];
+  communication?: CommunicationConfig;
 }
 
 /** Shape of .legion/config.local.json — gitignored, overrides WorkspaceConfig + adds routing. */

@@ -24,6 +24,7 @@ import type { RuntimeRegistry } from './RuntimeRegistry.js';
 import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   AgentConfig,
+  CommunicationConfig,
   ConversationOrigin,
   MessageUsage,
   LLMChunk,
@@ -67,7 +68,12 @@ export class MessageRouter implements MessageRouterPort {
     private eventBus: EventBus,
     private lifecycle?: MiddlewareLifecycle,
     private middlewareRunner?: MiddlewareRunner,
-  ) {}
+    private communication?: CommunicationConfig,
+  ) {
+    // Retained for the synchronous human reply waiter registry. Read here so the
+    // constructor argument is considered used until the registry consumes it.
+    void this.communication;
+  }
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
   async drain(): Promise<void> {

@@ -226,6 +226,7 @@ export class LegionProcess {
       eventBus,
       middlewareLifecycle,
       middlewareRunner,
+      mergedConfig.communication,
     );
 
     // ── Step 5b: Create system provider store + model router ─────────────────
