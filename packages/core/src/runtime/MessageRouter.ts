@@ -17,6 +17,7 @@ import type {
   ApprovalRecord,
   AutomationCompactionContinuation,
   AutomationCompactionSeed,
+  PendingApproval,
   PendingApprovalRegistry,
 } from '../auth/PendingApprovalRegistry.js';
 import { ParticipantNotFoundError } from '../errors/LegionError.js';
@@ -2506,7 +2507,7 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(inbound, backgroundContext);
-      await this.completeResponse(
+      const completed = await this.completeResponse(
         {
           thread: backgroundThread,
           recipientId: opts.recipientId,
@@ -2515,6 +2516,9 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      if (completed.status === 'pending_approval' && completed.approvalRequests?.length) {
+        await this.dispatchApprovalRequests(backgroundThread, opts, completed.approvalRequests);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await this.completeResponse(
@@ -2527,5 +2531,118 @@ export class MessageRouter implements MessageRouterPort {
         { kind: 'response', content: `[Runtime error: ${msg}]` },
       );
     }
+  }
+
+  /**
+   * Route a background participant's pending approval to its `replyTo` target.
+   *
+   * The approval request becomes an ordinary inbound message for the target,
+   * so every participant type handles it the same way. Connector-bound targets
+   * receive the structured `approvalRequests` on the delivery payload; other
+   * runtimes see the summary content (including the approval id) and can call
+   * `approval_response`.
+   */
+  private async dispatchApprovalRequests(
+    thread: ConversationThread,
+    opts: SendOptions,
+    requests: PendingApproval[],
+    seen: Set<string> = new Set(),
+  ): Promise<void> {
+    const replyTo = opts.replyTo;
+    if (!replyTo || requests.length === 0) return;
+    const depth = opts.context.communicationDepth ?? 0;
+    if (depth > DEFAULT_DEPTH_LIMIT) return;
+
+    // A runtime can return an approval that was already bubbled (for example
+    // when it observes another participant's paused turn). Never dispatch the
+    // same approval twice.
+    const fresh = requests.filter((request) => !seen.has(request.approvalId));
+    if (fresh.length === 0) return;
+    for (const request of fresh) seen.add(request.approvalId);
+
+    const recipient = this.collective.get(replyTo);
+    if (!recipient) {
+      console.warn(`[MessageRouter] approval target '${replyTo}' does not exist`);
+      return;
+    }
+
+    try {
+      const message = await thread.append(
+        {
+          senderId: opts.recipientId,
+          recipientId: replyTo,
+          role: 'user',
+          replyTo: opts.senderId,
+          content: this.approvalRequestContent(fresh),
+          // No toolCalls: agent runtimes treat a message with toolCalls as an
+          // assistant turn. The pending tool results are enough for delivery.
+          toolResults: fresh.map((request) => ({
+            id: request.approvalId,
+            name: request.tool,
+            result: { status: 'pending_approval' as const, approvalId: request.approvalId },
+          })),
+        },
+        { reactivate: true },
+      );
+      this.eventBus.emit('message:sent', {
+        conversationId: thread.id,
+        senderId: opts.recipientId,
+        recipientId: replyTo,
+        messageId: message.id,
+      });
+
+      const backgroundThread = this.createAppendSafeThread(thread);
+      const runtime = this.registry.build(recipient.type, recipient.id);
+      const runtimeContext = this.buildRuntimeContext(
+        backgroundThread,
+        recipient.id,
+        { ...opts.context, communicationDepth: depth + 1 },
+        depth + 1,
+        undefined,
+      );
+      const result = await runtime.handle(message, runtimeContext);
+      const completed = await this.completeResponse(
+        {
+          thread: backgroundThread,
+          recipientId: recipient.id,
+          responseRecipientId: message.replyTo ?? message.senderId,
+        },
+        result,
+      );
+
+      if (completed.status === 'pending_approval' && completed.approvalRequests?.length) {
+        const nextReplyTo = message.replyTo ?? message.senderId;
+        if (nextReplyTo === recipient.id) return;
+        await this.dispatchApprovalRequests(
+          backgroundThread,
+          {
+            ...opts,
+            senderId: recipient.id,
+            recipientId: recipient.id,
+            replyTo: nextReplyTo,
+            context: { ...opts.context, communicationDepth: depth + 1 },
+          },
+          completed.approvalRequests,
+          seen,
+        );
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[MessageRouter] approval dispatch to '${replyTo}' failed: ${err.message}`);
+      this.eventBus.emit('error', {
+        conversationId: thread.id,
+        error: { name: err.name, message: err.message },
+      });
+    }
+  }
+
+  private approvalRequestContent(requests: PendingApproval[]): string {
+    return requests
+      .map(
+        (request) =>
+          `Approval required for tool '${request.tool}' from '${request.requesterId}' ` +
+          `(approvalId: ${request.approvalId}). Use approval_response to approve or reject.`,
+      )
+      .join('\n');
   }
 }

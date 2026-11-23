@@ -5,7 +5,12 @@ import type { FastifyInstance } from 'fastify';
 import websocketPlugin from '@fastify/websocket';
 import staticPlugin from '@fastify/static';
 import { WebSocket } from 'ws';
-import type { Connector, ConnectorContext, DeliveryOutcome } from '@legion-collective/core';
+import type {
+  ApprovalRequestView,
+  Connector,
+  ConnectorContext,
+  DeliveryOutcome,
+} from '@legion-collective/core';
 import type {
   Collective,
   CredentialStore,
@@ -207,6 +212,7 @@ export class WebConnector implements Connector {
     replyTo?: string;
     content: string;
     timestamp: string;
+    approvalRequests?: ApprovalRequestView[];
   }): Promise<DeliveryOutcome> {
     const sockets = this.connections.get(message.recipientId);
     if (!sockets?.size) return { status: 'accepted' };

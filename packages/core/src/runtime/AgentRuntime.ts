@@ -272,6 +272,7 @@ export class AgentRuntime implements Runtime {
       .find(
         (m) =>
           m.role === 'assistant' &&
+          m.senderId === this.participantId &&
           m.toolResults?.some((tr) => tr.result.status === 'pending_approval'),
       );
 
