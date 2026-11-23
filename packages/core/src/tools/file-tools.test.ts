@@ -140,6 +140,16 @@ describe('file tools', () => {
       expect(data.next).toBeGreaterThan(1);
       expect(data.lineCount).toBeLessThan(3000);
       expect(r.content).toContain('[Output truncated. Continue reading with offset:');
+      expect(Buffer.byteLength(r.content as string, 'utf8')).toBeLessThanOrEqual(50 * 1024);
+    });
+
+    it('caps limit at 2000 lines even when a larger limit is requested', async () => {
+      await writeFile(join(dir, 'many.txt'), Array.from({ length: 3000 }, () => 'z').join('\n'));
+      const r = await fileReadTool.execute({ path: 'many.txt', limit: 5000 }, ctx(dir));
+      expect(r.status).toBe('success');
+      const data = r.data as { lineCount: number; next?: number };
+      expect(data.lineCount).toBeLessThanOrEqual(2000);
+      expect(data.next).toBeDefined();
     });
 
     it('rejects binary files', async () => {

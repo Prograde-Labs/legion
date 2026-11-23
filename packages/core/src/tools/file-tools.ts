@@ -105,21 +105,31 @@ export const fileReadTool: Tool = {
     const lines = splitPhysicalLines(text);
     const total = lines.length;
     const start = offset - 1;
+    const pageLimit = Math.min(limit, MAX_READ_LINES);
     const selected: string[] = [];
     let bytes = 0;
     let next: number | undefined;
 
-    for (let i = start; i < total && selected.length < limit; i++) {
+    for (let i = start; i < total && selected.length < pageLimit; i++) {
       const line = clampLine(lines[i]);
-      const add = Buffer.byteLength(line, 'utf8') + (selected.length > 0 ? 1 : 0);
-      if (selected.length > 0 && bytes + add > MAX_READ_BYTES) {
+      const rendered = `${i + 1}: ${line}`;
+      const add = Buffer.byteLength(rendered, 'utf8') + (selected.length > 0 ? 1 : 0);
+      const headerBytes = Buffer.byteLength(
+        `Read file ${path}, lines ${start + 1}-${start + selected.length + 1}`,
+        'utf8',
+      );
+      const markerBytes = Buffer.byteLength(
+        `\n[Output truncated. Continue reading with offset: ${i + 2}]`,
+        'utf8',
+      );
+      if (selected.length > 0 && headerBytes + 1 + bytes + add + markerBytes > MAX_READ_BYTES) {
         next = i + 1;
         break;
       }
       selected.push(line);
       bytes += add;
     }
-    if (next === undefined && selected.length === limit && start + selected.length < total) {
+    if (next === undefined && selected.length === pageLimit && start + selected.length < total) {
       next = start + selected.length + 1;
     }
 
