@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { userTools } from './user-tools.js';
@@ -22,7 +25,7 @@ async function makeContext(
   const storage = new MemoryStorage();
   const collective = await Collective.load(storage);
   await collective.seedDefaultsIfEmpty();
-  const context = { collective, participant } as unknown as ToolContext;
+  const context = { collective, participant, workspaceRoot: '/tmp' } as unknown as ToolContext;
   return { context, collective };
 }
 
@@ -151,6 +154,36 @@ describe('create_user', () => {
     expect(result.status).toBe('success');
     expect((collective.get('u2') as UserConfig).tools).toEqual(SUBSCRIPTION_TOOLS);
   });
+
+  it('create_user stores a validated workspace root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'legion-user-root-'));
+    try {
+      const { context, collective } = await makeContext();
+      const result = await createUserTool.execute(
+        { id: 'rooted-user', name: 'Rooted User', workspaceRoot: root },
+        context,
+      );
+      expect(result.status).toBe('success');
+      expect((collective.get('rooted-user') as UserConfig).workspaceRoot).toBe(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('create_user rejects a missing workspace root without adding the user', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createUserTool.execute(
+      {
+        id: 'bad-user',
+        name: 'Bad User',
+        workspaceRoot: join(tmpdir(), 'legion-user-missing-xyz'),
+      },
+      context,
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/does not exist/);
+    expect(collective.get('bad-user')).toBeUndefined();
+  });
 });
 
 describe('modify_user', () => {
@@ -271,5 +304,46 @@ describe('modify_user', () => {
     );
     expect(result.status).toBe('success');
     expect((collective.get('alice') as UserConfig).tools).toEqual({ save_mcp_sources: 'auto' });
+  });
+
+  it('sets, keeps, and clears the workspace root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'legion-user-mod-root-'));
+    try {
+      const { context, collective } = await makeContext();
+      await createUserTool.execute({ id: 'mod-user', name: 'Mod User' }, context);
+
+      await modifyUserTool.execute({ id: 'mod-user', workspaceRoot: root }, context);
+      expect((collective.get('mod-user') as UserConfig).workspaceRoot).toBe(root);
+
+      await modifyUserTool.execute({ id: 'mod-user', name: 'Renamed' }, context);
+      expect((collective.get('mod-user') as UserConfig).workspaceRoot).toBe(root);
+
+      await modifyUserTool.execute({ id: 'mod-user', workspaceRoot: '' }, context);
+      expect((collective.get('mod-user') as UserConfig).workspaceRoot).toBeUndefined();
+
+      await modifyUserTool.execute({ id: 'mod-user', workspaceRoot: null }, context);
+      expect((collective.get('mod-user') as UserConfig).workspaceRoot).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('modify_user rejects an invalid root and keeps the existing value', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'legion-user-invalid-'));
+    try {
+      const { context, collective } = await makeContext();
+      await createUserTool.execute(
+        { id: 'mod-invalid-user', name: 'Mod Invalid', workspaceRoot: root },
+        context,
+      );
+      const result = await modifyUserTool.execute(
+        { id: 'mod-invalid-user', workspaceRoot: join(tmpdir(), 'legion-user-missing-xyz') },
+        context,
+      );
+      expect(result.status).toBe('error');
+      expect((collective.get('mod-invalid-user') as UserConfig).workspaceRoot).toBe(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
