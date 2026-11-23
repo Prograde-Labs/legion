@@ -1,3 +1,4 @@
+import type { Stats } from 'node:fs';
 import { mkdir, readFile, stat, writeFile, readdir } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@legion-collective/types';
@@ -45,8 +46,34 @@ function fileError(path: string, err: unknown, verb: 'read' | 'edit'): ToolResul
   return { status: 'error', error: err instanceof Error ? err.message : String(err) };
 }
 
+async function checkRegularFile(
+  target: string,
+  path: string,
+  verb: 'read' | 'edit',
+): Promise<ToolResult | null> {
+  let stats: Stats;
+  try {
+    stats = await stat(target);
+  } catch (err) {
+    return fileError(path, err, verb);
+  }
+  if (stats.isDirectory()) {
+    return {
+      status: 'error',
+      error:
+        verb === 'read'
+          ? `Path is a directory, use file_list: ${path}`
+          : `Path is a directory: ${path}`,
+    };
+  }
+  if (!stats.isFile()) return { status: 'error', error: `Path is not a regular file: ${path}` };
+  return null;
+}
+
 function countOccurrences(text: string, search: string): number {
-  if (search.length === 0) return 0;
+  if (typeof search !== 'string' || !Number.isSafeInteger(search.length) || search.length <= 0) {
+    return 0;
+  }
   let count = 0;
   let index = 0;
   while ((index = text.indexOf(search, index)) !== -1) {
@@ -99,11 +126,20 @@ export const fileReadTool: Tool = {
       offset?: number;
       limit?: number;
     };
+    if (typeof offset !== 'number' || !Number.isSafeInteger(offset)) {
+      return { status: 'error', error: 'offset must be a positive integer' };
+    }
     if (offset < 1) return { status: 'error', error: 'offset must be at least 1' };
+    if (typeof limit !== 'number' || !Number.isSafeInteger(limit)) {
+      return { status: 'error', error: 'limit must be a positive integer' };
+    }
     if (limit < 1) return { status: 'error', error: 'limit must be at least 1' };
 
     const target = resolveInWorkspace(context, path);
     if (!target) return { status: 'error', error: `Invalid path (outside workspace): ${path}` };
+
+    const fileCheck = await checkRegularFile(target, path, 'read');
+    if (fileCheck) return fileCheck;
 
     let text: string;
     try {
@@ -239,11 +275,21 @@ export const fileEditTool: Tool = {
       newString,
       replaceAll = false,
     } = args as {
-      path: string;
-      oldString: string;
-      newString: string;
-      replaceAll?: boolean;
+      path: unknown;
+      oldString: unknown;
+      newString: unknown;
+      replaceAll?: unknown;
     };
+    if (typeof path !== 'string') return { status: 'error', error: 'path must be a string' };
+    if (typeof oldString !== 'string') {
+      return { status: 'error', error: 'oldString must be a string' };
+    }
+    if (typeof newString !== 'string') {
+      return { status: 'error', error: 'newString must be a string' };
+    }
+    if (typeof replaceAll !== 'boolean') {
+      return { status: 'error', error: 'replaceAll must be a boolean' };
+    }
 
     const target = resolveInWorkspace(context, path);
     if (!target) return { status: 'error', error: `Invalid path (outside workspace): ${path}` };
@@ -260,11 +306,18 @@ export const fileEditTool: Tool = {
       };
     }
 
-    let text: string;
+    const fileCheck = await checkRegularFile(target, path, 'edit');
+    if (fileCheck) return fileCheck;
+
+    let buffer: Buffer;
     try {
-      text = await readFile(target, 'utf8');
+      buffer = await readFile(target);
     } catch (err) {
       return fileError(path, err, 'edit');
+    }
+    const text = buffer.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(buffer)) {
+      return { status: 'error', error: `File is not valid UTF-8: ${path}` };
     }
     if (isBinary(text)) return { status: 'error', error: `Cannot edit binary file: ${path}` };
 

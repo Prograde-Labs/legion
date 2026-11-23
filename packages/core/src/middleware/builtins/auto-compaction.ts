@@ -38,7 +38,7 @@ export function estimateProviderContextTokens(
     }
     for (const result of message.toolResults ?? []) {
       bytes += Buffer.byteLength(result.id) + Buffer.byteLength(result.name);
-      bytes += Buffer.byteLength(JSON.stringify(result.result));
+      bytes += Buffer.byteLength(result.result.content ?? JSON.stringify(result.result));
     }
   }
   return Math.ceil(bytes / 4);

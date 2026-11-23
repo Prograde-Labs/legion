@@ -68,6 +68,27 @@ describe('auto compaction selection', () => {
     );
   });
 
+  it('counts tool result content once instead of the structured data', () => {
+    const toolTurn = {
+      ...message('m1', 'working', 'assistant'),
+      toolResults: [
+        {
+          id: 'call-1',
+          name: 'read',
+          result: {
+            status: 'success' as const,
+            data: { content: 'x'.repeat(1000), entries: ['a', 'b'] },
+            content: 'visible',
+          },
+        },
+      ],
+    };
+    const visible = 'systemworkingcall-1readvisible';
+    expect(estimateProviderContextTokens('system', [toolTurn])).toBe(
+      Math.ceil(Buffer.byteLength(visible) / 4),
+    );
+  });
+
   it('selects oldest contiguous prefix while retaining recent tokens', () => {
     const chain = [
       message('m1', 'a'.repeat(40)),

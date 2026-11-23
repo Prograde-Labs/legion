@@ -256,18 +256,33 @@ try {
   const c = await login('Agent C', PASSWORD);
 
   const aFiles = await call(a, 'file_list', { path: '.' });
-  assert(aFiles.includes('root-a.txt'), 'agent A lists its own root');
-  assert(!aFiles.includes('root-b.txt'), 'agent A does not see agent B files');
+  assert(
+    aFiles.entries.some((entry) => entry.name === 'root-a.txt'),
+    'agent A lists its own root',
+  );
+  assert(
+    !aFiles.entries.some((entry) => entry.name === 'root-b.txt'),
+    'agent A does not see agent B files',
+  );
 
   const bFiles = await call(b, 'file_list', { path: '.' });
-  assert(bFiles.includes('root-b.txt'), 'agent B lists its own relative root');
-  assert(!bFiles.includes('root-a.txt'), 'agent B does not see agent A files');
+  assert(
+    bFiles.entries.some((entry) => entry.name === 'root-b.txt'),
+    'agent B lists its own relative root',
+  );
+  assert(
+    !bFiles.entries.some((entry) => entry.name === 'root-a.txt'),
+    'agent B does not see agent A files',
+  );
 
   const cFiles = await call(c, 'file_list', { path: '.' });
-  assert(cFiles.includes('default.txt'), 'agent C inherits WorkspaceConfig.workspaceRoot');
+  assert(
+    cFiles.entries.some((entry) => entry.name === 'default.txt'),
+    'agent C inherits WorkspaceConfig.workspaceRoot',
+  );
 
   const inside = await call(a, 'file_read', { path: join(dirs.a, 'root-a.txt') });
-  assert(inside === 'A', 'absolute path inside the participant root is readable');
+  assert(inside.content === 'A', 'absolute path inside the participant root is readable');
 
   const outside = await rawCall(a, 'file_read', { path: join(dirs.b, 'root-b.txt') });
   assert(
@@ -309,7 +324,7 @@ try {
     },
   });
   const scopedOk = await call(a, 'file_read', { path: 'allowed/ok.txt' });
-  assert(scopedOk === 'ok', 'pathPrefix scope resolves under the participant root');
+  assert(scopedOk.content === 'ok', 'pathPrefix scope resolves under the participant root');
   const scopedBad = await rawCall(a, 'file_read', { path: 'other.txt' });
   assert(
     scopedBad.status === 'error' && /argument scope violation/.test(scopedBad.error),

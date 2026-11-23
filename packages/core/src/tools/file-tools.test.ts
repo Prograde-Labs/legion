@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileReadTool, fileWriteTool, fileEditTool, fileListTool } from './file-tools.js';
@@ -204,6 +204,31 @@ describe('file tools', () => {
       const badLimit = await fileReadTool.execute({ path: 'x', limit: 0 }, ctx(dir));
       expect(badLimit.error).toBe('limit must be at least 1');
     });
+
+    it('rejects non-integer offset and limit', async () => {
+      await writeFile(join(dir, 'n.txt'), 'a\nb\nc\n');
+      const fractionalOffset = await fileReadTool.execute({ path: 'n.txt', offset: 1.5 }, ctx(dir));
+      expect(fractionalOffset.error).toBe('offset must be a positive integer');
+      const fractionalLimit = await fileReadTool.execute({ path: 'n.txt', limit: 2.5 }, ctx(dir));
+      expect(fractionalLimit.error).toBe('limit must be a positive integer');
+      const nanOffset = await fileReadTool.execute({ path: 'n.txt', offset: Number.NaN }, ctx(dir));
+      expect(nanOffset.error).toBe('offset must be a positive integer');
+      const nanLimit = await fileReadTool.execute({ path: 'n.txt', limit: Number.NaN }, ctx(dir));
+      expect(nanLimit.error).toBe('limit must be a positive integer');
+    });
+
+    it('caps an oversized limit at exactly 2000 lines and reports next 2001', async () => {
+      await writeFile(join(dir, 'many.txt'), Array.from({ length: 3000 }, () => 'z').join('\n'));
+      const r = await fileReadTool.execute({ path: 'many.txt', limit: 5000 }, ctx(dir));
+      expect(r.status).toBe('success');
+      expect(r.data).toMatchObject({ lineCount: 2000, next: 2001 });
+    });
+
+    it('rejects non-regular files', async () => {
+      await symlink('/dev/null', join(dir, 'dev'));
+      const r = await fileReadTool.execute({ path: 'dev' }, ctx(dir));
+      expect(r.error).toBe('Path is not a regular file: dev');
+    });
   });
 
   describe('file_edit', () => {
@@ -318,6 +343,56 @@ describe('file tools', () => {
         ctx(dir),
       );
       expect(r.error).toBe('Cannot edit binary file: bin.txt');
+    });
+
+    it('rejects malformed arguments before touching the file', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+
+      const badPath = await fileEditTool.execute(
+        { path: 42, oldString: 'hello', newString: 'x' },
+        ctx(dir),
+      );
+      expect(badPath.error).toBe('path must be a string');
+
+      const badOld = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 42, newString: 'x' },
+        ctx(dir),
+      );
+      expect(badOld.error).toBe('oldString must be a string');
+
+      const badNew = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'hello', newString: 42 },
+        ctx(dir),
+      );
+      expect(badNew.error).toBe('newString must be a string');
+
+      const badReplaceAll = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'hello', newString: 'x', replaceAll: 'yes' },
+        ctx(dir),
+      );
+      expect(badReplaceAll.error).toBe('replaceAll must be a boolean');
+
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello\n');
+    });
+
+    it('rejects invalid UTF-8 and leaves the bytes unchanged', async () => {
+      const bytes = Buffer.from([0x61, 0xff, 0x62]);
+      await writeFile(join(dir, 'bad.txt'), bytes);
+      const r = await fileEditTool.execute(
+        { path: 'bad.txt', oldString: 'a', newString: 'A' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('File is not valid UTF-8: bad.txt');
+      expect(await readFile(join(dir, 'bad.txt'))).toEqual(bytes);
+    });
+
+    it('rejects non-regular files', async () => {
+      await symlink('/dev/null', join(dir, 'dev'));
+      const r = await fileEditTool.execute(
+        { path: 'dev', oldString: 'a', newString: 'b' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('Path is not a regular file: dev');
     });
   });
 
