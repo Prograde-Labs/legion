@@ -6,7 +6,9 @@ import type { Connector } from './Connector.js';
  *
  * - `register()` / `deregister()` — called at startup/shutdown for each connector.
  * - `setActive()` / `clearActive()` — called by connectors when clients connect/disconnect.
- * - `getActiveConnectors()` — called by `UserDeliveryRuntime` to find where to deliver.
+ * - `getActiveConnectors()` — presence-only: who is currently connected.
+ * - `getDeliverableConnectors()` — what `UserDeliveryRuntime` uses to find where
+ *   a message can be delivered, based on each connector's `canDeliver` predicate.
  */
 export class ConnectorRegistry {
   private connectors = new Map<string, Connector>();
@@ -52,7 +54,8 @@ export class ConnectorRegistry {
 
   /**
    * Returns every registered connector that currently has an active connection
-   * for `participantId`. Used by `UserDeliveryRuntime`.
+   * for `participantId`. Presence-only; delivery decisions belong to
+   * `getDeliverableConnectors()`.
    */
   getActiveConnectors(participantId: string): Connector[] {
     const result: Connector[] = [];
@@ -63,5 +66,14 @@ export class ConnectorRegistry {
       }
     }
     return result;
+  }
+
+  /**
+   * Returns every registered connector whose `canDeliver` predicate accepts
+   * `participantId`. Connectors without a predicate are treated as reachable.
+   * This is independent of `setActive`, which remains presence-only.
+   */
+  getDeliverableConnectors(participantId: string): Connector[] {
+    return this.getAll().filter((connector) => connector.canDeliver?.(participantId) ?? true);
   }
 }

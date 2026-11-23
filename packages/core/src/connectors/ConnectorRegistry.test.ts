@@ -1,11 +1,14 @@
 import { ConnectorRegistry } from './ConnectorRegistry.js';
 import type { Connector } from './Connector.js';
 
-function makeConnector(name: string): Connector {
+function makeConnector(name: string, canDeliver?: (participantId: string) => boolean): Connector {
   return {
     name,
+    ...(canDeliver ? { canDeliver } : {}),
     async start() {},
-    async deliver() {},
+    async deliver() {
+      return { status: 'delivered' };
+    },
     async stop() {},
   };
 }
@@ -92,5 +95,25 @@ describe('ConnectorRegistry', () => {
     reg.setActive('user-1', 'web');
     expect(reg.getActiveConnectors('user-1')).toHaveLength(1);
     expect(reg.getActiveConnectors('user-1')[0].name).toBe('web');
+  });
+
+  it('getDeliverableConnectors includes connectors whose predicate accepts the participant', () => {
+    const reg = new ConnectorRegistry();
+    reg.register(makeConnector('teams', (id) => id === 'user-1'));
+    reg.register(makeConnector('web', (id) => id === 'user-2'));
+    expect(reg.getDeliverableConnectors('user-1').map((c) => c.name)).toEqual(['teams']);
+  });
+
+  it('getDeliverableConnectors includes connectors without a predicate', () => {
+    const reg = new ConnectorRegistry();
+    reg.register(makeConnector('legacy'));
+    expect(reg.getDeliverableConnectors('user-1').map((c) => c.name)).toEqual(['legacy']);
+  });
+
+  it('getDeliverableConnectors does not depend on active state', () => {
+    const reg = new ConnectorRegistry();
+    reg.register(makeConnector('teams', () => true));
+    expect(reg.getActiveConnectors('user-1')).toHaveLength(0);
+    expect(reg.getDeliverableConnectors('user-1')).toHaveLength(1);
   });
 });

@@ -51,6 +51,15 @@ export interface ConnectorContext {
   registry: ConnectorRegistry;
 }
 
+/** Result of one connector's attempt to push a message outbound. */
+export type DeliveryStatus = 'delivered' | 'accepted' | 'not-reachable' | 'failed';
+
+export interface DeliveryOutcome {
+  status: DeliveryStatus;
+  /** Human-readable reason for `not-reachable` or `failed`. */
+  reason?: string;
+}
+
 /**
  * A boundary channel through which external entities interact with the collective.
  * The `deliver` method is called by `UserDeliveryRuntime` to push outbound messages.
@@ -59,13 +68,20 @@ export interface Connector {
   /** Unique connector name, e.g. `'web'`, `'teams'`, `'slack'`. */
   readonly name: string;
 
+  /**
+   * Whether this connector can deliver to the participant. Optional for
+   * compatibility; an absent predicate means "ask me". Implementations should
+   * base this on the participant's identities and their own liveness, not on
+   * an I/O probe. `deliver` remains the source of truth for reachability.
+   */
+  canDeliver?(participantId: string): boolean;
+
   /** Called once at process startup to hand over the `ConnectorContext`. */
   start(ctx: ConnectorContext): Promise<void>;
 
   /**
    * Push a message outbound to the external entity the connector fronts.
-   * Called by `UserDeliveryRuntime` when a message is addressed to a
-   * connector-bound participant.
+   * Returns whether the platform accepted it, or why it could not be reached.
    */
   deliver(message: {
     id: string;
@@ -75,7 +91,7 @@ export interface Connector {
     replyTo?: string;
     content: string;
     timestamp: string;
-  }): Promise<void>;
+  }): Promise<DeliveryOutcome>;
 
   /** Called on process shutdown. Release all resources. */
   stop(): Promise<void>;
