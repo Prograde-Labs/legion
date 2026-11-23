@@ -75,7 +75,7 @@ async function makeSetup(providerResponses: ScriptedProviderResponse[]) {
     type: 'agent',
     systemPrompt: 'You are a helpful assistant.',
     model: { model: 'test-model' },
-    tools: { echo: 'auto' },
+    tools: { echo: 'auto', echo_content: 'auto' },
     status: 'active',
   };
   await storage.writeJson('collective/participants/agent-1.json', agentConfig);
@@ -105,6 +105,15 @@ async function makeSetup(providerResponses: ScriptedProviderResponse[]) {
     async execute(args) {
       const { text } = args as { text: string };
       return { status: 'success', data: text };
+    },
+  });
+  toolRegistry.register({
+    name: 'echo_content',
+    description: 'Echoes the input text with a model-facing content string',
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    async execute(args) {
+      const { text } = args as { text: string };
+      return { status: 'success', data: { text }, content: `plain text for the model: ${text}` };
     },
   });
 
@@ -353,6 +362,38 @@ describe('AgentRuntime', () => {
     expect(toolTurn.toolResults).toHaveLength(1);
     expect(toolTurn.toolResults![0].result.status).toBe('success');
     expect(toolTurn.toolResults![0].result.data).toBe('hello world');
+  });
+
+  it('sends ToolResult.content to the provider when present', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo_content', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+    await runtime.handle(inbound, context);
+
+    const toolMessage = providerRequests[1].find((m) => m.role === 'tool');
+    expect(toolMessage?.content).toBe('plain text for the model: hello');
+  });
+
+  it('falls back to JSON.stringify when ToolResult.content is absent', async () => {
+    const { context, inbound, router, providerRequests } = await makeSetup([
+      {
+        content: null,
+        toolCalls: [{ id: 'tc-1', name: 'echo', arguments: { text: 'hello' } }],
+        stopReason: 'tool_calls',
+      },
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const runtime = new AgentRuntime('agent-1', router);
+    await runtime.handle(inbound, context);
+
+    const toolMessage = providerRequests[1].find((m) => m.role === 'tool');
+    expect(toolMessage?.content).toBe(JSON.stringify({ status: 'success', data: 'hello' }));
   });
 
   it('emits iteration, tool:call, and tool:result events in the correct order', async () => {
