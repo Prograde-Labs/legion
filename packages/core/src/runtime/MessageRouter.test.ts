@@ -5145,4 +5145,166 @@ describe('MessageRouter: synchronous human reply', () => {
       response: 'the answer',
     });
   });
+
+  it('returns the human reply as the stream result', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    const iteration = (async () => {
+      const chunks: LLMChunk[] = [];
+      let next = await stream.next();
+      while (!next.done) {
+        chunks.push(next.value);
+        next = await stream.next();
+      }
+      return { chunks, result: next.value };
+    })();
+    await delivered;
+
+    const reply = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the answer',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(reply).toMatchObject({ status: 'success' });
+
+    const { chunks, result } = await iteration;
+    expect(chunks).toEqual([]);
+    expect(result).toMatchObject({ status: 'success', response: 'the answer' });
+    expect(handleCalls).toEqual([]);
+  });
+
+  it('consumes a reply routed through sendStream', async () => {
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const pending = router.send({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    await delivered;
+
+    const stream = router.sendStream({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'the answer',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    let next = await stream.next();
+    while (!next.done) next = await stream.next();
+    expect(next.value).toMatchObject({ status: 'success' });
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'success',
+      response: 'the answer',
+    });
+    expect(handleCalls).toEqual([]);
+  });
+
+  it('times out the stream with a call_timeout chunk', async () => {
+    const { router, baseContext, store } = await setupHumanRouter({
+      communication: { replyTimeoutMs: 20 },
+    });
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
+    }
+
+    expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 20 });
+    expect(next.value).toMatchObject({ status: 'timeout', partial: true });
+  });
+
+  it('uses explicit timeoutMs as the stream reply deadline', async () => {
+    const { router, baseContext, store } = await setupHumanRouter();
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      timeoutMs: 20,
+      context: baseContext,
+    });
+    const chunks: LLMChunk[] = [];
+    let next = await stream.next();
+    while (!next.done) {
+      chunks.push(next.value);
+      next = await stream.next();
+    }
+
+    expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 20 });
+    expect(next.value).toMatchObject({ status: 'timeout', partial: true });
+  });
+
+  it('cancels the stream wait on caller abort', async () => {
+    const { router, baseContext, store, delivered } = await setupHumanRouter({
+      communication: { replyTimeoutMs: null },
+    });
+    const conversation = await newConversation(store);
+    const controller = new AbortController();
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'question?',
+      conversationId: conversation.id,
+      context: { ...baseContext, signal: controller.signal },
+    });
+    const terminal = (async () => {
+      let next = await stream.next();
+      while (!next.done) next = await stream.next();
+      return next.value;
+    })();
+    await delivered;
+    controller.abort();
+
+    await expect(terminal).resolves.toMatchObject({
+      status: 'error',
+      error: 'Runtime cancelled',
+    });
+  });
+
+  it('returns dispatched immediately from sendStream when replyTo is set', async () => {
+    const { router, baseContext, store } = await setupHumanRouter({
+      communication: { replyTimeoutMs: null },
+    });
+    const conversation = await newConversation(store);
+
+    const stream = router.sendStream({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      message: 'hi',
+      conversationId: conversation.id,
+      replyTo: 'mock-1',
+      context: baseContext,
+    });
+    const next = await stream.next();
+    expect(next).toMatchObject({ done: true, value: { status: 'dispatched' } });
+    await router.drain();
+  });
 });

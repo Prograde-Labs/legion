@@ -610,7 +610,7 @@ export class MessageRouter implements MessageRouterPort {
       };
       const result: MessageRouterResult = { ...next.value, meta };
       completed = true;
-      if (!timedOut) return result;
+      if (!timedOut || result.status === 'timeout') return result;
       yield { type: 'call_timeout', timeoutMs: opts.timeoutMs! };
       return { ...result, status: 'timeout', partial: true };
     } finally {
@@ -637,17 +637,23 @@ export class MessageRouter implements MessageRouterPort {
       release = await this.acquireLock(conversationId);
       lockedConversationId = conversationId;
     };
+    const releaseLock = () => {
+      release?.();
+      release = undefined;
+      lockedConversationId = undefined;
+    };
     try {
       if (opts.conversationId) await ensureLock(opts.conversationId);
-      return yield* this.sendStreamInner(opts, ensureLock);
+      return yield* this.sendStreamInner(opts, ensureLock, releaseLock);
     } finally {
-      release?.();
+      releaseLock();
     }
   }
 
   private async *sendStreamInner(
     opts: SendOptions,
     ensureLock: (conversationId: string) => Promise<void>,
+    releaseLock: () => void,
   ): AsyncGenerator<LLMChunk, MessageRouterResult> {
     if (opts.context.signal?.aborted) {
       return {
@@ -767,6 +773,15 @@ export class MessageRouter implements MessageRouterPort {
         messageId: inbound.id,
       });
     }
+
+    if (this.resolveReplyWaiters(thread.id, opts.senderId, inbound.content)) {
+      return { conversationId: thread.id, status: 'success' };
+    }
+
+    const expectsHumanReply = recipient.type === 'user' && opts.replyTo === undefined;
+    const replyWaiter = expectsHumanReply
+      ? this.registerReplyWaiter(thread.id, recipient.id)
+      : undefined;
 
     const runtime = this.registry.build(recipient.type, recipient.id);
     const streamAbort = this.combineAbortSignals(opts.context.signal);
@@ -965,6 +980,27 @@ export class MessageRouter implements MessageRouterPort {
         );
       } else {
         const result = await runtime.handle(inbound, runtimeContext);
+        let humanReply: string | undefined;
+        if (replyWaiter && this.isDeliveredVoid(result)) {
+          const timeoutMs = this.resolveReplyTimeout(opts);
+          releaseLock();
+          const outcome = await this.awaitReply(
+            replyWaiter.promise,
+            timeoutMs,
+            opts.context.signal,
+          );
+          if (outcome.kind === 'reply') {
+            humanReply = outcome.text;
+          } else {
+            replyWaiter.unregister();
+            if (outcome.kind === 'timeout') {
+              yield { type: 'call_timeout', timeoutMs: timeoutMs! };
+              return { conversationId: thread.id, status: 'timeout', partial: true };
+            }
+            return { conversationId: thread.id, status: 'error', error: 'Runtime cancelled' };
+          }
+        }
+        replyWaiter?.unregister();
         if (transformer) {
           try {
             const finished = await transformer.finish(result);
@@ -978,7 +1014,7 @@ export class MessageRouter implements MessageRouterPort {
             throw error;
           }
         }
-        return await this.completeResponse(
+        const completed = await this.completeResponse(
           {
             thread,
             recipientId: recipient.id,
@@ -987,11 +1023,13 @@ export class MessageRouter implements MessageRouterPort {
           },
           result,
         );
+        return humanReply === undefined ? completed : { ...completed, response: humanReply };
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
     } finally {
+      replyWaiter?.unregister();
       if (!streamFinished && runtimeStream) {
         streamAbort.abort();
         transformer?.abort();
