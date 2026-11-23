@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { ServiceConfig, WorkspaceConfig } from '@legion-collective/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { Collective } from '../collective/Collective.js';
+import { resolveParticipantWorkspaceRoot } from '../collective/workspace-root.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
@@ -204,7 +205,12 @@ export class ServiceManager {
       config: this.deps.workspaceConfig,
       eventBus: this.deps.eventBus,
       storage: this.deps.storage,
-      workspaceRoot: this.deps.workspaceRoot,
+      workspaceRoot: resolveParticipantWorkspaceRoot(
+        config,
+        this.deps.workspaceConfig,
+        this.deps.workspaceRoot,
+      ),
+      collectiveWorkspaceRoot: this.deps.workspaceRoot,
       communicationDepth: 0,
       toolRegistry: this.deps.toolRegistry,
       messageRouter: this.deps.messageRouter,

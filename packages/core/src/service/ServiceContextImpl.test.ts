@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServiceConfig, ToolResult } from '@legion-collective/types';
@@ -304,6 +304,39 @@ describe('ServiceContextImpl', () => {
       const result = await ctx.callTool('file_read', {});
       expect(result.status).toBe('error');
       expect((result as any).error).toMatch(/requires_approval/i);
+    });
+
+    it('resolves scopes and tool contexts against the participant root', async () => {
+      const { dir: d, deps } = await setup();
+      dir = d;
+      const participantRoot = join(d, 'project');
+      await mkdir(join(participantRoot, 'allowed'), { recursive: true });
+      deps.participant = {
+        ...BASE_CONFIG,
+        workspaceRoot: participantRoot,
+        tools: {
+          file_read: { policy: 'auto', scope: { path: { pathPrefix: 'allowed' } } },
+        },
+      } as ServiceConfig;
+
+      let seenRoot: string | undefined;
+      const originalExecute = deps.toolRegistry.execute;
+      deps.toolRegistry = {
+        ...deps.toolRegistry,
+        execute: async (name, args, ctx) => {
+          seenRoot = (ctx as ToolContext).workspaceRoot;
+          return originalExecute(name, args, ctx);
+        },
+      };
+
+      const ctx = new ServiceContextImpl(deps);
+      const ok = await ctx.callTool('file_read', { path: 'allowed/ok.txt' });
+      expect(ok.status).toBe('success');
+      expect(seenRoot).toBe(participantRoot);
+
+      const outside = await ctx.callTool('file_read', { path: 'other.txt' });
+      expect(outside.status).toBe('error');
+      expect(outside.error).toMatch(/argument scope violation/);
     });
 
     it('fails closed when arguments violate the tool scope', async () => {

@@ -1,6 +1,7 @@
 import type { ServiceConfig, ToolResult, WorkspaceConfig } from '@legion-collective/types';
 import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { Collective } from '../collective/Collective.js';
+import { resolveParticipantWorkspaceRoot } from '../collective/workspace-root.js';
 import type { ConversationStore } from '../conversation/ConversationStore.js';
 import type { EventBus } from '../events/EventBus.js';
 import type { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
@@ -97,11 +98,19 @@ export class ServiceContextImpl implements ServiceContext {
     };
   }
 
+  private effectiveWorkspaceRoot(): string {
+    return resolveParticipantWorkspaceRoot(
+      this.deps.participant,
+      this.deps.workspaceConfig,
+      this.deps.workspaceRoot,
+    );
+  }
+
   async callTool(toolName: string, args: unknown): Promise<ToolResult> {
     const { participant, authEngine } = this.deps;
 
     const authResult = authEngine.authorize(participant.id, toolName, args, participant.tools, {
-      workspaceRoot: this.deps.workspaceRoot,
+      workspaceRoot: this.effectiveWorkspaceRoot(),
     });
     if (!authResult.authorized) {
       const reason =
@@ -141,7 +150,6 @@ export class ServiceContextImpl implements ServiceContext {
       workspaceConfig,
       eventBus,
       rawStorage,
-      workspaceRoot,
       authEngine,
       pendingApprovalRegistry,
       middlewareConfigurationValidator,
@@ -157,7 +165,8 @@ export class ServiceContextImpl implements ServiceContext {
       config: workspaceConfig,
       eventBus,
       storage: rawStorage,
-      workspaceRoot,
+      workspaceRoot: this.effectiveWorkspaceRoot(),
+      collectiveWorkspaceRoot: this.deps.workspaceRoot,
       communicationDepth: 0,
       toolRegistry,
       messageRouter,
