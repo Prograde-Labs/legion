@@ -474,7 +474,9 @@ function transcript(conversation: ConversationData, messageIds: string[]): strin
       }
       for (const result of message.toolResults ?? []) {
         lines.push(
-          `tool_result id=${result.id} name=${result.name} result=${JSON.stringify(result.result)}`,
+          `tool_result id=${result.id} name=${result.name} result=${
+            result.result.content ?? JSON.stringify(result.result)
+          }`,
         );
       }
       return lines;

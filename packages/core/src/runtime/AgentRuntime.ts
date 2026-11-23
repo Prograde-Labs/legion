@@ -65,7 +65,7 @@ function buildProviderMessages(chain: MessageData[], systemPrompt: string): Prov
       for (const tr of msg.toolResults ?? []) {
         messages.push({
           role: 'tool',
-          content: JSON.stringify(tr.result),
+          content: tr.result.content ?? JSON.stringify(tr.result),
           toolCallId: tr.id,
           name: tr.name,
         });

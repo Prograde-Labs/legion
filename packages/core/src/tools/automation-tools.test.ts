@@ -425,6 +425,42 @@ describe('compact_conversation automation tool', () => {
     expect(prompt).not.toContain('private chain of thought');
   });
 
+  it('prefers ToolResult.content in the transcript', async () => {
+    const { context, conversationStore, parent } = await setup();
+    const withToolTurn = {
+      ...parent,
+      messages: {
+        ...parent.messages,
+        m2: {
+          ...parent.messages['m2'],
+          toolCalls: [{ id: 'call-1', name: 'lookup', arguments: { query: 'weather' } }],
+          toolResults: [
+            {
+              id: 'call-1',
+              name: 'lookup',
+              result: { status: 'success', data: { temp: 72 }, content: 'weather: 72F' },
+            },
+          ],
+        },
+      },
+    };
+    await conversationStore.replaceForTesting(withToolTurn);
+    const send = vi.fn().mockResolvedValue({
+      conversationId: 'ignored',
+      status: 'success',
+      response: 'compressed context',
+    });
+
+    await createCompactConversationTool().execute(args(parent.id), {
+      ...context,
+      messageRouter: { send },
+    } as ToolContext);
+
+    const prompt = send.mock.calls[0][0].message;
+    expect(prompt).toContain('tool_result id=call-1 name=lookup result=weather: 72F');
+    expect(prompt).not.toContain('{"status":"success"');
+  });
+
   it('compacts manually with agentId and default parent message', async () => {
     const { context, conversationStore, parent } = await setup();
     const send = vi.fn().mockResolvedValue({

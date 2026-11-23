@@ -11,6 +11,8 @@ export interface ToolResult {
   status: ToolResultStatus;
   data?: unknown;
   error?: string;
+  /** Optional model-facing rendering of a successful result. */
+  content?: string;
   /** Set on status:'pending_approval' — the PendingApprovalRegistry key. */
   approvalId?: string;
   /** Set on status:'rejected' — the approver's explanation. */

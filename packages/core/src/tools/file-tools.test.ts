@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileReadTool, fileWriteTool, fileListTool } from './file-tools.js';
+import { fileReadTool, fileWriteTool, fileEditTool, fileListTool } from './file-tools.js';
 import type { ToolContext } from './Tool.js';
 
 function ctx(workspaceRoot: string): ToolContext {
@@ -26,7 +26,9 @@ describe('file tools', () => {
     const w = await fileWriteTool.execute({ path: 'notes/a.txt', content: 'hello' }, ctx(dir));
     expect(w.status).toBe('success');
     const r = await fileReadTool.execute({ path: 'notes/a.txt' }, ctx(dir));
-    expect(r).toEqual({ status: 'success', data: 'hello' });
+    expect(r.status).toBe('success');
+    expect(r.data).toEqual({ path: 'notes/a.txt', offset: 1, lineCount: 1, content: 'hello' });
+    expect(r.content).toBe('Read file notes/a.txt, lines 1-1\n1: hello');
   });
 
   it('file_read returns an error for a missing file', async () => {
@@ -34,12 +36,41 @@ describe('file tools', () => {
     expect(r.status).toBe('error');
   });
 
-  it('file_list lists directory entries', async () => {
-    await fileWriteTool.execute({ path: 'd/a.txt', content: '1' }, ctx(dir));
-    await fileWriteTool.execute({ path: 'd/b.txt', content: '2' }, ctx(dir));
-    const r = await fileListTool.execute({ path: 'd' }, ctx(dir));
-    expect(r.status).toBe('success');
-    expect((r.data as string[]).sort()).toEqual(['a.txt', 'b.txt']);
+  describe('file_list', () => {
+    it('returns typed entries sorted directories first', async () => {
+      await mkdir(join(dir, 'd', 'sub'), { recursive: true });
+      await writeFile(join(dir, 'd', 'b.txt'), '');
+      await writeFile(join(dir, 'd', 'a.txt'), '');
+      const r = await fileListTool.execute({ path: 'd' }, ctx(dir));
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({
+        path: 'd',
+        entries: [
+          { name: 'sub', type: 'directory' },
+          { name: 'a.txt', type: 'file' },
+          { name: 'b.txt', type: 'file' },
+        ],
+      });
+      expect(r.content).toBe('Read directory d, 3 entries\nsub/\na.txt\nb.txt');
+    });
+
+    it('returns zero entries for an empty directory', async () => {
+      await mkdir(join(dir, 'empty'), { recursive: true });
+      const r = await fileListTool.execute({ path: 'empty' }, ctx(dir));
+      expect(r.data).toEqual({ path: 'empty', entries: [] });
+      expect(r.content).toBe('Read directory empty, 0 entries');
+    });
+
+    it('reports a missing directory', async () => {
+      const r = await fileListTool.execute({ path: 'nope' }, ctx(dir));
+      expect(r.error).toBe('Directory not found: nope');
+    });
+
+    it('reports a path that is a file', async () => {
+      await writeFile(join(dir, 'f.txt'), 'x');
+      const r = await fileListTool.execute({ path: 'f.txt' }, ctx(dir));
+      expect(r.error).toBe('Path is not a directory: f.txt');
+    });
   });
 
   it('rejects path traversal outside the workspace', async () => {
@@ -52,7 +83,8 @@ describe('file tools', () => {
     await mkdir(join(dir, 'inside'), { recursive: true });
     await writeFile(join(dir, 'inside', 'a.txt'), 'hello');
     const r = await fileReadTool.execute({ path: join(dir, 'inside', 'a.txt') }, ctx(dir));
-    expect(r).toEqual({ status: 'success', data: 'hello' });
+    expect(r.status).toBe('success');
+    expect((r.data as { content: string }).content).toBe('hello');
   });
 
   it('rejects an absolute path outside the workspace root', async () => {
@@ -71,5 +103,308 @@ describe('file tools', () => {
     const r = await fileReadTool.execute({ path: `${dir}/../escape.txt` }, ctx(dir));
     expect(r.status).toBe('error');
     expect(r.error).toMatch(/outside/i);
+  });
+
+  describe('file_read', () => {
+    it('returns structured data and numbered model content', async () => {
+      await writeFile(join(dir, 'a.txt'), 'one\ntwo\n');
+      const r = await fileReadTool.execute({ path: 'a.txt' }, ctx(dir));
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({ path: 'a.txt', offset: 1, lineCount: 2, content: 'one\ntwo' });
+      expect(r.content).toBe('Read file a.txt, lines 1-2\n1: one\n2: two');
+    });
+
+    it('pages with offset and limit and sets next when lines remain', async () => {
+      await writeFile(join(dir, 'n.txt'), 'a\nb\nc\nd\n');
+      const r = await fileReadTool.execute({ path: 'n.txt', offset: 2, limit: 2 }, ctx(dir));
+      expect(r.data).toEqual({
+        path: 'n.txt',
+        offset: 2,
+        lineCount: 2,
+        next: 4,
+        content: 'b\nc',
+      });
+      expect(r.content).toBe(
+        'Read file n.txt, lines 2-3\n2: b\n3: c\n[Output truncated. Continue reading with offset: 4]',
+      );
+    });
+
+    it('does not count a trailing newline as an extra line', async () => {
+      await writeFile(join(dir, 't.txt'), 'only\n');
+      const r = await fileReadTool.execute({ path: 't.txt' }, ctx(dir));
+      expect((r.data as { lineCount: number }).lineCount).toBe(1);
+    });
+
+    it('returns zero lines for an empty file', async () => {
+      await writeFile(join(dir, 'e.txt'), '');
+      const r = await fileReadTool.execute({ path: 'e.txt' }, ctx(dir));
+      expect(r.data).toEqual({ path: 'e.txt', offset: 1, lineCount: 0, content: '' });
+      expect(r.content).toBe('Read file e.txt, 0 lines');
+    });
+
+    it('reports an offset past the end', async () => {
+      await writeFile(join(dir, 'p.txt'), 'a\nb\n');
+      const r = await fileReadTool.execute({ path: 'p.txt', offset: 5 }, ctx(dir));
+      expect(r.data).toEqual({ path: 'p.txt', offset: 5, lineCount: 0, content: '' });
+      expect(r.content).toBe(
+        'Read file p.txt, 0 lines (offset 5 is past the end; the file has 2 lines)',
+      );
+    });
+
+    it('clamps very long lines', async () => {
+      await writeFile(join(dir, 'long.txt'), 'x'.repeat(2500));
+      const r = await fileReadTool.execute({ path: 'long.txt' }, ctx(dir));
+      expect(r.content).toContain('... (line truncated to 2000 chars)');
+      expect((r.data as { content: string }).content).toBe(
+        `${'x'.repeat(2000)}... (line truncated to 2000 chars)`,
+      );
+    });
+
+    it('truncates output over 50 KB on a line boundary and sets next', async () => {
+      const line = 'y'.repeat(40);
+      await writeFile(join(dir, 'big.txt'), Array.from({ length: 3000 }, () => line).join('\n'));
+      const r = await fileReadTool.execute({ path: 'big.txt' }, ctx(dir));
+      expect(r.status).toBe('success');
+      const data = r.data as { lineCount: number; next?: number };
+      expect(data.next).toBeGreaterThan(1);
+      expect(data.lineCount).toBeLessThan(3000);
+      expect(r.content).toContain('[Output truncated. Continue reading with offset:');
+      expect(Buffer.byteLength(r.content as string, 'utf8')).toBeLessThanOrEqual(50 * 1024);
+    });
+
+    it('caps limit at 2000 lines even when a larger limit is requested', async () => {
+      await writeFile(join(dir, 'many.txt'), Array.from({ length: 3000 }, () => 'z').join('\n'));
+      const r = await fileReadTool.execute({ path: 'many.txt', limit: 5000 }, ctx(dir));
+      expect(r.status).toBe('success');
+      const data = r.data as { lineCount: number; next?: number };
+      expect(data.lineCount).toBeLessThanOrEqual(2000);
+      expect(data.next).toBeDefined();
+    });
+
+    it('rejects binary files', async () => {
+      await writeFile(join(dir, 'bin.txt'), 'abc\u0000def');
+      const r = await fileReadTool.execute({ path: 'bin.txt' }, ctx(dir));
+      expect(r.error).toBe('Cannot read binary file: bin.txt');
+    });
+
+    it('reports a missing file', async () => {
+      const r = await fileReadTool.execute({ path: 'missing.txt' }, ctx(dir));
+      expect(r.error).toBe('File not found: missing.txt');
+    });
+
+    it('reports a directory and points at file_list', async () => {
+      await mkdir(join(dir, 'd'), { recursive: true });
+      const r = await fileReadTool.execute({ path: 'd' }, ctx(dir));
+      expect(r.error).toBe('Path is a directory, use file_list: d');
+    });
+
+    it('rejects invalid offset and limit', async () => {
+      const badOffset = await fileReadTool.execute({ path: 'x', offset: 0 }, ctx(dir));
+      expect(badOffset.error).toBe('offset must be at least 1');
+      const badLimit = await fileReadTool.execute({ path: 'x', limit: 0 }, ctx(dir));
+      expect(badLimit.error).toBe('limit must be at least 1');
+    });
+
+    it('rejects non-integer offset and limit', async () => {
+      await writeFile(join(dir, 'n.txt'), 'a\nb\nc\n');
+      const fractionalOffset = await fileReadTool.execute({ path: 'n.txt', offset: 1.5 }, ctx(dir));
+      expect(fractionalOffset.error).toBe('offset must be a positive integer');
+      const fractionalLimit = await fileReadTool.execute({ path: 'n.txt', limit: 2.5 }, ctx(dir));
+      expect(fractionalLimit.error).toBe('limit must be a positive integer');
+      const nanOffset = await fileReadTool.execute({ path: 'n.txt', offset: Number.NaN }, ctx(dir));
+      expect(nanOffset.error).toBe('offset must be a positive integer');
+      const nanLimit = await fileReadTool.execute({ path: 'n.txt', limit: Number.NaN }, ctx(dir));
+      expect(nanLimit.error).toBe('limit must be a positive integer');
+    });
+
+    it('caps an oversized limit at exactly 2000 lines and reports next 2001', async () => {
+      await writeFile(join(dir, 'many.txt'), Array.from({ length: 3000 }, () => 'z').join('\n'));
+      const r = await fileReadTool.execute({ path: 'many.txt', limit: 5000 }, ctx(dir));
+      expect(r.status).toBe('success');
+      expect(r.data).toMatchObject({ lineCount: 2000, next: 2001 });
+    });
+
+    it('rejects non-regular files', async () => {
+      await symlink('/dev/null', join(dir, 'dev'));
+      const r = await fileReadTool.execute({ path: 'dev' }, ctx(dir));
+      expect(r.error).toBe('Path is not a regular file: dev');
+    });
+  });
+
+  describe('file_edit', () => {
+    it('replaces a unique exact match', async () => {
+      await writeFile(join(dir, 'a.txt'), 'const x = 1;\nconst y = 2;\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'const x = 1;', newString: 'const x = 10;' },
+        ctx(dir),
+      );
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({ path: 'a.txt', replacements: 1 });
+      expect(r.content).toBe('Edited a.txt (1 replacement)');
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('const x = 10;\nconst y = 2;\n');
+    });
+
+    it('replaces every occurrence when replaceAll is true', async () => {
+      await writeFile(join(dir, 'a.txt'), 'foo\nfoo\nfoo\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'foo', newString: 'bar', replaceAll: true },
+        ctx(dir),
+      );
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({ path: 'a.txt', replacements: 3 });
+      expect(r.content).toBe('Edited a.txt (3 replacements)');
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('bar\nbar\nbar\n');
+    });
+
+    it('fails when oldString is not found', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'missing', newString: 'x' },
+        ctx(dir),
+      );
+      expect(r.error).toBe(
+        'Could not find oldString in a.txt. It must match exactly, including whitespace and indentation.',
+      );
+    });
+
+    it('fails on multiple matches without replaceAll', async () => {
+      await writeFile(join(dir, 'a.txt'), 'foo foo\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'foo', newString: 'bar' },
+        ctx(dir),
+      );
+      expect(r.error).toBe(
+        'Found 2 matches for oldString, but expected exactly one. Add more surrounding context to make oldString unique, or set replaceAll to true.',
+      );
+    });
+
+    it('fails when oldString and newString are identical', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'hello', newString: 'hello' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('No changes to apply: oldString and newString are identical.');
+    });
+
+    it('fails when oldString is empty', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: '', newString: 'x' },
+        ctx(dir),
+      );
+      expect(r.error).toBe(
+        'oldString must not be empty. Use file_write to create or overwrite a file.',
+      );
+    });
+
+    it('reports a missing file', async () => {
+      const r = await fileEditTool.execute(
+        { path: 'missing.txt', oldString: 'a', newString: 'b' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('File not found: missing.txt');
+    });
+
+    it('reports a directory', async () => {
+      await mkdir(join(dir, 'd'), { recursive: true });
+      const r = await fileEditTool.execute({ path: 'd', oldString: 'a', newString: 'b' }, ctx(dir));
+      expect(r.error).toBe('Path is a directory: d');
+    });
+
+    it('preserves indentation around the replacement', async () => {
+      await writeFile(join(dir, 'ind.txt'), '  if (x) {\n    y();\n  }\n');
+      const r = await fileEditTool.execute(
+        { path: 'ind.txt', oldString: '    y();', newString: '    z();' },
+        ctx(dir),
+      );
+      expect(r.status).toBe('success');
+      expect(await readFile(join(dir, 'ind.txt'), 'utf8')).toBe('  if (x) {\n    z();\n  }\n');
+    });
+
+    it('matches CRLF only when oldString contains CRLF', async () => {
+      await writeFile(join(dir, 'crlf.txt'), 'a\r\nb\r\n');
+      const ok = await fileEditTool.execute(
+        { path: 'crlf.txt', oldString: 'a\r\nb', newString: 'A\r\nB' },
+        ctx(dir),
+      );
+      expect(ok.status).toBe('success');
+      const bad = await fileEditTool.execute(
+        { path: 'crlf.txt', oldString: 'A\nB', newString: 'x' },
+        ctx(dir),
+      );
+      expect(bad.status).toBe('error');
+    });
+
+    it('rejects binary files', async () => {
+      await writeFile(join(dir, 'bin.txt'), 'abc\u0000def');
+      const r = await fileEditTool.execute(
+        { path: 'bin.txt', oldString: 'abc', newString: 'x' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('Cannot edit binary file: bin.txt');
+    });
+
+    it('rejects malformed arguments before touching the file', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+
+      const badPath = await fileEditTool.execute(
+        { path: 42, oldString: 'hello', newString: 'x' },
+        ctx(dir),
+      );
+      expect(badPath.error).toBe('path must be a string');
+
+      const badOld = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 42, newString: 'x' },
+        ctx(dir),
+      );
+      expect(badOld.error).toBe('oldString must be a string');
+
+      const badNew = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'hello', newString: 42 },
+        ctx(dir),
+      );
+      expect(badNew.error).toBe('newString must be a string');
+
+      const badReplaceAll = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'hello', newString: 'x', replaceAll: 'yes' },
+        ctx(dir),
+      );
+      expect(badReplaceAll.error).toBe('replaceAll must be a boolean');
+
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello\n');
+    });
+
+    it('rejects invalid UTF-8 and leaves the bytes unchanged', async () => {
+      const bytes = Buffer.from([0x61, 0xff, 0x62]);
+      await writeFile(join(dir, 'bad.txt'), bytes);
+      const r = await fileEditTool.execute(
+        { path: 'bad.txt', oldString: 'a', newString: 'A' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('File is not valid UTF-8: bad.txt');
+      expect(await readFile(join(dir, 'bad.txt'))).toEqual(bytes);
+    });
+
+    it('rejects non-regular files', async () => {
+      await symlink('/dev/null', join(dir, 'dev'));
+      const r = await fileEditTool.execute(
+        { path: 'dev', oldString: 'a', newString: 'b' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('Path is not a regular file: dev');
+    });
+  });
+
+  describe('file_write', () => {
+    it('reports created true for new files and false for overwrites', async () => {
+      const first = await fileWriteTool.execute({ path: 'notes/a.txt', content: 'one' }, ctx(dir));
+      expect(first.data).toEqual({ path: 'notes/a.txt', created: true });
+      expect(first.content).toBe('Created file successfully: notes/a.txt');
+
+      const second = await fileWriteTool.execute({ path: 'notes/a.txt', content: 'two' }, ctx(dir));
+      expect(second.data).toEqual({ path: 'notes/a.txt', created: false });
+      expect(second.content).toBe('Wrote file successfully: notes/a.txt');
+    });
   });
 });
