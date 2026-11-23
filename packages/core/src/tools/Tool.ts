@@ -123,6 +123,13 @@ export interface ToolContext {
   eventBus: EventBus;
   storage: Storage;
   workspaceRoot: string;
+  /**
+   * The collective (launch) root. `workspaceRoot` is the participant's
+   * effective root; this anchor resolves relative participant roots and the
+   * `WorkspaceConfig.workspaceRoot` default. Absent in legacy contexts means
+   * `workspaceRoot` itself.
+   */
+  collectiveWorkspaceRoot?: string;
   communicationDepth: number;
   toolRegistry: ToolRegistryLike;
   callingParticipantId?: string;
