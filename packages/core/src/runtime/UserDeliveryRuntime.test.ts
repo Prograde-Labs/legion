@@ -2,15 +2,21 @@ import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import type { RuntimeContext } from './Runtime.js';
 import type { MessageData } from '@legion-collective/types';
-import type { Connector } from '../connectors/Connector.js';
+import type { Connector, DeliveryOutcome } from '../connectors/Connector.js';
 
-function makeConnector(name: string): Connector & { delivered: unknown[] } {
+function makeConnector(
+  name: string,
+  outcome: DeliveryOutcome = { status: 'delivered' },
+  canDeliver?: (participantId: string) => boolean,
+): Connector & { delivered: unknown[] } {
   return {
     name,
     delivered: [],
+    ...(canDeliver ? { canDeliver } : {}),
     async start() {},
     async deliver(msg) {
       this.delivered.push(msg);
+      return outcome;
     },
     async stop() {},
   };
@@ -39,10 +45,12 @@ function makeCtx(): RuntimeContext {
 }
 
 describe('UserDeliveryRuntime', () => {
-  it('returns { kind: "void" }', async () => {
+  it('returns not-reachable when no registry is provided', async () => {
     const runtime = new UserDeliveryRuntime('user-a');
-    const result = await runtime.handle(inbound, makeCtx());
-    expect(result).toEqual({ kind: 'void' });
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'not-reachable', reason: 'no connector can reach user-a' },
+    });
   });
 
   it('emits message:delivered regardless of connector presence', async () => {
@@ -52,30 +60,78 @@ describe('UserDeliveryRuntime', () => {
     expect((ctx as any)._emitted).toHaveLength(1);
   });
 
-  it('calls deliver() on all active connectors for the participant', async () => {
+  it('calls deliver() on deliverable connectors without setActive', async () => {
     const registry = new ConnectorRegistry();
-    const connA = makeConnector('web');
-    registry.register(connA);
-    registry.setActive('user-a', 'web');
+    const conn = makeConnector('web');
+    registry.register(conn);
     const runtime = new UserDeliveryRuntime('user-a', registry);
     await runtime.handle(inbound, makeCtx());
-    expect(connA.delivered).toHaveLength(1);
-    expect((connA.delivered[0] as any).content).toBe('hello');
+    expect(conn.delivered).toHaveLength(1);
+    expect((conn.delivered[0] as any).content).toBe('hello');
   });
 
-  it('does not call deliver() on connectors for other participants', async () => {
+  it('excludes connectors whose canDeliver predicate rejects the participant', async () => {
     const registry = new ConnectorRegistry();
-    const connA = makeConnector('web');
-    registry.register(connA);
-    registry.setActive('user-b', 'web');
+    const accepted = makeConnector('teams', { status: 'delivered' }, (id) => id === 'user-a');
+    const rejected = makeConnector('web', { status: 'delivered' }, () => false);
+    registry.register(accepted);
+    registry.register(rejected);
     const runtime = new UserDeliveryRuntime('user-a', registry);
     await runtime.handle(inbound, makeCtx());
-    expect(connA.delivered).toHaveLength(0);
+    expect(accepted.delivered).toHaveLength(1);
+    expect(rejected.delivered).toHaveLength(0);
   });
 
-  it('swallows connector.deliver() errors and continues', async () => {
+  it('fans out to every deliverable connector and reports the first success', async () => {
     const registry = new ConnectorRegistry();
-    const failConnector: Connector = {
+    const first = makeConnector('teams', { status: 'delivered' });
+    const second = makeConnector('web', { status: 'accepted' });
+    registry.register(first);
+    registry.register(second);
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'delivered' },
+    });
+    expect(first.delivered).toHaveLength(1);
+    expect(second.delivered).toHaveLength(1);
+  });
+
+  it('reports accepted as a success', async () => {
+    const registry = new ConnectorRegistry();
+    registry.register(makeConnector('web', { status: 'accepted' }));
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'accepted' },
+    });
+  });
+
+  it('reports failed when every connector fails or is unreachable', async () => {
+    const registry = new ConnectorRegistry();
+    registry.register(makeConnector('teams', { status: 'failed', reason: '403' }));
+    registry.register(makeConnector('web', { status: 'not-reachable', reason: 'offline' }));
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'failed', reason: '403; offline' },
+    });
+  });
+
+  it('reports not-reachable when every connector is unreachable', async () => {
+    const registry = new ConnectorRegistry();
+    registry.register(makeConnector('teams', { status: 'not-reachable', reason: 'no bot' }));
+    registry.register(makeConnector('web', { status: 'not-reachable', reason: 'no socket' }));
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'not-reachable', reason: 'no bot; no socket' },
+    });
+  });
+
+  it('converts thrown connector errors to failed outcomes and continues', async () => {
+    const registry = new ConnectorRegistry();
+    const broken: Connector = {
       name: 'broken',
       async start() {},
       async stop() {},
@@ -83,27 +139,31 @@ describe('UserDeliveryRuntime', () => {
         throw new Error('network error');
       },
     };
-    const goodConnector = makeConnector('good');
-    registry.register(failConnector);
-    registry.register(goodConnector);
-    registry.setActive('user-a', 'broken');
-    registry.setActive('user-a', 'good');
+    const good = makeConnector('good');
+    registry.register(broken);
+    registry.register(good);
     const runtime = new UserDeliveryRuntime('user-a', registry);
-    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({ kind: 'void' });
-    expect(goodConnector.delivered).toHaveLength(1);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'delivered' },
+    });
+    expect(good.delivered).toHaveLength(1);
   });
 
-  it('no-op deliver when no registry provided', async () => {
-    const runtime = new UserDeliveryRuntime('user-a');
-    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({ kind: 'void' });
-  });
-
-  it('no-op deliver when participant has no active connectors', async () => {
+  it('reports failed when every connector throws', async () => {
     const registry = new ConnectorRegistry();
-    const conn = makeConnector('web');
-    registry.register(conn);
+    registry.register({
+      name: 'broken',
+      async start() {},
+      async stop() {},
+      async deliver() {
+        throw new Error('network error');
+      },
+    });
     const runtime = new UserDeliveryRuntime('user-a', registry);
-    await runtime.handle(inbound, makeCtx());
-    expect(conn.delivered).toHaveLength(0);
+    await expect(runtime.handle(inbound, makeCtx())).resolves.toEqual({
+      kind: 'void',
+      delivery: { status: 'failed', reason: 'network error' },
+    });
   });
 });

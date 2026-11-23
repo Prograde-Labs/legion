@@ -10,6 +10,7 @@ import { ModelRouter } from '../providers/ModelRouter.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { AgentRuntime } from './AgentRuntime.js';
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
+import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import { MessageRouter } from './MessageRouter.js';
 import type { ToolContext } from '../tools/Tool.js';
 
@@ -59,7 +60,16 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
     );
 
     const runtimeRegistry = new RuntimeRegistry();
-    runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
+    const connectorRegistry = new ConnectorRegistry();
+    connectorRegistry.register({
+      name: 'stub',
+      async start() {},
+      async deliver() {
+        return { status: 'delivered' };
+      },
+      async stop() {},
+    });
+    runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id, connectorRegistry));
     runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
 
     const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);
@@ -148,7 +158,16 @@ describe.skipIf(!LIVE)('AgentRuntime: live end-to-end via MessageRouter', () => 
     );
 
     const runtimeRegistry = new RuntimeRegistry();
-    runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
+    const connectorRegistry = new ConnectorRegistry();
+    connectorRegistry.register({
+      name: 'stub',
+      async start() {},
+      async deliver() {
+        return { status: 'delivered' };
+      },
+      async stop() {},
+    });
+    runtimeRegistry.registerFactory('user', (id) => new UserDeliveryRuntime(id, connectorRegistry));
     runtimeRegistry.registerFactory('agent', (id) => new AgentRuntime(id, modelRouter));
 
     const router = new MessageRouter(conversationStore, runtimeRegistry, collective, eventBus);

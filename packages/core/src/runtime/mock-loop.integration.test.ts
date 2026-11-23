@@ -13,6 +13,7 @@ import { getActiveChain } from '../conversation/conversation-ops.js';
 import { RuntimeRegistry } from './RuntimeRegistry.js';
 import { MockRuntime } from './MockRuntime.js';
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
+import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import { MessageRouter } from './MessageRouter.js';
 import type { ToolContext } from '../tools/Tool.js';
 
@@ -50,8 +51,17 @@ describe('integration: end-to-end mock loop', () => {
     const store = new FileConversationStore(storage, eventBus);
 
     const registry = new RuntimeRegistry();
+    const connectorRegistry = new ConnectorRegistry();
+    connectorRegistry.register({
+      name: 'stub',
+      async start() {},
+      async deliver() {
+        return { status: 'delivered' };
+      },
+      async stop() {},
+    });
     registry.registerFactory('mock', (id) => new MockRuntime(id));
-    registry.registerFactory('user', (id) => new UserDeliveryRuntime(id));
+    registry.registerFactory('user', (id) => new UserDeliveryRuntime(id, connectorRegistry));
 
     const router = new MessageRouter(store, registry, collective, eventBus);
 

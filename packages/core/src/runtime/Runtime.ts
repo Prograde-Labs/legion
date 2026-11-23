@@ -11,6 +11,7 @@ import type { AuthEngine } from '../auth/AuthEngine.js';
 import type { PendingApprovalRegistry, PendingApproval } from '../auth/PendingApprovalRegistry.js';
 import type { ApprovalLog } from '../auth/ApprovalLog.js';
 import type { MessageRouterPort } from '../tools/Tool.js';
+import type { DeliveryOutcome } from '../connectors/Connector.js';
 
 export type RuntimeResult =
   | {
@@ -32,7 +33,11 @@ export type RuntimeResult =
       actions?: MiddlewareActionResult[];
     }
   | { kind: 'middleware_abort'; error: string; actions?: MiddlewareActionResult[] }
-  | { kind: 'void'; actions?: MiddlewareActionResult[] };
+  | {
+      kind: 'void';
+      delivery?: DeliveryOutcome;
+      actions?: MiddlewareActionResult[];
+    };
 
 export interface AgentProviderResume {
   kind: 'agent_provider';
