@@ -89,6 +89,30 @@ describe('process tools', () => {
       const result = await getTool('execute_command').execute({ command: 'nope' }, ctx);
       expect((result as any).status).toBe('error');
     });
+
+    it('defaults cwd to the participant workspace root', async () => {
+      const ctx = makeCtx();
+      ctx.workspaceRoot = '/work/root';
+      await getTool('execute_command').execute({ command: 'pwd' }, ctx);
+      const pm = (ctx as any).processManager;
+      expect(pm.execute.mock.calls[0][0].cwd).toBe('/work/root');
+    });
+
+    it('resolves a relative cwd against the participant workspace root', async () => {
+      const ctx = makeCtx();
+      ctx.workspaceRoot = '/work/root';
+      await getTool('execute_command').execute({ command: 'pwd', cwd: 'sub' }, ctx);
+      const pm = (ctx as any).processManager;
+      expect(pm.execute.mock.calls[0][0].cwd).toBe('/work/root/sub');
+    });
+
+    it('uses an absolute cwd as-is', async () => {
+      const ctx = makeCtx();
+      ctx.workspaceRoot = '/work/root';
+      await getTool('execute_command').execute({ command: 'pwd', cwd: '/other' }, ctx);
+      const pm = (ctx as any).processManager;
+      expect(pm.execute.mock.calls[0][0].cwd).toBe('/other');
+    });
   });
 
   describe('start_process', () => {
@@ -100,6 +124,22 @@ describe('process tools', () => {
       );
       expect((result as any).status).toBe('success');
       expect((result as any).data.id).toBe('proc-test');
+    });
+
+    it('defaults cwd to the participant workspace root', async () => {
+      const ctx = makeCtx();
+      ctx.workspaceRoot = '/work/root';
+      await getTool('start_process').execute({ command: 'sleep', args: ['1'] }, ctx);
+      const pm = (ctx as any).processManager;
+      expect(pm.start.mock.calls[0][0].cwd).toBe('/work/root');
+    });
+
+    it('resolves a relative cwd against the participant workspace root', async () => {
+      const ctx = makeCtx();
+      ctx.workspaceRoot = '/work/root';
+      await getTool('start_process').execute({ command: 'sleep', cwd: 'sub' }, ctx);
+      const pm = (ctx as any).processManager;
+      expect(pm.start.mock.calls[0][0].cwd).toBe('/work/root/sub');
     });
   });
 

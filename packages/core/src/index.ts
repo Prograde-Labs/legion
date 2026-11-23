@@ -12,6 +12,7 @@ export * from './conversation/FileConversationStore.js';
 export * from './conversation/ConversationThread.js';
 export * from './collective/Collective.js';
 export * from './collective/default-participants.js';
+export * from './collective/workspace-root.js';
 export * from './credentials/CredentialStore.js';
 export * from './credentials/FileCredentialStore.js';
 export * from './secrets/SecretStore.js';

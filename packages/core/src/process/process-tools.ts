@@ -1,4 +1,5 @@
-import type { ToolResult } from '@legion-collective/types';
+import { isAbsolute, resolve } from 'node:path';
+import type { SpawnConfig, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from '../tools/Tool.js';
 import type { ProcessManager } from './ProcessManager.js';
 
@@ -14,12 +15,22 @@ function err(error: unknown): ToolResult {
   return { status: 'error', error: String(error) };
 }
 
+function resolveCwd(ctx: ToolContext, cwd: string | undefined): string {
+  if (!cwd) return ctx.workspaceRoot;
+  return isAbsolute(cwd) ? cwd : resolve(ctx.workspaceRoot, cwd);
+}
+
 const spawnInputSchema = {
   type: 'object',
   properties: {
     command: { type: 'string', description: 'Executable path or name' },
     args: { type: 'array', items: { type: 'string' }, default: [] },
-    cwd: { type: 'string', description: 'Working directory; defaults to workspaceRoot' },
+    cwd: {
+      type: 'string',
+      description:
+        'Working directory; defaults to the participant workspace root. ' +
+        'Relative paths resolve against it.',
+    },
     env: { type: 'object', additionalProperties: { type: 'string' }, default: {} },
     tty: { type: 'boolean', default: false, description: 'Allocate a PTY (pseudo-terminal)' },
     shell: { type: 'boolean', default: false, description: 'Wrap command in /bin/sh -c' },
@@ -52,7 +63,7 @@ export const executeCommandTool: Tool = {
         {
           command: a.command,
           args: a.args,
-          cwd: a.cwd,
+          cwd: resolveCwd(ctx, a.cwd),
           env: a.env,
           tty: a.tty,
           shell: a.shell,
@@ -75,9 +86,13 @@ export const startProcessTool: Tool = {
   description:
     'Start a long-running process asynchronously. Returns immediately with a process handle. Use read_process_output, write_process_input, and stop_process to interact with it.',
   parameters: spawnInputSchema,
-  async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
+  async execute(argsRaw: unknown, ctx: ToolContext): Promise<ToolResult> {
     try {
-      const handle = await pm(ctx).start(args as any, ctx.participant.id);
+      const args = argsRaw as Record<string, unknown> & { cwd?: string };
+      const handle = await pm(ctx).start(
+        { ...args, cwd: resolveCwd(ctx, args.cwd) } as SpawnConfig,
+        ctx.participant.id,
+      );
       return ok(handle);
     } catch (e) {
       return err(e);

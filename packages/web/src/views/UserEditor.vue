@@ -36,6 +36,7 @@ const self = computed(() => participants.value.find((p) => p.id === auth.partici
 const callerIsOperator = computed(() => self.value?.operator === true);
 
 const name = ref('');
+const workspaceRoot = ref('');
 const operator = ref(false);
 const overrides = ref<ToolOverride[]>([]);
 const availableTools = ref<string[]>([]);
@@ -74,6 +75,7 @@ async function load(): Promise<void> {
   if (props.participantId === 'new') {
     loaded.value = null;
     name.value = '';
+    workspaceRoot.value = '';
     operator.value = false;
     overrides.value = [];
     authority.value = null;
@@ -85,6 +87,7 @@ async function load(): Promise<void> {
     });
     loaded.value = p;
     name.value = String(p['name'] ?? '');
+    workspaceRoot.value = String(p['workspaceRoot'] ?? '');
     operator.value = Boolean(p['operator']);
     const toolsMap = (p['tools'] ?? {}) as Record<string, ToolPolicy>;
     overrides.value = Object.entries(toolsMap).flatMap(([tool, value]) => {
@@ -188,6 +191,7 @@ async function save(): Promise<void> {
       await execute('create_user', {
         id,
         name: name.value,
+        workspaceRoot: workspaceRoot.value,
         tools: overridesToToolsMap(overrides.value),
         ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
@@ -209,6 +213,7 @@ async function save(): Promise<void> {
       await execute('modify_user', {
         id: props.participantId,
         name: name.value,
+        workspaceRoot: workspaceRoot.value,
         tools: overridesToToolsMap(overrides.value),
         ...(callerIsOperator.value ? { operator: operator.value } : {}),
       });
@@ -289,6 +294,19 @@ async function retire(): Promise<void> {
       Operator
     </label>
     <p v-else class="text-xs text-muted">Operator: {{ operator ? 'yes (read-only)' : 'no' }}</p>
+    <label class="flex flex-col gap-1">
+      <span class="text-xs text-faint">Workspace root</span>
+      <input
+        v-model="workspaceRoot"
+        data-test="user-workspace-root"
+        placeholder="Inherit collective workspace root"
+        class="rounded border border-line bg-surface px-2 py-1"
+      />
+      <span class="text-xs text-muted">
+        Base directory for file and process tools. Absolute or relative to the collective root.
+        Empty inherits the collective root.
+      </span>
+    </label>
     <div v-if="identities.length" data-test="identities" class="flex flex-col gap-1 text-xs">
       <span class="text-faint">Identities (read-only)</span>
       <code v-for="i in identities" :key="i" class="font-mono text-muted">{{ i }}</code>

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   // Core engine
   Collective,
+  resolveParticipantWorkspaceRoot,
   ConversationThread,
   EventBus,
   FileConversationStore,
@@ -199,6 +200,8 @@ export class LegionProcess {
       conversationStore: store,
       collective,
       workspaceRoot,
+      resolveWorkspaceRoot: (participant) =>
+        resolveParticipantWorkspaceRoot(participant, mergedConfig, workspaceRoot),
       buildToolContext: (participant, conversation, signal) =>
         buildMiddlewareToolContext({
           participant,
@@ -208,7 +211,7 @@ export class LegionProcess {
           config: mergedConfig,
           eventBus,
           storage,
-          workspaceRoot,
+          collectiveWorkspaceRoot: workspaceRoot,
           authEngine,
           pendingApprovalRegistry,
           messageRouter: router,
@@ -647,7 +650,7 @@ interface MiddlewareToolContextDeps {
   config: WorkspaceConfig;
   eventBus: EventBus;
   storage: FileStorage;
-  workspaceRoot: string;
+  collectiveWorkspaceRoot: string;
   authEngine: AuthEngine;
   pendingApprovalRegistry: PendingApprovalRegistry;
   messageRouter: MessageRouter;
@@ -668,7 +671,12 @@ function buildMiddlewareToolContext(deps: MiddlewareToolContextDeps): ToolContex
     config: deps.config,
     eventBus: deps.eventBus,
     storage: deps.storage,
-    workspaceRoot: deps.workspaceRoot,
+    workspaceRoot: resolveParticipantWorkspaceRoot(
+      deps.participant,
+      deps.config,
+      deps.collectiveWorkspaceRoot,
+    ),
+    collectiveWorkspaceRoot: deps.collectiveWorkspaceRoot,
     authEngine: deps.authEngine,
     pendingApprovalRegistry: deps.pendingApprovalRegistry,
     messageRouter: deps.messageRouter,
@@ -827,8 +835,9 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
 
   return {
     async submit(msg) {
+      const sender = collective.getOrThrow(msg.senderId);
       const baseCtx: ToolContext = {
-        participant: collective.getOrThrow(msg.senderId),
+        participant: sender,
         conversationId: msg.conversationId ?? '',
         conversation: undefined as any, // router creates/loads the thread
         collective,
@@ -837,7 +846,8 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         config,
         eventBus,
         storage,
-        workspaceRoot,
+        workspaceRoot: resolveParticipantWorkspaceRoot(sender, config, workspaceRoot),
+        collectiveWorkspaceRoot: workspaceRoot,
         authEngine,
         pendingApprovalRegistry,
         messageRouter: router,
@@ -867,8 +877,10 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         };
       }
 
+      const effectiveRoot = resolveParticipantWorkspaceRoot(participant, config, workspaceRoot);
+
       const authResult = authEngine.authorize(participantId, toolName, args, participant.tools, {
-        workspaceRoot,
+        workspaceRoot: effectiveRoot,
       });
       if (!authResult.authorized) {
         return {
@@ -937,7 +949,8 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         config,
         eventBus,
         storage,
-        workspaceRoot,
+        workspaceRoot: effectiveRoot,
+        collectiveWorkspaceRoot: workspaceRoot,
         authEngine,
         pendingApprovalRegistry,
         messageRouter: router,
@@ -963,8 +976,10 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         return { gen, conversationId: '' };
       }
 
+      const effectiveRoot = resolveParticipantWorkspaceRoot(participant, config, workspaceRoot);
+
       const authResult = authEngine.authorize(participantId, toolName, args, participant.tools, {
-        workspaceRoot,
+        workspaceRoot: effectiveRoot,
       });
       if (!authResult.authorized) {
         const error =
@@ -1026,7 +1041,8 @@ function buildConnectorContext(deps: ConnectorContextDeps): ConnectorContext {
         config,
         eventBus,
         storage,
-        workspaceRoot,
+        workspaceRoot: effectiveRoot,
+        collectiveWorkspaceRoot: workspaceRoot,
         authEngine,
         pendingApprovalRegistry,
         messageRouter: router,

@@ -139,6 +139,8 @@ export interface MiddlewareRunnerDependencies {
   collective?: Collective;
   /** Workspace root used to resolve path-based argument scopes. */
   workspaceRoot: string;
+  /** Resolves a participant's effective root for argument scopes. */
+  resolveWorkspaceRoot?: (participant: ParticipantConfig) => string;
   buildToolContext: (
     participant: ParticipantConfig,
     thread: ConversationThread,
@@ -939,7 +941,11 @@ export class MiddlewareRunner {
         request.tool,
         actionInput.args,
         participant.tools,
-        { workspaceRoot: this.dependencies.workspaceRoot },
+        {
+          workspaceRoot:
+            this.dependencies.resolveWorkspaceRoot?.(participant) ??
+            this.dependencies.workspaceRoot,
+        },
       );
       if (!authorization.authorized && authorization.reason !== 'requires_approval') {
         const message =
@@ -1651,7 +1657,11 @@ export class MiddlewareRunner {
         request.tool,
         request.arguments,
         input.participant.tools,
-        { workspaceRoot: this.dependencies.workspaceRoot },
+        {
+          workspaceRoot:
+            this.dependencies.resolveWorkspaceRoot?.(input.participant) ??
+            this.dependencies.workspaceRoot,
+        },
       );
       if (authorization.reason === 'scope') {
         const message = authorization.detail ?? `argument scope violation: ${request.tool}`;

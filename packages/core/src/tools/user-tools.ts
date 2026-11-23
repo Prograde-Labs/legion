@@ -1,6 +1,7 @@
 import type { ToolPolicy, ToolResult, UserConfig } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 import { validateToolsMap } from '../auth/validateToolPolicy.js';
+import { workspaceRootError } from '../collective/workspace-root.js';
 import { pairTool } from './pair-tool.js';
 
 /**
@@ -54,15 +55,22 @@ export const createUserTool: Tool = {
           'tools (approvals, conversation and activity streams, cancel_stream); explicit ' +
           'policies override the defaults.',
       },
+      workspaceRoot: {
+        type: 'string',
+        description:
+          'Base directory for file tools and default process execution. Absolute or ' +
+          'relative to the collective workspace root. Omit to inherit the collective root.',
+      },
     },
     required: ['id', 'name'],
   },
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, operator, tools } = args as {
+    const { id, name, operator, tools, workspaceRoot } = args as {
       id: string;
       name: string;
       operator?: boolean;
       tools?: Record<string, ToolPolicy>;
+      workspaceRoot?: string;
     };
     if (operator !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change the operator flag' };
@@ -70,6 +78,15 @@ export const createUserTool: Tool = {
     if (tools !== undefined) {
       const validated = validateToolsMap(context.toolRegistry, tools);
       if (!validated.ok) return { status: 'error', error: validated.error };
+    }
+    let participantRoot: string | undefined;
+    if (typeof workspaceRoot === 'string' && workspaceRoot.trim() !== '') {
+      const problem = await workspaceRootError(
+        workspaceRoot.trim(),
+        context.collectiveWorkspaceRoot ?? context.workspaceRoot,
+      );
+      if (problem) return { status: 'error', error: problem };
+      participantRoot = workspaceRoot.trim();
     }
     try {
       const config: UserConfig = {
@@ -79,6 +96,7 @@ export const createUserTool: Tool = {
         // Merge the boot-time read/subscription grant so users created after
         // boot are live immediately; explicit policies override the defaults.
         tools: { ...defaultUserSubscriptionTools(), ...(tools ?? {}) },
+        ...(participantRoot === undefined ? {} : { workspaceRoot: participantRoot }),
         status: 'active',
         ...(operator === undefined ? {} : { operator }),
       };
@@ -109,15 +127,23 @@ export const modifyUserTool: Tool = {
           '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
           'is keyed by top-level argument name.',
       },
+      workspaceRoot: {
+        type: 'string',
+        description:
+          'Base directory for file tools and default process execution. Absolute or ' +
+          'relative to the collective workspace root. Omit to keep the existing value; ' +
+          'pass an empty string (or null) to inherit the collective default.',
+      },
     },
     required: ['id'],
   },
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, operator, tools } = args as {
+    const { id, name, operator, tools, workspaceRoot } = args as {
       id: string;
       name?: string;
       operator?: boolean;
       tools?: Record<string, ToolPolicy>;
+      workspaceRoot?: string | null;
     };
     if (operator !== undefined && !callerIsOperator(context)) {
       return { status: 'error', error: 'Only an operator can change the operator flag' };
@@ -136,6 +162,18 @@ export const modifyUserTool: Tool = {
       if (name !== undefined) patch.name = name;
       if (operator !== undefined) patch.operator = operator;
       if (tools !== undefined) patch.tools = tools;
+      if (workspaceRoot !== undefined) {
+        if (workspaceRoot === null || workspaceRoot.trim() === '') {
+          patch.workspaceRoot = undefined;
+        } else {
+          const problem = await workspaceRootError(
+            workspaceRoot.trim(),
+            context.collectiveWorkspaceRoot ?? context.workspaceRoot,
+          );
+          if (problem) return { status: 'error', error: problem };
+          patch.workspaceRoot = workspaceRoot.trim();
+        }
+      }
       await collective.update(id, patch);
       return { status: 'success', data: collective.getOrThrow(id) };
     } catch (err) {

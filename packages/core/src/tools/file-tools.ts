@@ -1,12 +1,11 @@
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
+import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 function resolveInWorkspace(context: ToolContext, path: string): string | null {
-  if (isAbsolute(path)) return null;
-  const root = context.workspaceRoot;
-  const resolved = normalize(join(root, path));
+  const root = resolve(context.workspaceRoot);
+  const resolved = isAbsolute(path) ? normalize(path) : normalize(join(root, path));
   const rel = relative(root, resolved);
   if (rel.startsWith('..') || isAbsolute(rel)) return null;
   return resolved;
@@ -20,7 +19,8 @@ const pathParam: JSONSchema = {
 
 export const fileReadTool: Tool = {
   name: 'file_read',
-  description: 'Read a UTF-8 text file relative to the workspace root.',
+  description:
+    'Read a UTF-8 text file relative to the participant workspace root; absolute paths inside it are accepted.',
   parameters: pathParam,
   async execute(args, context): Promise<ToolResult> {
     const { path } = args as { path: string };
@@ -36,7 +36,8 @@ export const fileReadTool: Tool = {
 
 export const fileWriteTool: Tool = {
   name: 'file_write',
-  description: 'Write a UTF-8 text file relative to the workspace root, creating parents.',
+  description:
+    'Write a UTF-8 text file relative to the participant workspace root, creating parents; absolute paths inside it are accepted.',
   parameters: {
     type: 'object',
     properties: { path: { type: 'string' }, content: { type: 'string' } },
@@ -58,7 +59,8 @@ export const fileWriteTool: Tool = {
 
 export const fileListTool: Tool = {
   name: 'file_list',
-  description: 'List entries of a directory relative to the workspace root.',
+  description:
+    'List entries of a directory relative to the participant workspace root; absolute paths inside it are accepted.',
   parameters: pathParam,
   async execute(args, context): Promise<ToolResult> {
     const { path } = args as { path: string };

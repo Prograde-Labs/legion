@@ -183,6 +183,35 @@ describe('UserEditor', () => {
     });
   });
 
+  it('loads, edits, and saves the workspace root', async () => {
+    const baseFetch = stubFetch({ ...USER, workspaceRoot: 'projects/b' }) as unknown as (
+      url: string,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tool === 'get_participant') {
+        return toolResponse('get_participant', { ...USER, workspaceRoot: 'projects/b' });
+      }
+      return baseFetch(url, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const wrapper = mount(UserEditor, { props: { participantId: 'alice' } });
+    await waitLoaded(wrapper);
+    expect(
+      (wrapper.find('[data-test="user-workspace-root"]').element as HTMLInputElement).value,
+    ).toBe('projects/b');
+    await wrapper.find('[data-test="user-workspace-root"]').setValue('projects/c');
+    await wrapper.find('form').trigger('submit');
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (c) => JSON.parse(String(c[1]?.body)).tool === 'modify_user',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]?.body)).args.workspaceRoot).toBe('projects/c');
+    });
+  });
+
   it('save persists approval authority via set_approval_authority (modify_user has no authority param)', async () => {
     const fetchMock = stubFetch();
     vi.stubGlobal('fetch', fetchMock);

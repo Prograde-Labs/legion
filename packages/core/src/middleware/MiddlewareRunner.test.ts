@@ -587,6 +587,45 @@ describe('MiddlewareRunner', () => {
     );
   });
 
+  it('authorizes middleware scopes against the participant workspace root', async () => {
+    const f = await fixture([instance('request')]);
+    f.runnerDependencies.resolveWorkspaceRoot = () => '/workspace/participant-b';
+    f.participant.tools = { risky: 'auto' };
+    const execute = vi.fn(async () => ({ status: 'success' as const }));
+    f.toolRegistry.register({ name: 'risky', description: 'risky', parameters: schema, execute });
+    const authorize = vi.spyOn(f.runnerDependencies.authEngine, 'authorize');
+    f.registry.register(
+      middlewareDefinition({
+        beforeSend: () => ({
+          kind: 'tool',
+          requestId: 'root-scope',
+          tool: 'risky',
+          arguments: { path: 'work/a.txt' },
+        }),
+      }),
+      'test:runner',
+    );
+
+    const result = await f.runner.runMessagePhase({
+      operationId: 'root-scope',
+      phase: 'beforeSend',
+      participant: f.participant,
+      thread: f.thread,
+      draft: draft(),
+      actions: [],
+      final: true,
+    });
+
+    expect(result.kind).toBe('continue');
+    expect(authorize).toHaveBeenCalledWith(
+      'participant',
+      'risky',
+      { path: 'work/a.txt' },
+      f.participant.tools,
+      { workspaceRoot: '/workspace/participant-b' },
+    );
+  });
+
   it('records the scope detail on the rejected middleware action', async () => {
     const f = await fixture([instance('request', { failureMode: 'open' })]);
     f.participant.tools = {

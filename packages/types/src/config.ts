@@ -85,6 +85,11 @@ export interface CommunicationConfig {
 
 export interface WorkspaceConfig {
   version: '2';
+  /**
+   * Default base directory for participant file/process tools. Does not
+   * relocate `.legion/` storage, which stays at the launch root. May be
+   * absolute or relative to the launch root.
+   */
   workspaceRoot?: string;
   storage?: StorageConfig;
   server?: ServerConfig;

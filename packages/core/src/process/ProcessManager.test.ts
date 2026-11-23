@@ -23,8 +23,12 @@ class FakeChild extends EventEmitter {
   killed = false;
   kill(signal?: string): boolean {
     this.killed = true;
-    // Auto-emit exit so stop() resolves in tests
-    setImmediate(() => this.emit('exit', signal === 'SIGKILL' ? null : 0, signal ?? null));
+    // Auto-emit exit (and close) so stop() resolves in tests
+    setImmediate(() => {
+      const code = signal === 'SIGKILL' ? null : 0;
+      this.emit('exit', code, signal ?? null);
+      this.emit('close', code, signal ?? null);
+    });
     return true;
   }
 }
@@ -289,12 +293,78 @@ describe('ProcessManager.execute', () => {
     await new Promise<void>((r) => setTimeout(r, 20));
     child.stdout.emit('data', Buffer.from('hi\n'));
     child.emit('exit', 0, null);
+    child.emit('close', 0, null);
 
     const result = await resultP;
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('hi');
     expect(result.timedOut).toBe(false);
     expect(result.processId).toMatch(/^proc-/);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('captures output emitted before start() resolves', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'legion-pm-'));
+    const storage = new FileStorage(join(dir, '.legion'));
+    const child = new FakeChild();
+    // Emit after attachOutputHandlers but before start() resolves — the old
+    // implementation only subscribed to output once start() had returned.
+    const spawn = vi.fn(() => {
+      process.nextTick(() => child.stdout.emit('data', Buffer.from('early\n')));
+      return child;
+    });
+    const manager = new ProcessManager({
+      storage,
+      workspaceRoot: dir,
+      spawn: spawn as any,
+      ptySpawn: vi.fn() as any,
+    });
+
+    const resultP = manager.execute({ command: 'echo', args: ['early'] }, 'user-1');
+
+    await new Promise<void>((r) => setTimeout(r, 20));
+    child.emit('exit', 0, null);
+    child.emit('close', 0, null);
+
+    const result = await resultP;
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('early\n');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('captures output that arrives between exit and close', async () => {
+    const { manager, child, dir } = await makeManager();
+
+    const resultP = manager.execute({ command: 'echo', args: ['hi'] }, 'user-1');
+
+    await new Promise<void>((r) => setTimeout(r, 20));
+    // 'exit' can arrive before the pipe has been drained.
+    child.emit('exit', 0, null);
+    child.stdout.emit('data', Buffer.from('hi\n'));
+    child.emit('close', 0, null);
+
+    const result = await resultP;
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('hi\n');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns at exit when a background child keeps stdio open', async () => {
+    const { manager, child, dir } = await makeManager();
+
+    const resultP = manager.execute({ command: 'bash', args: ['-c', 'sleep 300 &'] }, 'user-1');
+
+    await new Promise<void>((r) => setTimeout(r, 20));
+    child.stdout.emit('data', Buffer.from('started\n'));
+    child.emit('exit', 0, null);
+    // No 'close' — the backgrounded grandchild still holds the pipe.
+
+    const started = Date.now();
+    const result = await resultP;
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('started\n');
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -313,6 +383,29 @@ describe('ProcessManager.execute', () => {
     const result = await resultP;
     expect(result.timedOut).toBe(true);
     expect(result.exitCode).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('reports the real exit result when stop fails because the process already exited', async () => {
+    const { manager, dir } = await makeManager();
+
+    const resultP = manager.execute({ command: 'sleep', args: ['999'] }, 'user-1', {
+      timeoutMs: 50,
+    });
+
+    // Let start() settle, then mark the entry as already exited and make stop()
+    // fail the way it does when the child left the live map between the timeout
+    // firing and the stop call.
+    await new Promise<void>((r) => setTimeout(r, 20));
+    const entry = [...(manager as any).live.values()][0];
+    entry.meta.status = 'exited';
+    entry.meta.exitCode = 0;
+    entry.meta.exitedAt = new Date().toISOString();
+    vi.spyOn(manager, 'stop').mockRejectedValue(new Error('Process is not running'));
+
+    const result = await resultP;
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
     await rm(dir, { recursive: true, force: true });
   });
 });
