@@ -1,12 +1,11 @@
 import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
+import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import type { JSONSchema, ToolResult } from '@legion-collective/types';
 import type { Tool, ToolContext } from './Tool.js';
 
 function resolveInWorkspace(context: ToolContext, path: string): string | null {
-  if (isAbsolute(path)) return null;
-  const root = context.workspaceRoot;
-  const resolved = normalize(join(root, path));
+  const root = resolve(context.workspaceRoot);
+  const resolved = isAbsolute(path) ? normalize(path) : normalize(join(root, path));
   const rel = relative(root, resolved);
   if (rel.startsWith('..') || isAbsolute(rel)) return null;
   return resolved;

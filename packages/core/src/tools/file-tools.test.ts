@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileReadTool, fileWriteTool, fileListTool } from './file-tools.js';
@@ -46,5 +46,30 @@ describe('file tools', () => {
     const r = await fileReadTool.execute({ path: '../../etc/passwd' }, ctx(dir));
     expect(r.status).toBe('error');
     expect(r.error).toMatch(/outside|invalid path/i);
+  });
+
+  it('accepts an absolute path inside the workspace root', async () => {
+    await mkdir(join(dir, 'inside'), { recursive: true });
+    await writeFile(join(dir, 'inside', 'a.txt'), 'hello');
+    const r = await fileReadTool.execute({ path: join(dir, 'inside', 'a.txt') }, ctx(dir));
+    expect(r).toEqual({ status: 'success', data: 'hello' });
+  });
+
+  it('rejects an absolute path outside the workspace root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'legion-outside-'));
+    try {
+      await writeFile(join(outside, 'a.txt'), 'outside');
+      const r = await fileReadTool.execute({ path: join(outside, 'a.txt') }, ctx(dir));
+      expect(r.status).toBe('error');
+      expect(r.error).toMatch(/outside/i);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an absolute path that escapes with ..', async () => {
+    const r = await fileReadTool.execute({ path: `${dir}/../escape.txt` }, ctx(dir));
+    expect(r.status).toBe('error');
+    expect(r.error).toMatch(/outside/i);
   });
 });
