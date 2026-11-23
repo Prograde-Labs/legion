@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileReadTool, fileWriteTool, fileListTool } from './file-tools.js';
+import { fileReadTool, fileWriteTool, fileEditTool, fileListTool } from './file-tools.js';
 import type { ToolContext } from './Tool.js';
 
 function ctx(workspaceRoot: string): ToolContext {
@@ -174,6 +174,121 @@ describe('file tools', () => {
       expect(badOffset.error).toBe('offset must be at least 1');
       const badLimit = await fileReadTool.execute({ path: 'x', limit: 0 }, ctx(dir));
       expect(badLimit.error).toBe('limit must be at least 1');
+    });
+  });
+
+  describe('file_edit', () => {
+    it('replaces a unique exact match', async () => {
+      await writeFile(join(dir, 'a.txt'), 'const x = 1;\nconst y = 2;\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'const x = 1;', newString: 'const x = 10;' },
+        ctx(dir),
+      );
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({ path: 'a.txt', replacements: 1 });
+      expect(r.content).toBe('Edited a.txt (1 replacement)');
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('const x = 10;\nconst y = 2;\n');
+    });
+
+    it('replaces every occurrence when replaceAll is true', async () => {
+      await writeFile(join(dir, 'a.txt'), 'foo\nfoo\nfoo\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'foo', newString: 'bar', replaceAll: true },
+        ctx(dir),
+      );
+      expect(r.status).toBe('success');
+      expect(r.data).toEqual({ path: 'a.txt', replacements: 3 });
+      expect(r.content).toBe('Edited a.txt (3 replacements)');
+      expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('bar\nbar\nbar\n');
+    });
+
+    it('fails when oldString is not found', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'missing', newString: 'x' },
+        ctx(dir),
+      );
+      expect(r.error).toBe(
+        'Could not find oldString in a.txt. It must match exactly, including whitespace and indentation.',
+      );
+    });
+
+    it('fails on multiple matches without replaceAll', async () => {
+      await writeFile(join(dir, 'a.txt'), 'foo foo\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'foo', newString: 'bar' },
+        ctx(dir),
+      );
+      expect(r.error).toBe(
+        'Found 2 matches for oldString, but expected exactly one. Add more surrounding context to make oldString unique, or set replaceAll to true.',
+      );
+    });
+
+    it('fails when oldString and newString are identical', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: 'hello', newString: 'hello' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('No changes to apply: oldString and newString are identical.');
+    });
+
+    it('fails when oldString is empty', async () => {
+      await writeFile(join(dir, 'a.txt'), 'hello\n');
+      const r = await fileEditTool.execute(
+        { path: 'a.txt', oldString: '', newString: 'x' },
+        ctx(dir),
+      );
+      expect(r.error).toBe(
+        'oldString must not be empty. Use file_write to create or overwrite a file.',
+      );
+    });
+
+    it('reports a missing file', async () => {
+      const r = await fileEditTool.execute(
+        { path: 'missing.txt', oldString: 'a', newString: 'b' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('File not found: missing.txt');
+    });
+
+    it('reports a directory', async () => {
+      await mkdir(join(dir, 'd'), { recursive: true });
+      const r = await fileEditTool.execute({ path: 'd', oldString: 'a', newString: 'b' }, ctx(dir));
+      expect(r.error).toBe('Path is a directory: d');
+    });
+
+    it('preserves indentation around the replacement', async () => {
+      await writeFile(join(dir, 'ind.txt'), '  if (x) {\n    y();\n  }\n');
+      const r = await fileEditTool.execute(
+        { path: 'ind.txt', oldString: '    y();', newString: '    z();' },
+        ctx(dir),
+      );
+      expect(r.status).toBe('success');
+      expect(await readFile(join(dir, 'ind.txt'), 'utf8')).toBe('  if (x) {\n    z();\n  }\n');
+    });
+
+    it('matches CRLF only when oldString contains CRLF', async () => {
+      await writeFile(join(dir, 'crlf.txt'), 'a\r\nb\r\n');
+      const ok = await fileEditTool.execute(
+        { path: 'crlf.txt', oldString: 'a\r\nb', newString: 'A\r\nB' },
+        ctx(dir),
+      );
+      expect(ok.status).toBe('success');
+      const bad = await fileEditTool.execute(
+        { path: 'crlf.txt', oldString: 'A\nB', newString: 'x' },
+        ctx(dir),
+      );
+      expect(bad.status).toBe('error');
+    });
+
+    it('rejects binary files', async () => {
+      await writeFile(join(dir, 'bin.txt'), 'abc\u0000def');
+      const r = await fileEditTool.execute(
+        { path: 'bin.txt', oldString: 'abc', newString: 'x' },
+        ctx(dir),
+      );
+      expect(r.error).toBe('Cannot edit binary file: bin.txt');
     });
   });
 });

@@ -45,6 +45,17 @@ function fileError(path: string, err: unknown, verb: 'read' | 'edit'): ToolResul
   return { status: 'error', error: err instanceof Error ? err.message : String(err) };
 }
 
+function countOccurrences(text: string, search: string): number {
+  if (search.length === 0) return 0;
+  let count = 0;
+  let index = 0;
+  while ((index = text.indexOf(search, index)) !== -1) {
+    count += 1;
+    index += search.length;
+  }
+  return count;
+}
+
 const pathParam: JSONSchema = {
   type: 'object',
   properties: { path: { type: 'string' } },
@@ -183,6 +194,98 @@ export const fileWriteTool: Tool = {
   },
 };
 
+export const fileEditTool: Tool = {
+  name: 'file_edit',
+  description:
+    'Edit a UTF-8 text file by replacing an exact string. Prefer this over file_write for partial changes. ' +
+    'oldString must match exactly (including whitespace and indentation) and must be unique unless replaceAll is true. ' +
+    'When copying text from file_read output, omit the leading line-number prefixes.',
+  parameters: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description:
+          'File to edit, relative to the participant workspace root or absolute inside it',
+      },
+      oldString: { type: 'string', description: 'Exact text to find and replace' },
+      newString: { type: 'string', description: 'Replacement text; must differ from oldString' },
+      replaceAll: {
+        type: 'boolean',
+        default: false,
+        description: 'Replace every occurrence. When false, oldString must match exactly once.',
+      },
+    },
+    required: ['path', 'oldString', 'newString'],
+  },
+  async execute(args, context): Promise<ToolResult> {
+    const {
+      path,
+      oldString,
+      newString,
+      replaceAll = false,
+    } = args as {
+      path: string;
+      oldString: string;
+      newString: string;
+      replaceAll?: boolean;
+    };
+
+    const target = resolveInWorkspace(context, path);
+    if (!target) return { status: 'error', error: `Invalid path (outside workspace): ${path}` };
+    if (oldString.length === 0) {
+      return {
+        status: 'error',
+        error: 'oldString must not be empty. Use file_write to create or overwrite a file.',
+      };
+    }
+    if (oldString === newString) {
+      return {
+        status: 'error',
+        error: 'No changes to apply: oldString and newString are identical.',
+      };
+    }
+
+    let text: string;
+    try {
+      text = await readFile(target, 'utf8');
+    } catch (err) {
+      return fileError(path, err, 'edit');
+    }
+    if (isBinary(text)) return { status: 'error', error: `Cannot edit binary file: ${path}` };
+
+    const matches = countOccurrences(text, oldString);
+    if (matches === 0) {
+      return {
+        status: 'error',
+        error: `Could not find oldString in ${path}. It must match exactly, including whitespace and indentation.`,
+      };
+    }
+    if (matches > 1 && !replaceAll) {
+      return {
+        status: 'error',
+        error: `Found ${matches} matches for oldString, but expected exactly one. Add more surrounding context to make oldString unique, or set replaceAll to true.`,
+      };
+    }
+
+    const updated = replaceAll
+      ? text.split(oldString).join(newString)
+      : text.replace(oldString, () => newString);
+    try {
+      await writeFile(target, updated, 'utf8');
+    } catch (err) {
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+
+    const replacements = replaceAll ? matches : 1;
+    return {
+      status: 'success',
+      data: { path, replacements },
+      content: `Edited ${path} (${replacements} replacement${replacements === 1 ? '' : 's'})`,
+    };
+  },
+};
+
 export const fileListTool: Tool = {
   name: 'file_list',
   description:
@@ -201,4 +304,4 @@ export const fileListTool: Tool = {
   },
 };
 
-export const fileTools: Tool[] = [fileReadTool, fileWriteTool, fileListTool];
+export const fileTools: Tool[] = [fileReadTool, fileWriteTool, fileEditTool, fileListTool];
