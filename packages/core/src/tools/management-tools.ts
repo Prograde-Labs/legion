@@ -28,6 +28,7 @@ import {
 } from '../conversation/conversation-metadata.js';
 import { UsageQuery } from '../usage/UsageQuery.js';
 import type { GroupBy, UsageFilter } from '../usage/usage-types.js';
+import { workspaceRootError } from '../collective/workspace-root.js';
 
 function requireCollective(context: ToolContext): NonNullable<ToolContext['collective']> {
   if (!context.collective) throw new Error('collective unavailable in context');
@@ -200,19 +201,27 @@ export const createAgentTool: Tool = {
       },
       maxIterations: { type: 'number' },
       middleware: middlewareSchema,
+      workspaceRoot: {
+        type: 'string',
+        description:
+          'Base directory for file tools and default process execution. Absolute or ' +
+          'relative to the collective workspace root. Omit to inherit the collective root.',
+      },
     },
     required: ['id', 'name', 'systemPrompt', 'model'],
   } as JSONSchema,
   async execute(args, context): Promise<ToolResult> {
-    const { id, name, systemPrompt, model, tools, maxIterations, middleware } = args as {
-      id: string;
-      name: string;
-      systemPrompt: string;
-      model: ModelConfig;
-      tools?: Record<string, ToolPolicy>;
-      maxIterations?: number;
-      middleware?: unknown;
-    };
+    const { id, name, systemPrompt, model, tools, maxIterations, middleware, workspaceRoot } =
+      args as {
+        id: string;
+        name: string;
+        systemPrompt: string;
+        model: ModelConfig;
+        tools?: Record<string, ToolPolicy>;
+        maxIterations?: number;
+        middleware?: unknown;
+        workspaceRoot?: string;
+      };
     try {
       if (tools !== undefined) {
         const validated = validateToolsMap(context.toolRegistry, tools);
@@ -220,6 +229,15 @@ export const createAgentTool: Tool = {
       }
       if (middleware !== undefined && !Array.isArray(middleware)) {
         throw new Error('middleware must be an array when provided');
+      }
+      let participantRoot: string | undefined;
+      if (workspaceRoot !== undefined && workspaceRoot.trim() !== '') {
+        const problem = await workspaceRootError(
+          workspaceRoot.trim(),
+          context.collectiveWorkspaceRoot ?? context.workspaceRoot,
+        );
+        if (problem) throw new Error(problem);
+        participantRoot = workspaceRoot.trim();
       }
       const collective = requireCollective(context);
       const validatedMiddleware =
@@ -234,6 +252,7 @@ export const createAgentTool: Tool = {
         systemPrompt,
         model: sanitizeModelConfig(model),
         maxIterations: maxIterations ?? 20,
+        ...(participantRoot === undefined ? {} : { workspaceRoot: participantRoot }),
         status: 'active',
         ...(validatedMiddleware === undefined
           ? {}
@@ -856,17 +875,25 @@ export const modifyAgentTool: Tool = {
           '{ policy: "auto" | "requires_approval", scope?: { <arg>: {...} } } where scope ' +
           'is keyed by top-level argument name.',
       },
+      workspaceRoot: {
+        type: 'string',
+        description:
+          'Base directory for file tools and default process execution. Absolute or ' +
+          'relative to the collective workspace root. Omit to keep the existing value; ' +
+          'pass an empty string (or null) to inherit the collective default.',
+      },
     },
     required: ['id'],
   } as JSONSchema,
   async execute(args, context: ToolContext): Promise<ToolResult> {
-    const { id, name, model, systemPrompt, maxIterations, tools } = args as {
+    const { id, name, model, systemPrompt, maxIterations, tools, workspaceRoot } = args as {
       id: string;
       name?: string;
       model?: ModelConfig | string;
       systemPrompt?: string;
       maxIterations?: number;
       tools?: Record<string, ToolPolicy>;
+      workspaceRoot?: string | null;
     };
     try {
       if (tools !== undefined) {
@@ -889,13 +916,26 @@ export const modifyAgentTool: Tool = {
             })
           : sanitizeModelConfig(model ?? agent.model);
 
-      await collective.update(id, {
+      const patch: Partial<AgentConfig> = {
         name: name ?? agent.name,
         model: updatedModel,
         systemPrompt: systemPrompt ?? agent.systemPrompt,
         maxIterations: maxIterations ?? agent.maxIterations,
         tools: tools ?? agent.tools,
-      });
+      };
+      if (workspaceRoot !== undefined) {
+        if (workspaceRoot === null || workspaceRoot.trim() === '') {
+          patch.workspaceRoot = undefined;
+        } else {
+          const problem = await workspaceRootError(
+            workspaceRoot.trim(),
+            context.collectiveWorkspaceRoot ?? context.workspaceRoot,
+          );
+          if (problem) throw new Error(problem);
+          patch.workspaceRoot = workspaceRoot.trim();
+        }
+      }
+      await collective.update(id, patch);
 
       return { status: 'success', data: collective.getOrThrow(id) };
     } catch (err) {
@@ -1123,6 +1163,7 @@ export function createManagementTools(deps: {
     secretStore: deps.secretStore,
     conversationStore: deps.conversationStore,
     workspaceRoot: '/tmp',
+    collectiveWorkspaceRoot: '/tmp',
   } as unknown as ToolContext;
 
   return managementTools.map((tool) => ({

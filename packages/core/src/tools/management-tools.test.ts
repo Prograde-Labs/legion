@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MemoryStorage } from '../storage/MemoryStorage.js';
 import { Collective } from '../collective/Collective.js';
 import { FileConversationStore } from '../conversation/FileConversationStore.js';
@@ -173,6 +176,93 @@ describe('management tools', () => {
       policy: 'auto',
       scope: { message: { maxLength: 100 } },
     });
+  });
+
+  it('create_agent stores a validated absolute workspace root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'legion-agent-root-'));
+    try {
+      const { context, collective } = await makeContext();
+      const result = await createAgentTool.execute(
+        {
+          id: 'rooted-agent',
+          name: 'Rooted',
+          systemPrompt: 'x',
+          model: { model: 'gpt-4o' },
+          workspaceRoot: root,
+        },
+        context,
+      );
+      expect(result.status).toBe('success');
+      expect((collective.get('rooted-agent') as AgentConfig).workspaceRoot).toBe(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('create_agent resolves and stores a relative workspace root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'legion-agent-base-'));
+    try {
+      await mkdir(join(base, 'projects', 'a'), { recursive: true });
+      const { context, collective } = await makeContext();
+      (context as { collectiveWorkspaceRoot?: string }).collectiveWorkspaceRoot = base;
+      const result = await createAgentTool.execute(
+        {
+          id: 'relative-agent',
+          name: 'Relative',
+          systemPrompt: 'x',
+          model: { model: 'gpt-4o' },
+          workspaceRoot: 'projects/a',
+        },
+        context,
+      );
+      expect(result.status).toBe('success');
+      expect((collective.get('relative-agent') as AgentConfig).workspaceRoot).toBe('projects/a');
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('create_agent rejects a missing workspace root without adding the agent', async () => {
+    const { context, collective } = await makeContext();
+    const result = await createAgentTool.execute(
+      {
+        id: 'bad-root',
+        name: 'Bad',
+        systemPrompt: 'x',
+        model: { model: 'gpt-4o' },
+        workspaceRoot: join(tmpdir(), 'legion-does-not-exist-xyz'),
+      },
+      context,
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/does not exist/);
+    expect(collective.get('bad-root')).toBeUndefined();
+  });
+
+  it('create_agent rejects a file as the workspace root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'legion-agent-file-'));
+    try {
+      await mkdir(join(base, 'dir'));
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(join(base, 'file.txt'), 'x');
+      const { context, collective } = await makeContext();
+      (context as { collectiveWorkspaceRoot?: string }).collectiveWorkspaceRoot = base;
+      const result = await createAgentTool.execute(
+        {
+          id: 'file-root',
+          name: 'File Root',
+          systemPrompt: 'x',
+          model: { model: 'gpt-4o' },
+          workspaceRoot: 'file.txt',
+        },
+        context,
+      );
+      expect(result.status).toBe('error');
+      expect(result.error).toMatch(/not a directory/);
+      expect(collective.get('file-root')).toBeUndefined();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 
   it('create_agent validates enabled middleware and persists a cloned revision-zero list', async () => {
@@ -1956,6 +2046,61 @@ describe('modify_agent', () => {
       temperature: 0.4,
       maxTokens: 200,
     });
+  });
+
+  it('sets, keeps, and clears the workspace root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'legion-mod-root-'));
+    try {
+      const { context, collective } = await makeContext();
+      await createAgentTool.execute(
+        {
+          id: 'mod-root',
+          name: 'Mod Root',
+          systemPrompt: 'x',
+          model: { model: 'gpt-4o' },
+        },
+        context,
+      );
+
+      await modifyAgentTool.execute({ id: 'mod-root', workspaceRoot: root }, context);
+      expect((collective.get('mod-root') as AgentConfig).workspaceRoot).toBe(root);
+
+      await modifyAgentTool.execute({ id: 'mod-root', name: 'Renamed' }, context);
+      expect((collective.get('mod-root') as AgentConfig).workspaceRoot).toBe(root);
+
+      await modifyAgentTool.execute({ id: 'mod-root', workspaceRoot: '' }, context);
+      expect((collective.get('mod-root') as AgentConfig).workspaceRoot).toBeUndefined();
+
+      await modifyAgentTool.execute({ id: 'mod-root', workspaceRoot: null }, context);
+      expect((collective.get('mod-root') as AgentConfig).workspaceRoot).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('modify_agent rejects an invalid root and keeps the existing value', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'legion-mod-invalid-'));
+    try {
+      const { context, collective } = await makeContext();
+      await createAgentTool.execute(
+        {
+          id: 'mod-invalid',
+          name: 'Mod Invalid',
+          systemPrompt: 'x',
+          model: { model: 'gpt-4o' },
+          workspaceRoot: root,
+        },
+        context,
+      );
+      const result = await modifyAgentTool.execute(
+        { id: 'mod-invalid', workspaceRoot: join(tmpdir(), 'legion-missing-xyz') },
+        context,
+      );
+      expect(result.status).toBe('error');
+      expect((collective.get('mod-invalid') as AgentConfig).workspaceRoot).toBe(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
