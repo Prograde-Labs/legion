@@ -9,8 +9,8 @@ pointed at a different base directory, so agents working on separate projects al
 one working tree.
 
 The goal: let each participant declare an optional `workspaceRoot` that becomes the base
-for file tools and, by default, for process execution. This is a *default base
-directory*, not a sandbox.
+for file tools and, by default, for process execution. This is a _default base
+directory_, not a sandbox.
 
 ## Semantics
 
@@ -24,7 +24,7 @@ directory*, not a sandbox.
   3. Otherwise the launch root.
 - **Launch root** is the resolved `LEGION_WORKSPACE` / CLI arg / `cwd`. It is where
   `.legion/` lives and remains the storage anchor.
-- `ToolContext.workspaceRoot` becomes the *effective* root, so tools and
+- `ToolContext.workspaceRoot` becomes the _effective_ root, so tools and
   `ArgumentScope` follow it without per-tool changes to their containment logic.
 - Add optional `ToolContext.collectiveWorkspaceRoot` carrying the launch root, so nested
   context construction can resolve relative participant roots and the config default.
