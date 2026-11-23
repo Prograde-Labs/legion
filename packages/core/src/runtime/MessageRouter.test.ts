@@ -5215,7 +5215,7 @@ describe('MessageRouter: synchronous human reply', () => {
   });
 
   it('times out the stream with a call_timeout chunk', async () => {
-    const { router, baseContext, store } = await setupHumanRouter({
+    const { router, baseContext, store, handleCalls } = await setupHumanRouter({
       communication: { replyTimeoutMs: 20 },
     });
     const conversation = await newConversation(store);
@@ -5236,6 +5236,16 @@ describe('MessageRouter: synchronous human reply', () => {
 
     expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 20 });
     expect(next.value).toMatchObject({ status: 'timeout', partial: true });
+
+    const late = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(late).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
   });
 
   it('uses explicit timeoutMs as the stream reply deadline', async () => {
@@ -5257,12 +5267,12 @@ describe('MessageRouter: synchronous human reply', () => {
       next = await stream.next();
     }
 
-    expect(chunks).toContainEqual({ type: 'call_timeout', timeoutMs: 20 });
+    expect(chunks).toEqual([{ type: 'call_timeout', timeoutMs: 20 }]);
     expect(next.value).toMatchObject({ status: 'timeout', partial: true });
   });
 
   it('cancels the stream wait on caller abort', async () => {
-    const { router, baseContext, store, delivered } = await setupHumanRouter({
+    const { router, baseContext, store, handleCalls, delivered } = await setupHumanRouter({
       communication: { replyTimeoutMs: null },
     });
     const conversation = await newConversation(store);
@@ -5287,6 +5297,16 @@ describe('MessageRouter: synchronous human reply', () => {
       status: 'error',
       error: 'Runtime cancelled',
     });
+
+    const late = await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'late reply',
+      conversationId: conversation.id,
+      context: baseContext,
+    });
+    expect(late).toMatchObject({ status: 'success', response: 'hello back' });
+    expect(handleCalls).toEqual(['mock-1']);
   });
 
   it('returns dispatched immediately from sendStream when replyTo is set', async () => {
