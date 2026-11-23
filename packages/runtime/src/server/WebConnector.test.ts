@@ -29,6 +29,7 @@ async function makeCollective() {
     operator: true,
     protected: true,
     status: 'active',
+    identities: [{ connector: 'web', externalId: 'op-1' }],
   });
   return Collective.load(storage);
 }
@@ -681,7 +682,7 @@ describe('WebConnector: WebSocket auth', () => {
 });
 
 describe('WebConnector: deliver()', () => {
-  it('is a no-op when the recipient has no active connections', async () => {
+  it('reports accepted when the recipient has no active connections', async () => {
     const { connector } = await makeConnector();
     await expect(
       connector.deliver({
@@ -692,11 +693,11 @@ describe('WebConnector: deliver()', () => {
         content: 'hello',
         timestamp: new Date().toISOString(),
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ status: 'accepted' });
     await connector.stop();
   });
 
-  it('sends to all open sockets for the recipient', async () => {
+  it('reports delivered when it sends to an open socket', async () => {
     const { connector } = await makeConnector();
     const sent: string[] = [];
     const fakeSocket = {
@@ -707,14 +708,16 @@ describe('WebConnector: deliver()', () => {
     };
     (connector as any).connections.set('op-1', new Set([fakeSocket]));
 
-    await connector.deliver({
-      id: 'm1',
-      conversationId: 'c1',
-      senderId: 'agent-1',
-      recipientId: 'op-1',
-      content: 'hi',
-      timestamp: new Date().toISOString(),
-    });
+    await expect(
+      connector.deliver({
+        id: 'm1',
+        conversationId: 'c1',
+        senderId: 'agent-1',
+        recipientId: 'op-1',
+        content: 'hi',
+        timestamp: new Date().toISOString(),
+      }),
+    ).resolves.toEqual({ status: 'delivered' });
 
     expect(sent).toHaveLength(1);
     const msg = JSON.parse(sent[0]) as { type: string };
@@ -722,7 +725,7 @@ describe('WebConnector: deliver()', () => {
     await connector.stop();
   });
 
-  it('skips closed sockets (readyState !== OPEN)', async () => {
+  it('reports accepted when every socket is closed', async () => {
     const { connector } = await makeConnector();
     const sent: string[] = [];
     const closedSocket = {
@@ -733,15 +736,47 @@ describe('WebConnector: deliver()', () => {
     };
     (connector as any).connections.set('op-1', new Set([closedSocket]));
 
-    await connector.deliver({
-      id: 'm1',
-      conversationId: 'c1',
-      senderId: 'agent-1',
-      recipientId: 'op-1',
-      content: 'hi',
-      timestamp: new Date().toISOString(),
-    });
+    await expect(
+      connector.deliver({
+        id: 'm1',
+        conversationId: 'c1',
+        senderId: 'agent-1',
+        recipientId: 'op-1',
+        content: 'hi',
+        timestamp: new Date().toISOString(),
+      }),
+    ).resolves.toEqual({ status: 'accepted' });
     expect(sent).toHaveLength(0);
+    await connector.stop();
+  });
+
+  it('reports failed when a socket send throws', async () => {
+    const { connector } = await makeConnector();
+    const throwingSocket = {
+      readyState: 1,
+      send: () => {
+        throw new Error('socket closed');
+      },
+    };
+    (connector as any).connections.set('op-1', new Set([throwingSocket]));
+
+    await expect(
+      connector.deliver({
+        id: 'm1',
+        conversationId: 'c1',
+        senderId: 'agent-1',
+        recipientId: 'op-1',
+        content: 'hi',
+        timestamp: new Date().toISOString(),
+      }),
+    ).resolves.toEqual({ status: 'failed', reason: 'socket closed' });
+    await connector.stop();
+  });
+
+  it('reports deliverability from the web identity', async () => {
+    const { connector } = await makeConnector();
+    expect(connector.canDeliver('op-1')).toBe(true);
+    expect(connector.canDeliver('nobody')).toBe(false);
     await connector.stop();
   });
 });

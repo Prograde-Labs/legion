@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import websocketPlugin from '@fastify/websocket';
 import staticPlugin from '@fastify/static';
 import { WebSocket } from 'ws';
-import type { Connector, ConnectorContext } from '@legion-collective/core';
+import type { Connector, ConnectorContext, DeliveryOutcome } from '@legion-collective/core';
 import type {
   Collective,
   CredentialStore,
@@ -193,6 +193,11 @@ export class WebConnector implements Connector {
     console.log(`  Web UI: http://${host}:${port}`);
   }
 
+  canDeliver(participantId: string): boolean {
+    const participant = this.deps.collective.get(participantId);
+    return Boolean(participant?.identities?.some((identity) => identity.connector === 'web'));
+  }
+
   async deliver(message: {
     id: string;
     conversationId: string;
@@ -201,19 +206,28 @@ export class WebConnector implements Connector {
     replyTo?: string;
     content: string;
     timestamp: string;
-  }): Promise<void> {
+  }): Promise<DeliveryOutcome> {
     const sockets = this.connections.get(message.recipientId);
-    if (!sockets?.size) return;
+    if (!sockets?.size) return { status: 'accepted' };
+
     const payload = JSON.stringify({ type: 'message', data: message });
+    let delivered = false;
+    let failure: string | undefined;
+
     for (const socket of sockets) {
       try {
         if ((socket as any).readyState === WebSocket.OPEN) {
           socket.send(payload);
+          delivered = true;
         }
-      } catch {
-        // socket may have been closed between check and send
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
       }
     }
+
+    if (delivered) return { status: 'delivered' };
+    if (failure) return { status: 'failed', reason: failure };
+    return { status: 'accepted' };
   }
 
   async stop(): Promise<void> {
