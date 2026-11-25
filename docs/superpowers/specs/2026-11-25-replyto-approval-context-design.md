@@ -56,8 +56,11 @@ context unless the message is the participant's current incoming message:
 - The requester resuming its own turn does not see the notice.
 - A target agent handling the notice still sees it as its incoming turn.
 
-`resume` and `generate` also ignore internal messages when they look for the
-last incoming user message.
+`resume` and `generate` still select the latest incoming turn regardless of the
+flag. This keeps their existing semantics: an internal notice that is genuinely
+the participant's latest incoming turn (for example, a target agent that paused
+while handling one) is resumed normally. The flag only changes what the model
+sees, not which turn is resumed.
 
 ### 3.2 Report whether the router delivered a resumed reply
 
@@ -103,7 +106,7 @@ post it.
 - `approval-response-tool.test.ts`: `resumed` dedup for same and different
   targets.
 - `AgentRuntime.test.ts`: internal messages are filtered unless incoming.
-- `MessageRouter.test.ts`: the approval notice is internal; `resume` ignores
-  internal messages when selecting the incoming turn.
+- `MessageRouter.test.ts`: the approval notice is internal; `resume` still
+  selects an internal notice when it is the latest incoming turn.
 - `PendingApprovalRegistry.test.ts`: the terminal result preserves the new
   delivery metadata.

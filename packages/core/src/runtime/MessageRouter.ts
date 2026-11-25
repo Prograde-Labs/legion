@@ -1303,7 +1303,7 @@ export class MessageRouter implements MessageRouterPort {
     const chain = thread.activeChain;
     const lastIncoming = [...chain]
       .reverse()
-      .find((m) => m.recipientId === participantId && m.role === 'user' && !m.internal);
+      .find((m) => m.recipientId === participantId && m.role === 'user');
 
     if (!lastIncoming) {
       return {
@@ -2458,7 +2458,7 @@ export class MessageRouter implements MessageRouterPort {
 
       const lastIncoming = [...thread.activeChain]
         .reverse()
-        .find((m) => m.recipientId === participantId && m.role === 'user' && !m.internal);
+        .find((m) => m.recipientId === participantId && m.role === 'user');
 
       if (!lastIncoming) {
         return {

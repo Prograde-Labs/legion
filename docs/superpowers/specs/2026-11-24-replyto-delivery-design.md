@@ -252,8 +252,8 @@ append a second message and is out of scope.
 `resume` and `resumeApproval` deliver the resumed reply to `replyTo` as well.
 The routed approval notice is persisted with `internal: true`, so it remains a
 durable record for the target but is excluded from the requester's agent model
-context unless it is the participant's current incoming message. `resume`
-ignores internal messages when it selects the last incoming turn.
+context unless it is the participant's current incoming message. `resume` and
+`generate` still select the latest incoming turn regardless of the flag.
 
 `deliverReplyTo` returns whether it delivered, and the resume result records
 `responseRecipientId` and `replyToDelivered`. `approval_response` omits the

@@ -4245,7 +4245,7 @@ describe('MessageRouter: resume()', () => {
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
   });
 
-  it('ignores internal messages when choosing the resume incoming', async () => {
+  it('uses an internal message as the resume incoming when it is the latest turn', async () => {
     const { collective, store, eventBus, baseContext } = await setup(dir);
     const received: MessageData[] = [];
     const registry = new RuntimeRegistry();
@@ -4283,7 +4283,7 @@ describe('MessageRouter: resume()', () => {
     await router.resume(thread.id, 'mock-1', baseContext);
 
     expect(received).toHaveLength(1);
-    expect(received[0].content).toBe('original');
+    expect(received[0].content).toContain('Approval required');
   });
 
   it('routes the resumed response to replyTo', async () => {
