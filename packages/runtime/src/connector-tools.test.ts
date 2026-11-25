@@ -95,8 +95,9 @@ describe('shutdownConnectors', () => {
   it("unregisters a connector's tools before stopping it", async () => {
     const toolRegistry = new ToolRegistry();
     const connectors = new ConnectorRegistry();
+    let toolPresentAtStop: boolean | undefined;
     const stop = vi.fn(async () => {
-      expect(toolRegistry.has('teams__a')).toBe(false);
+      toolPresentAtStop = toolRegistry.has('teams__a');
     });
     const connector: Connector = {
       name: 'teams',
@@ -111,6 +112,7 @@ describe('shutdownConnectors', () => {
     await shutdownConnectors({ connectors, toolRegistry, connectorTools });
 
     expect(stop).toHaveBeenCalledOnce();
+    expect(toolPresentAtStop).toBe(false);
     expect(connectorTools.size).toBe(0);
     expect(toolRegistry.has('teams__a')).toBe(false);
   });
