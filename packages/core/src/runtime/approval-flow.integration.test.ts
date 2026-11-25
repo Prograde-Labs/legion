@@ -414,7 +414,7 @@ describe('Approval flow integration', () => {
     expect(resumed ?? []).not.toContainEqual(expect.objectContaining({ response: 'done' }));
   });
 
-  it('still returns the resumed reply when the caller is not the replyTo target', async () => {
+  it('does not return a resumed reply the router delivered to a different replyTo target', async () => {
     const { modelRouter, router, makeContext, pendingApprovalRegistry, collective } =
       await setup(dir);
     await collective.add({
@@ -457,7 +457,7 @@ describe('Approval flow integration', () => {
     await router.drain();
 
     const resumed = (approveResult.data as { resumed?: Array<{ response?: string }> }).resumed;
-    expect(resumed).toContainEqual(expect.objectContaining({ response: 'done' }));
+    expect(resumed ?? []).not.toContainEqual(expect.objectContaining({ response: 'done' }));
   });
 
   it('delivers the text written alongside a gated call with the approval notice', async () => {

@@ -202,7 +202,7 @@ describe('approval_response tool', () => {
     expect((result.data as { resumed?: unknown }).resumed).toBeUndefined();
   });
 
-  it('keeps a resumed reply delivered to a different replyTo target', async () => {
+  it('omits a resumed reply delivered to a different replyTo target', async () => {
     const reg = new PendingApprovalRegistry();
     const { approvalId } = await reg.create({
       conversationId: 'c1',
@@ -230,9 +230,45 @@ describe('approval_response tool', () => {
     );
 
     expect(result.status).toBe('success');
-    expect((result.data as { resumed?: unknown }).resumed).toEqual([
-      { conversationId: 'c1', response: 'written and verified' },
-    ]);
+    expect((result.data as { resumed?: unknown }).resumed).toBeUndefined();
+  });
+
+  it('omits a resumed reply delivered by the router even when the caller is an agent', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: {},
+    });
+    const context = makeContext({
+      pendingApprovalRegistry: reg,
+      participant: {
+        id: 'agent-c',
+        name: 'C',
+        type: 'agent',
+        tools: {},
+        approvalAuthority: { tools: '*', participants: '*' },
+      } as ToolContext['participant'],
+      messageRouter: {
+        send: vi.fn(),
+        resume: vi.fn().mockResolvedValue({
+          conversationId: 'c1',
+          status: 'success',
+          response: 'written and verified',
+          responseRecipientId: 'op',
+          replyToDelivered: true,
+        }),
+      } as unknown as ToolContext['messageRouter'],
+    });
+
+    const result = await approvalResponseTool.execute(
+      { decisions: [{ approvalId, decision: 'approve' }] },
+      context,
+    );
+
+    expect(result.status).toBe('success');
+    expect((result.data as { resumed?: unknown }).resumed).toBeUndefined();
   });
 
   it('returns successor approval requests raised during resume', async () => {
