@@ -431,9 +431,9 @@ export class MessageRouter implements MessageRouterPort {
       const storedMessageId = result.storedMessageId;
       return {
         result,
-        ...(storedMessageId === undefined
-          ? {}
-          : { message: thread.data.messages[storedMessageId] }),
+        ...(result.status === 'success' && storedMessageId !== undefined
+          ? { message: thread.data.messages[storedMessageId] }
+          : {}),
       };
     }
     const responseMsg = await thread.append({
