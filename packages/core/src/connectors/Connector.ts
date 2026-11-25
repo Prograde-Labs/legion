@@ -1,4 +1,4 @@
-import type { ToolResult, StreamChunk } from '@legion-collective/types';
+import type { ApprovalRequestView, ToolResult, StreamChunk } from '@legion-collective/types';
 import type { AnyTool, MessageRouterResult } from '../tools/Tool.js';
 import type { ConnectorRegistry } from './ConnectorRegistry.js';
 
@@ -91,6 +91,8 @@ export interface Connector {
     replyTo?: string;
     content: string;
     timestamp: string;
+    /** Structured approval requests carried by this message, if any. */
+    approvalRequests?: ApprovalRequestView[];
   }): Promise<DeliveryOutcome>;
 
   /** Called on process shutdown. Release all resources. */

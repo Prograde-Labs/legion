@@ -1,5 +1,6 @@
 import { UserDeliveryRuntime } from './UserDeliveryRuntime.js';
 import { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
+import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import type { RuntimeContext } from './Runtime.js';
 import type { MessageData } from '@legion-collective/types';
 import type { Connector, DeliveryOutcome } from '../connectors/Connector.js';
@@ -68,6 +69,100 @@ describe('UserDeliveryRuntime', () => {
     await runtime.handle(inbound, makeCtx());
     expect(conn.delivered).toHaveLength(1);
     expect((conn.delivered[0] as any).content).toBe('hello');
+  });
+
+  it('passes structured approval requests to connectors', async () => {
+    const approvals = new PendingApprovalRegistry();
+    const { approvalId } = await approvals.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'write_file',
+      args: { path: 'notes.txt' },
+    });
+    const registry = new ConnectorRegistry();
+    const conn = makeConnector('web');
+    registry.register(conn);
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    const ctx = { ...makeCtx(), pendingApprovalRegistry: approvals } as RuntimeContext;
+
+    await runtime.handle(
+      {
+        ...inbound,
+        toolCalls: [{ id: 'call-1', name: 'write_file', arguments: { path: 'notes.txt' } }],
+        toolResults: [
+          {
+            id: 'call-1',
+            name: 'write_file',
+            result: { status: 'pending_approval', approvalId },
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(conn.delivered).toHaveLength(1);
+    expect((conn.delivered[0] as { approvalRequests?: unknown[] }).approvalRequests).toEqual([
+      {
+        approvalId,
+        conversationId: 'c1',
+        requesterId: 'agent-b',
+        tool: 'write_file',
+        args: { path: 'notes.txt' },
+        createdAt: expect.any(String),
+      },
+    ]);
+  });
+
+  it('omits approvalRequests when the registry cannot resolve a tool result', async () => {
+    const registry = new ConnectorRegistry();
+    const conn = makeConnector('web');
+    registry.register(conn);
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+
+    await runtime.handle(
+      {
+        ...inbound,
+        toolResults: [
+          {
+            id: 'call-1',
+            name: 'write_file',
+            result: { status: 'pending_approval', approvalId: 'missing' },
+          },
+        ],
+      },
+      makeCtx(),
+    );
+
+    expect(
+      (conn.delivered[0] as { approvalRequests?: unknown[] }).approvalRequests,
+    ).toBeUndefined();
+  });
+
+  it('omits approvalRequests when a pending record is missing', async () => {
+    const approvals = new PendingApprovalRegistry();
+    const registry = new ConnectorRegistry();
+    const conn = makeConnector('web');
+    registry.register(conn);
+    const runtime = new UserDeliveryRuntime('user-a', registry);
+    const ctx = { ...makeCtx(), pendingApprovalRegistry: approvals } as RuntimeContext;
+
+    await runtime.handle(
+      {
+        ...inbound,
+        toolResults: [
+          {
+            id: 'call-1',
+            name: 'write_file',
+            result: { status: 'pending_approval', approvalId: 'missing' },
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(
+      (conn.delivered[0] as { approvalRequests?: unknown[] }).approvalRequests,
+    ).toBeUndefined();
   });
 
   it('excludes connectors whose canDeliver predicate rejects the participant', async () => {

@@ -17,6 +17,7 @@ import type { RuntimeContext, RuntimeResult } from './Runtime.js';
 import type {
   ConversationOrigin,
   LLMChunk,
+  MessageData,
   MiddlewareDefinition,
   MiddlewareLogger,
   MiddlewareActionResult,
@@ -3149,6 +3150,130 @@ describe('MessageRouter: fire-and-forget', () => {
     expect(toOp?.content).toBe('hello back');
   });
 
+  it('routes a pending approval to replyTo instead of dropping it', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const received: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle(): Promise<RuntimeResult> {
+        return {
+          kind: 'pending_approval',
+          approvalRequests: [
+            {
+              approvalId: 'appr-faf',
+              conversationId: 'conv-faf',
+              requesterId: 'mock-1',
+              tool: 'write_file',
+              args: { path: 'notes.txt' },
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        };
+      },
+    }));
+    registry.registerFactory('user', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'void' };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'do it',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+
+    expect(received).toHaveLength(1);
+    expect(received[0].senderId).toBe('mock-1');
+    expect(received[0].recipientId).toBe('op');
+    expect(received[0].replyTo).toBe('svc');
+    expect(received[0].content).toContain('appr-faf');
+    expect(received[0].toolResults?.[0]?.result).toMatchObject({
+      status: 'pending_approval',
+      approvalId: 'appr-faf',
+    });
+
+    const conv = await store.load(result.conversationId);
+    const approvalMessage = Object.values(conv!.messages).find((m) => m.id === received[0].id);
+    expect(approvalMessage).toBeDefined();
+    expect(approvalMessage!.recipientId).toBe('op');
+    expect(approvalMessage!.toolResults?.[0]?.result.status).toBe('pending_approval');
+  });
+
+  it("bubbles a replyTo participant's own approval to the next target without looping", async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const receivedByReviewer: MessageData[] = [];
+    const receivedByCaller: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        if (id === 'mock-1') {
+          return {
+            kind: 'pending_approval',
+            approvalRequests: [
+              {
+                approvalId: 'appr-callee',
+                conversationId: 'conv-bubble',
+                requesterId: 'mock-1',
+                tool: 'write_file',
+                args: {},
+                createdAt: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          };
+        }
+        receivedByCaller.push(incoming);
+        return { kind: 'void' };
+      },
+    }));
+    registry.registerFactory('user', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        receivedByReviewer.push(incoming);
+        return {
+          kind: 'pending_approval',
+          approvalRequests: [
+            {
+              approvalId: 'appr-reviewer',
+              conversationId: 'conv-bubble',
+              requesterId: 'op',
+              tool: 'publish',
+              args: {},
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'do it',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+
+    await router.drain();
+
+    expect(receivedByReviewer).toHaveLength(1);
+    expect(receivedByReviewer[0].content).toContain('appr-callee');
+    expect(receivedByCaller).toHaveLength(1);
+    expect(receivedByCaller[0].senderId).toBe('op');
+    expect(receivedByCaller[0].recipientId).toBe('svc');
+    expect(receivedByCaller[0].replyTo).toBe('op');
+    expect(receivedByCaller[0].content).toContain('appr-reviewer');
+    expect(receivedByReviewer.some((m) => m.content.includes('appr-reviewer'))).toBe(false);
+  });
+
   it('catches runtime errors in fire-and-forget and persists an error message', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/op.json', {
@@ -3600,6 +3725,28 @@ describe('MessageRouter: resume()', () => {
     const conv = await store.load(conversationId);
     const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
+  });
+
+  it('routes the resumed response to replyTo', async () => {
+    const { router, baseContext, store } = await setup(dir);
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+    await thread.append({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      role: 'user',
+      content: 'original',
+      replyTo: 'op',
+    });
+
+    const resumeResult = await router.resume(thread.id, 'mock-1', baseContext);
+    expect(resumeResult.status).toBe('success');
+
+    const conv = await store.load(thread.id);
+    const assistant = Object.values(conv!.messages).find((m) => m.role === 'assistant');
+    expect(assistant?.recipientId).toBe('op');
   });
 });
 

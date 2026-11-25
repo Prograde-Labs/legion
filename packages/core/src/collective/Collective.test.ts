@@ -206,6 +206,13 @@ describe('Collective: mutation and invariants', () => {
     expect(collective.get('agent-1')?.name).toBe('Renamed');
   });
 
+  it('drops undefined-valued patch keys so participant snapshots stay JSON-safe', async () => {
+    const collective = await withOperatorAndAgent();
+    await collective.update('agent-1', { workspaceRoot: undefined });
+    const updated = collective.get('agent-1') as AgentConfig;
+    expect(Object.hasOwn(updated, 'workspaceRoot')).toBe(false);
+  });
+
   it('refuses to strip operator authority from the last operator', async () => {
     const { storage } = seedStorage();
     await storage.writeJson('collective/participants/op-1.json', {

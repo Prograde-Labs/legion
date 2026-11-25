@@ -171,6 +171,11 @@ export class Collective {
     await this.withParticipantMutation(id, async () => {
       const existing = this.getStoredOrThrow(id);
       const updated = { ...existing, ...patch } as ParticipantConfig;
+      // Optional fields cleared via `undefined` must not remain as own
+      // properties: middleware snapshots reject undefined values as non-JSON.
+      for (const key of Object.keys(updated) as (keyof ParticipantConfig)[]) {
+        if (updated[key] === undefined) delete updated[key];
+      }
       if (Object.hasOwn(patch, 'middleware')) {
         updated.middleware =
           patch.middleware === undefined ? undefined : structuredClone(patch.middleware);

@@ -1,4 +1,4 @@
-import type { MessageData } from '@legion-collective/types';
+import type { ApprovalRequestView, MessageData } from '@legion-collective/types';
 import type { Runtime, RuntimeContext, RuntimeResult } from './Runtime.js';
 import type { ConnectorRegistry } from '../connectors/ConnectorRegistry.js';
 import type { DeliveryOutcome } from '../connectors/Connector.js';
@@ -11,6 +11,7 @@ export class UserDeliveryRuntime implements Runtime {
 
   async handle(incoming: MessageData, context: RuntimeContext): Promise<RuntimeResult> {
     const connectors = this.connectorRegistry?.getDeliverableConnectors(this.participantId) ?? [];
+    const approvalRequests = this.approvalRequests(incoming, context);
 
     const outcomes: DeliveryOutcome[] = [];
     if (connectors.length === 0) {
@@ -29,6 +30,7 @@ export class UserDeliveryRuntime implements Runtime {
             replyTo: incoming.replyTo,
             content: incoming.content,
             timestamp: incoming.timestamp,
+            ...(approvalRequests.length === 0 ? {} : { approvalRequests }),
           })) as DeliveryOutcome | undefined;
           outcomes.push(
             outcome && typeof outcome === 'object' && typeof outcome.status === 'string'
@@ -68,5 +70,35 @@ export class UserDeliveryRuntime implements Runtime {
         reason,
       },
     };
+  }
+
+  /**
+   * Resolve the structured approval requests carried by a pending-approval
+   * message. Connectors use these to render approval cards; the message's
+   * tool results remain the durable record in the conversation.
+   */
+  private approvalRequests(incoming: MessageData, context: RuntimeContext): ApprovalRequestView[] {
+    const registry = context.pendingApprovalRegistry;
+    if (!registry || !incoming.toolResults) return [];
+
+    const seen = new Set<string>();
+    const requests: ApprovalRequestView[] = [];
+    for (const toolResult of incoming.toolResults) {
+      if (toolResult.result.status !== 'pending_approval') continue;
+      const approvalId = toolResult.result.approvalId;
+      if (!approvalId || seen.has(approvalId)) continue;
+      seen.add(approvalId);
+      const pending = registry.get(approvalId);
+      if (!pending) continue;
+      requests.push({
+        approvalId: pending.approvalId,
+        conversationId: pending.conversationId,
+        requesterId: pending.requesterId,
+        tool: pending.tool,
+        args: pending.args,
+        createdAt: pending.createdAt,
+      });
+    }
+    return requests;
   }
 }

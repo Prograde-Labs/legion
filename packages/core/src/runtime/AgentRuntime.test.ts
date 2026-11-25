@@ -879,6 +879,31 @@ describe('AgentRuntime: auth – requires_approval policy', () => {
     expect(toolTurn?.toolResults?.[0].result.approvalId).toMatch(/^appr-/);
   });
 
+  it("ignores another participant's paused approval turn", async () => {
+    const { runtime, incoming, context, thread } = await setupApprovalScenario(dir);
+    await thread.append({
+      senderId: 'agent-2',
+      recipientId: 'agent-2',
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'foreign-tc', name: 'echo', arguments: { text: 'x' } }],
+      toolResults: [
+        {
+          id: 'foreign-tc',
+          name: 'echo',
+          result: { status: 'pending_approval', approvalId: 'appr-foreign' },
+        },
+      ],
+    });
+
+    const result = await runtime.handle(incoming, context);
+
+    expect(result.kind).toBe('pending_approval');
+    const r = result as { approvalRequests: { approvalId: string; requesterId: string }[] };
+    expect(r.approvalRequests[0].requesterId).toBe('agent-1');
+    expect(r.approvalRequests[0].approvalId).not.toBe('appr-foreign');
+  });
+
   it('discards approval created by a cancelled unpersisted tool turn', async () => {
     const { runtime, incoming, context, thread, pendingApprovalRegistry } =
       await setupApprovalScenario(dir);

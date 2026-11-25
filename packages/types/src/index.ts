@@ -1,4 +1,5 @@
 export * from './tool.js';
+export * from './approval.js';
 export * from './conversation.js';
 export * from './config.js';
 export * from './participant.js';
