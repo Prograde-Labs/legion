@@ -1,11 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ConnectorRegistry,
   ToolRegistry,
   type AnyTool,
   type Connector,
 } from '@legion-collective/core';
-import { registerConnectorTools, unregisterConnectorTools } from './LegionProcess.js';
+import {
+  registerConnectorTools,
+  shutdownConnectors,
+  unregisterConnectorTools,
+} from './LegionProcess.js';
 
 function fakeTool(name: string): AnyTool {
   return {
@@ -84,5 +88,48 @@ describe('ConnectorRegistry parity', () => {
     const registry = new ConnectorRegistry();
     registry.register(fakeConnector('teams', [fakeTool('teams__x')]));
     expect(registry.get('teams')?.tools?.()).toHaveLength(1);
+  });
+});
+
+describe('shutdownConnectors', () => {
+  it("unregisters a connector's tools before stopping it", async () => {
+    const toolRegistry = new ToolRegistry();
+    const connectors = new ConnectorRegistry();
+    const stop = vi.fn(async () => {
+      expect(toolRegistry.has('teams__a')).toBe(false);
+    });
+    const connector: Connector = {
+      name: 'teams',
+      start: async () => undefined,
+      deliver: async () => ({ status: 'delivered' }),
+      stop,
+    };
+    connectors.register(connector);
+    toolRegistry.register(fakeTool('teams__a'));
+
+    const connectorTools = new Map<string, string[]>([['teams', ['teams__a']]]);
+    await shutdownConnectors({ connectors, toolRegistry, connectorTools });
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(connectorTools.size).toBe(0);
+    expect(toolRegistry.has('teams__a')).toBe(false);
+  });
+
+  it('stops connectors even when their tool names are already gone', async () => {
+    const toolRegistry = new ToolRegistry();
+    const connectors = new ConnectorRegistry();
+    const stop = vi.fn(async () => undefined);
+    connectors.register({
+      name: 'teams',
+      start: async () => undefined,
+      deliver: async () => ({ status: 'delivered' }),
+      stop,
+    });
+    await shutdownConnectors({
+      connectors,
+      toolRegistry,
+      connectorTools: new Map([['teams', ['teams__missing']]]),
+    });
+    expect(stop).toHaveBeenCalledOnce();
   });
 });

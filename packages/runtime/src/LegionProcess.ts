@@ -101,6 +101,7 @@ export class LegionProcess {
     private readonly mcpSources: ToolSource[],
     private readonly processManager: ProcessManager,
     readonly connectorContext: ConnectorContext,
+    private readonly connectorTools: Map<string, string[]>,
   ) {}
 
   /**
@@ -399,12 +400,21 @@ export class LegionProcess {
       credentials,
     });
 
+    const connectorTools = new Map<string, string[]>();
     await webConnector.start(connectorContext);
+    try {
+      const webTools = registerConnectorTools(webConnector, toolRegistry);
+      if (webTools.length > 0) connectorTools.set(webConnector.name, webTools);
+    } catch (error) {
+      console.warn(
+        `[legion] web connector tools failed to register: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     // Load and start configured external connectors (spec §4.3) — started with the
     // same shared ConnectorContext as builtins, then registered for routing/stop().
     if ((mergedConfig.connectors?.length ?? 0) > 0) {
-      await startExternalConnectors({
+      const { toolsByConnector } = await startExternalConnectors({
         entries: mergedConfig.connectors ?? [],
         workspaceRoot,
         connectorRegistry,
@@ -412,6 +422,7 @@ export class LegionProcess {
         runtimeDeps: { collective, secrets },
         context: connectorContext,
       });
+      for (const [name, names] of toolsByConnector) connectorTools.set(name, names);
     }
 
     // ── Step 10: Auto-start services ─────────────────────────────────────────
@@ -435,6 +446,7 @@ export class LegionProcess {
       mcpSources,
       processManager,
       connectorContext,
+      connectorTools,
     );
   }
 
@@ -451,13 +463,11 @@ export class LegionProcess {
       }
     }
     // Stop all connectors
-    for (const connector of this.connectors.getAll()) {
-      try {
-        await connector.stop();
-      } catch {
-        // Best-effort.
-      }
-    }
+    await shutdownConnectors({
+      connectors: this.connectors,
+      toolRegistry: this.toolRegistry,
+      connectorTools: this.connectorTools,
+    });
     // Unload MCP sources
     for (const source of this.mcpSources) {
       try {
@@ -671,6 +681,25 @@ export async function startExternalConnectors(
     console.warn(`[legion] ${failures.length} external connector(s) failed to load`);
   }
   return { connectors: registered, toolsByConnector };
+}
+
+export async function shutdownConnectors(deps: {
+  connectors: ConnectorRegistry;
+  toolRegistry: ToolRegistry;
+  connectorTools: Map<string, string[]>;
+}): Promise<void> {
+  for (const connector of deps.connectors.getAll()) {
+    const names = deps.connectorTools.get(connector.name);
+    if (names) {
+      unregisterConnectorTools(deps.toolRegistry, names);
+      deps.connectorTools.delete(connector.name);
+    }
+    try {
+      await connector.stop();
+    } catch {
+      // Best-effort.
+    }
+  }
 }
 
 export function registerConnectorTools(connector: Connector, toolRegistry: ToolRegistry): string[] {
