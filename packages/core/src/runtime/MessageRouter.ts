@@ -1303,7 +1303,7 @@ export class MessageRouter implements MessageRouterPort {
     const chain = thread.activeChain;
     const lastIncoming = [...chain]
       .reverse()
-      .find((m) => m.recipientId === participantId && m.role === 'user');
+      .find((m) => m.recipientId === participantId && m.role === 'user' && !m.internal);
 
     if (!lastIncoming) {
       return {
@@ -1327,8 +1327,9 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      let replyToDelivered = false;
       if (completed.message) {
-        await this.deliverReplyTo(
+        replyToDelivered = await this.deliverReplyTo(
           thread,
           completed.message,
           {
@@ -1342,7 +1343,7 @@ export class MessageRouter implements MessageRouterPort {
           (toolContext.communicationDepth ?? 0) + 1,
         );
       }
-      return completed.result;
+      return this.withReplyToDelivery(completed.result, completed.message, replyToDelivered);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
@@ -1656,8 +1657,9 @@ export class MessageRouter implements MessageRouterPort {
           },
           runtimeResult,
         );
+        let replyToDelivered = false;
         if (incoming && completed.message) {
-          await this.deliverReplyTo(
+          replyToDelivered = await this.deliverReplyTo(
             thread,
             completed.message,
             {
@@ -1671,7 +1673,11 @@ export class MessageRouter implements MessageRouterPort {
             (helperContext.communicationDepth ?? 0) + 1,
           );
         }
-        const result = completed.result;
+        const result = this.withReplyToDelivery(
+          completed.result,
+          completed.message,
+          replyToDelivered,
+        );
         if (result.status === 'pending_approval') {
           const successorApprovalIds = [
             ...new Set([
@@ -2401,8 +2407,9 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      let replyToDelivered = false;
       if (completed.message) {
-        await this.deliverReplyTo(
+        replyToDelivered = await this.deliverReplyTo(
           thread,
           completed.message,
           {
@@ -2416,7 +2423,7 @@ export class MessageRouter implements MessageRouterPort {
           (context.communicationDepth ?? 0) + 1,
         );
       }
-      return completed.result;
+      return this.withReplyToDelivery(completed.result, completed.message, replyToDelivered);
     } catch {
       if (providerClaimed) {
         const record = approvals!.getRecord(approvalId);
@@ -2451,7 +2458,7 @@ export class MessageRouter implements MessageRouterPort {
 
       const lastIncoming = [...thread.activeChain]
         .reverse()
-        .find((m) => m.recipientId === participantId && m.role === 'user');
+        .find((m) => m.recipientId === participantId && m.role === 'user' && !m.internal);
 
       if (!lastIncoming) {
         return {
@@ -2572,6 +2579,24 @@ export class MessageRouter implements MessageRouterPort {
     return (await this.completeResponseDetailed(operation, result)).result;
   }
 
+  /**
+   * Record where a resumed response went and whether the router delivered it.
+   * Approval-response callers use this to avoid posting a reply a connector
+   * (or the router itself) already delivered.
+   */
+  private withReplyToDelivery(
+    result: MessageRouterResult,
+    message: MessageData | undefined,
+    replyToDelivered: boolean,
+  ): MessageRouterResult {
+    if (!message) return result;
+    return {
+      ...result,
+      responseRecipientId: message.recipientId,
+      ...(replyToDelivered ? { replyToDelivered: true } : {}),
+    };
+  }
+
   private async dispatchAsync(
     runtime: ReturnType<RuntimeRegistry['build']>,
     inbound: Awaited<ReturnType<ConversationThread['append']>>,
@@ -2646,24 +2671,24 @@ export class MessageRouter implements MessageRouterPort {
     responseMessage: MessageData,
     opts: SendOptions,
     depth: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const replyTo = opts.replyTo;
-    if (!replyTo) return;
+    if (!replyTo) return false;
     if (responseMessage.recipientId === responseMessage.senderId) {
       console.debug(
         `[MessageRouter] skipping self-delivery: replyTo '${replyTo}' matches response sender '${responseMessage.senderId}'`,
       );
-      return;
+      return false;
     }
-    if (depth > DEFAULT_DEPTH_LIMIT) return;
+    if (depth > DEFAULT_DEPTH_LIMIT) return false;
 
     try {
       const target = this.collective.get(replyTo);
       if (!target) {
         console.warn(`[MessageRouter] replyTo target '${replyTo}' does not exist`);
-        return;
+        return false;
       }
-      if (this.replyToDelivery === 'users' && target.type !== 'user') return;
+      if (this.replyToDelivery === 'users' && target.type !== 'user') return false;
 
       const runtime = this.registry.build(target.type, target.id);
       const runtimeContext = this.buildRuntimeContext(
@@ -2689,6 +2714,7 @@ export class MessageRouter implements MessageRouterPort {
           conversationId: thread.id,
           error: { name: 'ReplyToDeliveryError', message },
         });
+        return false;
       }
       if (completed.result.status === 'pending_approval') {
         await this.dispatchApprovalRequests(
@@ -2702,7 +2728,7 @@ export class MessageRouter implements MessageRouterPort {
           },
           completed.result.approvalRequests ?? [],
         );
-        return;
+        return true;
       }
       if (this.replyToDelivery === 'all' && completed.message) {
         const nextReplyTo = completed.message.recipientId;
@@ -2721,6 +2747,7 @@ export class MessageRouter implements MessageRouterPort {
           );
         }
       }
+      return true;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       console.error(`[MessageRouter] replyTo delivery to '${replyTo}' failed: ${err.message}`);
@@ -2728,6 +2755,7 @@ export class MessageRouter implements MessageRouterPort {
         conversationId: thread.id,
         error: { name: 'ReplyToDeliveryError', message: err.message },
       });
+      return false;
     }
   }
 
@@ -2779,6 +2807,10 @@ export class MessageRouter implements MessageRouterPort {
             name: request.tool,
             result: { status: 'pending_approval' as const, approvalId: request.approvalId },
           })),
+          // This is a delivery artifact, not a turn in the requester's
+          // dialogue. Keep it in the conversation for auditability, but keep
+          // it out of agent model context after the target has handled it.
+          internal: true,
         },
         { reactivate: true },
       );

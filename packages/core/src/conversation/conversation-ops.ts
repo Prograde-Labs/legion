@@ -16,7 +16,12 @@ export function createConversation(title?: string): ConversationData {
 }
 
 export type NewMessageInput = MessageDraft &
-  Partial<Pick<MessageData, 'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage'>>;
+  Partial<
+    Pick<
+      MessageData,
+      'type' | 'toolCalls' | 'toolResults' | 'parentId' | 'id' | 'usage' | 'internal'
+    >
+  >;
 
 export function createMessage(
   conversationId: string,
@@ -38,6 +43,7 @@ export function createMessage(
     toolCalls: input.toolCalls,
     toolResults: input.toolResults,
     usage: input.usage,
+    ...(input.internal === undefined ? {} : { internal: input.internal }),
     timestamp: nowIso(),
   };
 }

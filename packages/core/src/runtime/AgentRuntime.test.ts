@@ -319,6 +319,51 @@ describe('AgentRuntime', () => {
     }
   });
 
+  it('omits internal messages from provider context unless they are incoming', async () => {
+    const { context, thread, inbound, router, providerRequests } = await makeSetup([
+      { content: 'done', toolCalls: [], stopReason: 'stop' },
+    ]);
+    await thread.append({
+      senderId: 'agent-1',
+      recipientId: 'reviewer',
+      role: 'user',
+      content: 'Approval required for tool echo. Use approval_response.',
+      internal: true,
+    });
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await runtime.handle(inbound, context);
+
+    expect(providerRequests).toHaveLength(1);
+    expect(
+      providerRequests[0].some((message) => message.content?.includes('Approval required')),
+    ).toBe(false);
+  });
+
+  it('keeps an internal message in provider context when it is the incoming turn', async () => {
+    const { context, thread, router, providerRequests } = await makeSetup([
+      { content: 'approved', toolCalls: [], stopReason: 'stop' },
+    ]);
+    const notice = await thread.append({
+      senderId: 'agent-1',
+      recipientId: 'agent-1',
+      role: 'user',
+      content: 'Approval required for tool echo. Use approval_response.',
+      internal: true,
+    });
+    const runtime = new AgentRuntime('agent-1', router);
+
+    await runtime.handle(notice, context);
+
+    expect(providerRequests).toHaveLength(1);
+    expect(providerRequests[0]).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: 'Approval required for tool echo. Use approval_response.',
+      }),
+    );
+  });
+
   it('does not return or persist partial reasoning from a failed iteration', async () => {
     const { context, inbound, router } = await makeSetup([
       {

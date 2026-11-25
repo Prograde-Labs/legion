@@ -356,7 +356,13 @@ export class AgentRuntime implements Runtime {
           actions = snapshotMiddlewareActions(promptResult.actions, '$.buildSystemPrompt.actions');
         }
 
-        const messages = buildProviderMessages(context.conversation.activeChain, prompt);
+        // Internal messages are delivery artifacts (e.g. a routed approval
+        // notice). Include one only when it is the current incoming message,
+        // otherwise the model would answer a notice meant for someone else.
+        const chain = context.conversation.activeChain.filter(
+          (message) => !message.internal || message.id === _incoming.id,
+        );
+        const messages = buildProviderMessages(chain, prompt);
         context.eventBus.emit('iteration', {
           conversationId: context.conversationId,
           participantId: this.participantId,

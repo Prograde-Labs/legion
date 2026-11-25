@@ -71,7 +71,15 @@ export const approvalResponseTool: Tool = {
     }> = [];
     const recordResume = (result: MessageRouterResult): void => {
       if (result.status === 'success' && result.response !== undefined) {
-        resumed.push({ conversationId: result.conversationId, response: result.response });
+        // If the caller is the replyTo target and the router already delivered
+        // the reply, returning it here would make the connector post it twice.
+        const deliveredToCaller =
+          context.participant.type === 'user' &&
+          result.replyToDelivered === true &&
+          result.responseRecipientId === context.participant.id;
+        if (!deliveredToCaller) {
+          resumed.push({ conversationId: result.conversationId, response: result.response });
+        }
       } else if (result.status === 'pending_approval' && result.approvalRequests?.length) {
         resumed.push({
           conversationId: result.conversationId,

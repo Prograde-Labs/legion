@@ -88,6 +88,8 @@ export interface ApprovalRouterResult {
   error?: string;
   partial?: boolean;
   storedMessageId?: string;
+  responseRecipientId?: string;
+  replyToDelivered?: boolean;
 }
 
 /** Legacy pending-only view retained for approval-response callers. */
@@ -1159,7 +1161,7 @@ function snapshotRouterResult(value: ApprovalRouterResult): ApprovalRouterResult
     value,
     '$.routerResult',
     ['conversationId', 'status'],
-    ['response', 'error', 'partial', 'storedMessageId'],
+    ['response', 'error', 'partial', 'storedMessageId', 'responseRecipientId', 'replyToDelivered'],
   );
   requiredString(result.conversationId, '$.routerResult.conversationId');
   if (result.status !== 'success' && result.status !== 'error') {
@@ -1174,6 +1176,12 @@ function snapshotRouterResult(value: ApprovalRouterResult): ApprovalRouterResult
   }
   if (result.storedMessageId !== undefined) {
     requiredString(result.storedMessageId, '$.routerResult.storedMessageId');
+  }
+  if (result.responseRecipientId !== undefined) {
+    requiredString(result.responseRecipientId, '$.routerResult.responseRecipientId');
+  }
+  if (result.replyToDelivered !== undefined && typeof result.replyToDelivered !== 'boolean') {
+    throw new TypeError('Approval router result replyToDelivered is invalid');
   }
   return cloneJsonSafe(result, '$.routerResult') as unknown as ApprovalRouterResult;
 }
