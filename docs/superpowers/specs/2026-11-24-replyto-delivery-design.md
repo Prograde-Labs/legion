@@ -99,9 +99,12 @@ caller (service/agent)
                                           └─ recurse (depth + 1)
 ```
 
-Only the async `replyTo` path changes. `send`, `sendStream`, `generate`,
-`resume`, and `resumeApproval` all dispatch through `dispatchAsync`, so all are
-covered. Synchronous sends are untouched.
+Only the async `replyTo` path changes. `send`, `sendStream`, and `generate`
+dispatch through `dispatchAsync`, so all are covered. `resume` and
+`resumeApproval` call `runtime.handle` directly, so they invoke
+`deliverReplyTo` themselves after `completeResponseDetailed` (see
+`2026-11-25-replyto-approval-context-design.md` for the resumed-delivery
+dedup). Synchronous sends are untouched.
 
 ## 6. Detailed behavior
 
@@ -243,6 +246,20 @@ undefined)`, mirroring `dispatchApprovalRequests`. Agent middleware
 turn. The participant's base runtime and system prompt are used. This is a
 documented limitation; running the full inbound lifecycle for a response would
 append a second message and is out of scope.
+
+### 6.8 Resume and approval notices
+
+`resume` and `resumeApproval` deliver the resumed reply to `replyTo` as well.
+The routed approval notice is persisted with `internal: true`, so it remains a
+durable record for the target but is excluded from the requester's agent model
+context unless it is the participant's current incoming message. `resume`
+ignores internal messages when it selects the last incoming turn.
+
+`deliverReplyTo` returns whether it delivered, and the resume result records
+`responseRecipientId` and `replyToDelivered`. `approval_response` omits the
+reply from its `resumed` payload when the router already delivered it to the
+caller, so a connector does not post it twice. See
+`2026-11-25-replyto-approval-context-design.md` for details.
 
 ## 7. Event semantics
 
