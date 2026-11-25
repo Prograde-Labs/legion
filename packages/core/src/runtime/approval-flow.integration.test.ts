@@ -15,7 +15,12 @@ import { PendingApprovalRegistry } from '../auth/PendingApprovalRegistry.js';
 import { ApprovalLog } from '../auth/ApprovalLog.js';
 import { communicateTool } from '../tools/communicate-tool.js';
 import { approvalResponseTool } from '../tools/approval-response-tool.js';
-import type { Provider, ProviderResponse, ProviderStreamChunk } from '../providers/Provider.js';
+import type {
+  Provider,
+  ProviderMessage,
+  ProviderResponse,
+  ProviderStreamChunk,
+} from '../providers/Provider.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext } from './Runtime.js';
 import type { JSONSchema } from '@legion-collective/types';
@@ -303,5 +308,152 @@ describe('Approval flow integration', () => {
       (m) => m.role === 'assistant' && m.content === 'Understood, I will not echo.',
     );
     expect(finalResponse).toBeDefined();
+  });
+
+  it('does not feed the routed approval notice back to the agent on resume', async () => {
+    const { modelRouter, router, makeContext, pendingApprovalRegistry, toolRegistry } =
+      await setup(dir);
+    const providerRequests: ProviderMessage[][] = [];
+
+    modelRouter.register('test', {
+      async *stream(messages) {
+        providerRequests.push(messages.map((message) => ({ ...message })));
+        if (providerRequests.length === 1) {
+          yield {
+            type: 'tool_call_start',
+            index: 0,
+            id: 'tc-echo',
+            name: 'echo',
+          } as ProviderStreamChunk;
+          yield {
+            type: 'tool_call_args_delta',
+            index: 0,
+            delta: JSON.stringify({ text: 'hello' }),
+          } as ProviderStreamChunk;
+          yield { type: 'done', stopReason: 'tool_calls' } as ProviderStreamChunk;
+          return;
+        }
+        yield { type: 'text_delta', delta: 'done' } as ProviderStreamChunk;
+        yield { type: 'done', stopReason: 'stop' } as ProviderStreamChunk;
+      },
+    });
+
+    const operatorContext = makeContext('operator');
+    const sent = await router.send({
+      senderId: 'operator',
+      recipientId: 'agent-b',
+      message: 'Reply with one line "done", then call echo.',
+      replyTo: 'operator',
+      context: operatorContext,
+    });
+    expect(sent.status).toBe('dispatched');
+    await router.drain();
+
+    const [pending] = pendingApprovalRegistry.listPending(sent.conversationId);
+    expect(pending).toBeDefined();
+
+    const approveResult = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: pending.approvalId, decision: 'approve' }] },
+      { ...operatorContext, conversationId: sent.conversationId },
+    );
+    expect(approveResult.status).toBe('success');
+    await router.drain();
+
+    expect(providerRequests).toHaveLength(2);
+    const resumedContext = providerRequests[1];
+    expect(resumedContext.some((message) => message.content?.includes('Approval required'))).toBe(
+      false,
+    );
+    expect(resumedContext).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        content: 'Reply with one line "done", then call echo.',
+      }),
+    );
+  });
+
+  it('does not return a resumed reply the router already delivered to the caller', async () => {
+    const { modelRouter, router, makeContext, pendingApprovalRegistry, toolRegistry } =
+      await setup(dir);
+
+    modelRouter.register(
+      'test',
+      scriptedProvider([
+        {
+          content: null,
+          toolCalls: [{ id: 'tc-echo', name: 'echo', arguments: { text: 'hello' } }],
+          stopReason: 'tool_calls',
+        },
+        { content: 'done', toolCalls: [], stopReason: 'stop' },
+      ]),
+    );
+
+    const operatorContext = makeContext('operator');
+    const sent = await router.send({
+      senderId: 'operator',
+      recipientId: 'agent-b',
+      message: 'Reply with one line "done", then call echo.',
+      replyTo: 'operator',
+      context: operatorContext,
+    });
+    expect(sent.status).toBe('dispatched');
+    await router.drain();
+
+    const [pending] = pendingApprovalRegistry.listPending(sent.conversationId);
+    const approveResult = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: pending.approvalId, decision: 'approve' }] },
+      { ...operatorContext, conversationId: sent.conversationId },
+    );
+    expect(approveResult.status).toBe('success');
+    await router.drain();
+
+    const resumed = (approveResult.data as { resumed?: Array<{ response?: string }> }).resumed;
+    expect(resumed ?? []).not.toContainEqual(expect.objectContaining({ response: 'done' }));
+  });
+
+  it('still returns the resumed reply when the caller is not the replyTo target', async () => {
+    const { modelRouter, router, makeContext, pendingApprovalRegistry, collective } =
+      await setup(dir);
+    await collective.add({
+      id: 'reviewer',
+      name: 'Reviewer',
+      type: 'user',
+      status: 'active',
+      tools: {},
+    });
+
+    modelRouter.register(
+      'test',
+      scriptedProvider([
+        {
+          content: null,
+          toolCalls: [{ id: 'tc-echo', name: 'echo', arguments: { text: 'hello' } }],
+          stopReason: 'tool_calls',
+        },
+        { content: 'done', toolCalls: [], stopReason: 'stop' },
+      ]),
+    );
+
+    const operatorContext = makeContext('operator');
+    const sent = await router.send({
+      senderId: 'operator',
+      recipientId: 'agent-b',
+      message: 'Reply with one line "done", then call echo.',
+      replyTo: 'reviewer',
+      context: operatorContext,
+    });
+    expect(sent.status).toBe('dispatched');
+    await router.drain();
+
+    const [pending] = pendingApprovalRegistry.listPending(sent.conversationId);
+    const approveResult = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: pending.approvalId, decision: 'approve' }] },
+      { ...operatorContext, conversationId: sent.conversationId },
+    );
+    expect(approveResult.status).toBe('success');
+    await router.drain();
+
+    const resumed = (approveResult.data as { resumed?: Array<{ response?: string }> }).resumed;
+    expect(resumed).toContainEqual(expect.objectContaining({ response: 'done' }));
   });
 });

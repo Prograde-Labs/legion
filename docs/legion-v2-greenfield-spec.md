@@ -452,6 +452,12 @@ turn, up to the communication depth limit. In `'all'` mode a delivery target
 that returns a pending approval bubbles the approval back to the participant
 whose message triggered it, then recursion stops.
 
+A routed approval notice is persisted as an internal message: the target
+runtime sees it as its incoming turn, while the requester's agent model
+context omits it. When an approval resumes a turn, the router delivers the
+resumed reply to `replyTo` and reports that it did so; an `approval_response`
+caller that is also the `replyTo` target does not post the reply a second time.
+
 ---
 
 ## 7. Authorization & Approval

@@ -36,6 +36,13 @@ export interface MessageRouterResult {
   pendingParticipantId?: string;
   approvalRequests?: PendingApproval[];
   meta?: { model?: string; usage?: MessageUsage; iterations?: number };
+  /** Participant the persisted response is addressed to, when known. */
+  responseRecipientId?: string;
+  /**
+   * True when the router itself delivered a resumed response to its replyTo
+   * target, so a connector caller must not post it again.
+   */
+  replyToDelivered?: boolean;
 }
 
 export interface SendOptions {

@@ -3375,6 +3375,7 @@ describe('MessageRouter: fire-and-forget', () => {
     expect(approvalMessage).toBeDefined();
     expect(approvalMessage!.recipientId).toBe('op');
     expect(approvalMessage!.toolResults?.[0]?.result.status).toBe('pending_approval');
+    expect(approvalMessage!.internal).toBe(true);
   });
 
   it("bubbles a replyTo participant's own approval to the next target without looping", async () => {
@@ -4242,6 +4243,47 @@ describe('MessageRouter: resume()', () => {
     const conv = await store.load(conversationId);
     const assistantMsgs = Object.values(conv!.messages).filter((m) => m.role === 'assistant');
     expect(assistantMsgs.length).toBeGreaterThanOrEqual(2); // original + resumed
+  });
+
+  it('uses an internal message as the resume incoming when it is the latest turn', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const received: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'response', content: 'resumed' };
+      },
+    }));
+    registry.registerFactory('user', () => ({
+      async handle(): Promise<RuntimeResult> {
+        return { kind: 'void' };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+    await thread.append({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      role: 'user',
+      content: 'original',
+      replyTo: 'op',
+    });
+    await thread.append({
+      senderId: 'mock-1',
+      recipientId: 'mock-1',
+      role: 'user',
+      content: 'Approval required for tool write_file. Use approval_response.',
+      internal: true,
+    });
+
+    await router.resume(thread.id, 'mock-1', baseContext);
+
+    expect(received).toHaveLength(1);
+    expect(received[0].content).toContain('Approval required');
   });
 
   it('routes the resumed response to replyTo', async () => {

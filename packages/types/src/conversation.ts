@@ -83,6 +83,14 @@ export interface MessageData {
 
   prunedAt?: string;
   prunedBy?: string;
+
+  /**
+   * True for framework-generated messages that exist only to route or deliver
+   * something (for example a replyTo approval notice). They stay in the
+   * conversation as a durable record but are omitted from agent model context
+   * unless they are the participant's current incoming message.
+   */
+  internal?: boolean;
 }
 
 export interface ConversationData {

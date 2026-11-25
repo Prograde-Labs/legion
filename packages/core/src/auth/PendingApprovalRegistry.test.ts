@@ -1465,6 +1465,38 @@ describe('PendingApprovalRegistry continuations', () => {
     });
   });
 
+  it('preserves replyTo delivery metadata on a terminal router result', async () => {
+    const reg = new PendingApprovalRegistry();
+    const { approvalId } = await reg.create({
+      conversationId: 'c1',
+      requesterId: 'agent-b',
+      tool: 'file_write',
+      args: { path: 'x' },
+      continuation: { kind: 'middleware', checkpoint: checkpoint() },
+    });
+    await reg.resolve(approvalId, {
+      approved: true,
+      decidedByParticipantId: 'operator',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await reg.beginResume(approvalId);
+    await reg.recordResumeResult(approvalId, { status: 'success' });
+    await reg.recordRouterResult(approvalId, {
+      conversationId: 'c1',
+      status: 'success',
+      response: 'done',
+      responseRecipientId: 'op',
+      replyToDelivered: true,
+    });
+    expect(reg.getRecord(approvalId)?.routerResult).toEqual({
+      conversationId: 'c1',
+      status: 'success',
+      response: 'done',
+      responseRecipientId: 'op',
+      replyToDelivered: true,
+    });
+  });
+
   it('completes provider execution when handing off to a successor approval', async () => {
     const reg = new PendingApprovalRegistry();
     const parent = await reg.create({
