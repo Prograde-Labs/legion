@@ -2,7 +2,13 @@ import type { CodexAuthStore } from '@legion-collective/core';
 import type { ProviderUsageSummary } from '@legion-collective/types';
 import type { ProviderConfig, ProviderModel, RoutingConfig } from '@legion-collective/types';
 import { describe, expect, it, vi } from 'vitest';
-import { AuthEngine, PendingApprovalRegistry, type ToolContext } from '@legion-collective/core';
+import {
+  AuthEngine,
+  MemoryStorage,
+  PendingApprovalRegistry,
+  SystemProviderStore,
+  type ToolContext,
+} from '@legion-collective/core';
 import { createRuntimeTools } from './runtime-tools.js';
 
 function makeAuthEngine(
@@ -27,6 +33,7 @@ function makeSystemStore(
     list: async () => Array.from(store.values()),
     save: async (config: ProviderConfig) => {
       store.set(config.name, config);
+      return config;
     },
     delete: async (name: string) => {
       store.delete(name);
@@ -438,6 +445,85 @@ describe('runtime tools', () => {
       data: config,
     });
     expect(systemStore._store.get('local')).toEqual(config);
+  });
+
+  it('can save a provider independently of unreadable sibling configs', async () => {
+    const storage = new MemoryStorage();
+    await storage.write('providers/unrelated.json', 'invalid JSON');
+    const tools = createRuntimeTools(makeDeps({ systemStore: new SystemProviderStore(storage) }));
+    const config = { name: 'local', type: 'openai-compatible', priority: 10 };
+    await expect(tool(tools, 'save_provider').execute(config)).resolves.toEqual({
+      status: 'success',
+      data: config,
+    });
+  });
+
+  it('keeps the retry policy when editing other fields and replaces it when explicitly supplied', async () => {
+    const tools = createRuntimeTools(
+      makeDeps({ systemStore: new SystemProviderStore(new MemoryStorage()) }),
+    );
+    const save = tool(tools, 'save_provider');
+    const config = { name: 'local', type: 'openai-compatible', priority: 10 };
+    const retry = { maxRetries: 0, baseDelayMs: 75, maxDelayMs: 2000 };
+    await expect(save.execute({ ...config, retry })).resolves.toMatchObject({ status: 'success' });
+
+    // The web provider editor sends only the fields it exposes.
+    const edited = { ...config, priority: 4 };
+    await expect(save.execute(edited)).resolves.toEqual({
+      status: 'success',
+      data: { ...edited, retry },
+    });
+    const list = tool(tools, 'list_providers');
+    await expect(list.execute({})).resolves.toEqual({
+      status: 'success',
+      data: [{ ...edited, retry }],
+    });
+
+    await save.execute({ ...edited, retry: {} });
+    await expect(list.execute({})).resolves.toEqual({
+      status: 'success',
+      data: [{ ...edited, retry: {} }],
+    });
+  });
+
+  it.each([
+    null,
+    [],
+    { maxRetries: -1 },
+    { maxRetries: 0.5 },
+    { maxRetries: 11 },
+    { baseDelayMs: '500' },
+    { maxDelayMs: Infinity },
+    { maxDelayMs: 2 ** 31 },
+    { retries: 0 },
+  ])('rejects invalid retry config %j without updating the provider', async (retry) => {
+    const tools = createRuntimeTools(
+      makeDeps({ systemStore: new SystemProviderStore(new MemoryStorage()) }),
+    );
+    const save = tool(tools, 'save_provider');
+    const config = { name: 'local', type: 'codex', priority: 1, retry: { maxRetries: 1 } };
+    await save.execute(config);
+    await expect(save.execute({ ...config, retry })).resolves.toEqual({
+      status: 'error',
+      error: expect.stringMatching(/retry/i),
+    });
+    await expect(tool(tools, 'list_providers').execute({})).resolves.toEqual({
+      status: 'success',
+      data: [config],
+    });
+  });
+
+  it('advertises the optional retry controls to save_provider callers', () => {
+    const schema = tool(createRuntimeTools(makeDeps()), 'save_provider').parameters;
+    expect(schema.properties?.retry).toMatchObject({
+      type: 'object',
+      properties: {
+        maxRetries: { type: 'integer', minimum: 0 },
+        baseDelayMs: { type: 'integer', minimum: 0 },
+        maxDelayMs: { type: 'integer', minimum: 0 },
+      },
+    });
+    expect(schema.required).not.toContain('retry');
   });
 
   it('save_provider advertises only the constructible provider types', () => {

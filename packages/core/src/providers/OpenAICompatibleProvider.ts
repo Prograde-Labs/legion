@@ -1,4 +1,5 @@
 import { ProviderError } from '../errors/LegionError.js';
+import { classifyProviderError, httpProviderError } from './provider-retry.js';
 import type { ModelConfig, ProviderModel } from '@legion-collective/types';
 import type {
   Provider,
@@ -54,6 +55,7 @@ interface OAIModelsResponse {
 }
 
 interface OAIStreamChunk {
+  error?: { code?: unknown; message?: unknown; type?: unknown };
   choices?: Array<{
     delta?: {
       reasoning_content?: unknown;
@@ -182,8 +184,7 @@ export class OpenAICompatibleProvider implements Provider {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new ProviderError(`OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`);
+      throw await httpProviderError(res, 'OpenAI-compatible API error');
     }
 
     if (!res.body) {
@@ -224,6 +225,16 @@ export class OpenAICompatibleProvider implements Provider {
             parsed = JSON.parse(raw) as OAIStreamChunk;
           } catch {
             continue;
+          }
+
+          if (parsed.error) {
+            const message =
+              typeof parsed.error.message === 'string' ? parsed.error.message : 'stream error';
+            throw new ProviderError(
+              `OpenAI-compatible API error: ${message}`,
+              undefined,
+              classifyProviderError(parsed.error, undefined, res.headers),
+            );
           }
 
           if (parsed.usage) {

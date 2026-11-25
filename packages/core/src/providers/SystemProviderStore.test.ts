@@ -160,6 +160,63 @@ describe('SystemProviderStore', () => {
     expect(await store.list()).toEqual([config]);
   });
 
+  it('save() preserves an existing retry policy when the field is omitted', async () => {
+    const store = new SystemProviderStore(new MemoryStorage());
+    const retry = { maxRetries: 1, baseDelayMs: 25, maxDelayMs: 400 };
+    await store.save(providerConfig({ name: 'kept', retry }));
+
+    const saved = await store.save(providerConfig({ name: 'kept', priority: 3 }));
+
+    expect(saved).toEqual(providerConfig({ name: 'kept', priority: 3, retry }));
+    expect((await store.list())[0]).toEqual(saved);
+  });
+
+  it('save() replaces or resets a retry policy when supplied', async () => {
+    const store = new SystemProviderStore(new MemoryStorage());
+    await store.save(providerConfig({ name: 'replaced', retry: { maxRetries: 2 } }));
+
+    await store.save(providerConfig({ name: 'replaced', retry: { maxRetries: 0 } }));
+    expect((await store.list())[0]?.retry).toEqual({ maxRetries: 0 });
+
+    await store.save(providerConfig({ name: 'replaced', retry: {} }));
+    expect((await store.list())[0]?.retry).toEqual({});
+  });
+
+  it('treats a corrupt provider file as absent when saving', async () => {
+    const storage = new MemoryStorage();
+    await storage.write('providers/corrupt.json', '{');
+    const store = new SystemProviderStore(storage);
+
+    const saved = await store.save(providerConfig({ name: 'corrupt' }));
+
+    expect(saved.name).toBe('corrupt');
+    expect(await store.get('corrupt')).not.toBeNull();
+  });
+
+  it('ignores an invalid stored retry policy and repairs it on save', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson(
+      'providers/bad.json',
+      providerConfig({ name: 'bad', retry: { maxRetries: -1 } }),
+    );
+    const store = new SystemProviderStore(storage);
+
+    expect(await store.get('bad')).not.toBeNull();
+
+    await store.save(providerConfig({ name: 'bad', priority: 2 }));
+
+    expect((await store.list())[0]?.retry).toBeUndefined();
+  });
+
+  it('list() skips a corrupt provider file instead of failing', async () => {
+    const storage = new MemoryStorage();
+    await storage.writeJson('providers/good.json', providerConfig({ name: 'good' }));
+    await storage.write('providers/broken.json', '{');
+    const store = new SystemProviderStore(storage);
+
+    expect((await store.list()).map((config) => config.name)).toEqual(['good']);
+  });
+
   it('rejects provider names that escape the provider directory', async () => {
     const store = new SystemProviderStore(new MemoryStorage());
 

@@ -35,12 +35,33 @@ Workspace config lives at `.legion/config.json`:
 {
   "version": "2",
   "server": { "port": 3000, "host": "127.0.0.1" },
-  "providers": { ... },
   "mcpServers": [ ... ]
 }
 ```
 
-Provider API keys belong in global config (`~/.config/legion/config.json`) or environment variables — never in workspace files.
+Providers are system-wide. Configure one with the operator's `save_provider` tool, which writes
+`~/.config/legion/providers/<name>.json`. Keep API keys out of workspace files. For example,
+these tool arguments configure retries for a local provider:
+
+```json
+{
+  "name": "local",
+  "type": "openai-compatible",
+  "baseUrl": "http://localhost:11434/v1",
+  "priority": 10,
+  "retry": { "maxRetries": 2, "baseDelayMs": 250, "maxDelayMs": 5000 }
+}
+```
+
+By default, a transient failure can trigger **3 retries** after the initial attempt. Legion uses
+exponential backoff with full jitter: each wait is chosen uniformly from zero up to a window
+that starts at **500 ms** and doubles per retry, capped at **30000 ms**. A server-requested delay
+is honored up to `maxDelayMs`. Retries stop once the provider has emitted content, so a partial
+response is never replayed. Set `maxRetries` to `0` to disable retries.
+
+On updates, omitting `retry` keeps the saved policy, including when editing in the web UI. Supplying
+`retry` replaces the policy; omitted fields use their defaults, so `"retry": {}` restores all three
+defaults. `maxRetries` must be between 0 and 10. Delay fields take nonnegative integers and cannot exceed 2147483647 ms. Fields other than `retry` are replaced as supplied, so include `apiKey` when editing a provider that uses one.
 
 Each participant may set an optional `workspaceRoot` — a default base directory for its file and process tools, not a sandbox. It does not relocate `.legion/` storage, which always stays at the launch root. `WorkspaceConfig.workspaceRoot` supplies the default tool/process base when a participant does not set one.
 

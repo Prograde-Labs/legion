@@ -1,4 +1,5 @@
 import { ProviderError } from '../errors/LegionError.js';
+import { classifyProviderError, httpProviderError } from './provider-retry.js';
 import type { ModelConfig } from '@legion-collective/types';
 import {
   authHeaders,
@@ -36,7 +37,7 @@ interface ResponsesUsage {
 
 interface ResponsesObject {
   usage?: ResponsesUsage;
-  error?: { code?: unknown; message?: unknown };
+  error?: { code?: unknown; message?: unknown; type?: unknown };
   incomplete_details?: { reason?: unknown };
 }
 
@@ -47,6 +48,9 @@ interface ResponsesEvent {
   item?: { type?: unknown; call_id?: unknown; name?: unknown; id?: unknown };
   output_index?: unknown;
   item_id?: unknown;
+  code?: unknown;
+  message?: unknown;
+  error?: { code?: unknown; message?: unknown; type?: unknown };
 }
 
 function asString(value: unknown): string | undefined {
@@ -98,11 +102,7 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new ProviderError(
-        `OpenAI-compatible API error ${res.status}: ${text.slice(0, 200)}`,
-        res.status,
-      );
+      throw await httpProviderError(res, 'OpenAI-compatible API error');
     }
 
     yield* this.parseStream(res, options);
@@ -165,7 +165,7 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
             continue; // quirk tolerance: skip non-JSON data lines
           }
 
-          for (const chunk of this.handleEvent(event, state)) {
+          for (const chunk of this.handleEvent(event, state, res.headers)) {
             if (chunk.type === 'done') {
               // Exactly one done is yielded, after the loop — never inside it.
               sawTerminal = true;
@@ -262,7 +262,11 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
     return { instructions, input };
   }
 
-  private handleEvent(event: ResponsesEvent, state: StreamState): ProviderStreamChunk[] {
+  private handleEvent(
+    event: ResponsesEvent,
+    state: StreamState,
+    headers: Headers,
+  ): ProviderStreamChunk[] {
     const type = asString(event.type);
     if (!type) return []; // quirk tolerance: event without a type is ignored
 
@@ -325,11 +329,26 @@ export class OpenAIResponsesProvider extends OpenAICompatibleProvider {
       return [{ type: 'done', stopReason, usage: mapUsage(response.usage), cost: undefined }];
     }
 
+    if (type === 'error') {
+      const error = event.error ?? event;
+      const code = asString(error.code) ?? asString(error.type) ?? 'unknown_error';
+      const message = asString(error.message) ?? 'Responses stream failed';
+      throw new ProviderError(
+        `Responses API error ${code}: ${message}`,
+        undefined,
+        classifyProviderError({ code, message }, undefined, headers),
+      );
+    }
+
     if (type === 'response.failed') {
       const error = event.response?.error ?? {};
       const code = asString(error.code) ?? 'unknown_error';
       const message = asString(error.message) ?? 'Responses stream failed';
-      throw new ProviderError(`Responses API error ${code}: ${message}`);
+      throw new ProviderError(
+        `Responses API error ${code}: ${message}`,
+        undefined,
+        classifyProviderError(error, undefined, headers),
+      );
     }
 
     if (type === 'response.completed') {

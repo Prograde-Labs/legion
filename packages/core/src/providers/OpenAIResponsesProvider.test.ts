@@ -503,9 +503,11 @@ describe('OpenAIResponsesProvider', () => {
 
     const provider = new OpenAIResponsesProvider('https://example.test/v1');
     await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(ProviderError);
-    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toThrow(
-      'Responses API error server_error: boom',
-    );
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toMatchObject({
+      message: 'Responses API error server_error: boom',
+      providerCode: 'server_error',
+      retryable: true,
+    });
   });
 
   it('throws ProviderError when the stream ends without a terminal event', async () => {
@@ -609,6 +611,33 @@ describe('OpenAIResponsesProvider', () => {
     );
     expect(cancel).toHaveBeenCalledOnce();
     expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [{ code: 'rate_limit_exceeded', message: 'slow down' }, 'rate_limit_exceeded', true],
+    [{ code: 'invalid_request_error', message: 'bad input' }, 'invalid_request_error', false],
+  ])('classifies a top-level error event %j', async (error, providerCode, retryable) => {
+    fetchMock.mockResolvedValue(sse([ev('error', error)]));
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toMatchObject({
+      providerCode,
+      retryable,
+    });
+  });
+
+  it('classifies a nested error event and preserves the retry hint', async () => {
+    fetchMock.mockResolvedValue({
+      ...sse([ev('error', { error: { code: 'server_error', message: 'boom' } })]),
+      headers: new Headers({ 'retry-after': '4' }),
+    });
+    const provider = new OpenAIResponsesProvider('https://example.test/v1');
+
+    await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toMatchObject({
+      providerCode: 'server_error',
+      retryable: true,
+      retryAfterMs: 4000,
+    });
   });
 
   it('stops parsing at the terminal event and ignores trailing data ([DONE] sentinel)', async () => {

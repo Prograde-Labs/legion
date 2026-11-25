@@ -47,12 +47,22 @@ export interface StorageConfig {
   backend?: 'file' | 'memory';
 }
 
+export interface ProviderRetryConfig {
+  /** Extra attempts after a transient failure, before content is emitted. Defaults to 3. */
+  maxRetries?: number;
+  /** Initial exponential backoff window, in milliseconds. Defaults to 500. */
+  baseDelayMs?: number;
+  /** Maximum wait per retry, including server-requested delays. Defaults to 30000 ms. */
+  maxDelayMs?: number;
+}
+
 export interface ProviderConfig {
   name: string;
   type: 'openai-compatible' | 'openai-responses' | 'anthropic' | 'copilot' | 'codex';
   baseUrl?: string;
   apiKey?: string;
   priority: number;
+  retry?: ProviderRetryConfig;
 }
 
 export interface ProviderModel {

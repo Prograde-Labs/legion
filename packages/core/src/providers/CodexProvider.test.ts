@@ -66,6 +66,19 @@ afterEach(() => {
 });
 
 describe('CodexProvider', () => {
+  it('preserves retryability of a socket error while redacting its message and dropping the cause', async () => {
+    const cause = Object.assign(new Error('access-token'), { code: 'ECONNRESET' });
+    const body = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError('access-token disconnected', { cause }));
+      },
+    });
+    fetchMock.mockResolvedValue(new Response(body));
+    const provider = new CodexProvider({ name: 'Codex', type: 'codex', priority: 10 }, makeStore());
+    const error = await drain(provider, []).catch((err: unknown) => err);
+    expect(error).toMatchObject({ retryable: true, message: '[redacted] disconnected' });
+    expect(error).not.toHaveProperty('cause');
+  });
   it('preserves the status of a redacted stream error', async () => {
     class FailingProvider extends CodexProvider {
       protected override async *parseStream(): AsyncGenerator<ProviderStreamChunk> {
@@ -89,7 +102,7 @@ describe('CodexProvider', () => {
       sse([
         {
           type: 'response.failed',
-          response: { error: { code: 'failed', message: 'access-token and new-token' } },
+          response: { error: { code: 'server_error', message: 'access-token and new-token' } },
         },
       ]),
     );
@@ -99,10 +112,72 @@ describe('CodexProvider', () => {
     );
     const error = await drain(provider, []).catch((err: unknown) => err);
     expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ retryable: true, providerCode: 'server_error' });
     expect((error as Error).message).toContain('[redacted] and [redacted]');
     expect((error as Error).message).not.toContain('access-token');
     expect((error as Error).message).not.toContain('new-token');
   });
+  it.each([
+    ['initial', 1],
+    ['forced', 2],
+  ] as const)(
+    'makes an auth transport failure during %s refresh non-retryable',
+    async (phase, calls) => {
+      const refreshError = new TypeError('refresh-token fetch failed', {
+        cause: { code: 'ECONNRESET' },
+      });
+      const ensureFresh =
+        calls === 1
+          ? vi.fn().mockRejectedValue(refreshError)
+          : vi.fn().mockResolvedValueOnce(AUTH).mockRejectedValueOnce(refreshError);
+      if (calls === 2) fetchMock.mockResolvedValueOnce(new Response('', { status: 401 }));
+      const provider = new CodexProvider(
+        { name: 'Codex', type: 'codex', priority: 10 },
+        makeStore(ensureFresh),
+      );
+
+      const error = await drain(provider, []).catch((err: unknown) => err);
+
+      expect(error).toMatchObject({ retryable: false });
+      expect((error as Error).message).toBe('Codex authentication request failed; sign in again');
+      expect(error).not.toHaveProperty('cause');
+      expect((error as Error).message).not.toContain('refresh-token');
+      expect(fetchMock).toHaveBeenCalledTimes(calls - 1);
+    },
+  );
+
+  it('preserves a safe auth-store failure and makes it non-retryable', async () => {
+    const provider = new CodexProvider(
+      { name: 'Codex', type: 'codex', priority: 10 },
+      makeStore(
+        vi
+          .fn()
+          .mockRejectedValue(
+            new ProviderError('ChatGPT session expired; sign in again', 401, { retryable: true }),
+          ),
+      ),
+    );
+
+    await expect(drain(provider, [])).rejects.toMatchObject({
+      message: 'ChatGPT session expired; sign in again',
+      status: 401,
+      retryable: false,
+    });
+  });
+
+  it('redacts a failed inference request and preserves its retryability', async () => {
+    fetchMock.mockRejectedValue(
+      new TypeError('access-token disconnected', { cause: { code: 'ECONNRESET' } }),
+    );
+    const provider = new CodexProvider({ name: 'Codex', type: 'codex', priority: 10 }, makeStore());
+
+    const error = await drain(provider, []).catch((err: unknown) => err);
+
+    expect(error).toMatchObject({ retryable: true, message: '[redacted] disconnected' });
+    expect(error).not.toHaveProperty('cause');
+    expect((error as Error).message).not.toContain('access-token');
+  });
+
   it('posts sanitized body and Codex headers, and records cost 0', async () => {
     fetchMock.mockResolvedValue(sse(textEvents('Hello')));
 
@@ -166,11 +241,19 @@ describe('CodexProvider', () => {
   });
 
   it('propagates HTTP status on non-OK responses', async () => {
-    fetchMock.mockResolvedValue(new Response('slow down', { status: 429 }));
+    fetchMock.mockResolvedValue(
+      new Response('{"error":{"code":"access-token"}}', {
+        status: 429,
+        headers: { 'retry-after': '3' },
+      }),
+    );
     const provider = new CodexProvider({ name: 'Codex', type: 'codex', priority: 10 }, makeStore());
 
     await expect(drain(provider, [{ role: 'user', content: 'hi' }])).rejects.toMatchObject({
       status: 429,
+      providerCode: '[redacted]',
+      retryable: true,
+      retryAfterMs: 3000,
     });
   });
 

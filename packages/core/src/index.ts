@@ -33,6 +33,7 @@ export * from './runtime/UserDeliveryRuntime.js';
 export * from './runtime/MessageRouter.js';
 export * from './tools/communicate-tool.js';
 export * from './providers/Provider.js';
+export * from './providers/provider-retry-config.js';
 export * from './providers/SystemProviderStore.js';
 export * from './providers/OpenAICompatibleProvider.js';
 export * from './providers/OpenAIResponsesProvider.js';
