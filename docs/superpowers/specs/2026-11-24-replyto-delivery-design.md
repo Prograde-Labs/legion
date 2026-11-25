@@ -162,7 +162,7 @@ Steps:
    `communicationDepth = depth`, and the original `opts.context`.
 3. `result = await runtime.handle(responseMessage, context)`.
 4. `completed = await this.completeResponseDetailed({ thread, recipientId:
-   target.id, responseRecipientId: responseMessage.senderId }, result)`.
+target.id, responseRecipientId: responseMessage.senderId }, result)`.
 5. If `completed.result.status === 'pending_approval'`, route any
    `approvalRequests` back up to `responseMessage.senderId` via
    `dispatchApprovalRequests` and stop (with or without requests).

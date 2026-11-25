@@ -30,11 +30,13 @@
 ### Task 1: Config option and resolution
 
 **Files:**
+
 - Modify: `packages/types/src/config.ts:77-85`
 - Modify: `packages/core/src/runtime/MessageRouter.ts:76-87` (constructor)
 - Test: `packages/core/src/runtime/MessageRouter.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `CommunicationConfig` and `MessageRouter` constructor signature `(store, registry, collective, eventBus, lifecycle?, middlewareRunner?, communication?)`.
 - Produces: `CommunicationConfig.replyToDelivery?: 'users' | 'all'`; `MessageRouter` private field `replyToDelivery: 'users' | 'all'` resolved once in the constructor.
 
@@ -162,12 +164,14 @@ git commit -m "feat(core): add communication.replyToDelivery config"
 ### Task 2: Persisted response message plumbing
 
 **Files:**
+
 - Modify: `packages/core/src/middleware/MiddlewareLifecycle.ts:205-216`
 - Modify: `packages/core/src/runtime/MessageRouter.ts:389-427` (`persistResponse`), `:2427-2486` (`completeResponse`)
 - Test: `packages/core/src/middleware/MiddlewareLifecycle.test.ts:150-180`
 - Test: `packages/core/src/runtime/MessageRouter.test.ts` (existing suites)
 
 **Interfaces:**
+
 - Consumes: `MiddlewareLifecycle.respond` returns `MessageRouterResult`, which already declares `storedMessageId?: string`.
 - Produces: `persistResponse(...)` returns `Promise<{ result: MessageRouterResult; message?: MessageData }>`; `completeResponseDetailed(operation, result)` returns the same shape; `completeResponse(operation, result)` remains `Promise<MessageRouterResult>` (thin wrapper). `MessageData` is imported from `@legion-collective/types`.
 
@@ -176,9 +180,9 @@ git commit -m "feat(core): add communication.replyToDelivery config"
 In `packages/core/src/middleware/MiddlewareLifecycle.test.ts`, extend the existing success test (the one that asserts `status: 'success'` and `response: 'response:recipient:send:sender:receive'`) with:
 
 ```ts
-    expect(response.storedMessageId).toBeDefined();
-    const stored = (await f.store.load(f.thread.id))!.messages[response.storedMessageId!];
-    expect(stored.content).toBe('response:recipient:send:sender:receive');
+expect(response.storedMessageId).toBeDefined();
+const stored = (await f.store.load(f.thread.id))!.messages[response.storedMessageId!];
+expect(stored.content).toBe('response:recipient:send:sender:receive');
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -191,19 +195,19 @@ Expected: FAIL — `storedMessageId` is `undefined` on the success path.
 In `packages/core/src/middleware/MiddlewareLifecycle.ts`, change the success branch of `respond`:
 
 ```ts
-    if (result.kind === 'continue' || result.kind === 'complete') {
-      this.eventBus.emit('message:delivered', {
-        conversationId: input.thread.id,
-        recipientId: result.value.recipientId,
-        messageId: result.value.id,
-      });
-      return {
-        conversationId: input.thread.id,
-        response: result.value.content,
-        status: 'success',
-        storedMessageId: result.value.id,
-      };
-    }
+if (result.kind === 'continue' || result.kind === 'complete') {
+  this.eventBus.emit('message:delivered', {
+    conversationId: input.thread.id,
+    recipientId: result.value.recipientId,
+    messageId: result.value.id,
+  });
+  return {
+    conversationId: input.thread.id,
+    response: result.value.content,
+    status: 'success',
+    storedMessageId: result.value.id,
+  };
+}
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
@@ -373,10 +377,12 @@ git commit -m "refactor(core): expose persisted response message from completion
 ### Task 3: `deliverReplyTo` for users mode
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/MessageRouter.ts:2488-2530` (`dispatchAsync`) and add `deliverReplyTo`
 - Test: `packages/core/src/runtime/MessageRouter.test.ts` (new tests in the `fire-and-forget` describe)
 
 **Interfaces:**
+
 - Consumes: `completeResponseDetailed` from Task 2; `replyToDelivery` from Task 1; `RuntimeRegistry.build`, `buildRuntimeContext`.
 - Produces: `private async deliverReplyTo(thread: ConversationThread, responseMessage: MessageData, opts: SendOptions, depth: number): Promise<void>`. `dispatchAsync` uses `completeResponseDetailed` and calls the helper when a message was persisted.
 
@@ -385,173 +391,172 @@ git commit -m "refactor(core): expose persisted response message from completion
 Add these tests inside `describe('MessageRouter: fire-and-forget')` in `packages/core/src/runtime/MessageRouter.test.ts`:
 
 ```ts
-  it('delivers a replyTo response to a user target by default', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const received: MessageData[] = [];
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', (id) => new MockRuntime(id));
-    registry.registerFactory('user', () => ({
-      async handle(incoming: MessageData): Promise<RuntimeResult> {
-        received.push(incoming);
-        return { kind: 'void' };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus);
+it('delivers a replyTo response to a user target by default', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const received: MessageData[] = [];
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', (id) => new MockRuntime(id));
+  registry.registerFactory('user', () => ({
+    async handle(incoming: MessageData): Promise<RuntimeResult> {
+      received.push(incoming);
+      return { kind: 'void' };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus);
 
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'op',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
-
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
-      senderId: 'mock-1',
-      recipientId: 'op',
-      content: 'hello back',
-    });
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'op',
+    context: baseContext,
   });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
 
-  it('does not invoke a non-user replyTo target by default', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    let agentTurns = 0;
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', (id) => new MockRuntime(id));
-    registry.registerFactory('agent', () => ({
-      async handle(): Promise<RuntimeResult> {
-        agentTurns += 1;
-        return { kind: 'response', content: 'agent reply' };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus);
-
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'agent',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
-
-    expect(agentTurns).toBe(0);
-    const conv = await store.load(result.conversationId);
-    expect(
-      Object.values(conv!.messages).find(
-        (m) => m.recipientId === 'agent' && m.role === 'assistant',
-      )?.content,
-    ).toBe('hello back');
+  expect(received).toHaveLength(1);
+  expect(received[0]).toMatchObject({
+    senderId: 'mock-1',
+    recipientId: 'op',
+    content: 'hello back',
   });
+});
 
-  it('skips delivery when replyTo is the recipient itself', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    let handleCalls = 0;
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', () => ({
-      async handle(): Promise<RuntimeResult> {
-        handleCalls += 1;
-        return { kind: 'response', content: 'hello back' };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus);
+it('does not invoke a non-user replyTo target by default', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  let agentTurns = 0;
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', (id) => new MockRuntime(id));
+  registry.registerFactory('agent', () => ({
+    async handle(): Promise<RuntimeResult> {
+      agentTurns += 1;
+      return { kind: 'response', content: 'agent reply' };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus);
 
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'mock-1',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
-
-    expect(handleCalls).toBe(1);
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'agent',
+    context: baseContext,
   });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
 
-  it('warns and continues when the replyTo participant does not exist', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', (id) => new MockRuntime(id));
-    const router = new MessageRouter(store, registry, collective, eventBus);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  expect(agentTurns).toBe(0);
+  const conv = await store.load(result.conversationId);
+  expect(
+    Object.values(conv!.messages).find((m) => m.recipientId === 'agent' && m.role === 'assistant')
+      ?.content,
+  ).toBe('hello back');
+});
 
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'ghost',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
+it('skips delivery when replyTo is the recipient itself', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  let handleCalls = 0;
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', () => ({
+    async handle(): Promise<RuntimeResult> {
+      handleCalls += 1;
+      return { kind: 'response', content: 'hello back' };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ghost'));
-    warn.mockRestore();
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'mock-1',
+    context: baseContext,
   });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
 
-  it('emits an error when user delivery fails and still returns dispatched', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', (id) => new MockRuntime(id));
-    registry.registerFactory('user', () => ({
-      async handle(): Promise<RuntimeResult> {
-        return { kind: 'void', delivery: { status: 'failed', reason: 'no live bot' } };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus);
-    const errors: { message: string }[] = [];
-    eventBus.on('error', (payload) => errors.push(payload.error));
+  expect(handleCalls).toBe(1);
+});
 
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'op',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
+it('warns and continues when the replyTo participant does not exist', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', (id) => new MockRuntime(id));
+  const router = new MessageRouter(store, registry, collective, eventBus);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(errors).toHaveLength(1);
-    expect(errors[0].message).toBe('no live bot');
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'ghost',
+    context: baseContext,
   });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
 
-  it('delivers a persisted runtime-error response to replyTo', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const received: MessageData[] = [];
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', () => ({
-      async handle(): Promise<RuntimeResult> {
-        throw new Error('provider boom');
-      },
-    }));
-    registry.registerFactory('user', () => ({
-      async handle(incoming: MessageData): Promise<RuntimeResult> {
-        received.push(incoming);
-        return { kind: 'void' };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus);
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('ghost'));
+  warn.mockRestore();
+});
 
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'op',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
+it('emits an error when user delivery fails and still returns dispatched', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', (id) => new MockRuntime(id));
+  registry.registerFactory('user', () => ({
+    async handle(): Promise<RuntimeResult> {
+      return { kind: 'void', delivery: { status: 'failed', reason: 'no live bot' } };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus);
+  const errors: { message: string }[] = [];
+  eventBus.on('error', (payload) => errors.push(payload.error));
 
-    expect(received).toHaveLength(1);
-    expect(received[0].content).toMatch(/provider boom/);
-    expect(received[0].recipientId).toBe('op');
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'op',
+    context: baseContext,
   });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
+
+  expect(errors).toHaveLength(1);
+  expect(errors[0].message).toBe('no live bot');
+});
+
+it('delivers a persisted runtime-error response to replyTo', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const received: MessageData[] = [];
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', () => ({
+    async handle(): Promise<RuntimeResult> {
+      throw new Error('provider boom');
+    },
+  }));
+  registry.registerFactory('user', () => ({
+    async handle(incoming: MessageData): Promise<RuntimeResult> {
+      received.push(incoming);
+      return { kind: 'void' };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus);
+
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'op',
+    context: baseContext,
+  });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
+
+  expect(received).toHaveLength(1);
+  expect(received[0].content).toMatch(/provider boom/);
+  expect(received[0].recipientId).toBe('op');
+});
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -705,10 +710,12 @@ git commit -m "feat(core): deliver replyTo responses to user targets"
 ### Task 4: `'all'` mode recursion and approval bubbling
 
 **Files:**
+
 - Modify: `packages/core/src/runtime/MessageRouter.ts` (`deliverReplyTo`)
 - Test: `packages/core/src/runtime/MessageRouter.test.ts`
 
 **Interfaces:**
+
 - Consumes: `deliverReplyTo` from Task 3, `dispatchApprovalRequests`, `replyToDelivery`.
 - Produces: recursion for `'all'` mode; approval bubbling from a delivery target back to `responseMessage.senderId`.
 
@@ -717,115 +724,115 @@ git commit -m "feat(core): deliver replyTo responses to user targets"
 Add to `describe('MessageRouter: fire-and-forget')`:
 
 ```ts
-  it('invokes an agent replyTo target and recurses until void in all mode', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const agentTurns: MessageData[] = [];
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', (id) => new MockRuntime(id));
-    registry.registerFactory('agent', () => ({
-      async handle(incoming: MessageData): Promise<RuntimeResult> {
-        agentTurns.push(incoming);
-        if (agentTurns.length === 1) {
-          return { kind: 'response', content: 'agent reply' };
-        }
-        return { kind: 'void' };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
-      replyToDelivery: 'all',
-    });
-
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'agent',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
-
-    expect(agentTurns).toHaveLength(2);
-    expect(agentTurns[0].content).toBe('hello back');
-    expect(agentTurns[1].content).toBe('hello back');
+it('invokes an agent replyTo target and recurses until void in all mode', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const agentTurns: MessageData[] = [];
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', (id) => new MockRuntime(id));
+  registry.registerFactory('agent', () => ({
+    async handle(incoming: MessageData): Promise<RuntimeResult> {
+      agentTurns.push(incoming);
+      if (agentTurns.length === 1) {
+        return { kind: 'response', content: 'agent reply' };
+      }
+      return { kind: 'void' };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+    replyToDelivery: 'all',
   });
 
-  it('stops at the communication depth limit in all mode', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const received: MessageData[] = [];
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', () => ({
-      async handle(incoming: MessageData): Promise<RuntimeResult> {
-        received.push(incoming);
-        return { kind: 'response', content: `reply:${received.length}` };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
-      replyToDelivery: 'all',
-    });
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'agent',
+    context: baseContext,
+  });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
 
-    await router.send({
-      senderId: 'op',
-      recipientId: 'mock-1',
-      message: 'start',
-      replyTo: 'svc',
-      context: baseContext,
-    });
-    await router.drain();
+  expect(agentTurns).toHaveLength(2);
+  expect(agentTurns[0].content).toBe('hello back');
+  expect(agentTurns[1].content).toBe('hello back');
+});
 
-    // One initial recipient turn plus ten delivery turns (depth 1..10).
-    expect(received).toHaveLength(11);
+it('stops at the communication depth limit in all mode', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const received: MessageData[] = [];
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', () => ({
+    async handle(incoming: MessageData): Promise<RuntimeResult> {
+      received.push(incoming);
+      return { kind: 'response', content: `reply:${received.length}` };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+    replyToDelivery: 'all',
   });
 
-  it('bubbles an all-mode delivery approval back to the triggering sender', async () => {
-    const { collective, store, eventBus, baseContext } = await setup(dir);
-    const received: MessageData[] = [];
-    const registry = new RuntimeRegistry();
-    registry.registerFactory('mock', () => ({
-      async handle(incoming: MessageData): Promise<RuntimeResult> {
-        received.push(incoming);
-        return { kind: 'response', content: 'hello back' };
-      },
-    }));
-    registry.registerFactory('agent', () => ({
-      async handle(): Promise<RuntimeResult> {
-        return {
-          kind: 'pending_approval',
-          approvalRequests: [
-            {
-              approvalId: 'appr-all',
-              conversationId: 'conv-all',
-              requesterId: 'agent',
-              tool: 'write_file',
-              args: {},
-              createdAt: '2026-01-01T00:00:00.000Z',
-            },
-          ],
-        };
-      },
-    }));
-    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
-      replyToDelivery: 'all',
-    });
-
-    const result = await router.send({
-      senderId: 'svc',
-      recipientId: 'mock-1',
-      message: 'analyze',
-      replyTo: 'agent',
-      context: baseContext,
-    });
-    expect(result.status).toBe('dispatched');
-    await router.drain();
-
-    const approvals = received.filter((m) => m.content.includes('appr-all'));
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0]).toMatchObject({
-      senderId: 'agent',
-      recipientId: 'mock-1',
-      replyTo: 'agent',
-    });
+  await router.send({
+    senderId: 'op',
+    recipientId: 'mock-1',
+    message: 'start',
+    replyTo: 'svc',
+    context: baseContext,
   });
+  await router.drain();
+
+  // One initial recipient turn plus ten delivery turns (depth 1..10).
+  expect(received).toHaveLength(11);
+});
+
+it('bubbles an all-mode delivery approval back to the triggering sender', async () => {
+  const { collective, store, eventBus, baseContext } = await setup(dir);
+  const received: MessageData[] = [];
+  const registry = new RuntimeRegistry();
+  registry.registerFactory('mock', () => ({
+    async handle(incoming: MessageData): Promise<RuntimeResult> {
+      received.push(incoming);
+      return { kind: 'response', content: 'hello back' };
+    },
+  }));
+  registry.registerFactory('agent', () => ({
+    async handle(): Promise<RuntimeResult> {
+      return {
+        kind: 'pending_approval',
+        approvalRequests: [
+          {
+            approvalId: 'appr-all',
+            conversationId: 'conv-all',
+            requesterId: 'agent',
+            tool: 'write_file',
+            args: {},
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      };
+    },
+  }));
+  const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+    replyToDelivery: 'all',
+  });
+
+  const result = await router.send({
+    senderId: 'svc',
+    recipientId: 'mock-1',
+    message: 'analyze',
+    replyTo: 'agent',
+    context: baseContext,
+  });
+  expect(result.status).toBe('dispatched');
+  await router.drain();
+
+  const approvals = received.filter((m) => m.content.includes('appr-all'));
+  expect(approvals).toHaveLength(1);
+  expect(approvals[0]).toMatchObject({
+    senderId: 'agent',
+    recipientId: 'mock-1',
+    replyTo: 'agent',
+  });
+});
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -838,37 +845,37 @@ Expected: FAIL — the agent target is not invoked in `'all'` mode and no recurs
 After the `if (completed.result.status === 'error') { ... }` block in `deliverReplyTo`, add:
 
 ```ts
-      if (completed.result.status === 'pending_approval') {
-        await this.dispatchApprovalRequests(
-          thread,
-          {
-            ...opts,
-            senderId: target.id,
-            recipientId: target.id,
-            replyTo: responseMessage.senderId,
-            context: { ...opts.context, communicationDepth: depth },
-          },
-          completed.result.approvalRequests ?? [],
-        );
-        return;
-      }
-      if (this.replyToDelivery === 'all' && completed.message) {
-        const nextReplyTo = completed.message.recipientId;
-        if (nextReplyTo !== completed.message.senderId) {
-          await this.deliverReplyTo(
-            thread,
-            completed.message,
-            {
-              ...opts,
-              senderId: completed.message.senderId,
-              recipientId: completed.message.senderId,
-              replyTo: nextReplyTo,
-              context: { ...opts.context, communicationDepth: depth + 1 },
-            },
-            depth + 1,
-          );
-        }
-      }
+if (completed.result.status === 'pending_approval') {
+  await this.dispatchApprovalRequests(
+    thread,
+    {
+      ...opts,
+      senderId: target.id,
+      recipientId: target.id,
+      replyTo: responseMessage.senderId,
+      context: { ...opts.context, communicationDepth: depth },
+    },
+    completed.result.approvalRequests ?? [],
+  );
+  return;
+}
+if (this.replyToDelivery === 'all' && completed.message) {
+  const nextReplyTo = completed.message.recipientId;
+  if (nextReplyTo !== completed.message.senderId) {
+    await this.deliverReplyTo(
+      thread,
+      completed.message,
+      {
+        ...opts,
+        senderId: completed.message.senderId,
+        recipientId: completed.message.senderId,
+        replyTo: nextReplyTo,
+        context: { ...opts.context, communicationDepth: depth + 1 },
+      },
+      depth + 1,
+    );
+  }
+}
 ```
 
 - [ ] **Step 4: Run the new tests**
@@ -894,9 +901,11 @@ git commit -m "feat(core): recurse replyTo delivery in all mode and bubble appro
 ### Task 5: Document the config and default
 
 **Files:**
+
 - Modify: `docs/legion-v2-greenfield-spec.md` (fire-and-forget section, §3; delivery section, §6.7)
 
 **Interfaces:**
+
 - Consumes: the config and behavior from Tasks 1-4.
 - Produces: documentation only.
 
@@ -937,6 +946,7 @@ git commit -m "docs: document communication.replyToDelivery"
 ## Self-Review
 
 **Spec coverage:**
+
 - §4 config → Task 1. ✔
 - §6.1 persisted message plumbing → Task 2. ✔
 - §6.2 `deliverReplyTo` → Tasks 3-4. ✔
