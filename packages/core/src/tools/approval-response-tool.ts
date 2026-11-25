@@ -61,9 +61,9 @@ export const approvalResponseTool: Tool = {
       { conversationId: string; requesterId: string; approvalIds: string[] }
     >();
     const seen = new Set<string>();
-    // Responses produced by resuming an approved turn are not delivered by the
-    // router itself (the caller normally sends the reply). Return them so
-    // connectors can push the continuation to the requesting conversation.
+    // Items the connector may still need to post: resumed replies the router
+    // could not deliver, and successor approval cards raised by the resumed
+    // turn. Replies the router delivered are omitted below.
     const resumed: Array<{
       conversationId: string;
       response?: string;
@@ -75,13 +75,11 @@ export const approvalResponseTool: Tool = {
         result.response !== undefined &&
         result.response.trim() !== ''
       ) {
-        // If the caller is the replyTo target and the router already delivered
-        // the reply, returning it here would make the connector post it twice.
-        const deliveredToCaller =
-          context.participant.type === 'user' &&
-          result.replyToDelivered === true &&
-          result.responseRecipientId === context.participant.id;
-        if (!deliveredToCaller) {
+        // The router delivers a resumed reply to its replyTo target itself.
+        // Returning it here would make the connector post it a second time,
+        // whichever participant approved the request. Connectors only need
+        // the reply as a fallback when router delivery did not happen.
+        if (result.replyToDelivered !== true) {
           resumed.push({ conversationId: result.conversationId, response: result.response });
         }
       } else if (result.status === 'pending_approval' && result.approvalRequests?.length) {
