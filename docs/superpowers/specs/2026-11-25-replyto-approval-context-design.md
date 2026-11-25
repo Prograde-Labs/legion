@@ -1,7 +1,7 @@
 # ReplyTo Approval Context and Delivery Dedup Design
 
 **Date:** 2026-11-25
-**Status:** Fix for issue #20
+**Status:** Fixes issues #20 and #22
 **Packages:** `@legion-collective/types`, `@legion-collective/core`
 **Base:** `main` after PR #19 (`fix/replyto-delivery`)
 
@@ -110,3 +110,48 @@ post it.
   selects an internal notice when it is the latest incoming turn.
 - `PendingApprovalRegistry.test.ts`: the terminal result preserves the new
   delivery metadata.
+
+## 6. Follow-up: paused text and empty resumed replies (issue #22)
+
+### 6.1 Problems
+
+The assistant turn that pauses for approval often carries the text explaining
+the gated call (for example the full SQL). That message is addressed to the
+requester, so routed `replyTo` delivery never sees it; the approver gets only
+the notice and the card. Separately, the resumed turn may have no further text,
+yet `deliverReplyTo` still sends the empty message, which connectors such as
+Teams reject with a 400.
+
+### 6.2 Fix
+
+- `dispatchApprovalRequests` finds the paused assistant message — the one whose
+  `pending_approval` tool results include the approval IDs being dispatched —
+  and prefixes its non-empty content to the routed notice as
+  `<paused text>\n\n<approval notice>`. Delivery payload content is sent before
+  approval cards, so the approver sees the text above the card, matching a
+  connector-started turn. A paused turn with no text produces the notice alone.
+- `deliverReplyTo` skips delivery when the response content is empty or
+  whitespace, returning `false`.
+- `approval_response` treats a whitespace-only resumed response as no reply, so
+  `resumed` is omitted instead of carrying `response: ''`.
+
+The empty assistant message remains in the conversation as the resumed turn's
+terminal record; only delivery and the `resumed` payload are suppressed.
+
+### 6.3 Behavior matrix
+
+| Case                            | Result                                    |
+| ------------------------------- | ----------------------------------------- |
+| Paused text + routed approval   | Text delivered, then the card             |
+| Paused turn with no text        | Card only (unchanged)                     |
+| Resumed turn has text           | Delivered once (unchanged)                |
+| Resumed turn has no text        | Nothing delivered, no `resumed` entry     |
+| `replyToDelivery: 'all'` target | Text also appears in the notice, as above |
+
+### 6.4 Tests
+
+- `approval-flow.integration.test.ts`: the paused turn's text is delivered with
+  the approval notice to the `replyTo` target.
+- `approval-flow.integration.test.ts`: an empty resumed reply is neither
+  delivered nor returned, while the turn record remains.
+- Existing tests still cover a non-empty resumed reply being delivered once.
