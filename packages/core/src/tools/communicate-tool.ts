@@ -33,6 +33,14 @@ function parseModel(value: unknown): Parsed<string | undefined> {
   return { ok: true, value };
 }
 
+function withStoredMessageId(
+  data: Record<string, unknown>,
+  result: MessageRouterResult,
+): Record<string, unknown> {
+  if (result.storedMessageId !== undefined) data.storedMessageId = result.storedMessageId;
+  return data;
+}
+
 export const communicateTool: StreamingTool = {
   name: 'communicate',
   description:
@@ -105,24 +113,30 @@ export const communicateTool: StreamingTool = {
       return {
         status: 'error',
         error: result.error,
-        data: { conversationId: result.conversationId },
+        data: withStoredMessageId({ conversationId: result.conversationId }, result),
       };
     }
     if (result.status === 'pending_approval') {
       return {
         status: 'pending_approval',
-        data: { conversationId: result.conversationId, approvalRequests: result.approvalRequests },
+        data: withStoredMessageId(
+          { conversationId: result.conversationId, approvalRequests: result.approvalRequests },
+          result,
+        ),
       };
     }
     if (result.status === 'timeout') {
       return {
         status: 'error',
         error: 'deadline exceeded',
-        data: {
-          conversationId: result.conversationId,
-          response: result.response,
-          partial: true,
-        },
+        data: withStoredMessageId(
+          {
+            conversationId: result.conversationId,
+            response: result.response,
+            partial: true,
+          },
+          result,
+        ),
       };
     }
     const data: Record<string, unknown> = {
@@ -131,6 +145,6 @@ export const communicateTool: StreamingTool = {
       status: result.status,
     };
     if (detail.value === 'full' && result.meta !== undefined) data.meta = result.meta;
-    return { status: 'success', data };
+    return { status: 'success', data: withStoredMessageId(data, result) };
   },
 };
