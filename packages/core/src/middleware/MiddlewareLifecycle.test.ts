@@ -165,6 +165,9 @@ describe('MiddlewareLifecycle', () => {
       status: 'success',
       response: 'response:recipient:send:sender:receive',
     });
+    expect(response.storedMessageId).toBeDefined();
+    const stored = (await f.store.load(f.thread.id))!.messages[response.storedMessageId!];
+    expect(stored.content).toBe('response:recipient:send:sender:receive');
     expect(phases).toEqual([
       'sender beforeSend',
       'recipient beforeReceive',

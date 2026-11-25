@@ -28,6 +28,7 @@ import type {
   AgentConfig,
   CommunicationConfig,
   ConversationOrigin,
+  MessageData,
   MessageUsage,
   LLMChunk,
   MessageDraft,
@@ -71,6 +72,7 @@ export class MessageRouter implements MessageRouterPort {
   private background = new Set<Promise<void>>();
   private locks = new Map<string, Promise<void>>();
   private replyWaiters = new Map<string, Set<(text: string) => void>>();
+  private replyToDelivery: 'users' | 'all';
 
   constructor(
     private store: ConversationStore,
@@ -80,7 +82,19 @@ export class MessageRouter implements MessageRouterPort {
     private lifecycle?: MiddlewareLifecycle,
     private middlewareRunner?: MiddlewareRunner,
     private communication?: CommunicationConfig,
-  ) {}
+  ) {
+    const configured = communication?.replyToDelivery;
+    if (configured === 'users' || configured === 'all') {
+      this.replyToDelivery = configured;
+    } else {
+      if (configured !== undefined) {
+        console.warn(
+          `[MessageRouter] unknown communication.replyToDelivery '${String(configured)}'; using 'users'`,
+        );
+      }
+      this.replyToDelivery = 'users';
+    }
+  }
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
   async drain(): Promise<void> {
@@ -397,9 +411,9 @@ export class MessageRouter implements MessageRouterPort {
       context: ToolContext;
       storedMessageId?: string;
     },
-  ): Promise<MessageRouterResult> {
+  ): Promise<{ result: MessageRouterResult; message?: MessageData }> {
     if (this.lifecycle && lifecycleState) {
-      return this.respondWithLifecycle(
+      const result = await this.respondWithLifecycle(
         thread,
         {
           senderId,
@@ -411,6 +425,13 @@ export class MessageRouter implements MessageRouterPort {
         lifecycleState,
         response.usage,
       );
+      const storedMessageId = result.storedMessageId;
+      return {
+        result,
+        ...(result.status === 'success' && storedMessageId !== undefined
+          ? { message: thread.data.messages[storedMessageId] }
+          : {}),
+      };
     }
     const responseMsg = await thread.append({
       senderId,
@@ -425,7 +446,10 @@ export class MessageRouter implements MessageRouterPort {
       recipientId,
       messageId: responseMsg.id,
     });
-    return { conversationId: thread.id, response: response.content, status: 'success' };
+    return {
+      result: { conversationId: thread.id, response: response.content, status: 'success' },
+      message: responseMsg,
+    };
   }
 
   private withRuntimeActions(
@@ -1294,7 +1318,7 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(lastIncoming, runtimeContext);
-      return await this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread,
           recipientId: participant.id,
@@ -1303,6 +1327,22 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      if (completed.message) {
+        await this.deliverReplyTo(
+          thread,
+          completed.message,
+          {
+            senderId: lastIncoming.senderId,
+            recipientId: participant.id,
+            message: lastIncoming.content,
+            conversationId: thread.id,
+            replyTo: completed.message.recipientId,
+            context: toolContext,
+          },
+          (toolContext.communicationDepth ?? 0) + 1,
+        );
+      }
+      return completed.result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
@@ -1601,7 +1641,7 @@ export class MessageRouter implements MessageRouterPort {
           runtimeContext,
         );
         const incoming = thread.data.messages[checkpoint.runtimeResume.incomingMessageId];
-        const result = await this.completeResponse(
+        const completed = await this.completeResponseDetailed(
           {
             thread,
             recipientId: participant.id,
@@ -1616,6 +1656,22 @@ export class MessageRouter implements MessageRouterPort {
           },
           runtimeResult,
         );
+        if (incoming && completed.message) {
+          await this.deliverReplyTo(
+            thread,
+            completed.message,
+            {
+              senderId: incoming.senderId,
+              recipientId: participant.id,
+              message: incoming.content,
+              conversationId: thread.id,
+              replyTo: completed.message.recipientId,
+              context: helperContext,
+            },
+            (helperContext.communicationDepth ?? 0) + 1,
+          );
+        }
+        const result = completed.result;
         if (result.status === 'pending_approval') {
           const successorApprovalIds = [
             ...new Set([
@@ -2336,7 +2392,7 @@ export class MessageRouter implements MessageRouterPort {
           actions,
         }),
       );
-      return this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread,
           recipientId: participant.id,
@@ -2345,6 +2401,22 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      if (completed.message) {
+        await this.deliverReplyTo(
+          thread,
+          completed.message,
+          {
+            senderId: incoming.senderId,
+            recipientId: participant.id,
+            message: incoming.content,
+            conversationId: thread.id,
+            replyTo: completed.message.recipientId,
+            context,
+          },
+          (context.communicationDepth ?? 0) + 1,
+        );
+      }
+      return completed.result;
     } catch {
       if (providerClaimed) {
         const record = approvals!.getRecord(approvalId);
@@ -2424,10 +2496,10 @@ export class MessageRouter implements MessageRouterPort {
     });
   }
 
-  private async completeResponse(
+  private async completeResponseDetailed(
     operation: ResponseOperation,
     result: RuntimeResult,
-  ): Promise<MessageRouterResult> {
+  ): Promise<{ result: MessageRouterResult; message?: MessageData }> {
     const lifecycleState = this.withRuntimeActions(operation.lifecycleState, result);
     if (result.kind === 'response') {
       return this.persistResponse(
@@ -2440,34 +2512,40 @@ export class MessageRouter implements MessageRouterPort {
     }
     if (result.kind === 'pending_approval') {
       return {
-        conversationId: operation.thread.id,
-        status: 'pending_approval',
-        approvalRequests: result.approvalRequests,
+        result: {
+          conversationId: operation.thread.id,
+          status: 'pending_approval',
+          approvalRequests: result.approvalRequests,
+        },
       };
     }
     if (result.kind === 'middleware_pending') {
       return {
-        conversationId: operation.thread.id,
-        status: 'pending_approval',
-        approvalId: result.approvalId,
-        checkpointId: result.checkpointId,
-        pendingParticipantId: operation.recipientId,
-        approvalRequests: lifecycleState
-          ? this.approvalRequests(lifecycleState.context, result.approvalId)
-          : [],
-        ...(lifecycleState?.storedMessageId === undefined
-          ? {}
-          : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        result: {
+          conversationId: operation.thread.id,
+          status: 'pending_approval',
+          approvalId: result.approvalId,
+          checkpointId: result.checkpointId,
+          pendingParticipantId: operation.recipientId,
+          approvalRequests: lifecycleState
+            ? this.approvalRequests(lifecycleState.context, result.approvalId)
+            : [],
+          ...(lifecycleState?.storedMessageId === undefined
+            ? {}
+            : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        },
       };
     }
     if (result.kind === 'middleware_abort') {
       return {
-        conversationId: operation.thread.id,
-        status: 'error',
-        error: result.error,
-        ...(lifecycleState?.storedMessageId === undefined
-          ? {}
-          : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        result: {
+          conversationId: operation.thread.id,
+          status: 'error',
+          error: result.error,
+          ...(lifecycleState?.storedMessageId === undefined
+            ? {}
+            : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        },
       };
     }
     // kind === 'void'
@@ -2477,12 +2555,21 @@ export class MessageRouter implements MessageRouterPort {
       result.delivery.status !== 'accepted'
     ) {
       return {
-        conversationId: operation.thread.id,
-        status: 'error',
-        error: result.delivery.reason ?? result.delivery.status,
+        result: {
+          conversationId: operation.thread.id,
+          status: 'error',
+          error: result.delivery.reason ?? result.delivery.status,
+        },
       };
     }
-    return { conversationId: operation.thread.id, status: 'success' };
+    return { result: { conversationId: operation.thread.id, status: 'success' } };
+  }
+
+  private async completeResponse(
+    operation: ResponseOperation,
+    result: RuntimeResult,
+  ): Promise<MessageRouterResult> {
+    return (await this.completeResponseDetailed(operation, result)).result;
   }
 
   private async dispatchAsync(
@@ -2504,10 +2591,11 @@ export class MessageRouter implements MessageRouterPort {
       ...runtimeContext,
       conversation: backgroundThread,
     };
+    const depth = (opts.context.communicationDepth ?? 0) + 1;
 
     try {
       const result = await runtime.handle(inbound, backgroundContext);
-      const completed = await this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread: backgroundThread,
           recipientId: opts.recipientId,
@@ -2516,12 +2604,22 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
-      if (completed.status === 'pending_approval' && completed.approvalRequests?.length) {
-        await this.dispatchApprovalRequests(backgroundThread, opts, completed.approvalRequests);
+      if (
+        completed.result.status === 'pending_approval' &&
+        completed.result.approvalRequests?.length
+      ) {
+        await this.dispatchApprovalRequests(
+          backgroundThread,
+          opts,
+          completed.result.approvalRequests,
+        );
+      }
+      if (completed.message) {
+        await this.deliverReplyTo(backgroundThread, completed.message, opts, depth);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread: backgroundThread,
           recipientId: opts.recipientId,
@@ -2530,6 +2628,106 @@ export class MessageRouter implements MessageRouterPort {
         },
         { kind: 'response', content: `[Runtime error: ${msg}]` },
       );
+      if (completed.message) {
+        await this.deliverReplyTo(backgroundThread, completed.message, opts, depth);
+      }
+    }
+  }
+
+  /**
+   * Deliver a persisted response to the `replyTo` participant.
+   *
+   * By default only user targets are invoked: agents already see the response
+   * in the conversation tree and a live turn would be a duplicate. With
+   * `communication.replyToDelivery: 'all'` every participant type is invoked.
+   */
+  private async deliverReplyTo(
+    thread: ConversationThread,
+    responseMessage: MessageData,
+    opts: SendOptions,
+    depth: number,
+  ): Promise<void> {
+    const replyTo = opts.replyTo;
+    if (!replyTo) return;
+    if (responseMessage.recipientId === responseMessage.senderId) {
+      console.debug(
+        `[MessageRouter] skipping self-delivery: replyTo '${replyTo}' matches response sender '${responseMessage.senderId}'`,
+      );
+      return;
+    }
+    if (depth > DEFAULT_DEPTH_LIMIT) return;
+
+    try {
+      const target = this.collective.get(replyTo);
+      if (!target) {
+        console.warn(`[MessageRouter] replyTo target '${replyTo}' does not exist`);
+        return;
+      }
+      if (this.replyToDelivery === 'users' && target.type !== 'user') return;
+
+      const runtime = this.registry.build(target.type, target.id);
+      const runtimeContext = this.buildRuntimeContext(
+        thread,
+        target.id,
+        { ...opts.context, communicationDepth: depth },
+        depth,
+        undefined,
+      );
+      const result = await runtime.handle(responseMessage, runtimeContext);
+      const completed = await this.completeResponseDetailed(
+        {
+          thread,
+          recipientId: target.id,
+          responseRecipientId: responseMessage.senderId,
+        },
+        result,
+      );
+      if (completed.result.status === 'error') {
+        const message = completed.result.error ?? 'replyTo delivery failed';
+        console.warn(`[MessageRouter] replyTo delivery to '${target.id}' failed: ${message}`);
+        this.eventBus.emit('error', {
+          conversationId: thread.id,
+          error: { name: 'ReplyToDeliveryError', message },
+        });
+      }
+      if (completed.result.status === 'pending_approval') {
+        await this.dispatchApprovalRequests(
+          thread,
+          {
+            ...opts,
+            senderId: target.id,
+            recipientId: target.id,
+            replyTo: responseMessage.senderId,
+            context: { ...opts.context, communicationDepth: depth },
+          },
+          completed.result.approvalRequests ?? [],
+        );
+        return;
+      }
+      if (this.replyToDelivery === 'all' && completed.message) {
+        const nextReplyTo = completed.message.recipientId;
+        if (nextReplyTo !== completed.message.senderId) {
+          await this.deliverReplyTo(
+            thread,
+            completed.message,
+            {
+              ...opts,
+              senderId: completed.message.senderId,
+              recipientId: completed.message.senderId,
+              replyTo: nextReplyTo,
+              context: { ...opts.context, communicationDepth: depth + 1 },
+            },
+            depth + 1,
+          );
+        }
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[MessageRouter] replyTo delivery to '${replyTo}' failed: ${err.message}`);
+      this.eventBus.emit('error', {
+        conversationId: thread.id,
+        error: { name: 'ReplyToDeliveryError', message: err.message },
+      });
     }
   }
 
