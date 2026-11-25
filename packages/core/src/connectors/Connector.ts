@@ -1,5 +1,5 @@
 import type { ToolResult, StreamChunk } from '@legion-collective/types';
-import type { MessageRouterResult } from '../tools/Tool.js';
+import type { AnyTool, MessageRouterResult } from '../tools/Tool.js';
 import type { ConnectorRegistry } from './ConnectorRegistry.js';
 
 /** The shape an external entity sends as a message through a connector. */
@@ -95,4 +95,11 @@ export interface Connector {
 
   /** Called on process shutdown. Release all resources. */
   stop(): Promise<void>;
+
+  /**
+   * Tools this connector contributes to the global registry.
+   * Called by core after a successful `start()`; unregistered on `stop()`.
+   * Every tool name must start with `<connector.name>__`.
+   */
+  tools?(): AnyTool[];
 }

@@ -60,6 +60,7 @@ import {
   // Types
   type WorkspaceConfig,
   type ToolContext,
+  type Connector,
   type ConnectorContext,
   type ConnectorRuntimeDeps,
   type SecretStore,
@@ -640,6 +641,54 @@ export async function startExternalConnectors(
     console.warn(`[legion] ${failures.length} external connector(s) failed to load`);
   }
   return registered;
+}
+
+export function registerConnectorTools(connector: Connector, toolRegistry: ToolRegistry): string[] {
+  const provider = connector.tools;
+  if (!provider) return [];
+
+  const tools = provider.call(connector);
+  if (!Array.isArray(tools)) {
+    throw new Error(`connector '${connector.name}' tools() did not return an array`);
+  }
+
+  const prefix = `${connector.name}__`;
+  const names: string[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool.name !== 'string' || tool.name.length === 0) {
+      throw new Error(`connector '${connector.name}' returned a tool without a name`);
+    }
+    if (!tool.name.startsWith(prefix)) {
+      throw new Error(
+        `tool '${tool.name}' from connector '${connector.name}' must start with '${prefix}'`,
+      );
+    }
+    if (names.includes(tool.name)) {
+      throw new Error(`duplicate tool '${tool.name}' from connector '${connector.name}'`);
+    }
+    names.push(tool.name);
+  }
+
+  const registered: string[] = [];
+  try {
+    for (const tool of tools) {
+      toolRegistry.register(tool);
+      registered.push(tool.name);
+    }
+  } catch (error) {
+    unregisterConnectorTools(toolRegistry, registered);
+    throw error;
+  }
+  return registered;
+}
+
+export function unregisterConnectorTools(
+  toolRegistry: ToolRegistry,
+  names: readonly string[],
+): void {
+  for (const name of [...names].reverse()) {
+    toolRegistry.unregister(name);
+  }
 }
 
 interface MiddlewareToolContextDeps {
