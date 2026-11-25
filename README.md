@@ -61,7 +61,7 @@ response is never replayed. Set `maxRetries` to `0` to disable retries.
 
 On updates, omitting `retry` keeps the saved policy, including when editing in the web UI. Supplying
 `retry` replaces the policy; omitted fields use their defaults, so `"retry": {}` restores all three
-defaults. All fields take nonnegative integers; delays cannot exceed 2147483647 ms.
+defaults. `maxRetries` must be between 0 and 10. Delay fields take nonnegative integers and cannot exceed 2147483647 ms. Fields other than `retry` are replaced as supplied, so include `apiKey` when editing a provider that uses one.
 
 Each participant may set an optional `workspaceRoot` — a default base directory for its file and process tools, not a sandbox. It does not relocate `.legion/` storage, which always stays at the launch root. `WorkspaceConfig.workspaceRoot` supplies the default tool/process base when a participant does not set one.
 

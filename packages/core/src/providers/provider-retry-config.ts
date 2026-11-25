@@ -8,7 +8,7 @@ export const providerRetrySchema = {
   description: 'Retry policy for transient failures before content. Use maxRetries: 0 to disable.',
   additionalProperties: false,
   properties: {
-    maxRetries: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER, default: 3 },
+    maxRetries: { type: 'integer', minimum: 0, maximum: 10, default: 3 },
     baseDelayMs: { type: 'integer', minimum: 0, maximum: MAX_TIMEOUT_MS, default: 500 },
     maxDelayMs: { type: 'integer', minimum: 0, maximum: MAX_TIMEOUT_MS, default: 30000 },
   },

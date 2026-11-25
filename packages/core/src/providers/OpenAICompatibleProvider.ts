@@ -232,7 +232,7 @@ export class OpenAICompatibleProvider implements Provider {
               typeof parsed.error.message === 'string' ? parsed.error.message : 'stream error';
             throw new ProviderError(
               `OpenAI-compatible API error: ${message}`,
-              res.status,
+              undefined,
               classifyProviderError(parsed.error, undefined, res.headers),
             );
           }

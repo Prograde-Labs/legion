@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '@legion-collective/types';
+import type { ProviderConfig, ProviderRetryConfig } from '@legion-collective/types';
 import { NotImplementedError, ProviderError } from '../errors/LegionError.js';
 import type { Storage } from '../storage/Storage.js';
 import type { CodexAuthStore } from './CodexAuthStore.js';
@@ -26,9 +26,9 @@ export class SystemProviderStore {
 
   async get(name: string): Promise<Provider | null> {
     assertValidProviderName(name);
-    const config = await this.storage.readJson<ProviderConfig>(`providers/${name}.json`);
+    const config = await this.readConfig(name);
     if (!config) return null;
-    return new RetryingProvider(this.construct(config), config.retry);
+    return new RetryingProvider(this.construct(config), this.validRetry(config.retry));
   }
 
   async list(): Promise<ProviderConfig[]> {
@@ -36,7 +36,14 @@ export class SystemProviderStore {
     const configs = await Promise.all(
       keys
         .filter((key) => key.endsWith('.json'))
-        .map((key) => this.storage.readJson<ProviderConfig>(`providers/${key}`)),
+        .map(async (key) => {
+          try {
+            return await this.storage.readJson<ProviderConfig>(`providers/${key}`);
+          } catch {
+            // One unreadable provider must not hide every other provider.
+            return null;
+          }
+        }),
     );
     const valid = configs.filter((config): config is ProviderConfig => config !== null);
     return valid.sort((a, b) => a.priority - b.priority);
@@ -46,16 +53,37 @@ export class SystemProviderStore {
     assertValidProviderName(config.name);
     resolveProviderRetryConfig(config.retry);
     return this.storage.withLock(`providers/${config.name}.json`, async () => {
-      const existing = await this.storage.readJson<ProviderConfig>(`providers/${config.name}.json`);
-      // Omitted means "leave the operator's policy alone"; {} explicitly resets it.
+      const existing = await this.readConfig(config.name);
+      // Omitted means "leave the operator's valid policy alone"; {} explicitly resets it.
+      const inherited = this.validRetry(existing?.retry);
       const saved: ProviderConfig =
-        config.retry === undefined && existing?.retry !== undefined
-          ? { ...config, retry: existing.retry }
+        config.retry === undefined && inherited !== undefined
+          ? { ...config, retry: inherited }
           : config;
-      resolveProviderRetryConfig(saved.retry);
       await this.storage.writeJson(`providers/${config.name}.json`, saved);
       return saved;
     });
+  }
+
+  private async readConfig(name: string): Promise<ProviderConfig | null> {
+    try {
+      return await this.storage.readJson<ProviderConfig>(`providers/${name}.json`);
+    } catch (error) {
+      // A truncated file should not block the operator from rewriting it.
+      if (error instanceof SyntaxError) return null;
+      throw error;
+    }
+  }
+
+  private validRetry(value: unknown): ProviderRetryConfig | undefined {
+    if (value === undefined) return undefined;
+    try {
+      resolveProviderRetryConfig(value);
+      return value as ProviderRetryConfig;
+    } catch {
+      // Invalid stored policy: use defaults instead of making the provider unroutable.
+      return undefined;
+    }
   }
 
   async delete(name: string): Promise<void> {

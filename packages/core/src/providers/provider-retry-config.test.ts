@@ -13,3 +13,7 @@ it('applies the provider defaults only to omitted retry fields', () => {
     maxDelayMs: 0,
   });
 });
+
+it('rejects an unbounded retry budget', () => {
+  expect(() => resolveProviderRetryConfig({ maxRetries: 11 })).toThrow(/maxRetries/);
+});

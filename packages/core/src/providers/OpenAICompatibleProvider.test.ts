@@ -578,6 +578,7 @@ describe('OpenAICompatibleProvider.stream()', () => {
     await expect(
       drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL),
     ).rejects.toMatchObject({
+      status: undefined,
       providerCode: 'server_error',
       retryable: true,
       retryAfterMs: 7000,

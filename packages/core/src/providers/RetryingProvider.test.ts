@@ -81,6 +81,17 @@ describe('inference retries', () => {
     },
   );
 
+  it('floors a zero backoff window at one millisecond', async () => {
+    const sleep = vi.spyOn(timers, 'setTimeout').mockResolvedValue(undefined);
+    let calls = 0;
+    vi.stubGlobal('fetch', async () => (++calls === 1 ? stream(failed) : stream(...success)));
+    const gen = await setup({ baseDelayMs: 0, maxDelayMs: 0 });
+
+    await gen.next();
+
+    expect(sleep.mock.calls[0]?.[0]).toBe(1);
+  });
+
   it('waits for the capped Retry-After before issuing a new request', async () => {
     const sleep = vi.spyOn(timers, 'setTimeout').mockResolvedValue(undefined);
     const fetch = vi

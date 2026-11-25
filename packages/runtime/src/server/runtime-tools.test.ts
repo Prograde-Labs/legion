@@ -491,6 +491,7 @@ describe('runtime tools', () => {
     [],
     { maxRetries: -1 },
     { maxRetries: 0.5 },
+    { maxRetries: 11 },
     { baseDelayMs: '500' },
     { maxDelayMs: Infinity },
     { maxDelayMs: 2 ** 31 },

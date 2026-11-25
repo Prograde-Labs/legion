@@ -26,7 +26,7 @@ export class RetryingProvider implements Provider {
   async *stream(...args: Parameters<Provider['stream']>): AsyncGenerator<ProviderStreamChunk> {
     const signal = args[3]?.signal;
     const { maxRetries, baseDelayMs, maxDelayMs } = this.policy;
-    let windowMs = Math.min(baseDelayMs, maxDelayMs);
+    let windowMs = Math.max(1, Math.min(baseDelayMs, maxDelayMs));
     for (let retries = 0; ; retries++) {
       signal?.throwIfAborted();
       let emitted = false;
@@ -46,9 +46,9 @@ export class RetryingProvider implements Provider {
           throw error;
         }
         const hint = error instanceof ProviderError ? error.retryAfterMs : undefined;
-        const delayMs = Math.min(
-          maxDelayMs,
-          Math.max(hint ?? 0, Math.floor(Math.random() * windowMs)),
+        const delayMs = Math.max(
+          1,
+          Math.min(maxDelayMs, Math.max(hint ?? 0, Math.floor(Math.random() * windowMs))),
         );
         await timers.setTimeout(delayMs, undefined, { signal });
         windowMs = Math.min(maxDelayMs, windowMs * 2);
