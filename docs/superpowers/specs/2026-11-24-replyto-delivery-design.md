@@ -258,7 +258,10 @@ context unless it is the participant's current incoming message. `resume` and
 `deliverReplyTo` returns whether it delivered, and the resume result records
 `responseRecipientId` and `replyToDelivered`. `approval_response` omits the
 reply from its `resumed` payload when the router already delivered it to the
-caller, so a connector does not post it twice. See
+caller, so a connector does not post it twice. A resumed reply with no text is
+not delivered and is not returned in `resumed`. The routed notice carries the
+paused turn's text (when present) ahead of the approval summary, so the approver
+sees the explanation written with the gated call. See
 `2026-11-25-replyto-approval-context-design.md` for details.
 
 ## 7. Event semantics

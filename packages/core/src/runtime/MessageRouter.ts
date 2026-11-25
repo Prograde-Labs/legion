@@ -2674,6 +2674,10 @@ export class MessageRouter implements MessageRouterPort {
   ): Promise<boolean> {
     const replyTo = opts.replyTo;
     if (!replyTo) return false;
+    if (responseMessage.content.trim() === '') {
+      console.debug(`[MessageRouter] skipping empty replyTo delivery to '${replyTo}'`);
+      return false;
+    }
     if (responseMessage.recipientId === responseMessage.senderId) {
       console.debug(
         `[MessageRouter] skipping self-delivery: replyTo '${replyTo}' matches response sender '${responseMessage.senderId}'`,
@@ -2793,13 +2797,19 @@ export class MessageRouter implements MessageRouterPort {
     }
 
     try {
+      // The paused turn's text was never delivered: the assistant message that
+      // holds it is addressed to the requester, and the notice below is a
+      // separate delivery artifact. Prefix it so the approver sees the text the
+      // agent wrote alongside the gated call, before the approval card.
+      const pausedText = this.pausedResponseText(thread, fresh);
+      const notice = this.approvalRequestContent(fresh);
       const message = await thread.append(
         {
           senderId: opts.recipientId,
           recipientId: replyTo,
           role: 'user',
           replyTo: opts.senderId,
-          content: this.approvalRequestContent(fresh),
+          content: pausedText === undefined ? notice : `${pausedText}\n\n${notice}`,
           // No toolCalls: agent runtimes treat a message with toolCalls as an
           // assistant turn. The pending tool results are enough for delivery.
           toolResults: fresh.map((request) => ({
@@ -2864,6 +2874,32 @@ export class MessageRouter implements MessageRouterPort {
         error: { name: err.name, message: err.message },
       });
     }
+  }
+
+  /**
+   * Text the requester wrote in the assistant turn that holds the pending
+   * approval. Runtimes persist that turn as an assistant message addressed to
+   * the requester, so it is not part of the `replyTo` delivery on its own.
+   */
+  private pausedResponseText(
+    thread: ConversationThread,
+    requests: PendingApproval[],
+  ): string | undefined {
+    const approvalIds = new Set(requests.map((request) => request.approvalId));
+    const paused = [...thread.activeChain]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.toolResults?.some(
+            (toolResult) =>
+              toolResult.result.status === 'pending_approval' &&
+              toolResult.result.approvalId !== undefined &&
+              approvalIds.has(toolResult.result.approvalId),
+          ),
+      );
+    const text = paused?.content.trim();
+    return text ? text : undefined;
   }
 
   private approvalRequestContent(requests: PendingApproval[]): string {

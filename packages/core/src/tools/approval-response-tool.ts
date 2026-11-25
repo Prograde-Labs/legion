@@ -70,7 +70,11 @@ export const approvalResponseTool: Tool = {
       approvalRequests?: MessageRouterResult['approvalRequests'];
     }> = [];
     const recordResume = (result: MessageRouterResult): void => {
-      if (result.status === 'success' && result.response !== undefined) {
+      if (
+        result.status === 'success' &&
+        result.response !== undefined &&
+        result.response.trim() !== ''
+      ) {
         // If the caller is the replyTo target and the router already delivered
         // the reply, returning it here would make the connector post it twice.
         const deliveredToCaller =

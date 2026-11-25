@@ -23,7 +23,7 @@ import type {
 } from '../providers/Provider.js';
 import type { ModelRouter } from '../providers/ModelRouter.js';
 import type { RuntimeContext } from './Runtime.js';
-import type { JSONSchema } from '@legion-collective/types';
+import type { JSONSchema, MessageData } from '@legion-collective/types';
 
 class MockModelRouter {
   constructor(private mockProviders: Map<string, Provider>) {}
@@ -123,13 +123,15 @@ async function setup(dir: string) {
   const runtimeRegistry = new RuntimeRegistry();
 
   const router = new MessageRouter(store, runtimeRegistry, collective, eventBus);
+  const delivered: MessageData[] = [];
 
   runtimeRegistry.registerFactory(
     'agent',
     (id) => new AgentRuntime(id, modelRouter as ModelRouter),
   );
   runtimeRegistry.registerFactory('user', (_id) => ({
-    async handle() {
+    async handle(incoming: MessageData) {
+      delivered.push(incoming);
       return { kind: 'void' as const };
     },
   }));
@@ -164,6 +166,7 @@ async function setup(dir: string) {
     modelRouter,
     router,
     makeContext,
+    delivered,
   };
 }
 
@@ -455,5 +458,96 @@ describe('Approval flow integration', () => {
 
     const resumed = (approveResult.data as { resumed?: Array<{ response?: string }> }).resumed;
     expect(resumed).toContainEqual(expect.objectContaining({ response: 'done' }));
+  });
+
+  it('delivers the text written alongside a gated call with the approval notice', async () => {
+    const { modelRouter, router, makeContext, pendingApprovalRegistry, delivered } =
+      await setup(dir);
+
+    modelRouter.register(
+      'test',
+      scriptedProvider([
+        {
+          content: 'done',
+          toolCalls: [{ id: 'tc-echo', name: 'echo', arguments: { text: 'hello' } }],
+          stopReason: 'tool_calls',
+        },
+        { content: 'done', toolCalls: [], stopReason: 'stop' },
+      ]),
+    );
+
+    const operatorContext = makeContext('operator');
+    const sent = await router.send({
+      senderId: 'operator',
+      recipientId: 'agent-b',
+      message: 'Reply with one line "done", then call echo.',
+      replyTo: 'operator',
+      context: operatorContext,
+    });
+    expect(sent.status).toBe('dispatched');
+    await router.drain();
+
+    // The replyTo target sees the paused turn's text together with the notice.
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].content).toContain('done');
+    expect(delivered[0].content).toContain('Approval required');
+
+    const [pending] = pendingApprovalRegistry.listPending(sent.conversationId);
+    const approveResult = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: pending.approvalId, decision: 'approve' }] },
+      { ...operatorContext, conversationId: sent.conversationId },
+    );
+    expect(approveResult.status).toBe('success');
+    await router.drain();
+  });
+
+  it('does not deliver an empty resumed reply', async () => {
+    const { modelRouter, router, makeContext, pendingApprovalRegistry, delivered, store } =
+      await setup(dir);
+
+    modelRouter.register(
+      'test',
+      scriptedProvider([
+        {
+          content: 'done',
+          toolCalls: [{ id: 'tc-echo', name: 'echo', arguments: { text: 'hello' } }],
+          stopReason: 'tool_calls',
+        },
+        { content: '', toolCalls: [], stopReason: 'stop' },
+      ]),
+    );
+
+    const operatorContext = makeContext('operator');
+    const sent = await router.send({
+      senderId: 'operator',
+      recipientId: 'agent-b',
+      message: 'Reply with one line "done", then call echo.',
+      replyTo: 'operator',
+      context: operatorContext,
+    });
+    expect(sent.status).toBe('dispatched');
+    await router.drain();
+    expect(delivered).toHaveLength(1);
+
+    const [pending] = pendingApprovalRegistry.listPending(sent.conversationId);
+    const approveResult = await approvalResponseTool.execute(
+      { decisions: [{ approvalId: pending.approvalId, decision: 'approve' }] },
+      { ...operatorContext, conversationId: sent.conversationId },
+    );
+    expect(approveResult.status).toBe('success');
+    await router.drain();
+
+    // The resumed turn produced no text, so nothing is delivered or returned.
+    expect(delivered).toHaveLength(1);
+    const resumed = (approveResult.data as { resumed?: Array<{ response?: string }> }).resumed;
+    expect(resumed).toBeUndefined();
+
+    // The turn is still recorded in the conversation.
+    const conv = await store.load(sent.conversationId);
+    expect(
+      Object.values(conv!.messages).some(
+        (m) => m.role === 'assistant' && m.senderId === 'agent-b' && m.content === '',
+      ),
+    ).toBe(true);
   });
 });
