@@ -8,11 +8,19 @@ import { ProviderError } from '../errors/LegionError.js';
 import type { CodexAuth, CodexAuthStore } from './CodexAuthStore.js';
 import { normalizeCodexUsage } from './codex-usage.js';
 import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
+import { httpProviderError, isRetryableProviderFailure } from './provider-retry.js';
 import type { ProviderMessage, ProviderStreamChunk, ProviderTool } from './Provider.js';
 
 const DEFAULT_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 const DEFAULT_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 const USER_AGENT = 'codex_cli_rs/0.0.1';
+
+function redact(text: string, tokens: string[]): string {
+  return tokens
+    .filter((token) => token.length > 0)
+    .sort((a, b) => b.length - a.length)
+    .reduce((body, token) => body.replaceAll(token, '[redacted]'), text);
+}
 
 export class CodexProvider extends OpenAIResponsesProvider {
   private readonly providerName: string;
@@ -38,16 +46,53 @@ export class CodexProvider extends OpenAIResponsesProvider {
     return headers;
   }
 
+  private authFailure(error: unknown): ProviderError {
+    const safe = error instanceof ProviderError ? error : undefined;
+    return new ProviderError(
+      safe?.message ?? 'Codex authentication request failed; sign in again',
+      safe?.status,
+      { providerCode: safe?.providerCode, retryable: false },
+    );
+  }
+
+  private requestFailure(error: unknown, tokens: string[]): ProviderError {
+    const safe = error instanceof ProviderError ? error : undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    return new ProviderError(redact(message, tokens), safe?.status, {
+      providerCode: safe?.providerCode ? redact(safe.providerCode, tokens) : undefined,
+      retryable: isRetryableProviderFailure(error),
+      retryAfterMs: safe?.retryAfterMs,
+    });
+  }
+
   private async authenticatedRequest(
     request: (auth: CodexAuth) => Promise<Response>,
   ): Promise<{ res: Response; tokens: string[] }> {
-    let auth = await this.authStore.ensureFresh(this.providerName);
+    let auth: CodexAuth;
+    try {
+      auth = await this.authStore.ensureFresh(this.providerName);
+    } catch (error) {
+      throw this.authFailure(error);
+    }
     const tokens = [auth.accessToken];
-    let res = await request(auth);
-    if (res.status === 401) {
-      auth = await this.authStore.ensureFresh(this.providerName, true);
-      tokens.push(auth.accessToken);
+    let res: Response;
+    try {
       res = await request(auth);
+    } catch (error) {
+      throw this.requestFailure(error, tokens);
+    }
+    if (res.status === 401) {
+      try {
+        auth = await this.authStore.ensureFresh(this.providerName, true);
+      } catch (error) {
+        throw this.authFailure(error);
+      }
+      tokens.push(auth.accessToken);
+      try {
+        res = await request(auth);
+      } catch (error) {
+        throw this.requestFailure(error, tokens);
+      }
     }
     return { res, tokens };
   }
@@ -57,12 +102,7 @@ export class CodexProvider extends OpenAIResponsesProvider {
     tokens: string[],
     context: string,
   ): Promise<ProviderError> {
-    const text = await res.text().catch(() => '');
-    const safe = tokens
-      .filter((token) => token.length > 0)
-      .sort((a, b) => b.length - a.length)
-      .reduce((body, token) => body.replaceAll(token, '[redacted]'), text);
-    return new ProviderError(`${context} ${res.status}: ${safe.slice(0, 200)}`, res.status);
+    return httpProviderError(res, context, (text) => redact(text, tokens));
   }
 
   private sanitizeBody(body: Record<string, unknown>): Record<string, unknown> {
@@ -121,16 +161,7 @@ export class CodexProvider extends OpenAIResponsesProvider {
         else yield chunk;
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const safe = tokens
-        .filter((token) => token.length > 0)
-        .sort((a, b) => b.length - a.length)
-        .reduce((text, token) => text.replaceAll(token, '[redacted]'), message);
-      const status =
-        typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number'
-          ? err.status
-          : undefined;
-      throw new ProviderError(safe, status);
+      throw this.requestFailure(err, tokens);
     }
   }
 

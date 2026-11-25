@@ -560,6 +560,31 @@ describe('OpenAICompatibleProvider.stream()', () => {
     expect(chunks.some((c) => c.type === 'tool_call_args_delta')).toBe(true);
   });
 
+  it('throws a classified error for an SSE error envelope', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'retry-after': '7' }),
+        body: makeSseBody([
+          `data: ${JSON.stringify({ error: { code: 'server_error', message: 'boom' } })}`,
+          'data: [DONE]',
+        ]),
+      }),
+    );
+    const provider = new OpenAICompatibleProvider('https://example.test/v1');
+
+    await expect(
+      drainStream(provider, [{ role: 'user', content: 'hi' }], [], MODEL),
+    ).rejects.toMatchObject({
+      providerCode: 'server_error',
+      retryable: true,
+      retryAfterMs: 7000,
+    });
+    vi.unstubAllGlobals();
+  });
+
   it('captures usage from a separate final chunk with empty choices (real OpenAI format)', async () => {
     const textChunk = JSON.stringify({
       choices: [{ delta: { content: 'Hello' }, finish_reason: null }],

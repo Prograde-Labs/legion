@@ -160,6 +160,28 @@ describe('SystemProviderStore', () => {
     expect(await store.list()).toEqual([config]);
   });
 
+  it('save() preserves an existing retry policy when the field is omitted', async () => {
+    const store = new SystemProviderStore(new MemoryStorage());
+    const retry = { maxRetries: 1, baseDelayMs: 25, maxDelayMs: 400 };
+    await store.save(providerConfig({ name: 'kept', retry }));
+
+    const saved = await store.save(providerConfig({ name: 'kept', priority: 3 }));
+
+    expect(saved).toEqual(providerConfig({ name: 'kept', priority: 3, retry }));
+    expect((await store.list())[0]).toEqual(saved);
+  });
+
+  it('save() replaces or resets a retry policy when supplied', async () => {
+    const store = new SystemProviderStore(new MemoryStorage());
+    await store.save(providerConfig({ name: 'replaced', retry: { maxRetries: 2 } }));
+
+    await store.save(providerConfig({ name: 'replaced', retry: { maxRetries: 0 } }));
+    expect((await store.list())[0]?.retry).toEqual({ maxRetries: 0 });
+
+    await store.save(providerConfig({ name: 'replaced', retry: {} }));
+    expect((await store.list())[0]?.retry).toEqual({});
+  });
+
   it('rejects provider names that escape the provider directory', async () => {
     const store = new SystemProviderStore(new MemoryStorage());
 

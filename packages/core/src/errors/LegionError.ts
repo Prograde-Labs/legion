@@ -21,12 +21,24 @@ export class ToolNotFoundError extends LegionError {
   }
 }
 
+export interface ProviderErrorMetadata {
+  providerCode?: string;
+  retryable?: boolean;
+  retryAfterMs?: number;
+}
+
 export class ProviderError extends LegionError {
   readonly status?: number;
+  readonly providerCode?: string;
+  readonly retryable: boolean;
+  readonly retryAfterMs?: number;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, metadata: ProviderErrorMetadata = {}) {
     super(message, 'PROVIDER_ERROR');
     this.status = status;
+    this.providerCode = metadata.providerCode;
+    this.retryable = metadata.retryable ?? false;
+    this.retryAfterMs = metadata.retryAfterMs;
   }
 }
 

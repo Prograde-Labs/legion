@@ -7,7 +7,7 @@ import type {
 } from '@legion-collective/types';
 import type { Tool, SystemProviderStore } from '@legion-collective/core';
 import type { AuthEngine, PendingApprovalRegistry, CodexAuthStore } from '@legion-collective/core';
-import { CodexLoginManager } from '@legion-collective/core';
+import { CodexLoginManager, providerRetrySchema } from '@legion-collective/core';
 
 // Only provider types that can be constructed and are suitable for new saves.
 const SUPPORTED_PROVIDER_TYPES = new Set<ProviderConfig['type']>([
@@ -72,6 +72,7 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           baseUrl: { type: 'string' },
           apiKey: { type: 'string' },
           priority: { type: 'number' },
+          retry: providerRetrySchema,
         },
         required: ['name', 'type', 'priority'],
       },
@@ -84,8 +85,8 @@ export function createRuntimeTools(deps: RuntimeToolDeps): Tool[] {
           if (args.baseUrl !== undefined && !/^https?:\/\//.test(args.baseUrl)) {
             return { status: 'error', error: 'baseUrl must be http(s)' };
           }
-          await systemStore.save(args);
-          return { status: 'success', data: args };
+          // Omitted retry preserves the stored policy inside the store's per-key lock.
+          return { status: 'success', data: await systemStore.save(args) };
         } catch (err) {
           return toErrorResult(err);
         }

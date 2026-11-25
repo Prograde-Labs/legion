@@ -6,6 +6,8 @@ import { CodexProvider } from './CodexProvider.js';
 import { OpenAICompatibleProvider } from './OpenAICompatibleProvider.js';
 import { OpenAIResponsesProvider } from './OpenAIResponsesProvider.js';
 import type { Provider } from './Provider.js';
+import { RetryingProvider } from './RetryingProvider.js';
+import { resolveProviderRetryConfig } from './provider-retry-config.js';
 
 /** Provider names become filenames under providers/; reject separators/traversal. */
 const PROVIDER_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -26,7 +28,7 @@ export class SystemProviderStore {
     assertValidProviderName(name);
     const config = await this.storage.readJson<ProviderConfig>(`providers/${name}.json`);
     if (!config) return null;
-    return this.construct(config);
+    return new RetryingProvider(this.construct(config), config.retry);
   }
 
   async list(): Promise<ProviderConfig[]> {
@@ -40,9 +42,20 @@ export class SystemProviderStore {
     return valid.sort((a, b) => a.priority - b.priority);
   }
 
-  async save(config: ProviderConfig): Promise<void> {
+  async save(config: ProviderConfig): Promise<ProviderConfig> {
     assertValidProviderName(config.name);
-    await this.storage.writeJson(`providers/${config.name}.json`, config);
+    resolveProviderRetryConfig(config.retry);
+    return this.storage.withLock(`providers/${config.name}.json`, async () => {
+      const existing = await this.storage.readJson<ProviderConfig>(`providers/${config.name}.json`);
+      // Omitted means "leave the operator's policy alone"; {} explicitly resets it.
+      const saved: ProviderConfig =
+        config.retry === undefined && existing?.retry !== undefined
+          ? { ...config, retry: existing.retry }
+          : config;
+      resolveProviderRetryConfig(saved.retry);
+      await this.storage.writeJson(`providers/${config.name}.json`, saved);
+      return saved;
+    });
   }
 
   async delete(name: string): Promise<void> {
