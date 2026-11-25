@@ -60,6 +60,7 @@ import {
   // Types
   type WorkspaceConfig,
   type ToolContext,
+  type Connector,
   type ConnectorContext,
   type ConnectorRuntimeDeps,
   type SecretStore,
@@ -100,6 +101,7 @@ export class LegionProcess {
     private readonly mcpSources: ToolSource[],
     private readonly processManager: ProcessManager,
     readonly connectorContext: ConnectorContext,
+    private readonly connectorTools: Map<string, string[]>,
   ) {}
 
   /**
@@ -398,18 +400,29 @@ export class LegionProcess {
       credentials,
     });
 
+    const connectorTools = new Map<string, string[]>();
     await webConnector.start(connectorContext);
+    try {
+      const webTools = registerConnectorTools(webConnector, toolRegistry);
+      if (webTools.length > 0) connectorTools.set(webConnector.name, webTools);
+    } catch (error) {
+      console.warn(
+        `[legion] web connector tools failed to register: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     // Load and start configured external connectors (spec §4.3) — started with the
     // same shared ConnectorContext as builtins, then registered for routing/stop().
     if ((mergedConfig.connectors?.length ?? 0) > 0) {
-      await startExternalConnectors({
+      const { toolsByConnector } = await startExternalConnectors({
         entries: mergedConfig.connectors ?? [],
         workspaceRoot,
         connectorRegistry,
+        toolRegistry,
         runtimeDeps: { collective, secrets },
         context: connectorContext,
       });
+      for (const [name, names] of toolsByConnector) connectorTools.set(name, names);
     }
 
     // ── Step 10: Auto-start services ─────────────────────────────────────────
@@ -433,6 +446,7 @@ export class LegionProcess {
       mcpSources,
       processManager,
       connectorContext,
+      connectorTools,
     );
   }
 
@@ -449,13 +463,11 @@ export class LegionProcess {
       }
     }
     // Stop all connectors
-    for (const connector of this.connectors.getAll()) {
-      try {
-        await connector.stop();
-      } catch {
-        // Best-effort.
-      }
-    }
+    await shutdownConnectors({
+      connectors: this.connectors,
+      toolRegistry: this.toolRegistry,
+      connectorTools: this.connectorTools,
+    });
     // Unload MCP sources
     for (const source of this.mcpSources) {
       try {
@@ -597,18 +609,24 @@ export interface StartExternalConnectorsDeps {
   entries: ConnectorConfig[];
   workspaceRoot: string;
   connectorRegistry: ConnectorRegistry;
+  toolRegistry: ToolRegistry;
   runtimeDeps: ConnectorRuntimeDeps;
   context: ConnectorContext;
 }
 
+export interface StartExternalConnectorsResult {
+  connectors: string[];
+  toolsByConnector: Map<string, string[]>;
+}
+
 /**
- * Load, start, and register every configured external connector. Never throws:
- * per-entry failures are reported by the loader and logged here so the process
- * boots without them (spec §4.3 log-and-skip).
+ * Load, start, register, and contribute tools for every configured external
+ * connector. Never throws: per-entry failures are reported by the loader and
+ * logged here so the process boots without them (spec §4.3 log-and-skip).
  */
 export async function startExternalConnectors(
   deps: StartExternalConnectorsDeps,
-): Promise<string[]> {
+): Promise<StartExternalConnectorsResult> {
   const { loaded, failures } = await loadExternalConnectors(
     deps.entries,
     deps.workspaceRoot,
@@ -616,6 +634,8 @@ export async function startExternalConnectors(
     deps.context,
   );
   const registered: string[] = [];
+  const toolsByConnector = new Map<string, string[]>();
+
   for (const { connector } of loaded) {
     try {
       deps.connectorRegistry.register(connector);
@@ -633,13 +653,101 @@ export async function startExternalConnectors(
       }
       continue;
     }
+
+    let names: string[] = [];
+    try {
+      names = registerConnectorTools(connector, deps.toolRegistry);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[legion] external connector '${connector.name}' tools failed: ${msg} — skipped`,
+      );
+      unregisterConnectorTools(deps.toolRegistry, names);
+      deps.connectorRegistry.deregister(connector.name);
+      try {
+        await connector.stop();
+      } catch {
+        // Best-effort.
+      }
+      continue;
+    }
+
+    toolsByConnector.set(connector.name, names);
     console.log(`[legion] external connector '${connector.name}' started`);
     registered.push(connector.name);
   }
+
   if (failures.length > 0) {
     console.warn(`[legion] ${failures.length} external connector(s) failed to load`);
   }
+  return { connectors: registered, toolsByConnector };
+}
+
+export async function shutdownConnectors(deps: {
+  connectors: ConnectorRegistry;
+  toolRegistry: ToolRegistry;
+  connectorTools: Map<string, string[]>;
+}): Promise<void> {
+  for (const connector of deps.connectors.getAll()) {
+    const names = deps.connectorTools.get(connector.name);
+    if (names) {
+      unregisterConnectorTools(deps.toolRegistry, names);
+      deps.connectorTools.delete(connector.name);
+    }
+    try {
+      await connector.stop();
+    } catch {
+      // Best-effort.
+    }
+  }
+}
+
+export function registerConnectorTools(connector: Connector, toolRegistry: ToolRegistry): string[] {
+  const provider = connector.tools;
+  if (!provider) return [];
+
+  const tools = provider.call(connector);
+  if (!Array.isArray(tools)) {
+    throw new Error(`connector '${connector.name}' tools() did not return an array`);
+  }
+
+  const prefix = `${connector.name}__`;
+  const names: string[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool.name !== 'string' || tool.name.length === 0) {
+      throw new Error(`connector '${connector.name}' returned a tool without a name`);
+    }
+    if (!tool.name.startsWith(prefix)) {
+      throw new Error(
+        `tool '${tool.name}' from connector '${connector.name}' must start with '${prefix}'`,
+      );
+    }
+    if (names.includes(tool.name)) {
+      throw new Error(`duplicate tool '${tool.name}' from connector '${connector.name}'`);
+    }
+    names.push(tool.name);
+  }
+
+  const registered: string[] = [];
+  try {
+    for (const tool of tools) {
+      toolRegistry.register(tool);
+      registered.push(tool.name);
+    }
+  } catch (error) {
+    unregisterConnectorTools(toolRegistry, registered);
+    throw error;
+  }
   return registered;
+}
+
+export function unregisterConnectorTools(
+  toolRegistry: ToolRegistry,
+  names: readonly string[],
+): void {
+  for (const name of [...names].reverse()) {
+    toolRegistry.unregister(name);
+  }
 }
 
 interface MiddlewareToolContextDeps {

@@ -13,8 +13,8 @@ import { MockRuntime } from '../runtime/MockRuntime.js';
 import { MessageRouter } from '../runtime/MessageRouter.js';
 import { communicateTool } from './communicate-tool.js';
 import { isStreamingTool } from './Tool.js';
-import type { ToolContext } from './Tool.js';
-import type { LLMChunk } from '@legion-collective/types';
+import type { MessageRouterPort, MessageRouterResult, ToolContext } from './Tool.js';
+import type { LLMChunk, ToolResult } from '@legion-collective/types';
 
 async function setup(dir: string) {
   const storage = new FileStorage(dir);
@@ -428,5 +428,44 @@ describe('communicate parameter handling', () => {
     expect(full.data).toMatchObject({ meta: { model: 'fast-model', iterations: 2 } });
     const standard = await run({ to: 'b', message: 'hi' }, router);
     expect((standard.data as Record<string, unknown>).meta).toBeUndefined();
+  });
+});
+
+function contextWith(result: MessageRouterResult): ToolContext {
+  return {
+    participant: { id: 'agent-a', name: 'A', type: 'mock', tools: {} },
+    communicationDepth: 0,
+    messageRouter: {
+      sendStream: async function* () {
+        return result;
+      },
+    } as unknown as MessageRouterPort,
+  } as unknown as ToolContext;
+}
+
+async function runTool(result: MessageRouterResult): Promise<ToolResult> {
+  const gen = communicateTool.stream({ to: 'agent-b', message: 'hi' }, contextWith(result));
+  let next = await gen.next();
+  while (!next.done) next = await gen.next();
+  return next.value;
+}
+
+describe('communicate storedMessageId', () => {
+  it.each([
+    ['success', { conversationId: 'conv-1', status: 'success', response: 'ok' }],
+    ['error', { conversationId: 'conv-1', status: 'error', error: 'boom' }],
+    [
+      'pending_approval',
+      { conversationId: 'conv-1', status: 'pending_approval', approvalRequests: [] },
+    ],
+    ['timeout', { conversationId: 'conv-1', status: 'timeout', response: 'partial' }],
+  ] as const)('exposes storedMessageId on %s', async (_label, base) => {
+    const result = await runTool({ ...base, storedMessageId: 'msg-1' } as MessageRouterResult);
+    expect((result.data as { storedMessageId?: string }).storedMessageId).toBe('msg-1');
+  });
+
+  it('omits storedMessageId when the router has none', async () => {
+    const result = await runTool({ conversationId: 'conv-1', status: 'success' });
+    expect(result.data).not.toHaveProperty('storedMessageId');
   });
 });
