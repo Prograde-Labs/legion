@@ -3580,6 +3580,38 @@ describe('MessageRouter: fire-and-forget', () => {
   });
 });
 
+describe('MessageRouter: replyTo delivery config', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'legion-router-replyto-config-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('warns and falls back to users for an invalid replyToDelivery', async () => {
+    const { collective, store, eventBus } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+      replyToDelivery: 'bogus' as never,
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('replyToDelivery'));
+    warn.mockRestore();
+  });
+
+  it('accepts replyToDelivery all without warning', async () => {
+    const { collective, store, eventBus } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+      replyToDelivery: 'all',
+    });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
 describe('MessageRouter: pending_approval result', () => {
   let dir: string;
   beforeEach(async () => {

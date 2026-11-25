@@ -71,6 +71,7 @@ export class MessageRouter implements MessageRouterPort {
   private background = new Set<Promise<void>>();
   private locks = new Map<string, Promise<void>>();
   private replyWaiters = new Map<string, Set<(text: string) => void>>();
+  private replyToDelivery: 'users' | 'all';
 
   constructor(
     private store: ConversationStore,
@@ -80,7 +81,22 @@ export class MessageRouter implements MessageRouterPort {
     private lifecycle?: MiddlewareLifecycle,
     private middlewareRunner?: MiddlewareRunner,
     private communication?: CommunicationConfig,
-  ) {}
+  ) {
+    const configured = communication?.replyToDelivery;
+    if (configured === 'users' || configured === 'all') {
+      this.replyToDelivery = configured;
+    } else {
+      if (configured !== undefined) {
+        console.warn(
+          `[MessageRouter] unknown communication.replyToDelivery '${String(configured)}'; using 'users'`,
+        );
+      }
+      this.replyToDelivery = 'users';
+    }
+    // Read by replyTo delivery dispatch; referenced here so the field is not
+    // flagged as unused until the delivery paths land.
+    void this.replyToDelivery;
+  }
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
   async drain(): Promise<void> {

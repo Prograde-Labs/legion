@@ -81,6 +81,16 @@ export interface CommunicationConfig {
    * Defaults to 30 minutes when unset.
    */
   replyTimeoutMs?: number | null;
+
+  /**
+   * How responses routed to `replyTo` are delivered.
+   * - `'users'` (default): invoke the runtime of `type: 'user'` targets only.
+   * - `'all'`: invoke the runtime of every target type and recurse on each
+   *   returned response until a void result or the depth limit. Two agents
+   *   replying to each other can consume up to the depth limit (10) turns
+   *   with no human in the loop.
+   */
+  replyToDelivery?: 'users' | 'all';
 }
 
 export interface WorkspaceConfig {
