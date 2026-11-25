@@ -1318,7 +1318,7 @@ export class MessageRouter implements MessageRouterPort {
 
     try {
       const result = await runtime.handle(lastIncoming, runtimeContext);
-      return await this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread,
           recipientId: participant.id,
@@ -1327,6 +1327,22 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      if (completed.message) {
+        await this.deliverReplyTo(
+          thread,
+          completed.message,
+          {
+            senderId: lastIncoming.senderId,
+            recipientId: participant.id,
+            message: lastIncoming.content,
+            conversationId: thread.id,
+            replyTo: completed.message.recipientId,
+            context: toolContext,
+          },
+          (toolContext.communicationDepth ?? 0) + 1,
+        );
+      }
+      return completed.result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { conversationId: thread.id, status: 'error', error: msg };
@@ -2360,7 +2376,7 @@ export class MessageRouter implements MessageRouterPort {
           actions,
         }),
       );
-      return this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread,
           recipientId: participant.id,
@@ -2369,6 +2385,22 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
+      if (completed.message) {
+        await this.deliverReplyTo(
+          thread,
+          completed.message,
+          {
+            senderId: incoming.senderId,
+            recipientId: participant.id,
+            message: incoming.content,
+            conversationId: thread.id,
+            replyTo: completed.message.recipientId,
+            context,
+          },
+          (context.communicationDepth ?? 0) + 1,
+        );
+      }
+      return completed.result;
     } catch {
       if (providerClaimed) {
         const record = approvals!.getRecord(approvalId);
@@ -2601,16 +2633,22 @@ export class MessageRouter implements MessageRouterPort {
   ): Promise<void> {
     const replyTo = opts.replyTo;
     if (!replyTo) return;
-    if (responseMessage.recipientId === responseMessage.senderId) return;
-    if (depth > DEFAULT_DEPTH_LIMIT) return;
-    const target = this.collective.get(replyTo);
-    if (!target) {
-      console.warn(`[MessageRouter] replyTo target '${replyTo}' does not exist`);
+    if (responseMessage.recipientId === responseMessage.senderId) {
+      console.debug(
+        `[MessageRouter] skipping self-delivery: replyTo '${replyTo}' matches response sender '${responseMessage.senderId}'`,
+      );
       return;
     }
-    if (this.replyToDelivery === 'users' && target.type !== 'user') return;
+    if (depth > DEFAULT_DEPTH_LIMIT) return;
 
     try {
+      const target = this.collective.get(replyTo);
+      if (!target) {
+        console.warn(`[MessageRouter] replyTo target '${replyTo}' does not exist`);
+        return;
+      }
+      if (this.replyToDelivery === 'users' && target.type !== 'user') return;
+
       const runtime = this.registry.build(target.type, target.id);
       const runtimeContext = this.buildRuntimeContext(
         thread,
@@ -2672,7 +2710,7 @@ export class MessageRouter implements MessageRouterPort {
       console.error(`[MessageRouter] replyTo delivery to '${replyTo}' failed: ${err.message}`);
       this.eventBus.emit('error', {
         conversationId: thread.id,
-        error: { name: err.name, message: err.message },
+        error: { name: 'ReplyToDeliveryError', message: err.message },
       });
     }
   }

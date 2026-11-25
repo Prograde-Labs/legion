@@ -726,6 +726,97 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(handle).not.toHaveBeenCalled();
   });
 
+  it('does not deliver an aborted response partial to replyTo', async () => {
+    const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Abort after send',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        afterSend: (context) =>
+          context.participant.id === 'mock-1' && context.message.role === 'assistant'
+            ? { kind: 'abort', error: 'outbound blocked' }
+            : { kind: 'continue' },
+      },
+    });
+    runtimeRegistry.registerFactory('mock', (id) => new MockRuntime(id));
+    let userTurns = 0;
+    const received: MessageData[] = [];
+    runtimeRegistry.registerFactory('user', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        userTurns += 1;
+        received.push(incoming);
+        return { kind: 'void' };
+      },
+    }));
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'analyze',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    expect(received.map((m) => m.content)).toEqual([]);
+    expect(userTurns).toBe(0);
+    const conv = await store.load(result.conversationId);
+    expect(
+      Object.values(conv!.messages).some(
+        (message) => message.role === 'assistant' && message.content === 'hello back',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not deliver a suspended response partial as a replyTo response', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Suspend after send',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        afterSend: (context) =>
+          context.participant.id === 'mock-1' && context.message.role === 'assistant'
+            ? { kind: 'tool', requestId: 'outbound-gate', tool: 'gate', arguments: {} }
+            : { kind: 'continue' },
+      },
+    });
+    await collective.update('mock-1', { tools: { gate: 'requires_approval' } });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const };
+      },
+    });
+    runtimeRegistry.registerFactory('mock', (id) => new MockRuntime(id));
+    const received: MessageData[] = [];
+    runtimeRegistry.registerFactory('user', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'void' };
+      },
+    }));
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'analyze',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    // The only delivery to the user is the approval request, not the partial.
+    expect(received).toHaveLength(1);
+    expect(received[0].content).toContain('Approval required');
+    expect(received.some((message) => message.content === 'hello back')).toBe(false);
+  });
+
   it('stops after inbound complete without invoking recipient runtime', async () => {
     const { router, baseContext, store, runtimeRegistry } = await setupMiddlewareRouter(dir, {
       type: 'test:router-middleware',
@@ -3334,6 +3425,34 @@ describe('MessageRouter: fire-and-forget', () => {
     expect(received).toHaveLength(11);
   });
 
+  it('delivers to a user target once and stops recursion in all mode', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    let userTurns = 0;
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+    registry.registerFactory('user', () => ({
+      async handle(): Promise<RuntimeResult> {
+        userTurns += 1;
+        return { kind: 'void' };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+      replyToDelivery: 'all',
+    });
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'analyze',
+      replyTo: 'op',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    expect(userTurns).toBe(1);
+  });
+
   it('bubbles an all-mode delivery approval back to the triggering sender', async () => {
     const { collective, store, eventBus, baseContext } = await setup(dir);
     const received: MessageData[] = [];
@@ -3873,6 +3992,7 @@ describe('MessageRouter: replyTo delivery config', () => {
     new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
       replyToDelivery: 'bogus' as never,
     });
+    expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('replyToDelivery'));
     warn.mockRestore();
   });
@@ -3884,6 +4004,15 @@ describe('MessageRouter: replyTo delivery config', () => {
     new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
       replyToDelivery: 'all',
     });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('defaults to users without warning when communication is absent', async () => {
+    const { collective, store, eventBus } = await setup(dir);
+    const registry = new RuntimeRegistry();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    new MessageRouter(store, registry, collective, eventBus);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -4056,6 +4185,40 @@ describe('MessageRouter: resume()', () => {
     const conv = await store.load(thread.id);
     const assistant = Object.values(conv!.messages).find((m) => m.role === 'assistant');
     expect(assistant?.recipientId).toBe('op');
+  });
+
+  it('delivers the resumed response to a user replyTo target', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const received: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+    registry.registerFactory('user', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'void' };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus);
+    const thread = new ConversationThread(
+      await store.create({ schemaVersion: '2.0', activeBranchHead: '', messages: {} }),
+      store,
+    );
+    await thread.append({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      role: 'user',
+      content: 'original',
+      replyTo: 'op',
+    });
+
+    const resumeResult = await router.resume(thread.id, 'mock-1', baseContext);
+    expect(resumeResult.status).toBe('success');
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      senderId: 'mock-1',
+      recipientId: 'op',
+      content: 'hello back',
+    });
   });
 });
 

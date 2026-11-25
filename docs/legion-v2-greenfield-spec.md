@@ -249,7 +249,9 @@ setting. The default, `'users'`, invokes the delivery runtime only when the
 response. Setting it to `'all'` invokes the target's runtime for every
 participant type and recursively delivers each resulting response, up to the
 communication depth limit (10). With `'all'`, two agents replying to each other
-via `replyTo` can consume up to 10 turns with no human in the loop.
+via `replyTo` can consume up to 10 turns with no human in the loop. Unknown
+`replyToDelivery` values fall back to `'users'` with a one-time warning from
+`MessageRouter`.
 
 ### MessageRouter
 
@@ -442,9 +444,13 @@ Third-party boundary connectors (Teams, Slack, etc.) implement the §6 `Connecto
 When `MessageRouter` routes a message to a connector-bound participant (normal delivery, fire-and-forget response, or bubbled approval), a **delivery runtime** resolves the participant's active connector(s) via `ConnectorRegistry` and calls `connector.deliver(message)`. If the participant has no active connection, the message is still persisted to the conversation and delivered when a connection is next established (per connector policy).
 
 A response routed to `replyTo` is delivered by invoking the target's runtime
-after the response is persisted. `communication.replyToDelivery` controls the
-scope: `'users'` (default) delivers only to `type: 'user'` targets, while
-`'all'` delivers to every participant type and recurses up to the depth limit.
+after the response is persisted. Under the default `'users'` setting, only
+`type: 'user'` targets are delivered; responses addressed to agents, services,
+or mocks are persisted without invoking their runtime. With `'all'`, every
+participant type is delivered and each resulting response is delivered in
+turn, up to the communication depth limit. In `'all'` mode a delivery target
+that returns a pending approval bubbles the approval back to the participant
+whose message triggered it, then recursion stops.
 
 ---
 
