@@ -94,9 +94,6 @@ export class MessageRouter implements MessageRouterPort {
       }
       this.replyToDelivery = 'users';
     }
-    // Read by replyTo delivery dispatch; referenced here so the field is not
-    // flagged as unused until the delivery paths land.
-    void this.replyToDelivery;
   }
 
   /** Await all in-flight fire-and-forget dispatches (test/shutdown aid). */
@@ -2546,10 +2543,11 @@ export class MessageRouter implements MessageRouterPort {
       ...runtimeContext,
       conversation: backgroundThread,
     };
+    const depth = (opts.context.communicationDepth ?? 0) + 1;
 
     try {
       const result = await runtime.handle(inbound, backgroundContext);
-      const completed = await this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread: backgroundThread,
           recipientId: opts.recipientId,
@@ -2558,12 +2556,22 @@ export class MessageRouter implements MessageRouterPort {
         },
         result,
       );
-      if (completed.status === 'pending_approval' && completed.approvalRequests?.length) {
-        await this.dispatchApprovalRequests(backgroundThread, opts, completed.approvalRequests);
+      if (
+        completed.result.status === 'pending_approval' &&
+        completed.result.approvalRequests?.length
+      ) {
+        await this.dispatchApprovalRequests(
+          backgroundThread,
+          opts,
+          completed.result.approvalRequests,
+        );
+      }
+      if (completed.message) {
+        await this.deliverReplyTo(backgroundThread, completed.message, opts, depth);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await this.completeResponse(
+      const completed = await this.completeResponseDetailed(
         {
           thread: backgroundThread,
           recipientId: opts.recipientId,
@@ -2572,6 +2580,69 @@ export class MessageRouter implements MessageRouterPort {
         },
         { kind: 'response', content: `[Runtime error: ${msg}]` },
       );
+      if (completed.message) {
+        await this.deliverReplyTo(backgroundThread, completed.message, opts, depth);
+      }
+    }
+  }
+
+  /**
+   * Deliver a persisted response to the `replyTo` participant.
+   *
+   * By default only user targets are invoked: agents already see the response
+   * in the conversation tree and a live turn would be a duplicate. With
+   * `communication.replyToDelivery: 'all'` every participant type is invoked.
+   */
+  private async deliverReplyTo(
+    thread: ConversationThread,
+    responseMessage: MessageData,
+    opts: SendOptions,
+    depth: number,
+  ): Promise<void> {
+    const replyTo = opts.replyTo;
+    if (!replyTo) return;
+    if (responseMessage.recipientId === responseMessage.senderId) return;
+    if (depth > DEFAULT_DEPTH_LIMIT) return;
+    const target = this.collective.get(replyTo);
+    if (!target) {
+      console.warn(`[MessageRouter] replyTo target '${replyTo}' does not exist`);
+      return;
+    }
+    if (this.replyToDelivery === 'users' && target.type !== 'user') return;
+
+    try {
+      const runtime = this.registry.build(target.type, target.id);
+      const runtimeContext = this.buildRuntimeContext(
+        thread,
+        target.id,
+        { ...opts.context, communicationDepth: depth },
+        depth,
+        undefined,
+      );
+      const result = await runtime.handle(responseMessage, runtimeContext);
+      const completed = await this.completeResponseDetailed(
+        {
+          thread,
+          recipientId: target.id,
+          responseRecipientId: responseMessage.senderId,
+        },
+        result,
+      );
+      if (completed.result.status === 'error') {
+        const message = completed.result.error ?? 'replyTo delivery failed';
+        console.warn(`[MessageRouter] replyTo delivery to '${target.id}' failed: ${message}`);
+        this.eventBus.emit('error', {
+          conversationId: thread.id,
+          error: { name: 'ReplyToDeliveryError', message },
+        });
+      }
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[MessageRouter] replyTo delivery to '${replyTo}' failed: ${err.message}`);
+      this.eventBus.emit('error', {
+        conversationId: thread.id,
+        error: { name: err.name, message: err.message },
+      });
     }
   }
 
