@@ -408,6 +408,7 @@ export class LegionProcess {
         entries: mergedConfig.connectors ?? [],
         workspaceRoot,
         connectorRegistry,
+        toolRegistry,
         runtimeDeps: { collective, secrets },
         context: connectorContext,
       });
@@ -598,18 +599,24 @@ export interface StartExternalConnectorsDeps {
   entries: ConnectorConfig[];
   workspaceRoot: string;
   connectorRegistry: ConnectorRegistry;
+  toolRegistry: ToolRegistry;
   runtimeDeps: ConnectorRuntimeDeps;
   context: ConnectorContext;
 }
 
+export interface StartExternalConnectorsResult {
+  connectors: string[];
+  toolsByConnector: Map<string, string[]>;
+}
+
 /**
- * Load, start, and register every configured external connector. Never throws:
- * per-entry failures are reported by the loader and logged here so the process
- * boots without them (spec §4.3 log-and-skip).
+ * Load, start, register, and contribute tools for every configured external
+ * connector. Never throws: per-entry failures are reported by the loader and
+ * logged here so the process boots without them (spec §4.3 log-and-skip).
  */
 export async function startExternalConnectors(
   deps: StartExternalConnectorsDeps,
-): Promise<string[]> {
+): Promise<StartExternalConnectorsResult> {
   const { loaded, failures } = await loadExternalConnectors(
     deps.entries,
     deps.workspaceRoot,
@@ -617,6 +624,8 @@ export async function startExternalConnectors(
     deps.context,
   );
   const registered: string[] = [];
+  const toolsByConnector = new Map<string, string[]>();
+
   for (const { connector } of loaded) {
     try {
       deps.connectorRegistry.register(connector);
@@ -634,13 +643,34 @@ export async function startExternalConnectors(
       }
       continue;
     }
+
+    let names: string[] = [];
+    try {
+      names = registerConnectorTools(connector, deps.toolRegistry);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[legion] external connector '${connector.name}' tools failed: ${msg} — skipped`,
+      );
+      unregisterConnectorTools(deps.toolRegistry, names);
+      deps.connectorRegistry.deregister(connector.name);
+      try {
+        await connector.stop();
+      } catch {
+        // Best-effort.
+      }
+      continue;
+    }
+
+    toolsByConnector.set(connector.name, names);
     console.log(`[legion] external connector '${connector.name}' started`);
     registered.push(connector.name);
   }
+
   if (failures.length > 0) {
     console.warn(`[legion] ${failures.length} external connector(s) failed to load`);
   }
-  return registered;
+  return { connectors: registered, toolsByConnector };
 }
 
 export function registerConnectorTools(connector: Connector, toolRegistry: ToolRegistry): string[] {

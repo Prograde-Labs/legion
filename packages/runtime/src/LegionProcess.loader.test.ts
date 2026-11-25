@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { ConnectorRegistry } from '@legion-collective/core';
+import { ConnectorRegistry, ToolRegistry } from '@legion-collective/core';
 import type { ConnectorContext, ConnectorRuntimeDeps } from '@legion-collective/core';
 import type { ConnectorConfig } from '@legion-collective/types';
 import { startExternalConnectors } from './LegionProcess.js';
@@ -62,6 +62,44 @@ export function receivedRuntimeDeps() { return receivedDeps; }
 export default connector;
 `;
 
+const WITH_TOOLS = `
+export function connector() {
+  return {
+    name: 'ext',
+    start: async () => {},
+    deliver: async () => ({ status: 'delivered' }),
+    stop: async () => {},
+    tools: () => [{
+      name: 'ext__ping',
+      description: 'ping',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => ({ status: 'success' }),
+    }],
+  };
+}
+export default connector;
+`;
+
+const BAD_TOOLS = `
+let stopped = 0;
+export function connector() {
+  return {
+    name: 'ext',
+    start: async () => {},
+    deliver: async () => ({ status: 'delivered' }),
+    stop: () => { stopped += 1; },
+    tools: () => [{
+      name: 'wrong',
+      description: 'wrong prefix',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => ({ status: 'success' }),
+    }],
+  };
+}
+export function stopCount() { return stopped; }
+export default connector;
+`;
+
 const BROKEN = 'export syntax !!!';
 
 // Fixture that self-reports the name of a connector already registered in the
@@ -95,17 +133,19 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
     const logSpy = vi.spyOn(console, 'log');
 
     const registry = new ConnectorRegistry();
+    const toolRegistry = new ToolRegistry();
     const entries: ConnectorConfig[] = [{ name: 'ext', module: file, options: { name: 'ext' } }];
-    const names = await startExternalConnectors({
+    const result = await startExternalConnectors({
       entries,
       workspaceRoot: ws,
       connectorRegistry: registry,
+      toolRegistry,
       runtimeDeps: runtimeDeps(),
       context: stubContext,
     });
 
     // (a) returned names match the loaded connectors
-    expect(names).toEqual(['ext']);
+    expect(result.connectors).toEqual(['ext']);
     // (b) registered in the real ConnectorRegistry
     expect(registry.get('ext')).toBeDefined();
     // every loaded connector is logged (ruling: no name special-casing)
@@ -129,19 +169,21 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
     const warnSpy = vi.spyOn(console, 'warn');
 
     const registry = new ConnectorRegistry();
+    const toolRegistry = new ToolRegistry();
     const entries: ConnectorConfig[] = [
       { name: 'broken', module: brokenFile },
       { name: 'good', module: goodFile, options: { name: 'good' } },
     ];
-    const names = await startExternalConnectors({
+    const result = await startExternalConnectors({
       entries,
       workspaceRoot: ws,
       connectorRegistry: registry,
+      toolRegistry,
       runtimeDeps: runtimeDeps(),
       context: stubContext,
     });
 
-    expect(names).toEqual(['good']);
+    expect(result.connectors).toEqual(['good']);
     expect(registry.get('broken')).toBeUndefined();
     expect(registry.get('good')).toBeDefined();
     expect(warnSpy).toHaveBeenCalledWith(
@@ -156,6 +198,7 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
     const warnSpy = vi.spyOn(console, 'warn');
 
     const registry = new ConnectorRegistry();
+    const toolRegistry = new ToolRegistry();
     registry.register({
       name: 'web',
       start: async () => {},
@@ -168,16 +211,17 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
       { name: 'good', module: goodFile, options: { name: 'good' } },
     ];
     // Must not throw — the dup-name collision is a warning, not a boot crash.
-    const names = await startExternalConnectors({
+    const result = await startExternalConnectors({
       entries,
       workspaceRoot: ws,
       connectorRegistry: registry,
+      toolRegistry,
       runtimeDeps: runtimeDeps(),
       context: stubContext,
     });
 
     // Returned names reflect successfully registered connectors only.
-    expect(names).toEqual(['good']);
+    expect(result.connectors).toEqual(['good']);
     // The original builtin stub is still the registered 'web'.
     expect(registry.get('web')?.name).toBe('web');
     // The good connector is unaffected.
@@ -193,5 +237,50 @@ describe('startExternalConnectors (LegionProcess boot seam)', () => {
       stopCount: () => number;
     };
     expect(collider.stopCount()).toBe(1);
+  });
+
+  it('registers tools returned by connector.tools()', async () => {
+    const ws = tmpWorkspace();
+    const file = writeModule(ws, 'tools', WITH_TOOLS);
+    const connectorRegistry = new ConnectorRegistry();
+    const toolRegistry = new ToolRegistry();
+
+    const result = await startExternalConnectors({
+      entries: [{ name: 'ext', module: file }],
+      workspaceRoot: ws,
+      connectorRegistry,
+      toolRegistry,
+      runtimeDeps: runtimeDeps(),
+      context: stubContext,
+    });
+
+    expect(result.connectors).toEqual(['ext']);
+    expect(result.toolsByConnector.get('ext')).toEqual(['ext__ping']);
+    expect(toolRegistry.has('ext__ping')).toBe(true);
+  });
+
+  it('deregisters and stops a connector whose tools fail validation', async () => {
+    const ws = tmpWorkspace();
+    const file = writeModule(ws, 'bad-tools', BAD_TOOLS);
+    const connectorRegistry = new ConnectorRegistry();
+    const toolRegistry = new ToolRegistry();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await startExternalConnectors({
+      entries: [{ name: 'ext', module: file }],
+      workspaceRoot: ws,
+      connectorRegistry,
+      toolRegistry,
+      runtimeDeps: runtimeDeps(),
+      context: stubContext,
+    });
+
+    expect(result.connectors).toEqual([]);
+    expect(result.toolsByConnector.size).toBe(0);
+    expect(connectorRegistry.get('ext')).toBeUndefined();
+    expect(toolRegistry.listAll()).toEqual([]);
+
+    const mod = (await import(pathToFileURL(file).href)) as { stopCount: () => number };
+    expect(mod.stopCount()).toBe(1);
   });
 });
