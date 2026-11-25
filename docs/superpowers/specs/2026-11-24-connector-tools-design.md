@@ -47,18 +47,18 @@ remain channels; no participant type or special auth path is introduced.
 
 ## 2. Decisions
 
-| Decision | Choice | Rationale |
-| --- | --- | --- |
-| Core seam | Optional `Connector.tools(): AnyTool[]` | Declarative, backward-compatible; core owns lifecycle |
-| Registration point | After successful `start()`, before services auto-start | Tools exist before any participant can call them |
-| Naming | `<connectorName>__<tool>`; core enforces the prefix | Avoids collisions with builtins and `mcp__*` |
-| Cleanup | Core tracks names per connector; unregister on stop and on partial failure | No leaked tools from failed or stopped connectors |
-| Visibility | Participant `tools` map only | Fail-closed, identical to builtins and MCP |
-| Message identity | Record inbound/outbound Teams activity IDs and Legion message IDs | Enables reactions by either ID form |
-| Message ID exposure | `communicate` adds `storedMessageId` to result `data` | Connector needs the inbound Legion message ID |
-| Acting bot | Caller's own live `teams-bot` identity | Mirrors `deliverMessage` ownership check |
-| Tool set | Cards, reactions, read-only list | Smallest set that delivers dynamic interaction |
-| State version | v3 with `messages` and `legionMessages` | Additive migration from v2 |
+| Decision            | Choice                                                                     | Rationale                                             |
+| ------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Core seam           | Optional `Connector.tools(): AnyTool[]`                                    | Declarative, backward-compatible; core owns lifecycle |
+| Registration point  | After successful `start()`, before services auto-start                     | Tools exist before any participant can call them      |
+| Naming              | `<connectorName>__<tool>`; core enforces the prefix                        | Avoids collisions with builtins and `mcp__*`          |
+| Cleanup             | Core tracks names per connector; unregister on stop and on partial failure | No leaked tools from failed or stopped connectors     |
+| Visibility          | Participant `tools` map only                                               | Fail-closed, identical to builtins and MCP            |
+| Message identity    | Record inbound/outbound Teams activity IDs and Legion message IDs          | Enables reactions by either ID form                   |
+| Message ID exposure | `communicate` adds `storedMessageId` to result `data`                      | Connector needs the inbound Legion message ID         |
+| Acting bot          | Caller's own live `teams-bot` identity                                     | Mirrors `deliverMessage` ownership check              |
+| Tool set            | Cards, reactions, read-only list                                           | Smallest set that delivers dynamic interaction        |
+| State version       | v3 with `messages` and `legionMessages`                                    | Additive migration from v2                            |
 
 ## 3. Architecture
 
@@ -123,10 +123,7 @@ export interface ConnectorToolRegistration {
   tools: string[];
 }
 
-export function registerConnectorTools(
-  connector: Connector,
-  toolRegistry: ToolRegistry,
-): string[];
+export function registerConnectorTools(connector: Connector, toolRegistry: ToolRegistry): string[];
 ```
 
 Behavior:
@@ -238,7 +235,7 @@ records the inbound mapping after each turn.
 - The caller is `context.participant`. Resolve its `teams-bot` identity and require:
   - `pool.ownerOf(appId) === context.participant.id`
   - `pool.getByAppId(appId)` is defined
-  Otherwise return `{ status: 'error', error: "caller '<id>' has no live Teams bot" }`.
+    Otherwise return `{ status: 'error', error: "caller '<id>' has no live Teams bot" }`.
 - All tools return `ToolResult`. SDK failures become `{ status: 'error', error }`; no
   throws and no secrets in messages.
 - A missing or unstarted connector state returns an error, never a crash.
@@ -408,7 +405,7 @@ export interface TeamsState {
   legionConversations: Record<string, string>;
   legionConversationTargets: Record<string, string>;
   messages: Record<string, MessageRecord>; // key `${appId}:${activityId}`
-  legionMessages: Record<string, string>;  // legionMessageId → messages key
+  legionMessages: Record<string, string>; // legionMessageId → messages key
 }
 ```
 
@@ -430,7 +427,7 @@ export interface TeamsState {
   - `direction: 'inbound'`
   - `legionMessageId` = the stored ID
   - `legionConversationId` = the Legion conversation returned by `communicate`
-  Save state after the turn.
+    Save state after the turn.
 - **Outbound `deliver()`**: `app.send` returns `SentActivity { id }`. Record
   `direction: 'outbound'`, `legionMessageId = message.id`,
   `legionConversationId = message.conversationId`.
@@ -446,7 +443,7 @@ export interface TeamsState {
 - Lookup by Legion ID: `legionMessages[id]` → `messages[key]`.
 - Lookup by Teams activity ID: scan `messages` (bounded) for `activityId`.
 - Pruning: after a record is added, if `Object.keys(messages).length >
-  options.maxMessageRecords`, delete the oldest records by `createdAt` until at or
+options.maxMessageRecords`, delete the oldest records by `createdAt` until at or
   below the limit, and remove their `legionMessages` entries.
 - Pruning is best-effort and happens under the existing serialized state save.
 
@@ -464,7 +461,7 @@ export interface TeamsState {
   - `teams__send_card`: `requires_approval` for agents that post to humans.
   - `teams__post_reaction`: `auto` or `requires_approval`, deployment choice.
   - `teams__list_conversations`: `auto`.
-  These are recommendations, not enforced by the connector.
+    These are recommendations, not enforced by the connector.
 
 ## 8. Configuration
 
@@ -476,8 +473,8 @@ export type TeamsToolName = 'cards' | 'reactions' | 'list';
 export interface TeamsConnectorOptions {
   // existing fields…
   tools?: TeamsToolName[] | false; // default all three
-  maxMessageRecords?: number;       // default 2000
-  maxCardBytes?: number;            // default 28000
+  maxMessageRecords?: number; // default 2000
+  maxCardBytes?: number; // default 28000
 }
 ```
 
