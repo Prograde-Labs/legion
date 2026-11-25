@@ -243,6 +243,14 @@ Service calls communicate(to="analysis-agent", message="...", replyTo="ops-alice
 
 `replyTo` always names a **participant**. Delivery to a connector-bound participant goes through its connector (§6.7).
 
+Delivery to `replyTo` follows the collective's `communication.replyToDelivery`
+setting. The default, `'users'`, invokes the delivery runtime only when the
+`replyTo` participant is `type: 'user'`, so connector-bound humans receive the
+response. Setting it to `'all'` invokes the target's runtime for every
+participant type and recursively delivers each resulting response, up to the
+communication depth limit (10). With `'all'`, two agents replying to each other
+via `replyTo` can consume up to 10 turns with no human in the loop.
+
 ### MessageRouter
 
 The central dispatch class. Replaces any notion of a "session" as the communication hub.
@@ -432,6 +440,11 @@ Third-party boundary connectors (Teams, Slack, etc.) implement the §6 `Connecto
 ### Delivering to connector-bound participants
 
 When `MessageRouter` routes a message to a connector-bound participant (normal delivery, fire-and-forget response, or bubbled approval), a **delivery runtime** resolves the participant's active connector(s) via `ConnectorRegistry` and calls `connector.deliver(message)`. If the participant has no active connection, the message is still persisted to the conversation and delivered when a connection is next established (per connector policy).
+
+A response routed to `replyTo` is delivered by invoking the target's runtime
+after the response is persisted. `communication.replyToDelivery` controls the
+scope: `'users'` (default) delivers only to `type: 'user'` targets, while
+`'all'` delivers to every participant type and recurses up to the depth limit.
 
 ---
 
