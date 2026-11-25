@@ -214,6 +214,7 @@ export class MiddlewareLifecycle {
         conversationId: input.thread.id,
         response: result.value.content,
         status: 'success',
+        storedMessageId: result.value.id,
       };
     }
     if (result.kind === 'pending_approval') {

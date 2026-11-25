@@ -28,6 +28,7 @@ import type {
   AgentConfig,
   CommunicationConfig,
   ConversationOrigin,
+  MessageData,
   MessageUsage,
   LLMChunk,
   MessageDraft,
@@ -413,9 +414,9 @@ export class MessageRouter implements MessageRouterPort {
       context: ToolContext;
       storedMessageId?: string;
     },
-  ): Promise<MessageRouterResult> {
+  ): Promise<{ result: MessageRouterResult; message?: MessageData }> {
     if (this.lifecycle && lifecycleState) {
-      return this.respondWithLifecycle(
+      const result = await this.respondWithLifecycle(
         thread,
         {
           senderId,
@@ -427,6 +428,13 @@ export class MessageRouter implements MessageRouterPort {
         lifecycleState,
         response.usage,
       );
+      const storedMessageId = result.storedMessageId;
+      return {
+        result,
+        ...(storedMessageId === undefined
+          ? {}
+          : { message: thread.data.messages[storedMessageId] }),
+      };
     }
     const responseMsg = await thread.append({
       senderId,
@@ -441,7 +449,10 @@ export class MessageRouter implements MessageRouterPort {
       recipientId,
       messageId: responseMsg.id,
     });
-    return { conversationId: thread.id, response: response.content, status: 'success' };
+    return {
+      result: { conversationId: thread.id, response: response.content, status: 'success' },
+      message: responseMsg,
+    };
   }
 
   private withRuntimeActions(
@@ -2440,10 +2451,10 @@ export class MessageRouter implements MessageRouterPort {
     });
   }
 
-  private async completeResponse(
+  private async completeResponseDetailed(
     operation: ResponseOperation,
     result: RuntimeResult,
-  ): Promise<MessageRouterResult> {
+  ): Promise<{ result: MessageRouterResult; message?: MessageData }> {
     const lifecycleState = this.withRuntimeActions(operation.lifecycleState, result);
     if (result.kind === 'response') {
       return this.persistResponse(
@@ -2456,34 +2467,40 @@ export class MessageRouter implements MessageRouterPort {
     }
     if (result.kind === 'pending_approval') {
       return {
-        conversationId: operation.thread.id,
-        status: 'pending_approval',
-        approvalRequests: result.approvalRequests,
+        result: {
+          conversationId: operation.thread.id,
+          status: 'pending_approval',
+          approvalRequests: result.approvalRequests,
+        },
       };
     }
     if (result.kind === 'middleware_pending') {
       return {
-        conversationId: operation.thread.id,
-        status: 'pending_approval',
-        approvalId: result.approvalId,
-        checkpointId: result.checkpointId,
-        pendingParticipantId: operation.recipientId,
-        approvalRequests: lifecycleState
-          ? this.approvalRequests(lifecycleState.context, result.approvalId)
-          : [],
-        ...(lifecycleState?.storedMessageId === undefined
-          ? {}
-          : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        result: {
+          conversationId: operation.thread.id,
+          status: 'pending_approval',
+          approvalId: result.approvalId,
+          checkpointId: result.checkpointId,
+          pendingParticipantId: operation.recipientId,
+          approvalRequests: lifecycleState
+            ? this.approvalRequests(lifecycleState.context, result.approvalId)
+            : [],
+          ...(lifecycleState?.storedMessageId === undefined
+            ? {}
+            : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        },
       };
     }
     if (result.kind === 'middleware_abort') {
       return {
-        conversationId: operation.thread.id,
-        status: 'error',
-        error: result.error,
-        ...(lifecycleState?.storedMessageId === undefined
-          ? {}
-          : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        result: {
+          conversationId: operation.thread.id,
+          status: 'error',
+          error: result.error,
+          ...(lifecycleState?.storedMessageId === undefined
+            ? {}
+            : { partial: true, storedMessageId: lifecycleState.storedMessageId }),
+        },
       };
     }
     // kind === 'void'
@@ -2493,12 +2510,21 @@ export class MessageRouter implements MessageRouterPort {
       result.delivery.status !== 'accepted'
     ) {
       return {
-        conversationId: operation.thread.id,
-        status: 'error',
-        error: result.delivery.reason ?? result.delivery.status,
+        result: {
+          conversationId: operation.thread.id,
+          status: 'error',
+          error: result.delivery.reason ?? result.delivery.status,
+        },
       };
     }
-    return { conversationId: operation.thread.id, status: 'success' };
+    return { result: { conversationId: operation.thread.id, status: 'success' } };
+  }
+
+  private async completeResponse(
+    operation: ResponseOperation,
+    result: RuntimeResult,
+  ): Promise<MessageRouterResult> {
+    return (await this.completeResponseDetailed(operation, result)).result;
   }
 
   private async dispatchAsync(
