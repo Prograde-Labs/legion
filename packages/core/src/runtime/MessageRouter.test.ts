@@ -1405,6 +1405,85 @@ describe('MessageRouter: middleware lifecycle', () => {
     expect(approvals.getRecord(pending.approvalId)).toMatchObject({ lifecycle: 'acknowledged' });
   });
 
+  it('delivers the approved prompt-checkpoint response to replyTo', async () => {
+    const { router, baseContext, collective, runtimeRegistry } = await setupMiddlewareRouter(dir, {
+      type: 'test:router-middleware',
+      displayName: 'Prompt approval delivery',
+      defaultFailureMode: 'closed',
+      configSchema: { type: 'object', additionalProperties: true },
+      hooks: {
+        buildSystemPrompt: (context) =>
+          context.instance.id === 'request'
+            ? { kind: 'tool', requestId: 'prompt-delivery-gate', tool: 'gate', arguments: {} }
+            : { kind: 'continue' },
+      },
+    });
+    await collective.update('agent', {
+      tools: { gate: 'requires_approval' },
+      middleware: [{ id: 'request', type: 'test:router-middleware', config: {} }],
+    });
+    (baseContext.toolRegistry as ToolRegistry).register({
+      name: 'gate',
+      description: 'gate',
+      parameters: { type: 'object' },
+      async execute() {
+        return { status: 'success' as const };
+      },
+    });
+    runtimeRegistry.registerFactory('agent', () => ({
+      async handle(incoming, context) {
+        const prompt = await context.buildSystemPrompt!({
+          basePrompt: 'Base prompt',
+          iteration: 0,
+          incomingMessageId: incoming.id,
+          actions: [],
+        });
+        if (prompt.kind !== 'pending') throw new Error('Expected prompt approval');
+        return {
+          kind: 'middleware_pending' as const,
+          approvalId: prompt.approvalId,
+          checkpointId: prompt.checkpointId,
+        };
+      },
+      async resumeFromMiddleware(resume) {
+        return { kind: 'response' as const, content: 'approved answer', actions: resume.actions };
+      },
+    }));
+    const received: MessageData[] = [];
+    runtimeRegistry.registerFactory('user', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'void' };
+      },
+    }));
+
+    const pending = await router.send({
+      senderId: 'op',
+      recipientId: 'agent',
+      message: 'go',
+      context: baseContext,
+    });
+    expect(pending.status).toBe('pending_approval');
+    if (!pending.approvalId) throw new Error('Expected pending approval');
+
+    const approvals = baseContext.pendingApprovalRegistry as PendingApprovalRegistry;
+    await approvals.resolve(pending.approvalId, {
+      approved: true,
+      decidedByParticipantId: 'op',
+      decidedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const resumed = await router.resumeApproval(pending.approvalId, baseContext);
+    expect(resumed).toMatchObject({ status: 'success', response: 'approved answer' });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      senderId: 'agent',
+      recipientId: 'op',
+      content: 'approved answer',
+    });
+  });
+
   it('refuses provider-boundary replay after reload recovers an execution claim', async () => {
     const { router, baseContext, collective, runtimeRegistry, runner, store } =
       await setupMiddlewareRouter(dir, {

@@ -1641,7 +1641,7 @@ export class MessageRouter implements MessageRouterPort {
           runtimeContext,
         );
         const incoming = thread.data.messages[checkpoint.runtimeResume.incomingMessageId];
-        const result = await this.completeResponse(
+        const completed = await this.completeResponseDetailed(
           {
             thread,
             recipientId: participant.id,
@@ -1656,6 +1656,22 @@ export class MessageRouter implements MessageRouterPort {
           },
           runtimeResult,
         );
+        if (incoming && completed.message) {
+          await this.deliverReplyTo(
+            thread,
+            completed.message,
+            {
+              senderId: incoming.senderId,
+              recipientId: participant.id,
+              message: incoming.content,
+              conversationId: thread.id,
+              replyTo: completed.message.recipientId,
+              context: helperContext,
+            },
+            (helperContext.communicationDepth ?? 0) + 1,
+          );
+        }
+        const result = completed.result;
         if (result.status === 'pending_approval') {
           const successorApprovalIds = [
             ...new Set([
