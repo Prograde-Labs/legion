@@ -3274,6 +3274,116 @@ describe('MessageRouter: fire-and-forget', () => {
     expect(receivedByReviewer.some((m) => m.content.includes('appr-reviewer'))).toBe(false);
   });
 
+  it('invokes an agent replyTo target and recurses until void in all mode', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const agentTurns: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', (id) => new MockRuntime(id));
+    registry.registerFactory('agent', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        agentTurns.push(incoming);
+        if (agentTurns.length === 1) {
+          return { kind: 'response', content: 'agent reply' };
+        }
+        return { kind: 'void' };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+      replyToDelivery: 'all',
+    });
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'analyze',
+      replyTo: 'agent',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    expect(agentTurns).toHaveLength(2);
+    expect(agentTurns[0].content).toBe('hello back');
+    expect(agentTurns[1].content).toBe('hello back');
+  });
+
+  it('stops at the communication depth limit in all mode', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const received: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'response', content: `reply:${received.length}` };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+      replyToDelivery: 'all',
+    });
+
+    await router.send({
+      senderId: 'op',
+      recipientId: 'mock-1',
+      message: 'start',
+      replyTo: 'svc',
+      context: baseContext,
+    });
+    await router.drain();
+
+    // One initial recipient turn plus ten delivery turns (depth 1..10).
+    expect(received).toHaveLength(11);
+  });
+
+  it('bubbles an all-mode delivery approval back to the triggering sender', async () => {
+    const { collective, store, eventBus, baseContext } = await setup(dir);
+    const received: MessageData[] = [];
+    const registry = new RuntimeRegistry();
+    registry.registerFactory('mock', () => ({
+      async handle(incoming: MessageData): Promise<RuntimeResult> {
+        received.push(incoming);
+        return { kind: 'response', content: 'hello back' };
+      },
+    }));
+    registry.registerFactory('agent', () => ({
+      async handle(): Promise<RuntimeResult> {
+        return {
+          kind: 'pending_approval',
+          approvalRequests: [
+            {
+              approvalId: 'appr-all',
+              conversationId: 'conv-all',
+              requesterId: 'agent',
+              tool: 'write_file',
+              args: {},
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        };
+      },
+    }));
+    const router = new MessageRouter(store, registry, collective, eventBus, undefined, undefined, {
+      replyToDelivery: 'all',
+    });
+
+    const result = await router.send({
+      senderId: 'svc',
+      recipientId: 'mock-1',
+      message: 'analyze',
+      replyTo: 'agent',
+      context: baseContext,
+    });
+    expect(result.status).toBe('dispatched');
+    await router.drain();
+
+    const approvals = received.filter((m) => m.content.includes('appr-all'));
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]).toMatchObject({
+      senderId: 'agent',
+      recipientId: 'mock-1',
+      replyTo: 'agent',
+    });
+  });
+
   it('catches runtime errors in fire-and-forget and persists an error message', async () => {
     const storage = new FileStorage(dir);
     await storage.writeJson('collective/participants/op.json', {

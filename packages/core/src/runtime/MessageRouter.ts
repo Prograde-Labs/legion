@@ -2636,6 +2636,37 @@ export class MessageRouter implements MessageRouterPort {
           error: { name: 'ReplyToDeliveryError', message },
         });
       }
+      if (completed.result.status === 'pending_approval') {
+        await this.dispatchApprovalRequests(
+          thread,
+          {
+            ...opts,
+            senderId: target.id,
+            recipientId: target.id,
+            replyTo: responseMessage.senderId,
+            context: { ...opts.context, communicationDepth: depth },
+          },
+          completed.result.approvalRequests ?? [],
+        );
+        return;
+      }
+      if (this.replyToDelivery === 'all' && completed.message) {
+        const nextReplyTo = completed.message.recipientId;
+        if (nextReplyTo !== completed.message.senderId) {
+          await this.deliverReplyTo(
+            thread,
+            completed.message,
+            {
+              ...opts,
+              senderId: completed.message.senderId,
+              recipientId: completed.message.senderId,
+              replyTo: nextReplyTo,
+              context: { ...opts.context, communicationDepth: depth + 1 },
+            },
+            depth + 1,
+          );
+        }
+      }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       console.error(`[MessageRouter] replyTo delivery to '${replyTo}' failed: ${err.message}`);
